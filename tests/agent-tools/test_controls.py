@@ -2632,6 +2632,192 @@ class FixRoundMergedBase(ControlCase):
                 self.assertIn(message, self.guard('--base', 'dev', code=1))
 
 
+class FixRoundConfigurationAdditions(ControlCase):
+    """GRS-195: a runner configuration absent at review may be an unchanged merged base addition."""
+    original = TestWeakening.original
+    path = FixRoundManifest.path
+    manifest = FixRoundManifest.manifest
+    config = FixRoundMergedBase.config
+    helper = FixRoundMergedBase.helper
+    test = FixRoundMergedBase.test
+    added = 'tests/deployment/vitest.config.ts'
+    reset = FixRoundMergedBase.reset
+    change = FixRoundMergedBase.change
+    on_dev = FixRoundMergedBase.on_dev
+    merge = FixRoundMergedBase.merge
+    guard = FixRoundMergedBase.guard
+
+    def setUp(self):
+        super().setUp()
+        self.write('vitest.config.ts', self.config)
+        self.write('support/helper.ts', self.helper)
+        self.dev = self.commit('runner configuration and helper')
+        self.git('switch', '-q', '-c', 'feature/grs-104-tooling')
+        self.write('tests/protected.test.ts', self.test)
+        self.base = self.commit('reviewed tests')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.fixed = self.commit('fix round')
+
+    def receive(self, files=None):
+        self.reset()
+        self.on_dev(files or {self.added: self.config})
+        return self.merge()
+
+    def test_an_unchanged_configuration_added_by_the_merged_base_passes(self):
+        head = self.receive()
+        self.assertIn(f'protected among them: {self.added}', self.guard('--base', 'dev'))
+        receipt = self.last_receipt()
+        self.assertEqual((receipt['result'], receipt['revision']['head']), ('PASS', head))
+        self.assertEqual(receipt['guard']['trustedBase'], self.git('rev-parse', 'dev'))
+
+    def test_unchanged_imported_configuration_and_derived_package_additions_pass(self):
+        for files, entry in (
+                ({self.added: "import shared from './shared';\nexport default shared;\n",
+                  'tests/deployment/shared.ts': self.config}, 'tests/deployment/shared.ts'),
+                ({'package.json': json.dumps({'type': 'module', 'scripts': {'test': 'vitest run'}})}, 'package.json#scripts')):
+            with self.subTest(entry=entry):
+                self.receive(files)
+                out = self.guard('--base', 'dev')
+                self.assertIn(entry, out)
+                if entry == 'package.json#scripts':
+                    self.assertIn('package.json#resolution', out)
+
+    def test_setup_addition_still_refuses_when_it_is_also_imported_by_a_new_runner(self):
+        setup = "import './setup';\nexport default { test: { include: ['tests/**/*.test.ts'], setupFiles: ['./setup.ts'] } };\n"
+        self.receive({self.added: setup, 'tests/deployment/setup.ts': 'export {};\n'})
+        out = self.guard('--base', 'dev', code=1)
+        self.assertIn('protected dependency added/deleted: tests/deployment/setup.ts', out)
+
+    def test_helper_addition_still_refuses_when_it_is_also_imported_by_a_new_runner(self):
+        runner = "import '../../support/added';\n" + self.config
+        self.receive({self.added: runner,
+                      'support/helper.ts': "import './added';\n" + self.helper,
+                      'support/added.ts': 'export const added = true;\n'})
+        out = self.guard('--base', 'dev', code=1)
+        self.assertIn('protected dependency added/deleted: support/added.ts', out)
+
+    def test_a_candidate_edit_to_an_inherited_configuration_module_or_package_refuses(self):
+        package = {'type': 'module', 'scripts': {'test': 'vitest run'}}
+        for files, changed, entry in (
+                ({self.added: "import shared from './shared';\nexport default shared;\n",
+                  'tests/deployment/shared.ts': self.config},
+                 {'tests/deployment/shared.ts': self.config.replace('include:', 'exclude:')}, 'tests/deployment/shared.ts'),
+                ({'package.json': json.dumps(package)},
+                 {'package.json': json.dumps({**package, 'version': '1.0.0'})}, 'package.json#scripts'),
+                ({'package.json': json.dumps(package)},
+                 {'package.json': json.dumps({**package, 'scripts': {'test': 'vitest run --exclude tests/protected.test.ts'}})},
+                 'package.json#scripts')):
+            with self.subTest(entry=entry, changed=changed):
+                self.receive(files)
+                self.change(changed, 'the candidate changes inherited configuration')
+                self.assertIn(f'protected dependency added/deleted: {entry}', self.guard('--base', 'dev', code=1))
+
+    def test_a_candidate_configuration_addition_change_or_deletion_refuses(self):
+        for action in ('add', 'change', 'delete', 'mode', 'import'):
+            with self.subTest(action=action):
+                self.reset()
+                if action == 'add':
+                    self.on_dev({'docs/note.md': 'later\n'})
+                    self.merge()
+                    self.write(self.added, self.config)
+                else:
+                    self.receive()
+                    if action == 'delete':
+                        (self.repo / self.added).unlink()
+                    elif action == 'mode':
+                        (self.repo / self.added).chmod(0o755)
+                    elif action == 'import':
+                        self.write(self.added, "import './setup';\n" + self.config)
+                        self.write('tests/deployment/setup.ts', 'export {};\n')
+                    else:
+                        self.write(self.added, self.config.replace('include:', 'exclude:'))
+                self.commit(f'the candidate makes a configuration {action}')
+                self.assertIn(f'protected dependency added/deleted: {self.added}', self.guard('--base', 'dev', code=1))
+
+    def test_a_configuration_copy_without_a_merged_current_trusted_base_refuses(self):
+        with self.subTest(bypass='copied without merging'):
+            self.on_dev({self.added: self.config})
+            self.change({self.added: self.config}, 'copy the base configuration')
+            self.assertIn('protected dependency added/deleted', self.guard('--base', 'dev', code=1))
+        with self.subTest(bypass='trusted base moved after the merge'):
+            self.receive()
+            self.on_dev({'docs/note.md': 'later\n'})
+            self.assertIn('protected dependency added/deleted', self.guard('--base', 'dev', code=1))
+        with self.subTest(bypass='no explicit trusted base'):
+            self.receive()
+            self.assertIn('protected dependency added/deleted', self.guard(code=1))
+            self.assertIsNone(self.last_receipt()['guard']['trustedBase'])
+        with self.subTest(bypass='unresolvable trusted base'):
+            self.receive()
+            self.assertIn('does not resolve', self.guard('--base', 'missing-base', code=1))
+
+    def test_a_symlink_configuration_added_by_the_base_refuses(self):
+        self.git('switch', '-q', 'dev')
+        self.write('tests/deployment/shared.ts', self.config)
+        link = self.repo / self.added
+        link.symlink_to('shared.ts')
+        self.commit('the base adds a symlink configuration')
+        self.git('switch', '-q', 'feature/grs-104-tooling')
+        self.merge()
+        self.assertIn(f'symlink/submodule protected configuration refuses: {self.added}', self.guard('--base', 'dev', code=1))
+
+
+    def test_setup_role_revisits_runner_imports_in_shared_transitive_and_cyclic_graphs(self):
+        initial_dev, initial_fixed = self.dev, self.fixed
+        for shape, imports in (
+                ('direct', {'bootstrap': ['added'], 'added': []}),
+                ('transitive', {'bootstrap': ['middle'], 'middle': ['added'], 'added': []}),
+                ('cyclic', {'bootstrap': ['middle'], 'middle': ['added'], 'added': ['middle']}),
+                ('shared', {'bootstrap': ['left', 'right'], 'left': ['added'], 'right': ['added'], 'added': []})):
+            with self.subTest(shape=shape):
+                self.dev, self.fixed = initial_dev, initial_fixed
+                self.reset()
+                self.git('switch', '-q', 'dev')
+                # Only the leaf is new: intermediate setup modules and edges already belong to the reviewed closure.
+                for name, targets in imports.items():
+                    if name != 'added':
+                        self.write(f'tests/{name}.ts', ''.join(f"import './{target}';\n" for target in targets
+                                                             if target != 'added') + 'export {};\n')
+                self.write('vitest.config.ts', self.config.replace('include:', "setupFiles: ['./tests/bootstrap.ts'], include:"))
+                self.dev = self.commit('setup graph present before review')
+                self.git('switch', '-q', '-C', 'feature/grs-104-tooling', self.dev)
+                self.write('tests/protected.test.ts', self.test)
+                self.base = self.commit('reviewed test with setup graph')
+                self.write('app.txt', 'fixed\n')
+                self.manifest()
+                self.fixed = self.commit('fix round')
+                files = {f'tests/{name}.ts': ''.join(f"import './{target}';\n" for target in targets) + 'export {};\n'
+                         for name, targets in imports.items()}
+                self.receive({self.added: "import '../bootstrap';\n" + self.config, **files})
+                for attempt in range(2):
+                    with self.subTest(attempt=attempt):
+                        out = self.guard('--base', 'dev', code=1)
+                        self.assertIn('protected dependency added/deleted: tests/added.ts', out)
+
+    def test_explicit_extension_configuration_import_export_and_require_forms_pass(self):
+        for extension in ('ts', 'mjs'):
+            module = f'./shared.{extension}'
+            for statement in (f"import '{module}';", f"export {{ default }} from '{module}';",
+                              f"export * from '{module}';", f"const shared = require('{module}');",
+                              f"const shared = import('{module}');", f"import shared = require('{module}');"):
+                with self.subTest(statement=statement):
+                    self.receive({self.added: statement + '\n' + self.config,
+                                  f'tests/deployment/shared.{extension}': self.config})
+                    self.assertIn(f'tests/deployment/shared.{extension}', self.guard('--base', 'dev'))
+
+    def test_module_import_classification_keeps_explicit_and_generic_setup_paths_protected(self):
+        for setting in ("setupFiles: ['./shared.ts']", "globalSetup: './shared.ts'", "bootstrap: './shared.ts'"):
+            for statement in ("import './shared.ts';", "export { default } from './shared.ts';",
+                              "const shared = require('./shared.ts');", "import shared = require('./shared.ts');"):
+                with self.subTest(setting=setting, statement=statement):
+                    config = self.config.replace('include:', setting + ', include:')
+                    self.receive({self.added: statement + '\n' + config,
+                                  'tests/deployment/shared.ts': 'export default {};\n'})
+                    out = self.guard('--base', 'dev', code=1)
+                    self.assertIn('protected dependency added/deleted: tests/deployment/shared.ts', out)
+
+
 class FixRoundRenames(ControlCase):
     """GRS-153 polish M1: a path set is compared with rename detection off. A renamed test is deleted at its old path
     and added at its new one, so a rename cannot hide the old file's assertions, and a base-side near-copy cannot

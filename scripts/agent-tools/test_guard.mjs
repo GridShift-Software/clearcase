@@ -1438,6 +1438,10 @@ function main() {
       return resolved && files.has(relative(resolved.resolvedFileName)) ? relative(resolved.resolvedFileName) : undefined;
     };
     const found = new Map();
+    // Files reached from named tests or setup entries are protected test code, even when a runner configuration also
+    // imports them. Each role traverses its own graph: `found` holds text, not visitation state. This keeps runner
+    // visitation from suppressing protected descendants and the inherited-runner exception from covering them.
+    const protectedDeps = new Set();
     // The modules the named tests load (the test files, the support code they import, the setup files), as opposed to
     // the runner configuration and resolver inputs, which run in the runner or not at all. A test file loads what it
     // imports, through support code, and every setup file; it does not load what another named file imports.
@@ -1517,7 +1521,8 @@ function main() {
       visit(tree);
     };
     function follow(file) {
-      if (found.has(file)) return;
+      if (protectedDeps.has(file)) return;
+      protectedDeps.add(file);
       if (!REGULAR.includes(modes.get(file))) throw Error(`symlink/submodule protected dependency refuses: ${file}`);
       if (file.split('/').some(part => part === 'RAWS' || part === '.local')) throw Error('private dependency cannot be inspected');
       const text = source(revision, file);
@@ -1576,6 +1581,15 @@ function main() {
             bindEntry(tree, file, entry).forEach(setup);
           }
         }
+        const parent = node.parent;
+        const moduleSpecifier = ts.isStringLiteralLike(node) && (
+          ((ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent)) && parent.moduleSpecifier === node)
+          || (ts.isExternalModuleReference(parent) && ts.isImportEqualsDeclaration(parent.parent)
+            && parent.expression === node)
+          || (ts.isCallExpression(parent) && parent.arguments[0] === node
+            && (parent.expression.kind === ts.SyntaxKind.ImportKeyword || parent.expression.getText(tree) === 'require'))
+        );
+        if (moduleSpecifier) return;
         const candidates = where(tree, file, node);
         if (ts.isStringLiteralLike(node) && !/[*?{}\s]/.test(node.text)) {
           const target = resolve(file, /^\.{0,2}\//.test(node.text) ? node.text : `./${node.text}`);
@@ -1616,7 +1630,7 @@ function main() {
       [start, ...shared].forEach(walk);
       return seen;
     };
-    return { found, ids, modes, data, fixture, runner, resolve, loadedBy, declared, origin: key => origins.get(key) ?? key };
+    return { found, ids, modes, data, fixture, runner, protectedDeps, resolve, loadedBy, declared, origin: key => origins.get(key) ?? key };
   };
   const controlFlow = (file, text) => {
     if (!supported(file)) return [];
@@ -1968,6 +1982,15 @@ function main() {
   // stays as each reference holds it: as reviewed, and as the base holds a path it changed after the review, whichever
   // reference's closure protects that path. No reason excuses a change there.
   const dependency = (file, origin, oldText, newText, reference) => {
+    // A runner configuration or derived package entry can be absent at review because the merged base added its file.
+    // Protected test/setup code keeps refusal precedence when an origin also belongs to the runner; equality for an
+    // accepted inherited origin includes its full blob and mode.
+    if (oldText === undefined && newText !== undefined && !oldClosure.ids.has(origin)
+        && !currentClosure.protectedDeps.has(origin)
+        && (currentClosure.runner.has(origin) || file !== origin) && fromBase(origin)) {
+      inherited.push(file);
+      return;
+    }
     if (oldText === undefined || newText === undefined) throw Error(`protected dependency added/deleted: ${file}${against(reference)}`);
     if (tokens(oldText) === tokens(newText)) return;
     if (fromBase(origin)) {

@@ -374,32 +374,58 @@ protected file the guard's line names. A `fixBase` advance like `e7681a6` (PR #7
 to a path the branch had not touched; it still is for a hand-resolved union and for a later ticket in the same wave
 (`afd48fc4`, PR #84, where the change came from the wave, not the base). Existing manifests stay as they are.
 
-A path the base added, changed or deleted after the review has the base's copy as its reference, and not the fix base's
+A path the base added, changed or deleted after the review has the base's copy as a reference beside the fix base's
 (GRS-169). Its test is that a copy of it at a base commit HEAD holds, the trusted base's own once HEAD has merged it and
-otherwise each commit in `merge-base --all` of the base and HEAD, differs from every merge base's copy of the fix base and
-from the fix base's own. A base addition, a rename's new path included, is the case where all the others are absent. The
-fix base's copy is no reference for such a path, so a branch cannot undo or mask the base's change by merging it and then
-restoring the fix base's copy, and the base moving on after the merge does not free the path. Per kind of path:
+otherwise each commit in `merge-base --all` of the base and HEAD, differs from the copy at every merge base of that commit
+with the fix base and from the fix base's own. A base addition, a rename's new path included, is the case where all the
+others are absent. A path's references are the fix base's copy and each such base copy, and every check that judges HEAD
+against a reviewed copy takes all of them: the named tests, the protected test files, the rest of the closure, the
+fixtures, the docs-only paths, the assertion counts and the imports of a changed module. So a branch cannot undo or mask a
+base change by merging it and then restoring the fix base's copy, and the base moving on after the merge does not free
+the path. Per kind of path:
 
-- A test file counts the fix base's assertions plus the ones the base added (its copy's count less the merge base's, 0 where
-  absent), whatever the branch did with the merge. A base rename carrying a weakening to the new path, a restore of the fix
-  base's copy after a base strengthening (5 -> 3), a drop of one assertion from it (5 -> 4) and a deletion of a base
-  addition all refuse with `assertion count fell`. A reviewed weakening merged with a base strengthening counts both: the
-  floor is the fix base's count plus what the base added, not the larger of the two.
-- A protected fixture must hold the base's copy: a restore of the fix base's blob, an edit and a deletion refuse with
-  `protected fixture changed or deleted`.
+- A named test must match its copy at each reference, so a base change to a named test refuses, whatever the branch does
+  with it, until a reviewed `fixBase` advance.
+- A protected test file is judged against each reference in turn. Against the base's copy, as against the fix base's, its
+  imports, helpers, mocks, hooks and everything up to its last named test stay as that copy holds them, and a free-test
+  change after it needs a recorded reason, so a restore of the fix base's copy refuses.
+- The rest of the closure (helpers, runner configuration, setup files, resolver inputs, test scripts) and the fixtures
+  must hold the base's copy wherever any reference's closure protects the path. A restore of the fix base's copy of a
+  helper, a configuration or a fixture refuses with `protected dependency changed` or `protected fixture changed or
+  deleted`, and so does a deletion of a configuration or fixture the base added (`protected dependency added/deleted`).
+- A test file counts at least the assertions of Git's merge of the fix base's copy with the base's copy (`git merge-tree`,
+  its objects in a scratch directory), and never fewer than the fix base's, whatever the branch did with the merge. That
+  merge is what an unchanged branch merging the base holds, through any number of merge bases, so an unchanged merge
+  passes and dropping an assertion either side contributed refuses with `assertion count fell`: a base rename carrying a
+  weakening to the new path, a restore of the fix base's copy after a base strengthening (5 -> 3), a drop of one
+  assertion from it (5 -> 4), a deletion of a base addition, and a drop through two merge bases that disagree (6 -> 5). A
+  reviewed weakening merged with a base strengthening counts both (4, not 5). No single merge base's count is the floor:
+  with merge bases of 4 and 2 assertions and a fix base of 3, subtracting the larger would let the branch drop the
+  assertion the base added after the review. Where the two copies conflict, the branch resolved them by hand, and the
+  floor is the fix base's count plus the base copy's over the lower merge base's (0 where absent).
 - In a docs-only range a path the round restored to the fix base's copy, after HEAD received the base's change to it,
-  counts as a changed path, so only a document may be restored or deleted.
+  counts as a changed path, and a document must be a regular file at the tip and at each reference, so only a document
+  may be restored, deleted or edited.
+- A changed module's import is new when any of its references lacks it, and a module restored to the fix base's copy
+  after a base change counts as changed.
 
 An unchanged branch merging any base change passes: an addition, a change, a deletion or a rename of a test, a runtime
-file or a fixture (a protected fixture the base deletes refuses, as before). Four kinds of path are unaffected: the
-branch's own new test or fixture, a path the reviewed commit had deleted (a merge base still holds it), a path the base
-added or changed after HEAD's last merge, and a later base change to a path HEAD already holds. Without a trusted base
-nothing changes. A weakening under a base rename then refuses at the old path, which counts as the branch's. A path that the
-branch added in the reviewed commit and the base added with other content is a hand-resolved union: it counts both sides'
-assertions, so a resolution that keeps only one refuses. At a wave PR into `dev`, another wave ticket's recorded weakening
-of a test `dev` added now refuses an earlier ticket's manifest, which used to pass against 0 (consistent with the
-conservatism for fix-base paths in `afd48fc4`, PR #84); the remedy is the reviewed `fixBase` advance.
+file or a fixture, and a change to a helper or the runner configuration. A protected fixture or helper the base deletes,
+and a configuration or setup file the base adds, refuse, as before. Four kinds of path are unaffected: the branch's own
+new test or fixture, a path the reviewed commit had deleted (a merge base still holds it), a path the base added or
+changed after HEAD's last merge, and a later base change to a path HEAD already holds. A base commit HEAD received is no
+reference for a path it had not changed when it and the fix base parted, such as a test the branch added before a
+criss-cross merge. Without a trusted base nothing changes, and a weakening under a base rename then refuses at the old
+path, which counts as the branch's.
+
+A path that the branch added in the reviewed commit and the base added with other content is a hand-resolved union. Git
+cannot merge the two copies, since both sides added the path, so there is no unchanged merge to count, and the floor is
+the sum of both sides' assertions. A resolution that keeps the base's copy where it is a superset of the branch's (2
+assertions and 3) therefore refuses with `5 -> 3`: record `assertionCountReasons[file]` saying the base's copy holds the
+branch's assertions. Counting a union of the conflicting lines instead would count text neither side wrote, which need
+not parse. At a wave PR into `dev`, another wave ticket's recorded weakening of a test `dev` added now refuses an earlier
+ticket's manifest, which used to pass against 0 (consistent with the conservatism for fix-base paths in `afd48fc4`, PR
+#84); the remedy is the reviewed `fixBase` advance.
 
 Findings JSON has `tests: [{"file": "tests/example.test.ts", "name": "rejects stale evidence"}]`.
 The list must be nonempty, unless the manifest declares that the review names no test
@@ -433,7 +459,7 @@ Comments and whitespace may change. The protected closure, resolved from both Gi
 - fixtures: every file in a fixture directory (`fixtures`, `__fixtures__`, `__mocks__`, `__snapshots__`) under a
   protected test's top-level directory, and every file a protected test or helper reads by literal path
   (`readFileSync('p')`, `readFile`, `Bun.file`, `join(__dirname, 'p')`, `new URL('p', import.meta.url)`), must keep its
-  Git blob. A new fixture may be added, and one the base added after the review keeps the base's copy (above). A read by a computed path (a variable, a loop) is not bound and does not fail
+  Git blob. A new fixture may be added, and one the base added or changed after the review keeps the base's copy (above). A read by a computed path (a variable, a loop) is not bound and does not fail
   closed, since real tests read fixtures that way; the fixture directories are protected whole instead.
 - resolver inputs read from Git (tsconfig, tracked extended configurations). Missing or unsupported extended
   configurations fail closed, with one exemption: SvelteKit's generated `.svelte-kit/tsconfig.json`, which Git ignores,
@@ -611,8 +637,8 @@ declares none, never both, and takes no `assertionCountReasons`. A manifest with
 `tests` list, and a missing manifest on a fix round, a malformed one and a deleted one still refuse as above.
 
 What the guard bounds. A declaration holds for a docs-only range only. Every path that differs between the fix base and
-HEAD, other than the base's changes as above, must be the manifest itself or a documentation file (a base addition the
-round deleted counts as such a path, as above): a regular,
+HEAD, other than the base's changes as above, must be the manifest itself or a documentation file (a base change the
+round undid counts as such a path, and a document is regular at each reference, as above): a regular,
 non-executable file (mode `100644`, or absent on one side) whose name ends in `.md` and none of whose directories is
 `src`, `scripts`, `static`, `build`, `node_modules`, `.svelte-kit`, `RAWS`, `.local` or a test-support directory listed
 above. Anything else fails closed and is named: a runtime module, a test, helper or fixture, a shell or Python test

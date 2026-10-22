@@ -39,7 +39,7 @@ type Row = Record<string, unknown>;
  * x-probe-fault: fail-copyback:<caseId> makes the copy of that case's deletion record back into the bucket that lost it fail.
  * Never bind either in production.
  */
-type RecoveryEnv = Env & { RECOVERY?: unknown; PROBE_CLOCK?: string; PROBE_FAULT?: string };
+type RecoveryEnv = Env & { RECOVERY?: unknown; PROBE_CLOCK?: string; PROBE_FAULT?: string; PROBE_HOOKS?: string };
 type Ctx = { client: string; db: D1; bucket: R2; copies: R2; env: RecoveryEnv; fault: boolean; failErase: string | null; failCopyBack: string | null };
 /** What R2's list and head return beyond platform.ts's shape: the time R2 stored the object, which is what rotation ages. */
 type Stored = R2Object & { uploaded: Date };
@@ -504,6 +504,21 @@ async function putBundle(ctx: Ctx, request: Request, caseId: string, bundleId: s
 // ----- routing -----
 
 const INTROSPECT = /^(orig|pkg|rm|backup|export|bundle|recovery|deletion|import)\//;
+const HOLD_TOKEN = /^[a-z0-9-]{1,40}$/;
+const probeHolds = new Map<string, boolean>();
+async function holdHere(token: string) {
+	if (probeHolds.has(token)) refuse(409, 'hold-taken', { token });
+	probeHolds.set(token, true);
+	try {
+		const until = Date.now() + 30_000;
+		while (probeHolds.get(token)) {
+			if (Date.now() >= until) refuse(504, 'hold-timeout', { token });
+			await new Promise<void>((resolve) => setTimeout(resolve, 20));
+		}
+	} finally {
+		probeHolds.delete(token);
+	}
+}
 
 async function route(request: Request, env: RecoveryEnv): Promise<Response> {
 	const opened = await open(env, request);
@@ -512,6 +527,13 @@ async function route(request: Request, env: RecoveryEnv): Promise<Response> {
 	const url = new URL(request.url);
 	const seg = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
 	const m = request.method;
+	if (env.PROBE_HOOKS === '1' && seg[0] === 'probe' && seg[1] === 'hold' && HOLD_TOKEN.test(seg[2] ?? '')) {
+		if (m === 'GET' && seg.length === 3) return json({ waiting: probeHolds.get(seg[2]!) === true });
+		if (m === 'POST' && seg.length === 4 && seg[3] === 'release') {
+			if (probeHolds.has(seg[2]!)) probeHolds.set(seg[2]!, false);
+			return json({ released: true });
+		}
+	}
 	if (seg[0] === 'recovery') {
 		if (m === 'POST' && seg.length === 2 && seg[1] === 'copies') return makeCopy(ctx, request);
 		if (m === 'GET' && seg.length === 2 && seg[1] === 'copies') return json((await listed(ctx.copies, 'recovery/')).map((o) => ({ key: o.key, caseId: o.customMetadata?.caseId ?? null, sha256: o.customMetadata?.sha256 ?? null, size: o.size, uploaded: o.uploaded.toISOString() })));
@@ -532,6 +554,11 @@ async function route(request: Request, env: RecoveryEnv): Promise<Response> {
 		if (isText(ID)(caseId) && (await removedCase(ctx, caseId))) {
 			if (isText(UUID)(seg[2])) await ctx.bucket.delete(`import/${seg[2]}.zip`); // the packet holds the deleted case's data
 			return json({ code: 'case-deleted', caseId }, 409);
+		}
+		const token = env.PROBE_HOOKS === '1' ? request.headers.get('x-probe-hold') : null;
+		if (token !== null) {
+			if (!HOLD_TOKEN.test(token)) refuse(400, 'invalid-field', { field: 'x-probe-hold' });
+			await holdHere(token);
 		}
 		if (seg[3] === 'finish' && isText(UUID)(seg[2])) {
 			// A finished restore leaves the case's objects under their own keys; the packet, a second copy of the backup, goes.

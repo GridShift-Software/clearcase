@@ -22,7 +22,7 @@ import { DESCRIPTOR_SIZE, type Entry, crc32, descriptor, localHeader, trailer } 
 const HERE = import.meta.dirname;
 const STORAGE = path.join(HERE, '../storage');
 const SCHEMA = 'clearcase.recovery-probe/1';
-const LEGS = ['build', 'provision', 'crossed-recovery', 'seed', 'rollback', 'copies', 'deletion-flow', 'deletion-reapply', 'restore-from-copy', 'retention', 'restore-leftovers', 'ledger-guards', 'warm-isolate', 'interrupted-erasure'] as const;
+const LEGS = ['build', 'provision', 'crossed-recovery', 'seed', 'rollback', 'copies', 'deletion-flow', 'deletion-reapply', 'restore-from-copy', 'retention', 'restore-leftovers', 'ledger-guards', 'warm-isolate', 'interrupted-erasure', 'restore-removal-race'] as const;
 type LegName = (typeof LEGS)[number];
 type Measure = Record<string, number | string | boolean>;
 type Leg = { status: 'PASS' | 'FAIL' | 'NOT RUN'; commands: string[]; asserted: string[]; measured: Measure; failure?: string };
@@ -75,6 +75,7 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	'ledger-guards': [4, 4],
 	'warm-isolate': [5, 6],
 	'interrupted-erasure': [9, 16],
+	'restore-removal-race': [6, 4],
 };
 type Spec = null | boolean | number | string | RegExp | ((v: unknown) => boolean) | Spec[] | { [key: string]: Spec };
 const NONEMPTY = (v: unknown) => typeof v === 'string' && v.length > 0;
@@ -98,6 +99,7 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 	'ledger-guards': { refusedRequests: 3 },
 	'warm-isolate': { routesGone: 9, repeatedRemovals: 1, residueRows: 0 },
 	'interrupted-erasure': { interruptedRemovals: 2, finishedByRoute: 1, finishedByNewIsolate: 1, objectsLeftAfterFinish: 0, residueRows: 0, failedErasuresIsolated: 1, otherCasesServed: 1, staleErrorsAfterCopyBack: 0 },
+	'restore-removal-race': { lateWrites: 0, residueRows: 0 },
 };
 const ENV_KEYS = ['CI', 'CLOUDFLARE_CF_FETCH_ENABLED', 'CLOUDFLARE_INCLUDE_PROCESS_ENV', 'CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV', 'HOME', 'PATH', 'WRANGLER_HIDE_BANNER', 'WRANGLER_LOG_PATH', 'WRANGLER_SEND_ERROR_REPORTS', 'WRANGLER_SEND_METRICS', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME'];
 
@@ -1079,6 +1081,39 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			const direct = wrangler('d1', 'execute', 'DB', '--local', '--env', 'client-a', '--command', `UPDATE case_deletion SET erase_error = 'probe write' WHERE case_id = '${a6.caseId}'`);
 			check(direct.code !== 0 && errorOf(a6) === null && row(a6).erased_at === erasedAt6, "the schema itself refuses an erase_error on an erased case: a direct write to A6's row fails and changes nothing");
 			Object.assign(m, { interruptedRemovals: 2, finishedByRoute: left5.length === 0 ? 1 : 0, finishedByNewIsolate: left6.length === 0 ? 1 : 0, objectsLeftAfterFinish: left5.length + left6.length, residueRows: res[0]!.left.length + res[1]!.left.length, failedErasuresIsolated: other.status === 200 && left7.length === 0 ? 1 : 0, otherCasesServed: other.status === 200 ? 1 : 0, staleErrorsAfterCopyBack: staleErrors });
+		});
+		await leg('restore-removal-race', ['POST /restore/packets, PUT …/1, POST …/complete, POST …/open for a synthetic backup', 'POST …/step with x-probe-hold: restore-late, GET /probe/hold/restore-late', 'seed the same case, activate a different version and seal an export', 'POST /cases/<case>/deletion/{request,approve,offer,remove}', 'POST /probe/hold/restore-late/release, GET /recovery/head/live/orig/<sha>', wcmd('d1 execute DB --local --env client-a --command "SELECT erased_at FROM case_deletion; SELECT * FROM restore_object"')], async (check, m) => {
+			const caseId = 'case-recovery-late';
+			const bytes = synthetic('recovery probe late restore original', 60);
+			const sha = sha256(bytes);
+			const v = versionOf('late restore');
+			const packet = await upload(backupZip(caseId, v, [{ path: `originals/${sha}`, kind: 'original', bytes }]));
+			check((await post(`/restore/packets/${packet}/open`, { caseId })).status === 200, 'the synthetic restore packet is open before the case exists');
+			const late = http(`/restore/packets/${packet}/step`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-probe-hold': 'restore-late' }, body: JSON.stringify({ caseId, from: 1 }), timeout: 60_000 });
+			let waiting = false;
+			for (let i = 0; i < 200 && !waiting; i++) {
+				waiting = (await http('/probe/hold/restore-late')).json().waiting === true;
+				if (!waiting) await sleep(50);
+			}
+			check(waiting, 'the step passed the recovery deletion gate and is held before delegation');
+			const seeded = original('late-seed', 'recovery probe late case seed', 60);
+			await putOriginal(caseId, seeded);
+			await importVersion(caseId, versionOf('late seed'), ['S-0001'], [seeded]);
+			check((await post(`/cases/${caseId}/activate`, { version: versionOf('late seed'), expected: null })).status === 200, 'the case is live with a different results version while the restore is held');
+			const offered = await exportCase(caseId);
+			const FA = { role: 'firm-admin', id: 'fa-1' };
+			const GA = { role: 'global-admin', id: 'ga-1' };
+			for (const [name, data] of [['request', { actor: FA }], ['approve', { actor: GA }], ['offer', { actor: GA, exportId: offered.exportId }], ['remove', { actor: GA }]] as const) {
+				const r = await post(`/cases/${caseId}/deletion/${name}`, data);
+				if (r.status !== 200) throw new Error(`removal ${name}: ${r.status} ${r.text}`);
+			}
+			await post('/probe/hold/restore-late/release', {});
+			const resumed = await late;
+			const object = await held('live', `orig/${sha}`);
+			const res = residue('client-a', caseId, [v, versionOf('late seed')], [offered.exportId]);
+			const erased = d1('client-a', `SELECT erased_at FROM case_deletion WHERE case_id = '${caseId}'`)[0]?.erased_at;
+			check(code(resumed, 409, 'case-deleted') && !!erased && !object && res.left.length === 0, `the late step is refused after erasure and leaves no original or case row (step ${resumed.status}, object ${!!object}, rows ${res.left.join(', ')})`);
+			Object.assign(m, { lateWrites: object ? 1 : 0, residueRows: res.left.length });
 		});
 	} catch (e) {
 		failure = e instanceof Error ? e.message : String(e);

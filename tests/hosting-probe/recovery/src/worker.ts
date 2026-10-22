@@ -32,9 +32,15 @@ const refuse = (status: number, code: string, detail: Record<string, unknown> = 
 class GuardFailed extends Error {}
 
 type Row = Record<string, unknown>;
-/** PROBE_CLOCK exists only in the probe's deployments: it lets a request name the rotation time. Never bind it in production. */
-type RecoveryEnv = Env & { RECOVERY?: unknown; PROBE_CLOCK?: string };
-type Ctx = { client: string; db: D1; bucket: R2; copies: R2; env: RecoveryEnv };
+/**
+ * PROBE_CLOCK exists only in the probe's deployments: it lets a request name the rotation time. PROBE_FAULT likewise: a request
+ * that sends x-probe-fault: stop-after-d1 makes an erasure stop right after its D1 commit, as a Worker that is evicted or dies
+ * there would; x-probe-fault: fail-erase:<caseId> makes that case's erasure fail the same way on every try;
+ * x-probe-fault: fail-copyback:<caseId> makes the copy of that case's deletion record back into the bucket that lost it fail.
+ * Never bind either in production.
+ */
+type RecoveryEnv = Env & { RECOVERY?: unknown; PROBE_CLOCK?: string; PROBE_FAULT?: string };
+type Ctx = { client: string; db: D1; bucket: R2; copies: R2; env: RecoveryEnv; fault: boolean; failErase: string | null; failCopyBack: string | null };
 /** What R2's list and head return beyond platform.ts's shape: the time R2 stored the object, which is what rotation ages. */
 type Stored = R2Object & { uploaded: Date };
 
@@ -82,12 +88,14 @@ async function guarded(db: D1, condition: string, params: D1Value[], statements:
 
 let recoveryClient: string | null = null; // per isolate, as the storage Worker caches its verified client
 
-async function open(env: RecoveryEnv): Promise<Ctx | Response> {
+async function open(env: RecoveryEnv, request: Request): Promise<Ctx | Response> {
 	const identity = await inner(env, '/identity');
 	if (identity.status !== 200) return identity; // the storage gate's own refusal (503), passed on unchanged
 	const client = ((await identity.json()) as { client: string }).client;
 	if (!isBinding(env.RECOVERY, 'get', 'put', 'head', 'list', 'delete')) refuse(503, 'missing-binding', { binding: 'RECOVERY' });
-	const ctx: Ctx = { client, db: env.DB as D1, bucket: env.BUCKET as R2, copies: env.RECOVERY as R2, env };
+	// The probe's faults are read before anything runs, so that they reach the reconcile of a new isolate as well.
+	const fault = env.PROBE_FAULT === '1' ? request.headers.get('x-probe-fault') : null;
+	const ctx: Ctx = { client, db: env.DB as D1, bucket: env.BUCKET as R2, copies: env.RECOVERY as R2, env, fault: fault === 'stop-after-d1', failErase: fault?.startsWith('fail-erase:') ? fault.slice('fail-erase:'.length) : null, failCopyBack: fault?.startsWith('fail-copyback:') ? fault.slice('fail-copyback:'.length) : null };
 	if (recoveryClient !== client) {
 		// The other client's identifier is never echoed, as in the storage gate.
 		const object = await ctx.copies.get('identity/client.json');
@@ -108,7 +116,7 @@ async function open(env: RecoveryEnv): Promise<Ctx | Response> {
 
 // ----- deletion -----
 
-type Deletion = { case_id: string; state: 'requested' | 'approved' | 'offered' | 'removed'; requested_by: string; requested_at: string; approved_by: string | null; approved_at: string | null; export_id: string | null; export_sha256: string | null; export_size: number | null; offered_at: string | null; removed_by: string | null; removed_at: string | null; erase_plan: string | null };
+type Deletion = { case_id: string; state: 'requested' | 'approved' | 'offered' | 'removed'; requested_by: string; requested_at: string; approved_by: string | null; approved_at: string | null; export_id: string | null; export_sha256: string | null; export_size: number | null; offered_at: string | null; removed_by: string | null; removed_at: string | null; erase_plan: string | null; erased_at: string | null; erase_error: string | null };
 const deletionOf = (ctx: Ctx, caseId: string) => first<Deletion>(ctx.db, 'SELECT * FROM case_deletion WHERE case_id = ?', caseId);
 
 function actor(b: Row, step: Step): string {
@@ -132,7 +140,7 @@ async function catalog(ctx: Ctx) {
 	return { versionT, exportT, caseT: [...caseT].filter((t) => !parents.includes(t)), parents };
 }
 
-type Plan = { versions: string[]; exports: string[]; originals: string[]; leftovers?: string[] };
+type Plan = { versions: string[]; exports: string[]; originals: string[]; leftovers?: string[]; uploads?: { key: string; id: string }[] };
 const union = (a: string[], b: string[]) => [...new Set([...a, ...b])].sort();
 
 /** Whether a row (after the case's own are gone) still names the object a restore step wrote: an original by its digest, a package file or list by its version. */
@@ -143,8 +151,20 @@ async function named(ctx: Ctx, key: string): Promise<boolean> {
 	return !version || !!(await first(ctx.db, 'SELECT 1 AS x FROM results_version WHERE version_id = ?', version[1]!));
 }
 
-/** Removes every live row and object of the case, keeping its case_deletion row as `removed`. Safe to repeat. */
+/**
+ * Removes every live row and object of the case, keeping its case_deletion row as `removed`. Safe to repeat. `erased_at` is set
+ * last, once the R2 deletes and the upload aborts are done: a case that is `removed` without it was interrupted, and reconcile and
+ * removedCase finish it before treating the case as erased.
+ */
 async function erase(ctx: Ctx, caseId: string, set: [string, D1Value[]], condition: [string, D1Value[]]) {
+	try {
+		return await eraseNow(ctx, caseId, set, condition);
+	} catch (e) {
+		await failed(ctx, caseId, e); // the row says why the case is unfinished, whoever called
+		throw e;
+	}
+}
+async function eraseNow(ctx: Ctx, caseId: string, set: [string, D1Value[]], condition: [string, D1Value[]]) {
 	const prior = (await deletionOf(ctx, caseId))?.erase_plan;
 	const found: Plan = {
 		versions: (await all<{ v: string }>(ctx.db, 'SELECT version_id AS v FROM results_version WHERE case_id = ?', caseId)).map((r) => r.v),
@@ -154,9 +174,10 @@ async function erase(ctx: Ctx, caseId: string, set: [string, D1Value[]], conditi
 	};
 	// What a restore step wrote for this case before any row named it (storage's restore_object): found before the rows go.
 	found.leftovers = (await all<{ k: string }>(ctx.db, 'SELECT object_key AS k FROM restore_object WHERE case_id = ?', caseId)).map((r) => r.k);
-	const before: Plan = prior ? (JSON.parse(prior) as Plan) : { versions: [], exports: [], originals: [], leftovers: [] };
-	const plan: Plan = { versions: union(before.versions, found.versions), exports: union(before.exports, found.exports), originals: union(before.originals, found.originals), leftovers: union(before.leftovers ?? [], found.leftovers) };
-	const building = await all<{ object_key: string; upload_id: string }>(ctx.db, "SELECT object_key, upload_id FROM export_job WHERE case_id = ? AND state = 'building'", caseId);
+	// An unsealed export's multipart upload is named only by its export_job row, which the batch below deletes: the plan keeps it, so a repeat can still abort it.
+	found.uploads = (await all<{ object_key: string; upload_id: string }>(ctx.db, "SELECT object_key, upload_id FROM export_job WHERE case_id = ? AND state = 'building'", caseId)).map((r) => ({ key: r.object_key, id: r.upload_id }));
+	const before: Plan = prior ? (JSON.parse(prior) as Plan) : { versions: [], exports: [], originals: [], leftovers: [], uploads: [] };
+	const plan: Plan = { versions: union(before.versions, found.versions), exports: union(before.exports, found.exports), originals: union(before.originals, found.originals), leftovers: union(before.leftovers ?? [], found.leftovers), uploads: [...new Map([...(before.uploads ?? []), ...found.uploads].map((u) => [`${u.key} ${u.id}`, u] as const)).values()] };
 	const t = await catalog(ctx);
 	const statements: [string, D1Value[]][] = [
 		set,
@@ -168,6 +189,7 @@ async function erase(ctx: Ctx, caseId: string, set: [string, D1Value[]], conditi
 		['DELETE FROM original WHERE sha256 IN (SELECT value FROM json_each(?)) AND NOT EXISTS (SELECT 1 FROM case_original c WHERE c.sha256 = original.sha256)', [JSON.stringify(plan.originals)]],
 	];
 	await guarded(ctx.db, condition[0], condition[1], statements);
+	if (ctx.fault || ctx.failErase === caseId) throw new Error('probe fault: the Worker stopped after the D1 commit and before the R2 deletes');
 	// R2 after D1: once the rows are gone nothing serves these objects, and a repeat of this call deletes what is left.
 	const keys: string[] = [];
 	for (const prefix of [...plan.versions.flatMap((v) => [`pkg/${v}/`, `rm/${v}/`]), `export/${caseId}/`, `backup/${caseId}/`, `bundle/${caseId}/`]) {
@@ -183,11 +205,27 @@ async function erase(ctx: Ctx, caseId: string, set: [string, D1Value[]], conditi
 	for (const sha of plan.originals) if (!(await first(ctx.db, 'SELECT 1 AS x FROM case_original WHERE sha256 = ?', sha))) keys.push(`orig/${sha}`);
 	for (const key of plan.leftovers ?? []) if (!keys.includes(key) && !(await named(ctx, key))) keys.push(key);
 	for (let i = 0; i < keys.length; i += 1000) await ctx.bucket.delete(keys.slice(i, i + 1000));
-	for (const b of building) await ctx.bucket.resumeMultipartUpload(b.object_key, b.upload_id).abort().catch(() => undefined); // an unsealed export's parts
+	for (const u of plan.uploads ?? []) await ctx.bucket.resumeMultipartUpload(u.key, u.id).abort().catch(() => undefined); // an unsealed export's parts
+	await ctx.db.prepare("UPDATE case_deletion SET erased_at = coalesce(erased_at, ?), erase_error = NULL WHERE case_id = ? AND state = 'removed'").bind(new Date().toISOString(), caseId).run();
 	return { plan, objects: keys.length };
 }
 
 // ----- deletion records -----
+
+/**
+ * A failure of one case's work that is not an integrity refusal (R2 or D1 unavailable, a crash): it stops that case only. It is
+ * written to the case's row (erase_error, which a finished erasure clears) and to the log, and the next request that reconciles
+ * tries the case again. An integrity refusal (a conflicting, foreign or invalid record) still stops everything, by design.
+ * erase_error means one thing: the erasure is unfinished, and why. The schema holds that (erase_error IS NULL OR erased_at IS NULL),
+ * so every write of it is guarded by `erased_at IS NULL`: a failure on a case that is already erased (a repeated removal, or the
+ * copy back of its record, `record`) goes to the log alone and is tried again on the next request or isolate.
+ */
+async function failed(ctx: Ctx, caseId: string, e: unknown, record = false) {
+	if (e instanceof Refused) throw e;
+	const message = String(e instanceof Error ? e.message : e).slice(0, 300);
+	console.error(`${record ? 'the record of' : 'erasure of'} ${caseId} did not finish: ${message}`);
+	await ctx.db.prepare("UPDATE case_deletion SET erase_error = ? WHERE case_id = ? AND state = 'removed' AND erased_at IS NULL").bind(message, caseId).run().catch((w: unknown) => console.error(`the failure of ${caseId} was not written to its row: ${String(w instanceof Error ? w.message : w).slice(0, 300)}`));
+}
 
 const RECORD_FORMAT = 'clearcase.deletion-record/1';
 type DeletionRecord = { format: string; client: string; caseId: string; requestedBy: string; requestedAt: string; approvedBy: string; approvedAt: string; offeredExport: { exportId: string; sha256: string; size: number; offeredAt: string }; removedBy: string; removedAt: string };
@@ -256,33 +294,54 @@ async function readLedger(ctx: Ctx): Promise<Map<string, DeletionRecord>> {
 			else out.set(record.caseId, { record, text, in: [binding] });
 		}
 	}
-	for (const r of out.values()) if (r.in.length < 2) await writeRecord(ctx, r.record); // one bucket lost it: copy it back
+	for (const r of out.values()) {
+		if (r.in.length >= 2) continue;
+		// one bucket lost it: copy it back
+		await (async () => {
+			if (ctx.failCopyBack === r.record.caseId) throw new Error('probe fault: the copy of the deletion record back into the bucket that lost it failed');
+			await writeRecord(ctx, r.record);
+		})().catch((e: unknown) => failed(ctx, r.record.caseId, e, true));
+	}
 	return new Map([...out].map(([k, v]) => [k, v.record]));
 }
 
-/** Brings D1 in line with the ledger: every recorded case is removed and erased, and every removed case has its record. */
+/**
+ * Brings D1 in line with the ledger: every recorded case is removed and erased, and every removed case has its record. Each case
+ * is its own unit: one whose erasure fails stays removed and unfinished (its requests are refused) and the others go on.
+ */
 async function reconcile(ctx: Ctx) {
 	const ledger = await readLedger(ctx);
 	const removed = await all<Deletion>(ctx.db, "SELECT * FROM case_deletion WHERE state = 'removed'");
 	for (const d of removed) {
 		if (ledger.has(d.case_id)) continue;
-		const record = recordOf(d, ctx.client);
-		await writeRecord(ctx, record);
-		ledger.set(d.case_id, record);
+		try {
+			const record = recordOf(d, ctx.client);
+			await writeRecord(ctx, record);
+			ledger.set(d.case_id, record);
+		} catch (e) {
+			await failed(ctx, d.case_id, e, true);
+		}
 	}
-	const applied = new Set(removed.map((d) => d.case_id));
+	// A removed case whose erasure never finished is not applied: it is erased again, from its plan.
+	const applied = new Set(removed.filter((d) => d.erased_at !== null).map((d) => d.case_id));
 	for (const r of ledger.values()) {
 		if (applied.has(r.caseId)) continue;
 		const e = r.offeredExport;
-		await erase(ctx, r.caseId, ["INSERT INTO case_deletion (case_id, state, requested_by, requested_at, approved_by, approved_at, export_id, export_sha256, export_size, offered_at, removed_by, removed_at) VALUES (?, 'removed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (case_id) DO UPDATE SET state = 'removed', requested_by = excluded.requested_by, requested_at = excluded.requested_at, approved_by = excluded.approved_by, approved_at = excluded.approved_at, export_id = excluded.export_id, export_sha256 = excluded.export_sha256, export_size = excluded.export_size, offered_at = excluded.offered_at, removed_by = excluded.removed_by, removed_at = excluded.removed_at", [r.caseId, r.requestedBy, r.requestedAt, r.approvedBy, r.approvedAt, e.exportId, e.sha256, e.size, e.offeredAt, r.removedBy, r.removedAt]], ['1 = 1', []]);
+		await erase(ctx, r.caseId, ["INSERT INTO case_deletion (case_id, state, requested_by, requested_at, approved_by, approved_at, export_id, export_sha256, export_size, offered_at, removed_by, removed_at) VALUES (?, 'removed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (case_id) DO UPDATE SET state = 'removed', requested_by = excluded.requested_by, requested_at = excluded.requested_at, approved_by = excluded.approved_by, approved_at = excluded.approved_at, export_id = excluded.export_id, export_sha256 = excluded.export_sha256, export_size = excluded.export_size, offered_at = excluded.offered_at, removed_by = excluded.removed_by, removed_at = excluded.removed_at", [r.caseId, r.requestedBy, r.requestedAt, r.approvedBy, r.approvedAt, e.exportId, e.sha256, e.size, e.offeredAt, r.removedBy, r.removedAt]], ['1 = 1', []]).catch((x: unknown) => {
+			if (x instanceof Refused) throw x; // erase has recorded any other failure: this case stays unfinished and the loop goes on
+		});
 	}
 }
 
 const recordHeld = async (ctx: Ctx, caseId: string) => !!(await ctx.bucket.head(recordKey(caseId))) || !!(await ctx.copies.head(recordKey(caseId)));
 
-/** Whether the case is removed: D1 says so, or either bucket holds its record, in which case D1 is brought in line first. */
+/** Whether the case is removed: D1 says so (an erasure it left unfinished is finished first), or either bucket holds its record, in which case D1 is brought in line first. */
 async function removedCase(ctx: Ctx, caseId: string): Promise<boolean> {
-	if ((await deletionOf(ctx, caseId))?.state === 'removed') return true;
+	const d = await deletionOf(ctx, caseId);
+	if (d?.state === 'removed') {
+		if (d.erased_at === null) await reconcile(ctx); // an erasure that stopped part-way: finish it before the case is treated as erased
+		return true;
+	}
 	if (!(await recordHeld(ctx, caseId))) return false;
 	await reconcile(ctx);
 	return true;
@@ -324,7 +383,7 @@ async function deletionStep(ctx: Ctx, request: Request, caseId: string, step: St
 				return json({ caseId, state: 'removed', repeated: true, adopted: true });
 			}
 			// The record is durable in both buckets before anything is erased: if the erasure stops part-way, the next
-			// request for the case finds the record, and reconcile finishes the erasure.
+			// request for the case finds it removed with no erased_at (or a new isolate reads the ledger), and reconcile finishes the erasure.
 			await writeRecord(ctx, recordOf({ ...d!, state: 'removed', removed_by: who, removed_at: now }, ctx.client));
 			const out = await erase(ctx, caseId, ["UPDATE case_deletion SET state = 'removed', removed_by = ?, removed_at = ? WHERE case_id = ?", [who, now, caseId]], ["EXISTS (SELECT 1 FROM case_deletion WHERE case_id = ? AND state = 'offered')", [caseId]]);
 			return json({ caseId, state: 'removed', repeated: false, ...out });
@@ -447,7 +506,7 @@ async function putBundle(ctx: Ctx, request: Request, caseId: string, bundleId: s
 const INTROSPECT = /^(orig|pkg|rm|backup|export|bundle|recovery|deletion|import)\//;
 
 async function route(request: Request, env: RecoveryEnv): Promise<Response> {
-	const opened = await open(env);
+	const opened = await open(env, request);
 	if (opened instanceof Response) return opened;
 	const ctx = opened;
 	const url = new URL(request.url);

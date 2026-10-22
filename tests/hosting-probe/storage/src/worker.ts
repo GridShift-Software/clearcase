@@ -477,14 +477,42 @@ const uwTables = async (ctx: Ctx) => {
 };
 const columnsOf = async (ctx: Ctx, table: string) => (await ctx.db.all<{ name: string }>('SELECT name FROM pragma_table_info(?) ORDER BY cid', table)).map((r) => r.name);
 
-async function snapshot(ctx: Ctx, caseId: string) {
-	const tables: Record<string, { columns: string[]; rows: Row[] }> = {};
-	for (const t of await uwTables(ctx)) {
-		const columns = await columnsOf(ctx, t);
-		const rows = await ctx.db.all(`SELECT * FROM ${t} WHERE case_id = ? ORDER BY ${columns.map((_, i) => i + 1).join(', ')}`, caseId);
-		tables[t] = { columns, rows };
+/**
+ * PROBE_HOOKS exists only in the probe's client-a deployment: a GET work request that sends x-probe-hold: <token> stops inside its
+ * snapshot until the runner posts /probe/hold/<token>/release, so the runner can write at that point. Each token is its own hold;
+ * a second hold on a token that is held is refused, and a hold nobody releases answers 504 after HOLD_BOUND_MS. Never bind it in
+ * production.
+ */
+const HOLD_BOUND_MS = 30_000;
+const HOLD_TOKEN = /^[a-z0-9-]{1,40}$/;
+const probeHolds = new Map<string, boolean>(); // token -> still waiting
+/** Waits on a timer, not on a promise another request resolves: workerd cancels a request whose only wait is on another request. */
+const holdHere = (token: string) => async () => {
+	if (probeHolds.has(token)) refuse(409, 'hold-taken', { token });
+	probeHolds.set(token, true);
+	const until = Date.now() + HOLD_BOUND_MS;
+	try {
+		while (probeHolds.get(token)) {
+			if (Date.now() >= until) refuse(504, 'hold-timeout', { token });
+			await new Promise<void>((resolve) => setTimeout(resolve, 20));
+		}
+	} finally {
+		probeHolds.delete(token);
 	}
-	const rev = (await ctx.db.first<{ rev: number }>('SELECT rev FROM case_rev WHERE case_id = ?', caseId))?.rev ?? 0;
+};
+
+/** The case's user work and its revision in one read: one D1 batch runs as one transaction, so the revision names exactly the rows read with it. */
+async function snapshot(ctx: Ctx, caseId: string, between?: () => Promise<void>) {
+	const names = await uwTables(ctx);
+	const columns = await Promise.all(names.map((t) => columnsOf(ctx, t)));
+	await between?.();
+	const out = await ctx.db.batch([
+		...names.map((t, i): [string, D1Value[]] => [`SELECT * FROM ${t} WHERE case_id = ? ORDER BY ${columns[i]!.map((_, k) => k + 1).join(', ')}`, [caseId]]),
+		['SELECT rev FROM case_rev WHERE case_id = ?', [caseId]],
+	]);
+	const tables: Record<string, { columns: string[]; rows: Row[] }> = {};
+	names.forEach((t, i) => (tables[t] = { columns: columns[i]!, rows: out[i]!.results }));
+	const rev = (out[names.length]!.results[0] as { rev: number } | undefined)?.rev ?? 0;
 	return { format: 'clearcase.user-work/1', caseId, rev, tables };
 }
 
@@ -1085,6 +1113,13 @@ async function route(request: Request, env: Env): Promise<Response> {
 		return o ? json(ctx, { key, size: o.size, sha256: checksum(o), etag: o.etag }) : json(ctx, { code: 'not-found' }, 404);
 	}
 	if (m === 'GET' && seg[0] === 'probe' && seg[1] === 'live' && seg.length === 3 && isText(ID)(seg[2])) return liveState(ctx, seg[2]);
+	if (env.PROBE_HOOKS === '1' && seg[0] === 'probe' && seg[1] === 'hold' && HOLD_TOKEN.test(seg[2] ?? '')) {
+		if (m === 'GET' && seg.length === 3) return json(ctx, { waiting: probeHolds.get(seg[2]!) === true });
+		if (m === 'POST' && seg.length === 4 && seg[3] === 'release') {
+			if (probeHolds.has(seg[2]!)) probeHolds.set(seg[2]!, false);
+			return json(ctx, { released: true });
+		}
+	}
 	if (seg[0] === 'originals' && isText(SHA)(seg[1])) {
 		const sha = seg[1];
 		if (m === 'PUT' && seg.length === 2) return putOriginal(ctx, request, sha);
@@ -1204,7 +1239,9 @@ async function route(request: Request, env: Env): Promise<Response> {
 		}
 		if (rest[0] === 'registers' && isText(/^[a-z][a-z0-9-]{0,40}$/)(rest[1]) && rest.length === 3 && m === 'POST') return registerWrite(ctx, request, caseId, rest[1], rest[2]!);
 		if (m === 'GET' && rest.join('/') === 'work') {
-			const snap = await snapshot(ctx, caseId);
+			const token = env.PROBE_HOOKS === '1' ? request.headers.get('x-probe-hold') : null;
+			if (token !== null && !HOLD_TOKEN.test(token)) refuse(400, 'invalid-field', { field: 'x-probe-hold' });
+			const snap = await snapshot(ctx, caseId, token === null ? undefined : holdHere(token));
 			return json(ctx, url.searchParams.get('backup') === '1' ? { ...snap, backup: await backup(ctx, caseId, 'snapshot', snap) } : snap);
 		}
 		if (m === 'POST' && rest.join('/') === 'work/restore') return restore(ctx, request, caseId);

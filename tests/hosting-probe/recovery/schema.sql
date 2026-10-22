@@ -5,8 +5,11 @@
 -- A case's deletion, from the firm admin's request to the removal of live access. One row per case, never deleted: once
 -- `removed`, it is the D1 copy of the case's deletion record (deletion/<caseId>.json in BUCKET and in RECOVERY), and
 -- holds ids, roles and times only, no case content, apart from erase_plan: the results version ids, export ids and the
--- SHA-256 of each original (a fingerprint of a removed document, never its bytes) the removal erased, so a repeated removal
--- or a reapplied record erases the same objects. The deletion record in the buckets carries no erase_plan.
+-- SHA-256 of each original (a fingerprint of a removed document, never its bytes) the removal erased, and the multipart uploads
+-- of its unsealed exports, so a repeated removal or a reapplied record erases the same objects. The deletion record in the
+-- buckets carries no erase_plan. erased_at is set last, after the R2 deletes and upload aborts: a `removed` row without it is an
+-- erasure that stopped part-way, and the next request for the case or a new isolate finishes it. erase_error holds why the last
+-- try failed, until a try finishes, and never on a row whose erased_at is set: the CHECK below refuses it, and a failure on an erased case is logged only.
 CREATE TABLE case_deletion (
   case_id TEXT PRIMARY KEY,
   state TEXT NOT NULL CHECK (state IN ('requested', 'approved', 'offered', 'removed')),
@@ -20,7 +23,10 @@ CREATE TABLE case_deletion (
   offered_at TEXT,
   removed_by TEXT,
   removed_at TEXT,
-  erase_plan TEXT
+  erase_plan TEXT,
+  erased_at TEXT,
+  erase_error TEXT,
+  CHECK (erase_error IS NULL OR erased_at IS NULL)
 );
 
 -- Bundle history: a stand-in for GRS-128's PDF bundle versions (bundle/<caseId>/<bundleId>.pdf in BUCKET), modelled only

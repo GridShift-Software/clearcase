@@ -245,6 +245,7 @@ async function main(out: string): Promise<number> {
 		return dir;
 	};
 	const kitAsViteConfig = (dir: string) => renameSync(path.join(dir, 'vite.probe.config.js'), path.join(dir, 'vite.config.js'));
+	let voidScanRoots: string[] = []; // P6's scan roots, scanned again by credential-scan
 	const targets = loadTargets();
 	const clientA = targets.find((t) => t.client === 'client-a')!;
 	const clientB = targets.find((t) => t.client === 'client-b')!;
@@ -299,6 +300,8 @@ async function main(out: string): Promise<number> {
 		const build = step(l, 'Node', [tool.cf, 'build'], { cwd: kit });
 		const deploy = step(l, 'Node', [tool.cf, 'deploy', '--dry-run'], { cwd: kit });
 		const refusal = 'cf does not support SvelteKit projects yet';
+		const initOut = jsonIn(init.out) as { executed?: unknown; validated?: unknown } | null;
+		check(init.code === 0 && initOut?.executed === false && initOut?.validated === 'arguments only', 'cf init . --dry-run exits 0 and validates arguments only: it executes nothing and never reaches automatic setup');
 		check(build.code === 1 && build.out.includes(refusal), `cf build refuses: "${refusal}"`);
 		check(deploy.code === 1 && deploy.out.includes(refusal), 'cf deploy --dry-run refuses the same way');
 		const writes = changed(before, snapshot(kit));
@@ -382,6 +385,15 @@ async function main(out: string): Promise<number> {
 		const res = await fetch(`http://127.0.0.1:${PORT}/api/health`, { signal: AbortSignal.timeout(15_000) });
 		const devReadsX = { status: res.status, body: await res.text() };
 		await stop(server);
+		check(cfQuery.code === 1 && /no local equivalent/.test(cfQuery.out), 'cf d1 query --local exits 1: it has no local form');
+		const health = (() => {
+			try {
+				return JSON.parse(devReadsX.body) as { ok?: unknown; notes?: unknown };
+			} catch {
+				return null;
+			}
+		})();
+		check(devReadsX.status === 200 && health?.ok === true && health.notes === 1, 'wrangler dev on the state cf wrote under --persist-to X serves /api/health 200 with the seeded note counted: the schema is visible, one local layout');
 		l.observed = { cfQueryLocal: { exit: cfQuery.code, unsupported: /no local equivalent/.test(cfQuery.out) }, cfRows: viaCf, wranglerRows: wranglerReadsY, wranglerReadsCfState: wranglerReadsX, wranglerDevOnCfState: { status: devReadsX.status, schemaVisible: devReadsX.status === 200 } };
 	});
 
@@ -406,6 +418,7 @@ async function main(out: string): Promise<number> {
 		const after = state();
 		check(JSON.stringify(after.migrations) === JSON.stringify(before.migrations), '0003 is not recorded in d1_migrations');
 		const partial = after.notes.includes('from-0003');
+		check(!partial, "0003's first statement is not kept: the failed migration changes no row");
 		const retry = step(l, 'Node', [tool.wrangler, 'd1', 'migrations', 'apply', 'DB', '--local', '--persist-to', persist], { cwd: dir });
 		check(retry.code !== 0, 'a retry fails the same way: migrations are forward-only and nothing skips a broken one');
 		rmSync(persist, { recursive: true });
@@ -447,6 +460,8 @@ async function main(out: string): Promise<number> {
 			}
 		})();
 		check(info.code === 0 && infoJson !== null, 'void info --json answers offline with JSON');
+		const listed = (infoJson as { resources?: unknown } | null)?.resources;
+		check(Array.isArray(listed) && listed.length === 0, 'void info --json lists no resources');
 		const build = step(l, 'Node', [tool.vite, 'build'], { cwd: app, env: credentialed });
 		check(build.code === 1 && build.out.includes('ERR_UNSUPPORTED_ESM_URL_SCHEME') && build.out.includes("'cloudflare:'"), "vite build with Void's plugin exits 1 with ERR_UNSUPPORTED_ESM_URL_SCHEME on cloudflare:, so there is no bundle to inspect");
 		const built = build.code === 0 && existsSync(path.join(app, '.svelte-kit/cloudflare/_worker.js'));
@@ -458,6 +473,7 @@ async function main(out: string): Promise<number> {
 		const duringDeploy = evaluated().slice(beforeDeploy);
 		check(duringDeploy.length > 0 && duringDeploy.every((e) => e.sawDeployToken), 'void deploy evaluates void.config.ts in the process that holds the deploy token, and the config code can read it: scrubbing the build child alone does not protect the token');
 		check(deploy.code !== 0 && /provision/i.test(deploy.out) && /d1 list/i.test(deploy.out), 'offline, void deploy stops in provisioning, before any build or migration, after inferring a D1 database it tries to list');
+		check(Array.isArray(deploy.network) && deploy.network.some((n) => n.startsWith('api.cloudflare.com')) && deploy.out.includes('refusing to create a possible duplicate'), 'it attempted api.cloudflare.com and refused to create a possible duplicate resource');
 		const evaluations = evaluated();
 		check(evaluations.some((e) => e.entry.endsWith('cli.mjs')) && evaluations.some((e) => e.entry.endsWith('vite.js')), 'void.config.ts is code that the Void CLI and the Vite build both evaluate');
 		const dist = path.join(HERE, 'node_modules/void/dist');
@@ -465,7 +481,10 @@ async function main(out: string): Promise<number> {
 		const migrates = source.find((s) => s.text.includes('applyAndVerifyRemoteD1Migrations') && s.text.includes('d1.time-travel.bookmark'));
 		check(migrates !== undefined, `void ${pins.void}'s deploy applies remote D1 migrations itself, after a time-travel bookmark (source, not run)`);
 		check(!source.some((s) => /skip-?migrations|--no-migrat/i.test(s.text)), `void ${pins.void}'s deploy source has no flag that skips migrations`);
-		const voidScan = scanPaths({ roots: [voidHome, path.join(app, '.svelte-kit'), ...['.void', '.void-wrangler.jsonc'].map((f) => path.join(app, f)).filter(existsSync)], canaries: [canaries.token, canaries.clerk], base: runDir });
+		const voidRoots = [voidHome, path.join(app, '.svelte-kit'), ...['.void', '.void-wrangler.jsonc'].map((f) => path.join(app, f)).filter(existsSync)];
+		const voidScan = scanPaths({ roots: voidRoots, canaries: [canaries.token, canaries.clerk], base: runDir });
+		check(voidScan.files > 0 && voidScan.hits.length === 0, `no canary or credential shape in the ${voidScan.files} files of Void's home, .svelte-kit, .void and generated config after a credentialed build and deploy: ${JSON.stringify(voidScan.hits).slice(0, 300)}`);
+		voidScanRoots = voidRoots;
 		l.observed = {
 			info: infoJson,
 			build: { exit: build.code, workerWritten: built, error: show(/ERR_[A-Z_]+[^\n]{0,160}|Error:[^\n]{0,200}/.exec(build.out)?.[0] ?? '') },
@@ -488,6 +507,7 @@ async function main(out: string): Promise<number> {
 		check(dry.code === 0, 'exit 0');
 		check(Array.isArray(dry.network) && dry.network.length === 0, 'no connect or lookup beyond loopback (the only sockets are the local Miniflare type generator)');
 		check(writes.every((w) => w.startsWith('.cloudflare/') || w.startsWith('.wrangler/')), 'it writes only its own .cloudflare/ and .wrangler/ state inside the project');
+		check(writes.includes('.cloudflare/output') && writes.includes('.cloudflare/types'), 'it does write .cloudflare/output and .cloudflare/types, so "no file changes" does not hold');
 		l.observed = { writes, writeFree: writes.length === 0 };
 	});
 
@@ -508,7 +528,7 @@ async function main(out: string): Promise<number> {
 			}),
 		);
 		for (const label of ['cf d1 delete', 'cf workers delete', 'cf d1 delete --local']) check(results[label]!.prompted && results[label]!.aborted && results[label]!.exit === 1, `${label} without --force prints its prompt, "Aborted." and exits 1 when stdin is not a terminal`);
-		check(results['cf d1 delete, no token']!.exit === 1 && !results['cf d1 delete, no token']!.prompted, 'with no token cf stops at authentication (exit 1) before the prompt');
+		check(results['cf d1 delete, no token']!.exit === 1 && !results['cf d1 delete, no token']!.prompted && results['cf d1 delete, no token']!.authError, 'with no token cf stops at authentication (exit 1) before the prompt');
 		check(results['wrangler d1 delete']!.exit === 1 && results['wrangler d1 delete']!.connectivityError, 'Wrangler asks the API before any prompt, so offline it exits 1 on the failed request');
 		const rows = step(l, 'Node', [tool.wrangler, 'd1', 'execute', 'DB', '--local', '--persist-to', persist, '--json', '--command', 'SELECT COUNT(*) AS n FROM d1_migrations'], { cwd: kit });
 		check(rows.code === 0 && (JSON.parse(rows.out) as { results: { n: number }[] }[])[0]!.results[0]!.n === 2, 'the aborted local delete left the local database intact');
@@ -578,7 +598,8 @@ async function main(out: string): Promise<number> {
 		});
 		const swappedRuns = dryRuns(swapped);
 		const dryRunAlone = Object.fromEntries(Object.entries(swappedRuns).map(([k, r]) => [k, { exit: r.code, names: bindingNames(r.out), showsForeignId: r.out.includes(clientB.d1.id) }]));
-		check(Object.values(dryRunAlone).every((r) => r.exit === 0 && !r.showsForeignId), "the dry runs alone pass the swapped config and never show the foreign D1 id: the manifest check is required");
+		const ownNames = [`BUCKET=${clientA.r2.bucket}`, `CLEARCASE_CLIENT_ID="client-a"`, `DB=${clientA.d1.name}`];
+		check(Object.values(dryRunAlone).every((r) => r.exit === 0 && !r.showsForeignId && JSON.stringify(r.names) === JSON.stringify(ownNames)), "the dry runs alone pass the swapped config, never show the foreign D1 id and print only the bindings' names, client A's own: the manifest check is required");
 		l.observed = { account: clientA.accountId, own, refusals, dryRunAlone, prebuilt: { names: prebuiltNames, refusal: outputCheck.out.split('\n').filter((x) => x.startsWith('refused:')), uploadAlone: prebuiltAlone } };
 	});
 
@@ -614,7 +635,7 @@ async function main(out: string): Promise<number> {
 	});
 
 	await leg('credential-scan', 'no canary or credential shape in build artifacts, staged deploy inputs, logs or homes', (l, check) => {
-		const roots = [path.join(kit, '.svelte-kit'), artifact, logs, home, ...readdirSync(runDir).filter((d) => d.startsWith('stage-')).map((d) => path.join(runDir, d)), path.join(plain, '.cloudflare'), path.join(runDir, 'plain-p7', '.cloudflare')].filter(existsSync);
+		const roots = [path.join(kit, '.svelte-kit'), artifact, logs, home, ...readdirSync(runDir).filter((d) => d.startsWith('stage-')).map((d) => path.join(runDir, d)), path.join(plain, '.cloudflare'), path.join(runDir, 'plain-p7', '.cloudflare'), ...voidScanRoots].filter(existsSync);
 		const values = [canaries.token, canaries.clerk];
 		const control = path.join(runDir, 'control');
 		mkdirSync(control);

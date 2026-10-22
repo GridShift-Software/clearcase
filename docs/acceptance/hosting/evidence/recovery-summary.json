@@ -1,18 +1,18 @@
 {
   "schema": "clearcase.recovery-probe/1",
-  "sourceSha": "0493a66d06206fae872bb03f8cee01ddc6e732cb",
+  "sourceSha": "e3d1cacf1641eecc991ac2df799870db68fb431a",
   "inputs": {
-    "tests/hosting-probe/recovery": "035f767ce377559e5cbd2fb11349afb9702c6a0f",
-    "tests/hosting-probe/storage/src": "c1fad3cd5762cc8327d85a52c94b5b0eee51afff",
+    "tests/hosting-probe/recovery": "d7216a0903ea721d99b51aa6cd62f63c6bf25a18",
+    "tests/hosting-probe/storage/src": "d252989d4feb722a9f32883b8d236499b17d8c1f",
     "tests/hosting-probe/storage/schema.sql": "d3e1b6993acbfefe4645b4956b7de4b1c2f6861a",
     "tests/hosting-probe/storage/package.json": "68ce3647be995e5402a2992970b7d20409c08950",
     "tests/hosting-probe/storage/bun.lock": "989d9825ebd42b7e6e22432a4cabf695e7c24b0e",
     "tests/e2e/pilot/offline.sh": "f10ef9f0b803bb058b17fe456b0b27788b32dad6"
   },
   "treeClean": true,
-  "startedAt": "2026-10-21T22:21:57.974Z",
-  "finishedAt": "2026-10-21T22:22:54.661Z",
-  "runDir": ".local/hosting-probe/recovery/2026-10-21T22-21-57-974Z",
+  "startedAt": "2026-10-22T06:23:41.610Z",
+  "finishedAt": "2026-10-22T06:25:03.166Z",
+  "runDir": ".local/hosting-probe/recovery/2026-10-22T06-23-41-610Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -27,7 +27,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:01a7954c844a687980ec0ec267104548caed7a76fd521fcc41a2893ce9dcefd9",
+  "artifact": "sha256:29224786f575d66061a7cab738a51d8e271d13899872d3c9de470a69f8370285",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [
@@ -57,7 +57,7 @@
         "the bundle imports no node:, bun: or CommonJS module"
       ],
       "measured": {
-        "workerBytes": 105228
+        "workerBytes": 108722
       }
     },
     "provision": {
@@ -268,10 +268,10 @@
       "measured": {
         "restoredOriginals": 2,
         "lostRowsAfterCopy": 2,
-        "stageMs": 4.7,
-        "restoreMs": 56.8,
-        "checksMs": 38.6,
-        "totalMs": 1546.7
+        "stageMs": 7.5,
+        "restoreMs": 100.4,
+        "checksMs": 75.5,
+        "totalMs": 1731.5
       }
     },
     "retention": {
@@ -374,6 +374,48 @@
         "repeatedRemovals": 1,
         "residueRows": 0
       }
+    },
+    "interrupted-erasure": {
+      "status": "PASS",
+      "commands": [
+        "PUT /originals/<sha256>, POST /cases/<case>/originals, import and activate a version, POST …/registers/notes/add, PUT …/bundles/b-1, seal an export, POST …/exports (left building), POST …/deletion/{request,approve,offer} for cases A5 and A6",
+        "POST /cases/<A6>/deletion/remove with x-probe-fault: stop-after-d1, GET /cases/<A6>/deletion, GET /recovery/head/{live,copies}/<key>",
+        "node ../storage/node_modules/wrangler/bin/wrangler.js dev --local --env client-a --ip 127.0.0.1 --port 18810 --inspector-port 0 --persist-to <run>/persist (a new isolate), GET /recovery/copies, GET /recovery/head/live/<key>",
+        "POST /cases/<A5>/deletion/remove with x-probe-fault: stop-after-d1",
+        "GET /cases/<A5>/documents/<ref> on the same running Worker, GET /recovery/head/live/<key>",
+        "node ../storage/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-a --command \"SELECT state, erased_at, erase_plan FROM case_deletion\" --persist-to <run>/persist; POST /cases/<A6>/deletion/remove (a repeat)",
+        "cases A7 and A8 as above, POST /cases/<A7>/deletion/remove with x-probe-fault: stop-after-d1, node ../storage/node_modules/wrangler/bin/wrangler.js dev --local --env client-a --ip 127.0.0.1 --port 18810 --inspector-port 0 --persist-to <run>/persist (a new isolate), GET /cases/<A8>/deletion and GET /cases/<A7>/documents/<ref> with x-probe-fault: fail-erase:<A7>, GET /recovery/head/live/<key>",
+        "GET /cases/<A7>/documents/<ref> without the fault, GET /recovery/head/live/<key>, node ../storage/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-a --command \"SELECT state, erased_at, erase_error FROM case_deletion\" --persist-to <run>/persist",
+        "node ../storage/node_modules/wrangler/bin/wrangler.js r2 object delete recovery-copies-a/deletion/<A6>.json --local --persist-to <run>/persist, node ../storage/node_modules/wrangler/bin/wrangler.js dev --local --env client-a --ip 127.0.0.1 --port 18810 --inspector-port 0 --persist-to <run>/persist (a new isolate), GET /recovery/copies with x-probe-fault: fail-copyback:<A6>, GET /cases/<A6>/documents/<ref>, node ../storage/node_modules/wrangler/bin/wrangler.js dev --local --env client-a --ip 127.0.0.1 --port 18810 --inspector-port 0 --persist-to <run>/persist (a new isolate), GET /recovery/copies, GET /recovery/head/copies/<key>, POST /cases/<A6>/deletion/remove (a repeat) with x-probe-fault: fail-erase:<A6>, node ../storage/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-a --command \"UPDATE case_deletion SET erase_error = ... WHERE case_id = <A6>\" (refused by the CHECK) --persist-to <run>/persist, node ../storage/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-a --command \"SELECT state, erased_at, erase_error FROM case_deletion\" --persist-to <run>/persist"
+      ],
+      "asserted": [
+        "cases A5 and A6 each hold a package file, a list, an original, a sealed export and a bundle version, with an export left building, and their removal is offered",
+        "A6's removal stops after its D1 commit: D1 holds it as removed, its deletion record is in both buckets, and the request answered 500",
+        "a new isolate answers its first request",
+        "the new isolate's first request finished A6's erasure: its package file, list, original, export and bundle version are gone from the live bucket ( left)",
+        "A5's removal stops after its D1 commit on the running Worker: D1 holds it as removed and its five objects are still in the live bucket",
+        "the next request for A5 on the same Worker answers 410 and finishes the erasure: no object of A5 is left ()",
+        "each case records when its erasure finished, its plan names the export upload that was left open, and no row of either case is left in any table",
+        "a repeated removal of a finished case is a no-op that keeps the time the erasure first finished",
+        "A7's removal stops after its D1 commit: D1 holds it as removed without erased_at and its five objects are still in the live bucket",
+        "a new isolate whose reconcile cannot finish A7's erasure still answers a request for A8: A8 is untouched and offered",
+        "A7 stays refused as removed on a second failing try: 410, no erased_at, the failure recorded in its row, and its objects kept for the next retry",
+        "the next request without the fault finishes A7's erasure: no object is left (), erased_at is set and the recorded failure is cleared",
+        "A6 is erased and its record is missing from RECOVERY: the copy back fails on a new isolate's first request, yet A6 stays erased and refused, and its row records no erasure failure (erase_error is only for an erasure that is unfinished)",
+        "the next new isolate copies the record back: RECOVERY holds it again, A6 is still erased since the same time and refused, and its row carries no stale erasure failure",
+        "a repeated removal of the erased A6 whose erasure fails answers 500, yet A6 keeps its erased_at, its row records no erasure failure, and it is still refused",
+        "the schema itself refuses an erase_error on an erased case: a direct write to A6's row fails and changes nothing"
+      ],
+      "measured": {
+        "interruptedRemovals": 2,
+        "finishedByRoute": 1,
+        "finishedByNewIsolate": 1,
+        "objectsLeftAfterFinish": 0,
+        "residueRows": 0,
+        "failedErasuresIsolated": 1,
+        "otherCasesServed": 1,
+        "staleErrorsAfterCopyBack": 0
+      }
     }
   },
   "hold": [
@@ -388,7 +430,7 @@
   "failure": null,
   "evidence": true,
   "checker": {
-    "mutationsRefused": 1329,
+    "mutationsRefused": 1484,
     "accepted": null
   }
 }

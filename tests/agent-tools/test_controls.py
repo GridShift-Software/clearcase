@@ -2493,6 +2493,388 @@ class FixRoundRenames(ControlCase):
         self.merge()
         self.assertIn('protected among them:', self.guard('--base', 'dev'))
 
+    def test_a_branch_weakening_that_a_base_rename_carries_to_a_new_path_refuses(self):
+        # GRS-169 (GRS-153 re-check M-F1): the branch drops an assertion, the base renames the file, and the merge carries
+        # the weakened copy to the new path. The old path is the base's change; the fix base has no file at the new one.
+        weakened = self.big.replace(self.big.splitlines()[-1] + '\n', '')
+        self.change({'tests/big.test.ts': weakened}, 'drop an assertion')
+        self.git('switch', '-q', 'dev')
+        self.git('mv', 'tests/big.test.ts', 'tests/renamed.test.ts')
+        self.commit('the base renames the test')
+        self.git('switch', '-q', 'feature/grs-104-tooling')
+        self.merge()
+        self.assertEqual(self.git('show', 'HEAD:tests/renamed.test.ts'), weakened.strip())
+        self.assertIn('assertion count fell in tests/renamed.test.ts: 8 -> 7', self.guard('--base', 'dev', code=1))
+        self.assertEqual(self.last_receipt()['result'], 'FAIL')
+        with self.subTest(control='no trusted base: the old path keeps its assertion count'):
+            self.assertIn('assertion count fell in tests/big.test.ts: 8 -> 0', self.guard(code=1))
+
+    def test_a_rename_the_base_made_onto_a_branch_strengthening_passes(self):
+        self.change({'tests/big.test.ts': self.big + "test('case 8', () => { expect(8).toEqual(8); });\n"}, 'add an assertion')
+        self.git('switch', '-q', 'dev')
+        self.git('mv', 'tests/big.test.ts', 'tests/renamed.test.ts')
+        self.commit('the base renames the test')
+        self.git('switch', '-q', 'feature/grs-104-tooling')
+        self.merge()
+        self.assertIn('test-guard: PASS', self.guard('--base', 'dev'))
+
+
+class FixRoundBaseAdditions(ControlCase):
+    """GRS-169 sweep: a path that the fix base, and every merge base of it with the base, lack is one the base added
+    after the review. Its reference is the base's copy HEAD received, not the fix base's absence, so the branch may not
+    weaken or delete the base's test or change or delete the base's fixture. The branch's own new files stay free."""
+    original = TestWeakening.original
+    path = FixRoundManifest.path
+    manifest = FixRoundManifest.manifest
+    reset = FixRoundMergedBase.reset
+    change = FixRoundMergedBase.change
+    on_dev = FixRoundMergedBase.on_dev
+    merge = FixRoundMergedBase.merge
+    guard = FixRoundMergedBase.guard
+    config = FixRoundMergedBase.config
+    helper = FixRoundMergedBase.helper
+    test = FixRoundMergedBase.test
+    added = ''.join(f"test('added {n}', () => {{ expect({n}).toEqual({n}); }});\n" for n in range(3))
+
+    def setUp(self):
+        super().setUp()
+        self.write('vitest.config.ts', self.config)
+        self.write('support/helper.ts', self.helper)
+        self.write('tests/fixtures/cases.json', '{"a":false}')
+        self.write('tests/old.test.ts', self.added)
+        self.dev = self.commit('runner configuration, helper, fixture and a test')
+        self.git('switch', '-q', '-c', 'feature/grs-104-tooling')
+        self.write('tests/protected.test.ts', self.test)
+        self.base = self.commit('reviewed tests')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.fixed = self.commit('fix round')
+
+    def received(self, files):
+        """The base adds `files` after the review and the branch merges it."""
+        self.reset()
+        self.on_dev(files, 'the base adds files after the review')
+        self.merge()
+
+    def test_a_test_the_base_added_counts_from_the_base_copy(self):
+        self.received({'tests/added.test.ts': self.added})
+        self.guard('--base', 'dev')
+        self.change({'tests/added.test.ts': self.added.split('\n')[0] + '\n'}, 'drop two assertions the base added')
+        self.assertIn('assertion count fell in tests/added.test.ts: 3 -> 1', self.guard('--base', 'dev', code=1))
+        with self.subTest(bypass='the base moved on after the merge'):
+            self.on_dev({'docs/note.md': 'later\n'})
+            self.assertIn('assertion count fell in tests/added.test.ts: 3 -> 1', self.guard('--base', 'dev', code=1))
+        with self.subTest(control='the base strengthened its test after the branch merged it'):
+            self.received({'tests/added.test.ts': self.added})
+            self.on_dev({'tests/added.test.ts': self.added + "test('added 3', () => { expect(3).toEqual(3); });\n"})
+            self.guard('--base', 'dev')
+        with self.subTest(control="the branch's own new test"):
+            self.reset()
+            self.change({'tests/mine.test.ts': self.added}, 'a new test')
+            self.guard('--base', 'dev')
+
+    def test_a_test_the_base_added_and_the_branch_deleted_refuses(self):
+        self.received({'tests/added.test.ts': self.added})
+        self.git('rm', '-q', 'tests/added.test.ts')
+        self.commit('delete the test the base added')
+        self.assertIn('assertion count fell in tests/added.test.ts: 3 -> 0', self.guard('--base', 'dev', code=1))
+        with self.subTest(bypass='the base moved on after the merge'):
+            self.on_dev({'docs/note.md': 'later\n'})
+            self.assertIn('assertion count fell in tests/added.test.ts: 3 -> 0', self.guard('--base', 'dev', code=1))
+        with self.subTest(bypass='deleted inside the merge'):
+            self.reset()
+            self.on_dev({'tests/added.test.ts': self.added})
+            self.merge(commit=False)
+            self.git('rm', '-q', '-f', 'tests/added.test.ts')
+            self.commit('Merge dev into the branch')
+            self.assertIn('assertion count fell in tests/added.test.ts: 3 -> 0', self.guard('--base', 'dev', code=1))
+        with self.subTest(control='the base deleted its own test and the branch merged that'):
+            self.received({'tests/added.test.ts': self.added})
+            self.on_dev({'tests/added.test.ts': None})
+            self.merge()
+            self.guard('--base', 'dev')
+        with self.subTest(control='the base added a test after the branch last merged it'):
+            self.reset()
+            self.on_dev({'tests/added.test.ts': self.added})
+            self.guard('--base', 'dev')
+
+    def test_a_test_the_reviewed_commit_deleted_is_no_base_addition(self):
+        # the merge base holds tests/old.test.ts and the reviewed commit deleted it: its absence is the reviewed state
+        self.git('switch', '-q', '-C', 'feature/grs-104-tooling', self.dev)
+        self.git('rm', '-q', 'tests/old.test.ts')
+        self.write('tests/protected.test.ts', self.test)
+        self.base = self.commit('reviewed tests, deleting an old one')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.commit('fix round')
+        self.on_dev({'docs/note.md': 'later\n'})
+        self.merge()
+        self.guard('--base', 'dev')
+
+    def test_a_fixture_the_base_added_keeps_the_base_copy(self):
+        self.received({'tests/fixtures/added.json': '{"b":false}'})
+        self.guard('--base', 'dev')
+        for label, files in {'a branch edit': {'tests/fixtures/added.json': '{"b":true}'},
+                             'a branch deletion': {'tests/fixtures/added.json': None}}.items():
+            with self.subTest(bypass=label):
+                self.received({'tests/fixtures/added.json': '{"b":false}'})
+                self.change(files, label)
+                self.assertIn('protected fixture changed or deleted: tests/fixtures/added.json', self.guard('--base', 'dev', code=1))
+                self.on_dev({'docs/note.md': 'later\n'})
+                self.assertIn('protected fixture changed or deleted: tests/fixtures/added.json', self.guard('--base', 'dev', code=1))
+        with self.subTest(control='the base changed its fixture after the branch merged it'):
+            self.received({'tests/fixtures/added.json': '{"b":false}'})
+            self.on_dev({'tests/fixtures/added.json': '{"b":true}'})
+            self.guard('--base', 'dev')
+        with self.subTest(control="the branch's own new fixture"):
+            self.reset()
+            self.change({'tests/fixtures/mine.json': '{"c":1}'}, 'a new fixture')
+            self.guard('--base', 'dev')
+
+
+class FixRoundBaseChanges(ControlCase):
+    """GRS-169 fix round 1 (M1): a path the fix base holds and the base changed after the review has the base's copy as its
+    reference, as a path the base added does. A branch that merges the base's change and then undoes or masks it refuses
+    on a test's assertion count and on a protected fixture; an unchanged branch merging any base change passes."""
+    original = TestWeakening.original
+    path = FixRoundManifest.path
+    manifest = FixRoundManifest.manifest
+    reset = FixRoundMergedBase.reset
+    change = FixRoundMergedBase.change
+    on_dev = FixRoundMergedBase.on_dev
+    merge = FixRoundMergedBase.merge
+    guard = FixRoundMergedBase.guard
+    config = FixRoundMergedBase.config
+    helper = FixRoundMergedBase.helper
+    test = FixRoundMergedBase.test
+    added = FixRoundBaseAdditions.added
+    stronger = added + ''.join(f"test('added {n}', () => {{ expect({n}).toEqual({n}); }});\n" for n in range(3, 5))
+
+    def setUp(self):
+        super().setUp()
+        self.write('vitest.config.ts', self.config)
+        self.write('support/helper.ts', self.helper)
+        self.write('tests/fixtures/cases.json', '{"a":false}')
+        self.write('tests/old.test.ts', self.added)
+        self.dev = self.commit('runner configuration, helper, fixture and a test')
+        self.git('switch', '-q', '-c', 'feature/grs-104-tooling')
+        self.write('tests/protected.test.ts', self.test)
+        self.base = self.commit('reviewed tests')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.fixed = self.commit('fix round')
+
+    def test_a_base_strengthening_that_the_branch_merged_and_undid_refuses(self):
+        # A1 and A2: the base strengthens a test the fix base holds from 3 to 5 assertions, the branch merges it and then
+        # restores the fix base's copy, or drops only one
+        for label, (restored, fell) in {'restoring the fix base copy': (self.added, '5 -> 3'),
+                                      'dropping one assertion': (self.stronger.replace(self.stronger.splitlines()[-1] + '\n', ''), '5 -> 4')}.items():
+            with self.subTest(bypass=label):
+                self.reset()
+                self.on_dev({'tests/old.test.ts': self.stronger})
+                self.merge()
+                self.change({'tests/old.test.ts': restored}, label)
+                self.assertIn(f'assertion count fell in tests/old.test.ts: {fell}', self.guard('--base', 'dev', code=1))
+                self.on_dev({'docs/note.md': 'later\n'})
+                self.assertIn(f'assertion count fell in tests/old.test.ts: {fell}', self.guard('--base', 'dev', code=1))
+
+    def test_a_base_change_to_a_fixture_that_the_branch_merged_and_undid_refuses(self):
+        # A3: the branch restores the fix base's blob after merging the base's change to a protected fixture
+        self.on_dev({'tests/fixtures/cases.json': '{"a":true}'})
+        self.merge()
+        self.change({'tests/fixtures/cases.json': '{"a":false}'}, "restore the fix base's fixture")
+        self.assertIn('protected fixture changed or deleted: tests/fixtures/cases.json', self.guard('--base', 'dev', code=1))
+        with self.subTest(bypass='the base moved on after the merge'):
+            self.on_dev({'docs/note.md': 'later\n'})
+            self.assertIn('protected fixture changed or deleted: tests/fixtures/cases.json', self.guard('--base', 'dev', code=1))
+
+    def test_an_unchanged_branch_merging_any_base_change_passes(self):
+        stronger_fixture = {'tests/fixtures/cases.json': '{"a":true}'}
+        runtime = {'src/lib.ts': 'export const lib = 1;\n'}
+        changes = {
+            'a test added': {'tests/new.test.ts': self.added},
+            'a test strengthened': {'tests/old.test.ts': self.stronger},
+            'a test weakened': {'tests/old.test.ts': self.added.split('\n')[0] + '\n'},
+            'a test deleted': {'tests/old.test.ts': None},
+            'a fixture added': {'tests/fixtures/new.json': '{"b":1}'},
+            'a fixture changed': stronger_fixture,
+            'a runtime file added': runtime,
+        }
+        for label, files in changes.items():
+            with self.subTest(control=label):
+                self.reset()
+                self.on_dev(files)
+                self.merge()
+                self.assertIn('test-guard: PASS', self.guard('--base', 'dev'))
+        with self.subTest(control='a test renamed'):
+            self.reset()
+            self.git('switch', '-q', 'dev')
+            self.git('mv', 'tests/old.test.ts', 'tests/renamed.test.ts')
+            self.commit('the base renames the test')
+            self.git('switch', '-q', 'feature/grs-104-tooling')
+            self.merge()
+            self.assertIn('test-guard: PASS', self.guard('--base', 'dev'))
+        for label, (first, second) in {'a runtime file changed': (runtime, {'src/lib.ts': 'export const lib = 2;\n'}),
+                                       'a runtime file deleted': (runtime, {'src/lib.ts': None}),
+                                       'a test strengthened and weakened back': ({'tests/old.test.ts': self.stronger}, {'tests/old.test.ts': self.added}),
+                                       'a fixture changed and changed back': (stronger_fixture, {'tests/fixtures/cases.json': '{"a":false}'})}.items():
+            with self.subTest(control=label):
+                self.reset()
+                self.on_dev(first)
+                self.merge()
+                self.assertIn('test-guard: PASS', self.guard('--base', 'dev'))
+                self.on_dev(second)
+                self.merge()
+                self.assertIn('test-guard: PASS', self.guard('--base', 'dev'))
+
+    def test_a_reviewed_weakening_merged_with_a_base_strengthening_passes_at_the_sum(self):
+        # the reviewed commit drops one of the three assertions (the fix base holds two); the base appends two (five). The
+        # merge holds four, which is the fix base's two plus the two the base added.
+        self.git('switch', '-q', '-C', 'feature/grs-104-tooling', self.dev)
+        self.write('tests/old.test.ts', self.added.split('\n', 1)[1])
+        self.write('tests/protected.test.ts', self.test)
+        self.base = self.commit('reviewed tests, dropping one assertion of an old test')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.fixed = self.commit('fix round')
+        self.on_dev({'tests/old.test.ts': self.stronger})
+        self.merge()
+        self.assertEqual(self.git('show', 'HEAD:tests/old.test.ts').count('expect('), 4)
+        self.assertIn('test-guard: PASS', self.guard('--base', 'dev'))
+        self.change({'tests/old.test.ts': self.git('show', 'HEAD:tests/old.test.ts').split('\n', 1)[1] + '\n'}, 'drop one more')
+        self.assertIn('assertion count fell in tests/old.test.ts: 4 -> 3', self.guard('--base', 'dev', code=1))
+
+    def test_a_base_change_the_branch_undid_stays_refused_on_inputs_the_guard_cannot_read(self):
+        # fail closed (GRS-169 review probes): an unreadable copy of the base's change refuses rather than counting as 0
+        self.on_dev({'tests/old.test.ts': self.stronger})
+        self.merge()
+        blob = self.git('rev-parse', 'HEAD:tests/old.test.ts')
+        self.change({'tests/old.test.ts': self.added}, "restore the fix base's copy")
+        with self.subTest(bypass='a missing blob'):
+            (self.repo / '.git/objects' / blob[:2] / blob[2:]).unlink()
+            self.assertIn('Command failed: git', self.guard('--base', 'dev', code=1))
+        with self.subTest(bypass='a binary base copy'):
+            self.reset()
+            self.on_dev({'tests/old.test.ts': '\x00\x01{{{\n'})
+            self.merge()
+            self.change({'tests/old.test.ts': self.added}, "restore the fix base's copy")
+            self.assertIn('cannot parse test file', self.guard('--base', 'dev', code=1))
+        with self.subTest(bypass='a submodule where the base put a test'):
+            self.reset()
+            self.git('switch', '-q', 'dev')
+            self.git('update-index', '--add', '--cacheinfo', '160000', 'a' * 40, 'tests/sub.test.ts')
+            self.git('-c', 'user.name=Synthetic', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'the base adds a gitlink')
+            self.git('switch', '-q', 'feature/grs-104-tooling')
+            self.merge()
+            self.git('rm', '-q', '--cached', 'tests/sub.test.ts')
+            self.git('-c', 'user.name=Synthetic', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'delete the gitlink')
+            self.assertIn('Command failed: git', self.guard('--base', 'dev', code=1))
+        with self.subTest(bypass='a submodule where the base put a fixture'):
+            self.reset()
+            self.git('switch', '-q', 'dev')
+            self.git('update-index', '--add', '--cacheinfo', '160000', 'a' * 40, 'tests/fixtures/sub')
+            self.git('-c', 'user.name=Synthetic', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'the base adds a gitlink fixture')
+            self.git('switch', '-q', 'feature/grs-104-tooling')
+            self.merge()
+            self.git('update-index', '--cacheinfo', '160000', 'b' * 40, 'tests/fixtures/sub')
+            self.git('-c', 'user.name=Synthetic', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'change the gitlink')
+            self.assertIn('protected fixture changed or deleted: tests/fixtures/sub', self.guard('--base', 'dev', code=1))
+
+    def test_a_criss_cross_merge_with_a_branch_weakening_refuses(self):
+        # the branch and the base each merge the other, so the merge bases are two commits; the branch then weakens
+        self.on_dev({'tests/old.test.ts': self.stronger})
+        self.change({'docs/branch.md': 'branch\n'}, 'a branch commit')
+        side = self.git('rev-parse', 'HEAD')
+        self.merge()
+        self.git('switch', '-q', 'dev')
+        self.git('-c', 'user.name=Synthetic', '-c', 'user.email=test@example.invalid', 'merge', '-q', '--no-ff', '-m', 'dev merges the branch', side)
+        self.git('switch', '-q', 'feature/grs-104-tooling')
+        self.assertEqual(len(self.git('merge-base', '--all', 'dev', 'HEAD').split()), 2)
+        self.change({'tests/old.test.ts': self.added.split('\n', 1)[1]}, 'weaken the test')
+        self.assertIn('assertion count fell in tests/old.test.ts', self.guard('--base', 'dev', code=1))
+
+    def test_a_base_change_to_a_helper_or_the_runner_configuration_that_the_branch_merged_and_undid_refuses(self):
+        # M1' (GRS-169 escalation): the closure's other paths have the base's copy as their reference too
+        for name, reviewed in {'support/helper.ts': self.helper, 'vitest.config.ts': self.config}.items():
+            with self.subTest(bypass=name):
+                self.reset()
+                self.on_dev({name: FixRoundMergedBase.base_change[name]})
+                self.merge()
+                self.assertIn('test-guard: PASS', self.guard('--base', 'dev'))
+                self.change({name: reviewed}, "restore the fix base's copy")
+                self.assertIn(f'protected dependency changed: {name}', self.guard('--base', 'dev', code=1))
+                self.on_dev({'docs/note.md': 'later\n'})
+                self.assertIn(f'protected dependency changed: {name}', self.guard('--base', 'dev', code=1))
+        with self.subTest(bypass='a runner configuration the base added, deleted'):
+            self.reset()
+            self.on_dev({'vitest.workspace.ts': "export default ['vitest.config.ts'];\n"})
+            self.merge()
+            self.change({'vitest.workspace.ts': None}, 'delete the configuration the base added')
+            self.assertIn('protected dependency added/deleted: vitest.workspace.ts', self.guard('--base', 'dev', code=1))
+
+    def test_a_base_change_to_a_protected_test_file_that_the_branch_merged_and_undid_refuses(self):
+        # the manifest names a test in tests/old.test.ts, which the base holds too. The base tightens one assertion, keeping
+        # the count, in the named test or in a free test after it; the branch merges it and restores the fix base's copy.
+        tighten = lambda n: self.added.replace(f'expect({n}).toEqual({n})', f'expect({n}).toStrictEqual({n})')
+        named = [{'file': 'tests/old.test.ts', 'name': 'added 0'}]
+        for label, (copy, refusal) in {
+                'the named test': (tighten(0), 'named test changed (assertions may be removed or loosened): tests/old.test.ts: added 0'),
+                'a free test after it': (tighten(2), 'protected dependency changed: tests/old.test.ts')}.items():
+            with self.subTest(bypass=label):
+                self.reset()
+                self.manifest(tests=named)
+                self.commit('the manifest names a test the base holds')
+                self.on_dev({'tests/old.test.ts': copy})
+                self.merge()
+                self.change({'tests/old.test.ts': self.added}, "restore the fix base's copy")
+                self.assertIn(refusal, self.guard('--base', 'dev', code=1))
+        with self.subTest(control="the base's free test change merged, then the branch's own free test with a reason"):
+            self.reset()
+            self.manifest(tests=named, assertionCountReasons={'tests/old.test.ts': 'a regression test for the fix'})
+            self.commit('the manifest names a test the base holds')
+            self.on_dev({'tests/old.test.ts': tighten(2)})
+            self.merge()
+            self.assertIn('test-guard: PASS', self.guard('--base', 'dev'))
+            self.change({'tests/old.test.ts': tighten(2) + "test('mine', () => { expect(9).toEqual(9); });\n"}, 'a free test')
+            self.assertIn('test-guard: PASS', self.guard('--base', 'dev'))
+
+    def criss_cross(self, reviewed, wave, later):
+        """The reviewed commit's side writes `reviewed` and the base's side `wave`; the fix base and the base each merge the
+        other, so their merge bases are two commits that disagree. The base then writes `later` and the branch merges it."""
+        self.git('switch', '-q', '-C', 'feature/grs-104-tooling', self.dev)
+        self.write('tests/protected.test.ts', self.test)
+        side = self.change(reviewed, 'reviewed tests')
+        self.on_dev(wave)
+        self.base = self.merge()
+        self.git('switch', '-q', 'dev')
+        self.git('-c', 'user.name=Synthetic', '-c', 'user.email=test@example.invalid', 'merge', '-q', '--no-ff', '-m', 'dev merges the branch', side)
+        self.change(later, 'the base changes the test after the review')
+        self.git('switch', '-q', 'feature/grs-104-tooling')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.commit('fix round')
+        self.merge()
+        self.assertEqual(len(self.git('merge-base', '--all', self.base, 'dev').split()), 2)
+
+    def test_an_unchanged_merge_through_disagreeing_merge_bases_passes_at_git_s_merge(self):
+        # L1': the merge bases hold 3 and 5 assertions and the fix base 5. The base adds a sixth after the review; Git's
+        # merge of the fix base and the base holds 6, so an unchanged merge passes and dropping the sixth refuses.
+        sixth = "test('added 5', () => { expect(5).toEqual(5); });\n"
+        self.criss_cross({}, {'tests/old.test.ts': self.stronger}, {'tests/old.test.ts': self.stronger + sixth})
+        self.assertIn('test-guard: PASS', self.guard('--base', 'dev'))
+        self.change({'tests/old.test.ts': self.stronger}, 'drop the assertion the base added')
+        self.assertIn('assertion count fell in tests/old.test.ts: 6 -> 5', self.guard('--base', 'dev', code=1))
+        with self.subTest(control="neither merge base's count is the floor"):
+            # one merge base adds 'added 3' and the other drops 'added 0', so the fix base holds 3 against forks of 4 and 2.
+            # Subtracting the larger fork count would let the branch drop the assertion the base added after the review.
+            lines = self.added.splitlines(keepends=True)
+            third = "test('added 3', () => { expect(3).toEqual(3); });\n"
+            self.criss_cross({'tests/old.test.ts': self.added + third}, {'tests/old.test.ts': ''.join(lines[1:])},
+                             {'tests/old.test.ts': ''.join(lines[1:]) + third + "test('added 4', () => { expect(4).toEqual(4); });\n"})
+            self.assertIn('test-guard: PASS', self.guard('--base', 'dev'))
+            self.change({'tests/old.test.ts': ''.join(lines[1:]) + third}, 'drop the assertion the base added')
+            self.assertIn('assertion count fell in tests/old.test.ts: 4 -> 3', self.guard('--base', 'dev', code=1))
+
 
 class FixRoundFixtureModule(ControlCase):
     """GRS-153 polish L1: a fixture module a protected test imports is in the closure twice, as code and as data, and the

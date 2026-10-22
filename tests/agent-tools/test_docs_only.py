@@ -328,6 +328,25 @@ class IntoTheWave(DocsOnlyFixRound):
         self.commit('a branch edit after the merge')
         self.assertIn('src/grs-105-other.ts', self.guard(code=1))
 
+    def test_a_file_the_wave_added_that_the_round_deletes_is_the_round_s_change(self):
+        # GRS-169: the fix base lacks the wave's later additions, so deleting one leaves no difference from the fix base
+        self.fix_round()
+        self.another_ticket()
+        self.write('docs/added.md', '# Added\n')
+        self.commit('the wave adds a guide')
+        self.git('switch', '-q', BRANCH)
+        self.merge(WAVE)
+        self.git('rm', '-q', 'tests/grs-105-other.test.ts')
+        self.commit('delete the test the wave added')
+        out = self.guard(code=1)
+        self.assertIn('docs-only', out)
+        self.assertIn('tests/grs-105-other.test.ts', out)
+        with self.subTest(control='a guide the wave added, deleted by the round, is documentation'):
+            self.git('reset', '-q', '--hard', 'HEAD~1')
+            self.git('rm', '-q', 'docs/added.md')
+            self.commit('delete the guide the wave added')
+            self.guard()
+
     def test_the_declaration_propagates_into_the_wave_pull_request(self):
         ticket = self.fix_round()
         self.git('switch', '-q', WAVE)
@@ -454,6 +473,93 @@ class IntoTheWave(DocsOnlyFixRound):
         self.merge(BRANCH)
         self.another_ticket()
         self.assertIn('src/grs-105-other.ts', self.guard(base='dev', branch='wave/with/slash', code=1))
+
+
+class WaveChangeReverted(DocsOnlyFixRound):
+    """GRS-169 fix round 1 (M1): the wave changes a file the fix base holds, the round merges it and restores the fix
+    base's copy. The restore leaves no difference from the fix base, but it undoes the wave's change, so it is the
+    round's change: only a document may be restored."""
+
+    def setUp(self):
+        super(DocsOnlyFixRound, self).setUp()
+        self.write('src/app.ts', 'export const value = 1;\n')
+        self.write('src/lib.ts', 'export const lib = 1;\n')
+        self.write('tests/app.test.ts', self.test)
+        self.write('docs/guide.md', '# Guide\n\nThe old step.\n')
+        self.write('docs/other.md', '# Other\n')
+        self.dev = self.commit('dev: an app, a library, its test and two guides')
+        self.git('switch', '-q', '-c', WAVE)
+        self.git('switch', '-q', '-c', BRANCH)
+        self.write('src/app.ts', 'export const value = 2;\n')
+        self.reviewed = self.commit('the implementation, as reviewed')
+        self.saved_review([])
+
+    def wave_changes(self, files):
+        self.git('switch', '-q', WAVE)
+        for name, text in files.items():
+            self.write(name, text)
+        self.commit('the wave changes files after the review')
+        self.git('switch', '-q', BRANCH)
+        self.merge(WAVE)
+
+    def test_restoring_a_file_the_wave_changed_is_the_round_s_change(self):
+        stronger = self.test + "test('more', () => { expect(2).toEqual(2); });\n"
+        for label, (name, text) in {'a test': ('tests/app.test.ts', stronger),
+                                    'a runtime file': ('src/lib.ts', 'export const lib = 2;\n')}.items():
+            with self.subTest(bypass=label):
+                self.reset()
+                self.git('branch', '-f', WAVE, self.dev)
+                self.fix_round()
+                self.wave_changes({name: text})
+                self.write(name, self.git('show', f'{self.reviewed}:{name}') + '\n')
+                self.commit('restore the fix base copy')
+                out = self.guard(code=1)
+                self.assertIn('docs-only', out)
+                self.assertIn(name, out)
+
+    def test_a_round_merging_the_wave_s_changes_unchanged_passes(self):
+        # the wave changes, deletes and adds a test and a runtime file and the round holds each as the wave does
+        stronger = self.test + "test('more', () => { expect(2).toEqual(2); });\n"
+        self.fix_round()
+        self.git('switch', '-q', WAVE)
+        self.write('tests/app.test.ts', stronger)
+        self.write('src/lib.ts', 'export const lib = 2;\n')
+        self.write('src/new.ts', 'export const added = 1;\n')
+        self.commit('the wave changes a test and a runtime file and adds one')
+        self.git('rm', '-q', 'src/lib.ts')
+        self.commit('the wave deletes the runtime file')
+        self.git('switch', '-q', BRANCH)
+        self.merge(WAVE)
+        self.assertIn('test-guard: PASS (docs-only', self.guard())
+        with self.subTest(control='the wave undid its own change after the round merged it'):
+            self.git('switch', '-q', WAVE)
+            self.write('tests/app.test.ts', self.test)
+            self.commit('the wave reverts its test change')
+            self.git('switch', '-q', BRANCH)
+            self.merge(WAVE)
+            self.assertIn('test-guard: PASS (docs-only', self.guard())
+
+    def test_restoring_a_document_the_wave_changed_is_documentation(self):
+        self.fix_round()
+        self.wave_changes({'docs/other.md': '# Other, as the wave edited it\n'})
+        self.write('docs/other.md', '# Other\n')
+        self.commit('restore the fix base copy of a guide')
+        self.guard()
+
+    def test_editing_a_document_the_wave_made_executable_is_no_documentation(self):
+        # GRS-169 escalation: a changed path's modes are read at every reference, the wave's copy included
+        self.fix_round()
+        self.git('switch', '-q', WAVE)
+        (self.repo / 'docs/other.md').chmod(0o755)
+        self.commit('the wave makes a guide executable')
+        self.git('switch', '-q', BRANCH)
+        self.merge(WAVE)
+        (self.repo / 'docs/other.md').chmod(0o644)
+        self.write('docs/other.md', '# Other, edited\n')
+        self.commit('edit the guide and drop its executable bit')
+        out = self.guard(code=1)
+        self.assertIn('docs-only', out)
+        self.assertIn('docs/other.md', out)
 
 
 class TheRepositoryItself(DocsOnlyFixRound):

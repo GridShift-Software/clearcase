@@ -40,7 +40,7 @@ type Row = Record<string, unknown>;
  * Never bind either in production.
  */
 type RecoveryEnv = Env & { RECOVERY?: unknown; PROBE_CLOCK?: string; PROBE_FAULT?: string; PROBE_HOOKS?: string };
-type Ctx = { client: string; db: D1; bucket: R2; copies: R2; env: RecoveryEnv; fault: boolean; failErase: string | null; failCopyBack: string | null };
+type Ctx = { client: string; db: D1; bucket: R2; copies: R2; env: RecoveryEnv; fault: boolean; failErase: string | null; failCopyBack: string | null; reconciled: boolean };
 /** What R2's list and head return beyond platform.ts's shape: the time R2 stored the object, which is what rotation ages. */
 type Stored = R2Object & { uploaded: Date };
 
@@ -95,7 +95,7 @@ async function open(env: RecoveryEnv, request: Request): Promise<Ctx | Response>
 	if (!isBinding(env.RECOVERY, 'get', 'put', 'head', 'list', 'delete')) refuse(503, 'missing-binding', { binding: 'RECOVERY' });
 	// The probe's faults are read before anything runs, so that they reach the reconcile of a new isolate as well.
 	const fault = env.PROBE_FAULT === '1' ? request.headers.get('x-probe-fault') : null;
-	const ctx: Ctx = { client, db: env.DB as D1, bucket: env.BUCKET as R2, copies: env.RECOVERY as R2, env, fault: fault === 'stop-after-d1', failErase: fault?.startsWith('fail-erase:') ? fault.slice('fail-erase:'.length) : null, failCopyBack: fault?.startsWith('fail-copyback:') ? fault.slice('fail-copyback:'.length) : null };
+	const ctx: Ctx = { client, db: env.DB as D1, bucket: env.BUCKET as R2, copies: env.RECOVERY as R2, env, fault: fault === 'stop-after-d1', failErase: fault?.startsWith('fail-erase:') ? fault.slice('fail-erase:'.length) : null, failCopyBack: fault?.startsWith('fail-copyback:') ? fault.slice('fail-copyback:'.length) : null, reconciled: false };
 	if (recoveryClient !== client) {
 		// The other client's identifier is never echoed, as in the storage gate.
 		const object = await ctx.copies.get('identity/client.json');
@@ -139,6 +139,9 @@ async function catalog(ctx: Ctx) {
 	const parents = ['export_job', 'results_version'].filter((t) => caseT.has(t));
 	return { versionT, exportT, caseT: [...caseT].filter((t) => !parents.includes(t) && t !== 'restore_object'), parents };
 }
+
+/** A restore_object intent whose lease (GRS-109's RESTORE_LEASE_MS) still runs, in D1's clock, the one that set it. */
+const LEASED = "in_progress = 1 AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 
 type Plan = { versions: string[]; exports: string[]; originals: string[]; leftovers?: string[]; uploads?: { key: string; id: string }[] };
 const union = (a: string[], b: string[]) => [...new Set([...a, ...b])].sort();
@@ -190,13 +193,12 @@ async function eraseNow(ctx: Ctx, caseId: string, set: [string, D1Value[]], cond
 	];
 	await guarded(ctx.db, condition[0], condition[1], statements);
 	if (ctx.fault || ctx.failErase === caseId) throw new Error('probe fault: the Worker stopped after the D1 commit and before the R2 deletes');
-	// A restore that entered before the removal may have recorded an intent after the first scan. Keep the intents until
-	// their R2 writes finish, then include every key they name in the final sweep.
-	const until = Date.now() + 30_000;
-	while (await first(ctx.db, 'SELECT 1 AS x FROM restore_object WHERE case_id = ? AND in_progress = 1', caseId)) {
-		if (Date.now() >= until) throw new Error('restore write still in progress');
-		await new Promise<void>((resolve) => setTimeout(resolve, 20));
-	}
+	// A restore that entered before the removal may have recorded an intent after the first scan. One whose lease runs may
+	// still publish its object: the case stays unfinished, checked once and never waited for, and a later reconcile tries again.
+	// One whose lease has run out is dead: its writer aborted its PUT by then, so its object is in R2 or never will be, and the
+	// sweep below takes every key the intents name.
+	const leased = await first<{ expires_at: string }>(ctx.db, `SELECT max(expires_at) AS expires_at FROM restore_object WHERE case_id = ? AND ${LEASED}`, caseId);
+	if (leased?.expires_at) throw new Error(`a restore write holds its lease until ${leased.expires_at}`);
 	const late = (await all<{ k: string }>(ctx.db, 'SELECT object_key AS k FROM restore_object WHERE case_id = ?', caseId)).map((r) => r.k);
 	plan.leftovers = union(plan.leftovers ?? [], late);
 	await ctx.db.prepare('UPDATE case_deletion SET erase_plan = ? WHERE case_id = ?').bind(JSON.stringify(plan), caseId).run();
@@ -216,7 +218,7 @@ async function eraseNow(ctx: Ctx, caseId: string, set: [string, D1Value[]], cond
 	for (const key of plan.leftovers ?? []) if (!keys.includes(key) && !(await named(ctx, key))) keys.push(key);
 	for (let i = 0; i < keys.length; i += 1000) await ctx.bucket.delete(keys.slice(i, i + 1000));
 	for (const u of plan.uploads ?? []) await ctx.bucket.resumeMultipartUpload(u.key, u.id).abort().catch(() => undefined); // an unsealed export's parts
-	await guarded(ctx.db, "NOT EXISTS (SELECT 1 FROM restore_object WHERE case_id = ? AND in_progress = 1)", [caseId], [
+	await guarded(ctx.db, `NOT EXISTS (SELECT 1 FROM restore_object WHERE case_id = ? AND ${LEASED})`, [caseId], [
 		['DELETE FROM restore_object WHERE case_id = ?', [caseId]],
 		["UPDATE case_deletion SET erased_at = coalesce(erased_at, ?), erase_error = NULL WHERE case_id = ? AND state = 'removed'", [new Date().toISOString(), caseId]],
 	]);
@@ -323,6 +325,7 @@ async function readLedger(ctx: Ctx): Promise<Map<string, DeletionRecord>> {
  * is its own unit: one whose erasure fails stays removed and unfinished (its requests are refused) and the others go on.
  */
 async function reconcile(ctx: Ctx) {
+	ctx.reconciled = true;
 	const ledger = await readLedger(ctx);
 	const removed = await all<Deletion>(ctx.db, "SELECT * FROM case_deletion WHERE state = 'removed'");
 	for (const d of removed) {
@@ -352,7 +355,9 @@ const recordHeld = async (ctx: Ctx, caseId: string) => !!(await ctx.bucket.head(
 async function removedCase(ctx: Ctx, caseId: string): Promise<boolean> {
 	const d = await deletionOf(ctx, caseId);
 	if (d?.state === 'removed') {
-		if (d.erased_at === null) await reconcile(ctx); // an erasure that stopped part-way: finish it before the case is treated as erased
+		// An erasure that stopped part-way: finish it before the case is treated as erased, once a request; a new isolate's
+		// reconcile has already tried it in this one.
+		if (d.erased_at === null && !ctx.reconciled) await reconcile(ctx);
 		return true;
 	}
 	if (!(await recordHeld(ctx, caseId))) return false;

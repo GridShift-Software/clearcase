@@ -2132,8 +2132,9 @@ def fix_round_line(root, head, merge_base, path):
     wave state that tip holds). The oldest commit of HEAD's first-parent line that holds the manifest is the merge that
     brought the line in, and the one other parent holding the same manifest is the line's tip. (None, None) when the
     manifest was committed on HEAD's own line, changed after the merge, or came in any other way, when any commit of that
-    line from the merge base to HEAD is not a merge (a commit made on the wave, before the join or after it), or when Git
-    cannot say: then the whole range from the fix base is the fix round's. Two Git runs read the line and its manifests."""
+    line from the merge base to HEAD is not a two-parent merge (a commit made on the wave, or an octopus merge, before
+    the join or after it), or when Git cannot say: then the whole range from the fix base is the fix round's. Two Git
+    runs read the line and its manifests."""
     _, out, problem = git(root, "rev-list", "--first-parent", "--parents", head, f"^{merge_base}")
     line = [] if problem else [row.split() for row in os.fsdecode(out).splitlines()]
     if not line or line[0][0] != head:
@@ -2148,7 +2149,7 @@ def fix_round_line(root, head, merge_base, path):
     joined = 0
     while joined + 1 < len(line) and blobs[line[joined + 1][0]]:
         joined += 1
-    if not blobs[head] or any(len(row) < 3 for row in line):
+    if not blobs[head] or any(len(row) != 3 for row in line):
         return None, None
     parents = line[joined][1:]
     holders = [parent for parent in parents[1:] if blobs[parent] == blobs[head]]

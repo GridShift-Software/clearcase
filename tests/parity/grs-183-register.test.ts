@@ -1,5 +1,5 @@
 // GRS-183: the register entries that waive the evidence-list fixes (IDR-088, 090, 141, 147, 148 and the entries
-// split from 090 and 148) cover the one difference each names and nothing else. The register's own matcher is asked
+// split from 090 and 148, in the main file and CC-04) cover the one difference each names and nothing else. The register's own matcher is asked
 // about synthetic wrong values; each one must stay unregistered so strict parity fails on it. Synthetic text only.
 import { describe, expect, it } from 'vitest';
 import { covering } from '../../scripts/parity/lib/compare.mjs';
@@ -32,7 +32,7 @@ describe('GRS-183 register entries waive only the corrected value', () => {
 
 	describe.each([
 		['chronology', 'any_text_status', 'filter_sort_ui', 'b0.t0.s2.q0.date.asc', [`${NOTHING}|shown 0`], ['IDR-090', 'IDR-092', 'IDR-093', 'IDR-094', 'IDR-095']],
-		['search', 'any', 'search_filters', 's2', [`${NOTHING}|shown 0`, NOTHING], ['IDR-148', 'IDR-096', 'IDR-097', 'IDR-098', 'IDR-099']],
+		['search', 'any', 'search_filters', 's2', [`${NOTHING}|shown 0`, NOTHING], ['IDR-148', 'IDR-149', 'IDR-500', 'IDR-501', 'IDR-502']],
 	] as const)('%s: the empty OCR text-status option', (view, select, sweep, key, empty, ids) => {
 		const list = (n: string) => `list.select.${select}.${n}`;
 		const sweepPaths = view === 'search' ? [`sweep.${sweep}.${key}.set`, `sweep.${sweep}.${key}.order`] : [`sweep.${sweep}.${key}`];
@@ -96,7 +96,7 @@ describe('GRS-183 register entries waive only the corrected value', () => {
 
 	it('every entry this branch adds or changes is unapproved', () => {
 		const by = new Map((register.entries as { id: string; approvedBy: string | null; approvedOn: string | null }[]).map((e) => [e.id, e]));
-		for (const id of ['IDR-088', 'IDR-089', 'IDR-090', 'IDR-092', 'IDR-093', 'IDR-094', 'IDR-095', 'IDR-096', 'IDR-097', 'IDR-098', 'IDR-099', 'IDR-141', 'IDR-145', 'IDR-147', 'IDR-148'])
+		for (const id of ['IDR-088', 'IDR-089', 'IDR-090', 'IDR-092', 'IDR-093', 'IDR-094', 'IDR-095', 'IDR-141', 'IDR-145', 'IDR-147', 'IDR-148', 'IDR-149', 'IDR-500', 'IDR-501', 'IDR-502'])
 			expect(by.get(id), id).toMatchObject({ approvedBy: null, approvedOn: null });
 	});
 });

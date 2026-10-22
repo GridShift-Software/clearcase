@@ -13,7 +13,7 @@
 //   (30 days) without touching live data or bundle history; rotation also ages out restore packets that name no case;
 // - bundle history, a stand-in for GRS-128's PDF bundle versions, so rotation can be shown to leave it alone.
 import storage from '../../storage/src/worker.ts';
-import { type D1, type D1Value, type Env, type R2, type R2Object, type R2ObjectBody, fixedLength, hasBody, hex, sha256Hex } from '../../storage/src/platform.ts';
+import { type D1, type D1Statement, type D1Value, type Env, type R2, type R2Object, type R2ObjectBody, fixedLength, hasBody, hex, sha256Hex } from '../../storage/src/platform.ts';
 
 class Refused extends Error {
 	readonly status: number;
@@ -610,15 +610,44 @@ async function route(request: Request, env: RecoveryEnv): Promise<Response> {
 	return storage.fetch(request, env);
 }
 
+/** The D1 binding, adding each statement it runs, alone or in a batch, to `count`: D1 limits the queries of one invocation. */
+function countedD1(db: D1, count: { statements: number }): D1 {
+	const raw = new WeakMap<D1Statement, D1Statement>();
+	const wrap = (s: D1Statement): D1Statement => {
+		const w: D1Statement = {
+			bind: (...values) => wrap(s.bind(...values)),
+			first: <T>() => (count.statements++, s.first<T>()),
+			all: <T>() => (count.statements++, s.all<T>()),
+			run: () => (count.statements++, s.run()),
+		};
+		raw.set(w, s);
+		return w;
+	};
+	return {
+		prepare: (text) => wrap(db.prepare(text)),
+		batch: <T>(statements: D1Statement[]) => ((count.statements += statements.length), db.batch<T>(statements.map((s) => raw.get(s) ?? s))),
+	};
+}
+
+async function answer(request: Request, env: RecoveryEnv): Promise<Response> {
+	try {
+		return await route(request, env);
+	} catch (e) {
+		if (e instanceof Refused) return json({ code: e.code, ...e.detail }, e.status);
+		return json({ code: 'internal', message: String(e instanceof Error ? e.message : e) }, 500);
+	} finally {
+		if (request.body && !request.bodyUsed) await request.body.pipeTo(new WritableStream()).catch(() => undefined);
+	}
+}
+
 export default {
 	async fetch(request: Request, env: RecoveryEnv): Promise<Response> {
-		try {
-			return await route(request, env);
-		} catch (e) {
-			if (e instanceof Refused) return json({ code: e.code, ...e.detail }, e.status);
-			return json({ code: 'internal', message: String(e instanceof Error ? e.message : e) }, 500);
-		} finally {
-			if (request.body && !request.bodyUsed) await request.body.pipeTo(new WritableStream()).catch(() => undefined);
-		}
+		if (env.PROBE_HOOKS !== '1' || !isBinding(env.DB, 'prepare', 'batch')) return answer(request, env);
+		// The probe's deployment answers with the number of D1 statements the whole request ran, the storage Worker's included.
+		const count = { statements: 0 };
+		const res = await answer(request, { ...env, DB: countedD1(env.DB as D1, count) });
+		const out = new Response(res.body, res);
+		out.headers.set('x-probe-d1-statements', String(count.statements));
+		return out;
 	},
 };

@@ -997,6 +997,11 @@ async function restoreStep(ctx: Ctx, request: Request, packetId: string): Promis
 				if (/SHA-256/i.test(String(err))) refuse(422, 'digest-mismatch', { entry: e.path });
 				throw err;
 			}
+			const publishedHold = ctx.probeHooks ? request.headers.get('x-probe-published-hold') : null;
+			if (publishedHold !== null) {
+				if (!HOLD_TOKEN.test(publishedHold)) refuse(400, 'invalid-field', { field: 'x-probe-published-hold' });
+				await holdHere(publishedHold)();
+			}
 			await restoreBatch(ctx, caseId, [['UPDATE restore_object SET in_progress = 0 WHERE case_id = ? AND object_key = ?', [caseId, target]]]);
 		} catch (err) {
 			if (ctx.deletionGuard && err instanceof Refused && err.code === 'case-deleted' && published) {

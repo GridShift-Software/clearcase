@@ -22,7 +22,7 @@ import { DESCRIPTOR_SIZE, type Entry, crc32, descriptor, localHeader, trailer } 
 const HERE = import.meta.dirname;
 const STORAGE = path.join(HERE, '../storage');
 const SCHEMA = 'clearcase.recovery-probe/1';
-const LEGS = ['build', 'provision', 'crossed-recovery', 'seed', 'rollback', 'copies', 'deletion-flow', 'deletion-reapply', 'restore-from-copy', 'retention', 'restore-leftovers', 'ledger-guards', 'warm-isolate', 'interrupted-erasure', 'restore-removal-race'] as const;
+const LEGS = ['build', 'provision', 'crossed-recovery', 'seed', 'rollback', 'copies', 'deletion-flow', 'deletion-reapply', 'restore-from-copy', 'retention', 'restore-leftovers', 'ledger-guards', 'warm-isolate', 'interrupted-erasure', 'restore-removal-race', 'dead-intent'] as const;
 type LegName = (typeof LEGS)[number];
 type Measure = Record<string, number | string | boolean>;
 type Leg = { status: 'PASS' | 'FAIL' | 'NOT RUN'; commands: string[]; asserted: string[]; measured: Measure; failure?: string };
@@ -76,6 +76,7 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	'warm-isolate': [5, 6],
 	'interrupted-erasure': [9, 16],
 	'restore-removal-race': [10, 12],
+	'dead-intent': [7, 8],
 };
 type Spec = null | boolean | number | string | RegExp | ((v: unknown) => boolean) | Spec[] | { [key: string]: Spec };
 const NONEMPTY = (v: unknown) => typeof v === 'string' && v.length > 0;
@@ -83,6 +84,9 @@ const POSITIVE = (v: unknown) => Number.isSafeInteger(v) && (v as number) > 0;
 const MS = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0; // a local wall time; zero would hide a zeroed field
 const RETRIES = (v: unknown) => isObject(v) && Object.keys(v).sort().join() === 'count,requests' && Array.isArray(v.requests) && v.requests.every(NONEMPTY) && v.count === v.requests.length;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+/** D1's limit on the queries of one Worker invocation on Workers Paid (storage.md's numeric envelope). Local workerd enforces none. */
+const D1_QUERY_LIMIT = 1000;
+const WITHIN_D1 = (v: unknown) => POSITIVE(v) && (v as number) <= D1_QUERY_LIMIT;
 /** What each leg measures, and what each value must be. Counts the legs fix are literals; timings are local only. */
 const MEASURES: Record<LegName, Record<string, Spec>> = {
 	build: { workerBytes: POSITIVE },
@@ -100,6 +104,7 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 	'warm-isolate': { routesGone: 9, repeatedRemovals: 1, residueRows: 0 },
 	'interrupted-erasure': { interruptedRemovals: 2, finishedByRoute: 1, finishedByNewIsolate: 1, objectsLeftAfterFinish: 0, residueRows: 0, failedErasuresIsolated: 1, otherCasesServed: 1, staleErrorsAfterCopyBack: 0 },
 	'restore-removal-race': { lateWrites: 0, residueRows: 0, lateFinishRows: 0, pendingHeld: 1 },
+	'dead-intent': { deadIntents: 1, liveLeaseStatements: WITHIN_D1, expiredLeaseStatements: WITHIN_D1, objectsLeft: 0, residueRows: 0 },
 };
 const ENV_KEYS = ['CI', 'CLOUDFLARE_CF_FETCH_ENABLED', 'CLOUDFLARE_INCLUDE_PROCESS_ENV', 'CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV', 'HOME', 'PATH', 'WRANGLER_HIDE_BANNER', 'WRANGLER_LOG_PATH', 'WRANGLER_SEND_ERROR_REPORTS', 'WRANGLER_SEND_METRICS', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME'];
 
@@ -1196,6 +1201,48 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			const pendingAfter = d1('client-a', `SELECT erased_at, erase_error FROM case_deletion WHERE case_id = '${pendingCase}'`)[0] as { erased_at: string | null; erase_error: string | null };
 			check(code(pendingAnswer, 409, 'case-deleted') && code(removedAnswer, 410, 'case-deleted') && !!pendingAfter.erased_at && pendingAfter.erase_error === null && pendingResidue.left.length === 0 && !(await held('live', `orig/${pendingSha}`)), `the late R2 write is cleaned before erased_at is set (step ${pendingAnswer.status}, removal ${removedAnswer.status}, rows ${pendingResidue.left.join(', ')})`);
 			Object.assign(m, { lateWrites: object ? 1 : 0, residueRows: res.left.length, lateFinishRows: finishResidue.left.length, pendingHeld: pendingBefore });
+		});
+		await leg('dead-intent', ['POST /restore/packets, PUT …/1, POST …/complete, POST …/open for a synthetic backup', 'POST …/step with x-probe-published-hold: dead-write, GET /probe/storage-hold/dead-write, GET /probe/erasure/<case>, GET /recovery/head/live/orig/<sha>', wcmd('r2 object put {recovery-a,recovery-copies-a}/deletion/<case>.json --local'), `SIGKILL to workerd while the step is held, then ${serveCmd('client-a')} (a new isolate)`, 'GET /cases/<case>/documents/<ref> (x-probe-d1-statements), GET /probe/erasure/<case>, ' + wcmd('d1 execute DB --local --env client-a --command "SELECT erased_at, erase_error FROM case_deletion"'), wcmd('d1 execute DB --local --env client-a --command "UPDATE restore_object SET expires_at = <past>"') + ' (the lease runs out)', 'GET /cases/<case>/documents/<ref> (x-probe-d1-statements), GET /probe/erasure/<case>, GET /recovery/head/live/orig/<sha>, the residue through Wrangler'], async (check, m) => {
+			const caseId = 'case-recovery-dead-intent';
+			const bytes = synthetic('recovery probe dead restore original', 60);
+			const sha = sha256(bytes);
+			const v = versionOf('dead restore');
+			const packet = await upload(backupZip(caseId, v, [{ path: `originals/${sha}`, kind: 'original', bytes }]));
+			check((await post(`/restore/packets/${packet}/open`, { caseId })).status === 200, 'the dead-step backup opens for a case without live results');
+			const dying = http(`/restore/packets/${packet}/step`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-probe-published-hold': 'dead-write' }, body: JSON.stringify({ caseId, from: 1 }), timeout: 60_000 }).then((r) => r.status, () => null);
+			let waiting = false;
+			for (let i = 0; i < 200 && !waiting; i++) {
+				waiting = (await http('/probe/storage-hold/dead-write')).json().waiting === true;
+				if (!waiting) await sleep(50);
+			}
+			const before = (await json(`/probe/erasure/${caseId}`)) as { pending: number };
+			check(waiting && before.pending === 1 && (await held('live', `orig/${sha}`)), 'the step has published its original and is held before it clears its pending intent');
+			const stamp = new Date().toISOString();
+			const record = { format: 'clearcase.deletion-record/1', client: 'client-a', caseId, requestedBy: 'firm-admin:fa-1', requestedAt: stamp, approvedBy: 'global-admin:ga-1', approvedAt: stamp, offeredExport: { exportId: crypto.randomUUID(), sha256: '0'.repeat(64), size: 1, offeredAt: stamp }, removedBy: 'global-admin:ga-1', removedAt: stamp };
+			const recordFile = path.join(scratch, 'dead-intent-record.json');
+			writeFileSync(recordFile, JSON.stringify(record));
+			check(r2put('client-a', 'recovery-a', `deletion/${caseId}.json`, recordFile).code === 0 && r2put('client-a', 'recovery-copies-a', `deletion/${caseId}.json`, recordFile).code === 0, 'both buckets hold the case\'s deletion record while the step is held');
+			// The Worker dies mid-step, as an evicted isolate does: nothing runs the step's catch or its clear.
+			const workerd = (server as Server | null)?.tree.filter((p) => p.exe === 'workerd') ?? [];
+			for (const p of workerd) process.kill(p.pid, 'SIGKILL');
+			const died = await dying;
+			await serve('client-a');
+			check(workerd.length > 0 && died !== 200, `the step dies with its Worker (answer ${died ?? 'none'})`);
+			const statements = (r: Res) => Number(r.headers.get('x-probe-d1-statements'));
+			const liveLease = await http(`/cases/${caseId}/documents/S-0001`, { timeout: 60_000 });
+			const during = (await json(`/probe/erasure/${caseId}`)) as { state: string | null; erasedAt: string | null; pending: number };
+			const duringRow = d1('client-a', `SELECT erased_at, erase_error FROM case_deletion WHERE case_id = '${caseId}'`)[0] as { erased_at: string | null; erase_error: string | null } | undefined;
+			check(code(liveLease, 410, 'case-deleted') && WITHIN_D1(statements(liveLease)), `a new isolate reconciles the removal within D1's per-invocation limit while the dead intent's lease runs (${statements(liveLease)} statements, limit ${D1_QUERY_LIMIT}, answer ${liveLease.status})`);
+			check(during.state === 'removed' && during.erasedAt === null && during.pending === 1 && typeof duringRow?.erase_error === 'string', `erasure stays unfinished, with erase_error set, while the lease runs (erase_error ${duringRow?.erase_error ?? null})`);
+			d1('client-a', `UPDATE restore_object SET expires_at = '2000-01-01T00:00:00.000Z' WHERE case_id = '${caseId}' AND in_progress = 1`);
+			const expiredLease = await http(`/cases/${caseId}/documents/S-0001`, { timeout: 60_000 });
+			check(code(expiredLease, 410, 'case-deleted') && WITHIN_D1(statements(expiredLease)), `once the lease has run out the next reconcile stays within D1's per-invocation limit (${statements(expiredLease)} statements)`);
+			const after = (await json(`/probe/erasure/${caseId}`)) as { state: string | null; erasedAt: string | null; pending: number };
+			const afterRow = d1('client-a', `SELECT erased_at, erase_error FROM case_deletion WHERE case_id = '${caseId}'`)[0] as { erased_at: string | null; erase_error: string | null };
+			const left = await held('live', `orig/${sha}`);
+			const res = residue('client-a', caseId, [v], []);
+			check(!!after.erasedAt && after.pending === 0 && afterRow.erase_error === null && !left && res.left.length === 0, `it treats the intent as dead, erases the original the dead step published, and clears the intent before erased_at (object ${left}, rows ${res.left.join(', ')})`);
+			Object.assign(m, { deadIntents: before.pending, liveLeaseStatements: statements(liveLease), expiredLeaseStatements: statements(expiredLease), objectsLeft: left ? 1 : 0, residueRows: res.left.length });
 		});
 	} catch (e) {
 		failure = e instanceof Error ? e.message : String(e);

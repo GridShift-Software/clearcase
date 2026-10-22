@@ -1,0 +1,37 @@
+# Local workerd only (GRS-108): no account, no deploy. One build serves two Workers: the client instance (client A's
+# app with its own D1 and R2) and the staff app (its own D1, no case store). Every binding is local (remote = false);
+# the database ids are placeholders that no Cloudflare account holds. serve.mjs adds the Clerk keys at start, over a pipe.
+name = "clearcase-identity-probe"
+main = ".svelte-kit/cloudflare/_worker.js"
+compatibility_date = "2026-10-12"
+compatibility_flags = ["nodejs_als"]
+send_metrics = false
+
+[assets]
+directory = ".svelte-kit/cloudflare"
+binding = "ASSETS"
+
+[env.client]
+name = "clearcase-identity-probe-client"
+vars = { APP_KIND = "client" }
+
+[[env.client.d1_databases]]
+binding = "DB"
+database_name = "probe-identity-client"
+database_id = "00000000-0000-4000-8000-000000000108"
+remote = false
+
+[[env.client.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "probe-identity-client"
+remote = false
+
+[env.staff]
+name = "clearcase-identity-probe-staff"
+vars = { APP_KIND = "staff" }
+
+[[env.staff.d1_databases]]
+binding = "DB"
+database_name = "probe-identity-staff"
+database_id = "00000000-0000-4000-8000-000000000109"
+remote = false

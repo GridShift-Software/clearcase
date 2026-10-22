@@ -1948,6 +1948,7 @@ class GuardResidual(GuardCase):
                 ('constructor from an object', 'const { constructor: C } = {} as any; C.is = () => true;'),
                 ('computed constructor from an object', "const { ['constructor']: C } = {} as any; C.is = () => true;"),
                 ('nested constructor from an object', 'const { inner: { constructor: C } } = { inner: {} } as any; C.is = () => true;'),
+                ('nested constructor from an array', 'const [{ constructor: C }] = [{}] as any; C.is = () => true;'),
                 ('prototype from an array', 'const { __proto__: P } = [] as any; P.includes = () => true;'),
                 ('assignment destructuring', 'let C: any; ({ constructor: C } = {}); C.is = () => true;'),
                 ('getPrototypeOf then constructor', 'const C: any = Object.getPrototypeOf({}).constructor; C.is = () => true;')):
@@ -1957,12 +1958,20 @@ class GuardResidual(GuardCase):
         self.route('bare export star of an Object alias',
                    {'src/api.ts': "export * from './cap';\n" + self.weakened},
                    base={'src/cap.ts': 'const O = Object; export { O as P };\n'}, why='reaches the test framework')
+        self.route('bare export star through another module',
+                   {'src/api.ts': "export * from './middle';\n" + self.weakened},
+                   base={'src/cap.ts': 'export const P = Object;\n',
+                         'src/middle.ts': "export * from './cap';\n"}, why='reaches the test framework')
         self.route('bare export star of a plain value',
                    {'src/api.ts': "export * from './plain';\n" + self.weakened},
                    base={'src/plain.ts': 'export const count = 1;\n'})
+        self.route('bare export star does not forward a default capability',
+                   {'src/api.ts': "export * from './default-only';\n" + self.weakened},
+                   base={'src/default-only.ts': 'export default Object;\n'})
 
     def test_changed_commonjs_exports_fail_closed(self):
         for label, line in (('module.exports', 'module.exports = { count: 1 };\n'),
+                            ('computed module exports', "module['exports'] = { count: 1 };\n"),
                             ('exports property', 'exports.x = { count: 1 };\n'),
                             ('computed exports property', "exports['x'] = { count: 1 };\n")):
             self.route(label, {'src/api.ts': "import './c.cjs';\n" + self.weakened,

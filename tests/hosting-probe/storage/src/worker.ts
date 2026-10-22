@@ -488,15 +488,18 @@ const holdHere = async () => {
 	while (probeHold.waiting) await new Promise<void>((resolve) => setTimeout(resolve, 20));
 };
 
+/** The case's user work and its revision in one read: one D1 batch runs as one transaction, so the revision names exactly the rows read with it. */
 async function snapshot(ctx: Ctx, caseId: string, between?: () => Promise<void>) {
-	const tables: Record<string, { columns: string[]; rows: Row[] }> = {};
-	for (const t of await uwTables(ctx)) {
-		const columns = await columnsOf(ctx, t);
-		const rows = await ctx.db.all(`SELECT * FROM ${t} WHERE case_id = ? ORDER BY ${columns.map((_, i) => i + 1).join(', ')}`, caseId);
-		tables[t] = { columns, rows };
-	}
+	const names = await uwTables(ctx);
+	const columns = await Promise.all(names.map((t) => columnsOf(ctx, t)));
 	await between?.();
-	const rev = (await ctx.db.first<{ rev: number }>('SELECT rev FROM case_rev WHERE case_id = ?', caseId))?.rev ?? 0;
+	const out = await ctx.db.batch([
+		...names.map((t, i): [string, D1Value[]] => [`SELECT * FROM ${t} WHERE case_id = ? ORDER BY ${columns[i]!.map((_, k) => k + 1).join(', ')}`, [caseId]]),
+		['SELECT rev FROM case_rev WHERE case_id = ?', [caseId]],
+	]);
+	const tables: Record<string, { columns: string[]; rows: Row[] }> = {};
+	names.forEach((t, i) => (tables[t] = { columns: columns[i]!, rows: out[i]!.results }));
+	const rev = (out[names.length]!.results[0] as { rev: number } | undefined)?.rev ?? 0;
 	return { format: 'clearcase.user-work/1', caseId, rev, tables };
 }
 

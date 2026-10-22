@@ -5,7 +5,7 @@
   "reviewFindingsSha256": "2d30b6102fdedd60fcec23c0d85ba5bf4d066df5df822d273f92e496b0f2004d",
   "review": {
     "reviewedHead": "3423d90b8c9423e623c8b7556e6d24305635093e",
-    "note": "Two independent T3 code-review axes; full findings and dispositions in docs/acceptance/CC-25/GRS-194-review.md. fixBase is the red regression commit. All unrun real-export boundaries remain HOLD."
+    "note": "Two independent T3 code-review axes; full findings and dispositions in docs/acceptance/CC-25/GRS-194-review.md. fixBase is the red regression commit. All unrun real-export boundaries remain HOLD. The guard cannot resolve Svelte component imports in the two UI regressions (confirmed by a FAIL receipt); they remain unchanged, runtime-tested and independently source-reviewed, but are explicitly unprotected by this guard. Top-level tests protect the existing v5-grouping and count-free-check class invariants only; a guard PASS must not be described as protecting the component regressions."
   },
   "findings": [
     {
@@ -18,7 +18,8 @@
           "file": "tests/analysis/supplemental-render.test.ts",
           "name": "reveals bidi and zero-width characters in evidence text and relationship labels"
         }
-      ]
+      ],
+      "unprotected": "The current guard cannot resolve Svelte component imports. Runtime regression and independent source review retained; no guard coverage claimed for this test."
     },
     {
       "file": "src/routes/v/[vid]/analysis/timeline/+page.svelte",
@@ -30,7 +31,8 @@
           "file": "tests/case-package/newer-analysis-views.test.ts",
           "name": "the Timeline lists every event once under its explicitly assigned date phase"
         }
-      ]
+      ],
+      "unprotected": "The current guard cannot resolve Svelte component imports. Runtime regression and independent source review retained; no guard coverage claimed for this test."
     },
     {
       "file": "docs/compatibility.md",
@@ -43,12 +45,12 @@
   ],
   "tests": [
     {
-      "file": "tests/analysis/supplemental-render.test.ts",
-      "name": "reveals bidi and zero-width characters in evidence text and relationship labels"
+      "file": "src/lib/views/analysis/supplemental.test.ts",
+      "name": "keeps v5 year-based grouping"
     },
     {
-      "file": "tests/case-package/newer-analysis-views.test.ts",
-      "name": "the Timeline lists every event once under its explicitly assigned date phase"
+      "file": "src/lib/views/analysis/supplemental.test.ts",
+      "name": "shows both counted and count-free checks, retaining repeated source rows"
     }
   ]
 }

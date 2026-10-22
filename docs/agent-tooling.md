@@ -358,7 +358,7 @@ branch's own change again. The named tests are still compared token for token wh
 the base holds. Everything else refuses with the messages above: a branch edit after a merge or on top of a base change,
 an edit inside the merge commit, a revert of a reviewed change to the base's older copy, a path both sides changed (a
 hand-resolved union, which is a branch-side choice: PR #75's `vitest.config.ts` was one, and even Git's 3-way merge of it
-conflicts), a protected dependency added or deleted, a symlink, a mode change on top, a base HEAD has not merged
+conflicts), an added setup/helper dependency or a deleted protected dependency, a symlink, a mode change on top, a base HEAD has not merged
 (including one that moved on after the merge: merge it again), an unreadable base, and no `--base` (the default base sets
 the range only). A key that neither HEAD nor the fix base tracks, such as a derived entry whose file is not mapped, is never the base's
 change. A criss-cross history also refuses falsely: if the fix base merged a `dev` config change Q and `dev` merged the branch's P, the
@@ -409,7 +409,10 @@ the path. Per kind of path:
 
 An unchanged branch merging any base change passes: an addition, a change, a deletion or a rename of a test, a runtime
 file or a fixture, and a change to a helper or the runner configuration. A protected fixture or helper the base deletes,
-and a configuration or setup file the base adds, refuse, as before. Four kinds of path are unaffected: the branch's own
+and a setup/helper dependency the base adds, refuse, as before. A runner configuration, a module it imports or a derived
+package entry (test scripts or resolution fields) absent at review passes when the merged trusted base added its origin
+file and HEAD holds that origin's full blob and mode unchanged (GRS-195). Candidate additions, edits or deletions,
+symlinks, mode changes, copied or unmerged base files, and missing or implicit trust still refuse. Four kinds of path are unaffected: the branch's own
 new test or fixture, a path the reviewed commit had deleted (a merge base still holds it), a path the base added or
 changed after HEAD's last merge, and a later base change to a path HEAD already holds. A base commit HEAD received is no
 reference for a path it had not changed when it and the fix base parted, such as a test the branch added before a

@@ -1906,6 +1906,13 @@ function main() {
   // stays as each reference holds it: as reviewed, and as the base holds a path it changed after the review, whichever
   // reference's closure protects that path. No reason excuses a change there.
   const dependency = (file, origin, oldText, newText, reference) => {
+    // A runner configuration or derived package entry can be absent at review because the merged base added its file.
+    // Keep additions to setup/helper dependencies strict; equality here includes the origin's full blob and mode.
+    if (oldText === undefined && newText !== undefined && !oldClosure.ids.has(origin)
+        && (currentClosure.runner.has(origin) || file !== origin) && fromBase(origin)) {
+      inherited.push(file);
+      return;
+    }
     if (oldText === undefined || newText === undefined) throw Error(`protected dependency added/deleted: ${file}${against(reference)}`);
     if (tokens(oldText) === tokens(newText)) return;
     if (fromBase(origin)) {

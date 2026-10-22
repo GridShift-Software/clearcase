@@ -2646,7 +2646,6 @@ class FixRoundConfigurationAdditions(ControlCase):
     on_dev = FixRoundMergedBase.on_dev
     merge = FixRoundMergedBase.merge
     guard = FixRoundMergedBase.guard
-    other = FixRoundMergedBase.other
 
     def setUp(self):
         super().setUp()
@@ -2679,7 +2678,26 @@ class FixRoundConfigurationAdditions(ControlCase):
                 ({'package.json': json.dumps({'type': 'module', 'scripts': {'test': 'vitest run'}})}, 'package.json#scripts')):
             with self.subTest(entry=entry):
                 self.receive(files)
-                self.assertIn(entry, self.guard('--base', 'dev'))
+                out = self.guard('--base', 'dev')
+                self.assertIn(entry, out)
+                if entry == 'package.json#scripts':
+                    self.assertIn('package.json#resolution', out)
+
+    def test_a_candidate_edit_to_an_inherited_configuration_module_or_package_refuses(self):
+        package = {'type': 'module', 'scripts': {'test': 'vitest run'}}
+        for files, changed, entry in (
+                ({self.added: "import shared from './shared';\nexport default shared;\n",
+                  'tests/deployment/shared.ts': self.config},
+                 {'tests/deployment/shared.ts': self.config.replace('include:', 'exclude:')}, 'tests/deployment/shared.ts'),
+                ({'package.json': json.dumps(package)},
+                 {'package.json': json.dumps({**package, 'version': '1.0.0'})}, 'package.json#scripts'),
+                ({'package.json': json.dumps(package)},
+                 {'package.json': json.dumps({**package, 'scripts': {'test': 'vitest run --exclude tests/protected.test.ts'}})},
+                 'package.json#scripts')):
+            with self.subTest(entry=entry, changed=changed):
+                self.receive(files)
+                self.change(changed, 'the candidate changes inherited configuration')
+                self.assertIn(f'protected dependency added/deleted: {entry}', self.guard('--base', 'dev', code=1))
 
     def test_a_candidate_configuration_addition_change_or_deletion_refuses(self):
         for action in ('add', 'change', 'delete', 'mode', 'import'):

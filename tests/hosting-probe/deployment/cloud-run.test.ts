@@ -60,6 +60,24 @@ describe('run manifest and teardown', () => {
 		expect(w.provider.names()).toEqual(OTHERS);
 	});
 
+	test('two checkouts using an upsert provider keep the second run Worker after the first teardown', () => {
+		const w = world();
+		const resources = new Map<string, string>();
+		const provider = (owner: string): Provider => ({
+			create: (kind, name) => { resources.set(`${kind}/${name}`, owner); },
+			remove: (kind, name) => { resources.delete(`${kind}/${name}`); },
+		});
+		const first = openRun({ dir: w.manifests, ticket: '107', worker: 'w1', sha: 'abc1234', kinds: ['worker'], provider: provider('first'), trap: false });
+		const second = openRun({ dir: path.join(path.dirname(w.manifests), 'other-checkout-runs'), ticket: '107', worker: 'w1', sha: 'abc1234', kinds: ['worker'], provider: provider('second'), trap: false });
+		first.create('worker');
+		second.create('worker');
+		expect(resources.get(`worker/${second.name}`)).toBe('second');
+		first.teardown();
+		expect(resources.get(`worker/${second.name}`)).toBe('second');
+		second.teardown();
+		expect(resources.size).toBe(0);
+	});
+
 	test('the manifest lists every resource before the first is created', () => {
 		const w = world();
 		mkdirSync(path.join(w.cloud, 'r2', NAME), { recursive: true });

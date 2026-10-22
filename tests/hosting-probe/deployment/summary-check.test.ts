@@ -66,6 +66,16 @@ describe('the committed deployment summary is bound to an ancestor commit and to
 		expect(r.check().join('\n')).toMatch(/P1-discovery must hold 6 nonempty assertions/);
 	});
 
+	test('a PASS leg with an invented command and assertion is refused', () => {
+		const r = repo();
+		r.record((s) => {
+			const leg = (s.legs as Record<string, { steps: { cmd: string }[]; asserted: string[] }>)['P1-discovery']!;
+			leg.steps[0]!.cmd = 'invented deployment command';
+			leg.asserted[0] = 'invented deployment assertion';
+		});
+		expect(r.check().join('\n')).toMatch(/P1-discovery.*(steps|assertions)/);
+	});
+
 	test('a PASS summary without its run metadata is refused', () => {
 		const r = repo();
 		r.record((s) => delete s.runDir);

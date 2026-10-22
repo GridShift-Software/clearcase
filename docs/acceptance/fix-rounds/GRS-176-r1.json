@@ -46,6 +46,9 @@
       ]
     }
   ],
+  "assertionCountReasons": {
+    "tests/ci/pc1-vm-verify.test.ts": "GRS-165 moved the original PC1 verification monolith into tests/ci/pc1-vm-provision-registration.test.ts, tests/ci/pc1-vm-verification.test.ts, tests/ci/pc1-vm-stored-verdicts.test.ts, and tests/ci/pc1-vm-github-lifecycle.test.ts. The GRS-165 recheck found all 64 original test-bearing statements token-for-token in order and all 115 original runtime test names preserved in order; tests/ci/pc1-vm-split-inventory.test.ts checks the four suites against tests/ci/pc1-vm-test-inventory.json. The old path's 356 assertions moved with those tests; this reason records that free-test move and does not excuse edits to protected tests, helpers, or runner configuration."
+  },
   "tests": [
     { "file": "tests/parity/pending-coverage.test.ts", "name": "an extra saved-note item is refused despite its register wildcard" },
     { "file": "tests/parity/pending-coverage.test.ts", "name": "the pending register entries cover only their observed structures" },

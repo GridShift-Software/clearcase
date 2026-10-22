@@ -84,8 +84,12 @@ export const globRe = (g) => new RegExp(`^${g.replace(/[.+^${}()|[\]\\]/g, '\\$&
 const valueMatches = (want, got) => want === undefined || (typeof want === 'string' ? want === got : new RegExp(want.re, 's').test(got));
 /** Conditions between the two values that no pin on either side can state (`when.relation`). An unknown name matches nothing. */
 const RELATIONS = {
-	/** The app shows v5's text without the ellipsis v5 appended, so a short excerpt is waived only against its own text. */
-	'app-is-v5-without-ellipsis': (v5, app) => v5.endsWith('…') && app === v5.slice(0, -1),
+	/**
+	 * The app shows v5's text without the ellipsis v5 appended, so a short excerpt is waived only against its own text.
+	 * v5's value was normalized with the ellipsis attached, which keeps the white space before it ('text …') and stops
+	 * the number and date rules, so the text left of the ellipsis is normalized again, as the app's value already was.
+	 */
+	'app-is-v5-without-ellipsis': (v5, app) => v5.endsWith('…') && app === norm(v5.slice(0, -1)),
 };
 
 /** The register entry that covers a difference, or null. Proposed (unapproved) entries apply unless approvedOnly. */

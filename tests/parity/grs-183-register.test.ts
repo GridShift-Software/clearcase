@@ -21,6 +21,19 @@ describe('GRS-183 register entries waive only the corrected value', () => {
 		expect(coveredBy('chronology', path, 'Synthetic excerpt…', 'Synthetic excerpt')).toBe('IDR-088');
 		// an excerpt ending in white space: v5 shows 'text …', and parity keeps that space inside v5's value but trims the app's
 		expect(coveredBy('chronology', path, 'Synthetic excerpt …', 'Synthetic excerpt')).toBe('IDR-088');
+		// a whole-number or date excerpt: the ellipsis also stopped the number and date rules on v5's side only
+		expect(coveredBy('chronology', path, '1,689…', '1689')).toBe('IDR-088');
+		expect(coveredBy('chronology', path, '9 Jan 1901…', '1901-01-09')).toBe('IDR-088');
+		// the text left of v5's ellipsis differs from the app's anywhere else
+		expect(coveredBy('chronology', path, 'Synthetic excerpt …', 'Synthetic excerp')).toBeNull();
+		expect(coveredBy('chronology', path, 'Synthetic excerpt …', 'Synthetic excerpt x')).toBeNull();
+		expect(coveredBy('chronology', path, 'Synthetic excerpt …', 'Synthetic')).toBeNull();
+		expect(coveredBy('chronology', path, 'Synthetic excerpt …', '<absent>')).toBeNull();
+		expect(coveredBy('chronology', path, '1,689…', '1688')).toBeNull();
+		expect(coveredBy('chronology', path, '9 Jan 1901…', '1901-01-10')).toBeNull();
+		// v5 shows nothing but its ellipsis, or a cut of 140 characters whose last is white space
+		expect(coveredBy('chronology', path, '…', '')).toBeNull();
+		expect(coveredBy('chronology', path, `${'x'.repeat(139)} …`, 'x'.repeat(139))).toBeNull();
 		// the excerpt vanished, or the app shows another row's text
 		expect(coveredBy('chronology', path, 'Synthetic excerpt…', '<absent>')).toBeNull();
 		expect(coveredBy('chronology', path, 'Synthetic excerpt…', 'Another row text')).toBeNull();
@@ -35,7 +48,7 @@ describe('GRS-183 register entries waive only the corrected value', () => {
 
 	it('IDR-088 covers what diff() makes of a short excerpt, white space at its end or not', () => {
 		const snap = (side: 'v5' | 'app', excerpt: string) => ({ ...emptySnapshot('chronology', side), tables: { table_1: { columns: [{ id: 'ref', label: 'Ref' }, { id: 'excerpt', label: 'Excerpt' }], key: 'ref', rows: [{ ref: 'SY-1', excerpt }] } } });
-		for (const raw of ['Synthetic excerpt', 'Synthetic excerpt ', 'Synthetic excerpt\n', 'Synthetic excerpt \u00a0\n']) {
+		for (const raw of ['Synthetic excerpt', 'Synthetic excerpt ', 'Synthetic excerpt\n', 'Synthetic excerpt \u00a0\n', '1,689', '9 Jan 1901']) {
 			// v5's preview is the first 140 code units and an ellipsis, always; the app shows a short excerpt whole
 			const r = classify('chronology', diff(snap('v5', `${raw.slice(0, 140)}…`), snap('app', raw)), register.entries);
 			expect(r.unregistered, JSON.stringify(raw)).toEqual([]);

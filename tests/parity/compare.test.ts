@@ -83,6 +83,10 @@ describe('register coverage', () => {
 		const at = (v5: string, app: string) => covering(e, 'chronology', { path: 'text.x', kind: 'value', v5, app });
 		expect(at('short text…', 'short text')).not.toBeNull();
 		expect(at('short text …', 'short text')).not.toBeNull();
+		expect(at('1,689…', '1689')).not.toBeNull();
+		expect(at('short text …', 'short tex')).toBeNull();
+		expect(at('short text …', '<absent>')).toBeNull();
+		expect(at('1,689…', '1688')).toBeNull();
 		expect(at('short text…', 'other text')).toBeNull();
 		expect(at('short text…', '<absent>')).toBeNull();
 		expect(at('short text', 'short text')).toBeNull();

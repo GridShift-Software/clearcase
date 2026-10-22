@@ -65,6 +65,35 @@ name = "EMAIL"
 allowed_sender_addresses = ["notices@notify.client-a.example.test"]
 remote = false
 
+# `retry-hold`: the faults environment plus PROBE_HOOKS, which lets a publish with `x-probe-hold: <token>` stop between its
+# D1 commit and its inline first attempt until the runner releases that token (at most 30 s), so the runner can run a
+# scheduled sweep at that point. Only this environment binds it, never the default one or a product deployment. Its
+# FAULT_PLAN fails every send of case-a9 transiently, so the only thing a second attempt can show is its timing.
+[env.retry-hold]
+[env.retry-hold.vars]
+CLIENT_ID = "client-a"
+APP_ORIGIN = "https://client-a.example.test"
+SENDER = "notices@notify.client-a.example.test"
+SEND_TIMEOUT_MS = "1500"
+PROBE_HOOKS = "1"
+FAULT_PLAN = '{"case-a9/publication":["E_RATE_LIMIT_EXCEEDED","E_RATE_LIMIT_EXCEEDED","E_RATE_LIMIT_EXCEEDED"]}'
+
+[[env.retry-hold.d1_databases]]
+binding = "DB"
+database_name = "notifications-probe-local-only"
+database_id = "00000000-0000-4000-8000-000000000111"
+remote = false
+
+[[env.retry-hold.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "notifications-probe-local-only"
+remote = false
+
+[[env.retry-hold.send_email]]
+name = "EMAIL"
+allowed_sender_addresses = ["notices@notify.client-a.example.test"]
+remote = false
+
 # Three misconfigurations of client A's Worker. The Worker's own check (src/notice.ts) compares the origin and the sender
 # it was configured with against the values derived from CLIENT_ID, so the first two are refused before any send. The
 # third reaches the binding, whose allowed_sender_addresses must refuse the send.

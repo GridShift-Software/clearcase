@@ -60,6 +60,7 @@ const CASE_STRINGS: Record<string, string[]> = {
 	'case-a6': ['SYN-A6-0006', 'case-a6'],
 	'case-a7': ['Synthetic Matter A7', 'SYN-A7-0007', 'case-a7'],
 	'case-a8': ['Synthetic Matter A8', 'SYN-A8-0008', 'case-a8'],
+	'case-a9': ['Synthetic Matter A9', 'SYN-A9-0009', 'case-a9'],
 	'case-b1': ['Synthetic Matter B1', 'SYN-B1-0001', 'case-b1', 'Synthetic Pleading B1', 'b1-pleading.pdf'],
 };
 const OTHER_ADDRESSES = ['viewer-a@client-a.example.test', 'publisher-a@client-a.example.test', 'operator-a@client-a.example.test', 'uploader-b@client-b.example.test', 'publisher-b@client-b.example.test', 'notify.client-b.example.test'];
@@ -332,8 +333,8 @@ async function main(out: string, adverse: string | null): Promise<number> {
 	const opsSeen: string[] = [];
 	/** Every messageId the app reported in any response: what it saw come back from send(). */
 	const appIds = new Set<string>();
-	async function http(method: string, pathname: string, as?: string, body?: unknown) {
-		const headers: Record<string, string> = { authorization: `Bearer ${canaries[0]}`, cookie: `__session=${canaries[1]}` };
+	async function http(method: string, pathname: string, as?: string, body?: unknown, extra: Record<string, string> = {}) {
+		const headers: Record<string, string> = { authorization: `Bearer ${canaries[0]}`, cookie: `__session=${canaries[1]}`, ...extra };
 		if (as) headers['x-probe-identity'] = as;
 		if (body !== undefined) headers['content-type'] = 'application/json';
 		const res = await fetch(BASE + pathname, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'manual', signal: AbortSignal.timeout(20_000) });
@@ -589,6 +590,36 @@ async function main(out: string, adverse: string | null): Promise<number> {
 			check(rows.filter((n) => n.state === 'failed').map((n) => `${n.caseId}:${n.acceptance}`).join() === 'case-a2:refused,case-a7:refused' && rows.filter((n) => n.possibleDuplicate).map((n) => n.caseId).join() === 'case-a8,case-a3,case-a4', 'failed notices and possible duplicates are listed, not hidden');
 			const text = opsSeen.join('\n');
 			check(rows.every((n) => /^not observed/.test(n.delivery) && /^not observed/.test(n.inbox)) && !text.includes('@client-a.example.test') && !Object.values(CASE_STRINGS).flat().some((f) => !f.startsWith('case-') && text.includes(f)), 'the view keeps acceptance apart from delivery and inbox, and carries no address, case title, document title, file name or reference');
+			await stop();
+		});
+
+		// A publication held between its D1 commit and its inline first attempt, while a scheduled sweep takes and fails the
+		// row: the held first attempt must find the row not due and leave it alone (the 5-minute wait is not skipped).
+		await leg('retry-wait-held', [d1Cmd('retry-hold', '--file schema.sql'), serveCmd('retry-hold'), 'POST /cases/case-a9/publish with x-probe-hold: wait-1 (held between its D1 commit and its first attempt), GET /probe/hold/wait-1', 'GET /ops/notifications (a-operator)', 'scheduled sweep at the current time (faults: E_RATE_LIMIT_EXCEEDED x3)', 'POST /probe/hold/wait-1/release, GET /ops/notifications (a-operator)', 'scheduled sweep at +6 min after the held sweep'], async (check) => {
+			check(d1('retry-hold', '--file', 'schema.sql').code === 0, 'schema.sql applied to the retry-hold state');
+			server = await serve('retry-hold');
+			const held = http('POST', '/cases/case-a9/publish', A('a-publisher'), { round: 1, file: fileFor('case-a9', 1) }, { 'x-probe-hold': 'wait-1' });
+			let waiting = false;
+			for (let i = 0; i < 200 && !waiting; i++) {
+				waiting = (await http('GET', '/probe/hold/wait-1')).json?.waiting === true;
+				if (!waiting) await new Promise((r) => setTimeout(r, 50));
+			}
+			const before = await opsRow('case-a9');
+			check(waiting && before?.state === 'pending' && before.attempts === 0 && before.nextAttemptAt === null, 'the publication is held by the probe-only hook after its D1 commit: its outbox row is pending with no attempt, and its first attempt has not run');
+			const at = Date.now();
+			const swept = await sweep(at);
+			const taken = await opsRow('case-a9');
+			check(swept.json?.outcome === 'ok' && taken?.state === 'retrying' && history(taken) === '1:transient:E_RATE_LIMIT_EXCEEDED' && Date.parse(taken.nextAttemptAt) === at + 5 * 60_000, 'a scheduled sweep takes the committed row while the first attempt is held: attempt 1 is refused as transient and attempt 2 is due 5 minutes after the sweep');
+			await http('POST', '/probe/hold/wait-1/release', undefined, {});
+			const answered = await held;
+			check(answered.status === 200 && answered.json?.published === true && answered.json.created === true, 'the held publication is released and answers 200 as created');
+			const after = await opsRow('case-a9');
+			check(after?.attempts === 1 && history(after) === '1:transient:E_RATE_LIMIT_EXCEEDED' && after.state === 'retrying', `the released first attempt makes no second attempt before the wait ends: one attempt in the history (${history(after)})`);
+			check(after?.nextAttemptAt === taken?.nextAttemptAt && answered.json?.notice?.attempts === 1 && answered.json.notice.nextAttemptAt === taken?.nextAttemptAt, "the row keeps its next attempt time, and the publication's response reports the row as it is");
+			await sweep(at + 6 * 60_000);
+			const retried = await opsRow('case-a9');
+			check(retried?.attempts === 2 && history(retried) === '1:transient:E_RATE_LIMIT_EXCEEDED 2:transient:E_RATE_LIMIT_EXCEEDED' && Date.parse(retried.nextAttemptAt) === at + 36 * 60_000, 'the sweep after the wait makes attempt 2; attempt 3 is due 30 minutes later');
+			check(published(await intact('case-a9'), 'case-a9') && (await savedMessages(server!, 0)).length === 0, 'the publication, its file and the in-app notice are intact; nothing was saved');
 			await stop();
 		});
 

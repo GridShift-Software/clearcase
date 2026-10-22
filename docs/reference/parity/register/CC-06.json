@@ -650,28 +650,6 @@
       "approvedOn": "2026-10-21"
     },
     {
-      "id": "IDR-452",
-      "view": "settlement_tab",
-      "field": [
-        "kpi.pessimistic_p_25.sub",
-        "kpi.base_p_*.sub",
-        "kpi.optimistic_p_15.sub"
-      ],
-      "when": {
-        "v5": "",
-        "app": {
-          "re": "^Recovery probability (100|[1-9]?\\d)%$"
-        }
-      },
-      "type": "defect-fix",
-      "source": "S-settlement_tab-4",
-      "reason": "Each scenario card now states its actual recovery probability, including when the pessimistic or optimistic probability is clamped. The model's money values are unchanged; the visible probability explains them.",
-      "productVisible": true,
-      "author": "GRS-185 (GPT-6-Sol)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-453",
       "view": "settlement_tab",
       "field": "sweep.model.p10.k0.label",
@@ -862,7 +840,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-settlement_tab-4",
-      "reason": "v5's scenario labels do not reflect probability clamping, and its undiscounted enforcement cost is unexplained. ClearCase shows each actual recovery probability and labels clamped scenarios with their actual values. It states that the cost is undiscounted and subtracted after discounting the claim. The arithmetic remains unchanged pending a model decision. Evidence: src/lib/views/quantum/settlement.ts:57.",
+      "reason": "v5's scenario labels do not reflect probability clamping, and its undiscounted enforcement cost is unexplained. ClearCase shows each actual recovery probability and labels clamped scenarios with their actual values. It states that the cost is undiscounted and subtracted after discounting the claim. The arithmetic remains unchanged pending a model decision. Evidence: src/lib/views/quantum/settlement.ts:54.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

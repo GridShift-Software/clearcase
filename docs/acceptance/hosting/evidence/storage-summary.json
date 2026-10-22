@@ -1,16 +1,16 @@
 {
   "schema": "clearcase.storage-probe/1",
-  "sourceSha": "0493a66d06206fae872bb03f8cee01ddc6e732cb",
+  "sourceSha": "45e736f9d6ccf9c87f50872eb2e6963f43a5581f",
   "inputs": {
-    "tests/hosting-probe/storage": "eaf0a724b92dbc51077982de02ac535e0b626cde",
+    "tests/hosting-probe/storage": "bce6315efbad87136428ca896242bd82f9005420",
     "tests/e2e/pilot/offline.sh": "f10ef9f0b803bb058b17fe456b0b27788b32dad6"
   },
   "treeClean": true,
   "scale": "poc",
   "seed": "grs-109",
-  "startedAt": "2026-10-21T22:26:48.244Z",
-  "finishedAt": "2026-10-21T22:35:02.021Z",
-  "runDir": ".local/hosting-probe/storage/2026-10-21T22-26-48-244Z",
+  "startedAt": "2026-10-22T03:34:22.696Z",
+  "finishedAt": "2026-10-22T03:42:36.560Z",
+  "runDir": ".local/hosting-probe/storage/2026-10-22T03-34-22-695Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -25,7 +25,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:7f46511fc9ab5e2b4edea8450ac724156219d4751e33795ff6405b12dfdbe224",
+  "artifact": "sha256:7deddd7325bc7448ceaa91920a06ea68db9ad1a3edf34cd1ee10cccb6a81f633",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [
@@ -153,7 +153,7 @@
         "the bundle imports no node:, bun: or CommonJS module"
       ],
       "measured": {
-        "workerBytes": 79954
+        "workerBytes": 80720
       }
     },
     "provision": {
@@ -220,7 +220,7 @@
         "finalize without a size answers 400 naming the field, never a default (400 {\"code\":\"invalid-field\",\"field\":\"size\"})"
       ],
       "measured": {
-        "wallMs": 55487.7,
+        "wallMs": 56952,
         "originals": 1662,
         "bytes": 3211390882,
         "multipart": 9,
@@ -260,7 +260,7 @@
       ],
       "measured": {
         "recoveredRows": 3253,
-        "wallMs": 5283.8,
+        "wallMs": 5633.5,
         "documents": 1689,
         "assets": 3054,
         "seeds": 7,
@@ -305,10 +305,10 @@
         "chronologyR2Ops": 1,
         "originalRangeD1Statements": 1,
         "originalRangeR2Ops": 1,
-        "coldDocumentMs": 17.9,
-        "warmDocumentMs": 3,
-        "coldChronologyMs": 8.2,
-        "warmChronologyMs": 5.5
+        "coldDocumentMs": 24.2,
+        "warmDocumentMs": 3.3,
+        "coldChronologyMs": 10.1,
+        "warmChronologyMs": 6.4
       }
     },
     "range": {
@@ -339,10 +339,10 @@
         "client A's deployment knows no asset of client B's case (404, from A's own database)"
       ],
       "measured": {
-        "wholeLargestMs": 5300.7,
-        "rangeOnLargestMs": 2267.1,
+        "wholeLargestMs": 5555.1,
+        "rangeOnLargestMs": 2350.3,
         "largestOriginalBytes": 258590305,
-        "workerdPeakRssBytes": 476676096
+        "workerdPeakRssBytes": 474923008
       }
     },
     "write-once": {
@@ -458,9 +458,9 @@
         "the source deployment’s state digest covers the case’s rows and every object, none missing"
       ],
       "measured": {
-        "wallMs": 101170.2,
-        "workerdPeakRssBytes": 1141628928,
-        "offlineCheckMs": 2489.6,
+        "wallMs": 105368.6,
+        "workerdPeakRssBytes": 986300416,
+        "offlineCheckMs": 2777.8,
         "entries": 1706,
         "packetBytes": 3222959051,
         "parts": 385,
@@ -525,7 +525,7 @@
         "finishing the same restore again answers 409 already-restored and changes nothing"
       ],
       "measured": {
-        "wallMs": 117823.2,
+        "wallMs": 104408.3,
         "entries": 1706,
         "steps": 32,
         "objects": 1700
@@ -581,6 +581,28 @@
       "measured": {
         "refusals": 17
       }
+    },
+    "snapshot-consistency": {
+      "status": "PASS",
+      "commands": [
+        "POST /cases/<case>/registers/notes/add (3 rows)",
+        "GET /cases/<case>/work with x-probe-hold (held inside the snapshot), GET /probe/hold",
+        "POST /cases/<case>/registers/notes/add while the snapshot is held, POST /probe/hold/release",
+        "POST /cases/<case>/work/restore with that snapshot at the current revision",
+        "GET /cases/<case>/work"
+      ],
+      "asserted": [
+        "three saves are written: the case is at revision 3 with 3 rows",
+        "a snapshot read is held inside the Worker by the probe-only hook, as far as its reads have run",
+        "a save is acknowledged while the snapshot is held: revision 4",
+        "the save acknowledged while the snapshot was read survives a restore of that snapshot at the current revision (the snapshot named revision 4 and held 4 rows; the restore answered 200 written)",
+        "the snapshot's revision names exactly the rows it holds (revision 4, 4 rows): one read, not two"
+      ],
+      "measured": {
+        "savesDuringSnapshot": 1,
+        "savesLost": 0,
+        "snapshotRows": 4
+      }
     }
   },
   "hold": [
@@ -601,7 +623,7 @@
   "failure": null,
   "evidence": true,
   "checker": {
-    "mutationsRefused": 2144,
+    "mutationsRefused": 2216,
     "accepted": null
   }
 }

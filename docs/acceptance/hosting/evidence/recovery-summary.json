@@ -1,18 +1,18 @@
 {
   "schema": "clearcase.recovery-probe/1",
-  "sourceSha": "0493a66d06206fae872bb03f8cee01ddc6e732cb",
+  "sourceSha": "45e736f9d6ccf9c87f50872eb2e6963f43a5581f",
   "inputs": {
-    "tests/hosting-probe/recovery": "035f767ce377559e5cbd2fb11349afb9702c6a0f",
-    "tests/hosting-probe/storage/src": "c1fad3cd5762cc8327d85a52c94b5b0eee51afff",
+    "tests/hosting-probe/recovery": "ce8cda33407d07977bbebcf22858aaae434b43bd",
+    "tests/hosting-probe/storage/src": "0a078dcc8a5a72d2eb4ec69db096ca6d8d979eb4",
     "tests/hosting-probe/storage/schema.sql": "d3e1b6993acbfefe4645b4956b7de4b1c2f6861a",
     "tests/hosting-probe/storage/package.json": "68ce3647be995e5402a2992970b7d20409c08950",
     "tests/hosting-probe/storage/bun.lock": "989d9825ebd42b7e6e22432a4cabf695e7c24b0e",
     "tests/e2e/pilot/offline.sh": "f10ef9f0b803bb058b17fe456b0b27788b32dad6"
   },
   "treeClean": true,
-  "startedAt": "2026-10-21T22:21:57.974Z",
-  "finishedAt": "2026-10-21T22:22:54.661Z",
-  "runDir": ".local/hosting-probe/recovery/2026-10-21T22-21-57-974Z",
+  "startedAt": "2026-10-22T03:32:18.808Z",
+  "finishedAt": "2026-10-22T03:33:22.762Z",
+  "runDir": ".local/hosting-probe/recovery/2026-10-22T03-32-18-808Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -27,7 +27,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:01a7954c844a687980ec0ec267104548caed7a76fd521fcc41a2893ce9dcefd9",
+  "artifact": "sha256:8cbf8f6b740857a7794db30c4cbe19303f15c7f265d1242f9afbedc93381a935",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [
@@ -57,7 +57,7 @@
         "the bundle imports no node:, bun: or CommonJS module"
       ],
       "measured": {
-        "workerBytes": 105228
+        "workerBytes": 106691
       }
     },
     "provision": {
@@ -268,10 +268,10 @@
       "measured": {
         "restoredOriginals": 2,
         "lostRowsAfterCopy": 2,
-        "stageMs": 4.7,
-        "restoreMs": 56.8,
-        "checksMs": 38.6,
-        "totalMs": 1546.7
+        "stageMs": 7.2,
+        "restoreMs": 95.7,
+        "checksMs": 67.1,
+        "totalMs": 1690.2
       }
     },
     "retention": {
@@ -374,6 +374,34 @@
         "repeatedRemovals": 1,
         "residueRows": 0
       }
+    },
+    "interrupted-erasure": {
+      "status": "PASS",
+      "commands": [
+        "PUT /originals/<sha256>, POST /cases/<case>/originals, import and activate a version, POST …/registers/notes/add, PUT …/bundles/b-1, seal an export, POST …/exports (left building), POST …/deletion/{request,approve,offer} for cases A5 and A6",
+        "POST /cases/<A6>/deletion/remove with x-probe-fault: stop-after-d1, GET /cases/<A6>/deletion, GET /recovery/head/{live,copies}/<key>",
+        "node ../storage/node_modules/wrangler/bin/wrangler.js dev --local --env client-a --ip 127.0.0.1 --port 18810 --inspector-port 0 --persist-to <run>/persist (a new isolate), GET /recovery/copies, GET /recovery/head/live/<key>",
+        "POST /cases/<A5>/deletion/remove with x-probe-fault: stop-after-d1",
+        "GET /cases/<A5>/documents/<ref> on the same running Worker, GET /recovery/head/live/<key>",
+        "node ../storage/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-a --command \"SELECT state, erased_at, erase_plan FROM case_deletion\" --persist-to <run>/persist; POST /cases/<A6>/deletion/remove (a repeat)"
+      ],
+      "asserted": [
+        "cases A5 and A6 each hold a package file, a list, an original, a sealed export and a bundle version, with an export left building, and their removal is offered",
+        "A6's removal stops after its D1 commit: D1 holds it as removed, its deletion record is in both buckets, and the request answered 500",
+        "a new isolate answers its first request",
+        "the new isolate's first request finished A6's erasure: its package file, list, original, export and bundle version are gone from the live bucket ( left)",
+        "A5's removal stops after its D1 commit on the running Worker: D1 holds it as removed and its five objects are still in the live bucket",
+        "the next request for A5 on the same Worker answers 410 and finishes the erasure: no object of A5 is left ()",
+        "each case records when its erasure finished, its plan names the export upload that was left open, and no row of either case is left in any table",
+        "a repeated removal of a finished case is a no-op that keeps the time the erasure first finished"
+      ],
+      "measured": {
+        "interruptedRemovals": 2,
+        "finishedByRoute": 1,
+        "finishedByNewIsolate": 1,
+        "objectsLeftAfterFinish": 0,
+        "residueRows": 0
+      }
     }
   },
   "hold": [
@@ -388,7 +416,7 @@
   "failure": null,
   "evidence": true,
   "checker": {
-    "mutationsRefused": 1329,
+    "mutationsRefused": 1426,
     "accepted": null
   }
 }

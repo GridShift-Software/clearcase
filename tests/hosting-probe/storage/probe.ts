@@ -1377,7 +1377,7 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 
 		// ----- a snapshot read while another save commits (the snapshot's rows and its revision are one read) -----
 		await serve('client-a');
-		await leg('snapshot-consistency', ['POST /cases/<case>/registers/notes/add (3 rows)', 'GET /cases/<case>/work with x-probe-hold (held inside the snapshot), GET /probe/hold', 'POST /cases/<case>/registers/notes/add while the snapshot is held, POST /probe/hold/release', 'POST /cases/<case>/work/restore with that snapshot at the current revision', 'GET /cases/<case>/work', 'GET /cases/<case>/work with x-probe-hold, never released (held up to the 30 s bound)', 'GET /cases/<case>/work with x-probe-hold: hold-a and hold-b, GET /probe/hold/{hold-a,hold-b}, POST /probe/hold/hold-a/release, POST /probe/hold/hold-b/release'], async (check, m) => {
+		await leg('snapshot-consistency', ['POST /cases/<case>/registers/notes/add (3 rows)', 'GET /cases/<case>/work with x-probe-hold (held inside the snapshot), GET /probe/hold/1', 'POST /cases/<case>/registers/notes/add while the snapshot is held, POST /probe/hold/1/release', 'POST /cases/<case>/work/restore with that snapshot at the current revision', 'GET /cases/<case>/work', 'GET /cases/<case>/work with x-probe-hold, never released (held up to the 30 s bound)', 'GET /cases/<case>/work with x-probe-hold: hold-a and hold-b, GET /probe/hold/{hold-a,hold-b}, POST /probe/hold/hold-a/release, POST /probe/hold/hold-b/release'], async (check, m) => {
 			const snapCase = 'case-snapshot-race';
 			const note = (i: number) => post(`/cases/${snapCase}/registers/notes/add`, { fields: { label: `synthetic note ${i}` }, operationId: `op-snapshot-${i}` });
 			const first = await Promise.all([0, 1, 2].map((i) => note(i)));
@@ -1385,13 +1385,13 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			const snapshotRead = http(`/cases/${snapCase}/work`, { headers: { 'x-probe-hold': '1' }, timeout: 60_000 });
 			let waiting = false;
 			for (let i = 0; i < 200 && !waiting; i++) {
-				waiting = (await http('/probe/hold')).json().waiting === true;
+				waiting = (await http('/probe/hold/1')).json().waiting === true;
 				if (!waiting) await new Promise((r) => setTimeout(r, 50));
 			}
 			check(waiting, 'a snapshot read is held inside the Worker by the probe-only hook, as far as its reads have run');
 			const late = await note(3);
 			check(late.status === 200 && late.json().rev === 4 && late.json().repeated === false, 'a save is acknowledged while the snapshot is held: revision 4');
-			await post('/probe/hold/release', {});
+			await post('/probe/hold/1/release', {});
 			const snap = (await snapshotRead).json();
 			const rows = (snap.tables.uw_register_row.rows as { operation_id: string }[]).length;
 			const restore = await post(`/cases/${snapCase}/work/restore`, { expectedRev: 4, snapshot: snap });

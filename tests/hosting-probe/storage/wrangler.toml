@@ -8,7 +8,7 @@ no_bundle = true
 compatibility_date = "2026-10-12"
 send_metrics = false
 
-# PROBE_HOOKS lets a GET /cases/<case>/work with x-probe-hold stop inside its snapshot until the runner releases it, so the runner
+# PROBE_HOOKS lets a GET /cases/<case>/work with x-probe-hold: <token> stop inside its snapshot until the runner releases that token (at most 30 s), so the runner
 # can write there. It is bound only in client A's probe deployment, never in client B or a product deployment.
 [env.client-a]
 vars = { CLEARCASE_CLIENT_ID = "client-a", PROBE_HOOKS = "1" }

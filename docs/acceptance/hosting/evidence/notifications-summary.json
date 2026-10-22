@@ -1,11 +1,11 @@
 {
   "schema": "clearcase.notifications-probe/1",
-  "sourceSha": "0493a66d06206fae872bb03f8cee01ddc6e732cb",
+  "sourceSha": "d11231e4f4b2546fb655bec3a1bb7af974ee8ea7",
   "treeClean": true,
-  "servedRevision": "0493a66d06206fae872bb03f8cee01ddc6e732cb",
-  "startedAt": "2026-10-21T22:21:38.353Z",
-  "finishedAt": "2026-10-21T22:21:57.467Z",
-  "runDir": ".local/hosting-probe/notifications/2026-10-21T22-21-38-353Z",
+  "servedRevision": "d11231e4f4b2546fb655bec3a1bb7af974ee8ea7",
+  "startedAt": "2026-10-22T07:51:52.982Z",
+  "finishedAt": "2026-10-22T07:52:15.404Z",
+  "runDir": ".local/hosting-probe/notifications/2026-10-22T07-51-52-982Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -20,7 +20,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:96f5e8c1de4fc420ea4708b200c2db719f5181a6b182d4a34cc9d00803bf22e4",
+  "artifact": "sha256:18a32fada8e65185a6c23f19be7e62dc3540ec6943deeb6f519abb66f2fb1e64",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [
@@ -255,6 +255,28 @@
         "the view keeps acceptance apart from delivery and inbox, and carries no address, case title, document title, file name or reference"
       ]
     },
+    "retry-wait-held": {
+      "status": "PASS",
+      "commands": [
+        "node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env retry-hold --persist-to <run>/persist/retry-hold --file schema.sql",
+        "node node_modules/wrangler/bin/wrangler.js dev --local --ip 127.0.0.1 --port 18911 --inspector-ip 127.0.0.1 --inspector-port 0 --persist-to <run>/persist/retry-hold --show-interactive-dev-session=false --env retry-hold",
+        "POST /cases/case-a9/publish with x-probe-hold: wait-1 (held between its D1 commit and its first attempt), GET /probe/hold/wait-1",
+        "GET /ops/notifications (a-operator)",
+        "scheduled sweep at the current time (faults: E_RATE_LIMIT_EXCEEDED x3)",
+        "POST /probe/hold/wait-1/release, GET /ops/notifications (a-operator)",
+        "scheduled sweep at +6 min after the held sweep"
+      ],
+      "asserted": [
+        "schema.sql applied to the retry-hold state",
+        "the publication is held by the probe-only hook after its D1 commit: its outbox row is pending with no attempt, and its first attempt has not run",
+        "a scheduled sweep takes the committed row while the first attempt is held: attempt 1 is refused as transient and attempt 2 is due 5 minutes after the sweep",
+        "the held publication is released and answers 200 as created",
+        "the released first attempt makes no second attempt before the wait ends: one attempt in the history (1:transient:E_RATE_LIMIT_EXCEEDED)",
+        "the row keeps its next attempt time, and the publication's response reports the row as it is",
+        "the sweep after the wait makes attempt 2; attempt 3 is due 30 minutes later",
+        "the publication, its file and the in-app notice are intact; nothing was saved"
+      ]
+    },
     "sender-restriction": {
       "status": "PASS",
       "commands": [
@@ -323,7 +345,7 @@
       "env": "default",
       "caseId": "case-a1",
       "kind": "publication",
-      "text": "sha256:e23c1a66f3708189d2bf3bfc03dd46be01a64b7a20a17a05b2c5ab2fb85a7d9d",
+      "text": "sha256:201ba2cbc547ca43106bef64bc8b28c56fc77136c60c4b68f38d5f460ce89ae5",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -334,7 +356,7 @@
       "env": "default",
       "caseId": "case-a1",
       "kind": "input-needed",
-      "text": "sha256:9b3ce3d4372c5ede507f3fe2630e39ad30c4ec18ca90033d771f11e66a75132a",
+      "text": "sha256:6a565c529408c415cac0b84b0be5d183ded0ec26137106c46bb7590c47cf991a",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -345,7 +367,7 @@
       "env": "default",
       "caseId": "case-a8",
       "kind": "publication",
-      "text": "sha256:b1e6afa12078761f702734be3b8bfb68eb19f9df4581e75c9e37a47abb1a0cd4",
+      "text": "sha256:bdb95010225ee1bccad43534ab4b2a33f43f7ad2fd904258a74ef1ce654546e1",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -356,7 +378,7 @@
       "env": "faults",
       "caseId": "case-a8",
       "kind": "input-needed",
-      "text": "sha256:38765648e7eaed6150503c2b1c6b3a745ff2fb23eb17b64aa401f03fbd5a8145",
+      "text": "sha256:f0be546871b0e4e6b0b06bef6b3b2b295a70184c04ee04e2308090763c0e3139",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -367,7 +389,7 @@
       "env": "faults",
       "caseId": "case-a3",
       "kind": "publication",
-      "text": "sha256:a476654b0a21a131a2bcdb9150b27af4a6dadcaacd23334a80244882dad79fce",
+      "text": "sha256:258f52198f829c920a4e45a743f5a48973980e6799c74ac453b3d1baa9d29b92",
       "contentCheck": "PASS",
       "appSaw": "not seen: the attempt ended ambiguous",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -378,7 +400,7 @@
       "env": "faults",
       "caseId": "case-a3",
       "kind": "publication",
-      "text": "sha256:a476654b0a21a131a2bcdb9150b27af4a6dadcaacd23334a80244882dad79fce",
+      "text": "sha256:258f52198f829c920a4e45a743f5a48973980e6799c74ac453b3d1baa9d29b92",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -389,7 +411,7 @@
       "env": "faults",
       "caseId": "case-a4",
       "kind": "publication",
-      "text": "sha256:b0c2c85c24c59e9908b423a0329b93528850615b4a0a51e7d877f9cffe631912",
+      "text": "sha256:49e9a31b829b2b8196db80cb2374aa1caf8f576452c8948c0ff8493cf20c531e",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -407,7 +429,7 @@
   "failure": null,
   "evidence": true,
   "checker": {
-    "mutationsRefused": 1336,
+    "mutationsRefused": 1410,
     "accepted": null
   }
 }

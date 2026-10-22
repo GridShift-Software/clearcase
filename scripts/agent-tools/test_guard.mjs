@@ -546,7 +546,9 @@ const keyName = (tree, checker, key, declaredKey, seen = new Set()) => {
     }
     if (ts.isIdentifier(root)) {
       const declaration = declarationOf(checker, tree, root);
-      if (declaration && importedFrom(declaration) !== undefined) {
+      const alias = declaration && ts.isVariableDeclaration(declaration) && declaration.parent.flags & ts.NodeFlags.Const
+        && ts.isIdentifier(unwrap(declaration.initializer));
+      if (declaration && (importedFrom(declaration) !== undefined || alias)) {
         if (seen.has(declaration)) return UNRESOLVED_KEY;
         seen.add(declaration);
         try { return declaredKey(declaration, seen, members); } finally { seen.delete(declaration); }
@@ -628,7 +630,14 @@ const analysisOf = (file, text, exporter) => {
       const name = ts.isImportSpecifier(declaration) ? (declaration.propertyName ?? declaration.name).text : 'default';
       return fromKey(source, [name, ...members].join('.'), seen);
     }
-    if (members.length) return UNRESOLVED_KEY;
+    if (members.length) {
+      const target = ts.isVariableDeclaration(declaration) && declaration.parent.flags & ts.NodeFlags.Const
+        && ts.isIdentifier(unwrap(declaration.initializer)) ? declarationOf(checker, tree, unwrap(declaration.initializer)) : undefined;
+      if (!target) return undefined; // a local object's members can change at runtime
+      if (seen.has(target)) return UNRESOLVED_KEY;
+      seen.add(target);
+      try { return keyOfDeclaration(target, seen, members); } finally { seen.delete(target); }
+    }
     return ts.isVariableDeclaration(declaration) && ts.isIdentifier(declaration.name) && declaration.initializer
       && declaration.parent.flags & ts.NodeFlags.Const ? keyValue(declaration.initializer, seen) : undefined;
   };

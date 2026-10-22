@@ -551,6 +551,11 @@ async function route(request: Request, env: RecoveryEnv): Promise<Response> {
 		if (m === 'GET' && seg.length === 3) return inner(env, `/probe/hold/${seg[2]}`);
 		if (m === 'POST' && seg.length === 4 && seg[3] === 'release') return inner(env, `/probe/hold/${seg[2]}/release`, { method: 'POST' });
 	}
+	if (env.PROBE_HOOKS === '1' && m === 'GET' && seg[0] === 'probe' && seg[1] === 'erasure' && seg.length === 3 && isText(ID)(seg[2])) {
+		const d = await deletionOf(ctx, seg[2]);
+		const pending = await first<{ n: number }>(ctx.db, 'SELECT count(*) AS n FROM restore_object WHERE case_id = ? AND in_progress = 1', seg[2]);
+		return json({ state: d?.state ?? null, erasedAt: d?.erased_at ?? null, pending: pending?.n ?? 0 });
+	}
 	if (seg[0] === 'recovery') {
 		if (m === 'POST' && seg.length === 2 && seg[1] === 'copies') return makeCopy(ctx, request);
 		if (m === 'GET' && seg.length === 2 && seg[1] === 'copies') return json((await listed(ctx.copies, 'recovery/')).map((o) => ({ key: o.key, caseId: o.customMetadata?.caseId ?? null, sha256: o.customMetadata?.sha256 ?? null, size: o.size, uploaded: o.uploaded.toISOString() })));

@@ -1082,7 +1082,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			check(direct.code !== 0 && errorOf(a6) === null && row(a6).erased_at === erasedAt6, "the schema itself refuses an erase_error on an erased case: a direct write to A6's row fails and changes nothing");
 			Object.assign(m, { interruptedRemovals: 2, finishedByRoute: left5.length === 0 ? 1 : 0, finishedByNewIsolate: left6.length === 0 ? 1 : 0, objectsLeftAfterFinish: left5.length + left6.length, residueRows: res[0]!.left.length + res[1]!.left.length, failedErasuresIsolated: other.status === 200 && left7.length === 0 ? 1 : 0, otherCasesServed: other.status === 200 ? 1 : 0, staleErrorsAfterCopyBack: staleErrors });
 		});
-		await leg('restore-removal-race', ['POST /restore/packets, PUT …/1, POST …/complete, POST …/open for a synthetic backup', 'POST …/step with x-probe-hold: restore-late, GET /probe/hold/restore-late', 'seed the same case, activate a different version and seal an export', 'POST /cases/<case>/deletion/{request,approve,offer,remove}', 'POST /probe/hold/restore-late/release, GET /recovery/head/live/orig/<sha>', wcmd('d1 execute DB --local --env client-a --command "SELECT erased_at FROM case_deletion; SELECT * FROM restore_object"'), 'POST a complete backup …/open, …/step, then …/finish with x-probe-finish-hold: restore-finish-late', wcmd('r2 object put {recovery-a,recovery-copies-a}/deletion/<case>.json --local') + ', GET /cases/<case>/documents/<ref>, POST /probe/storage-hold/restore-finish-late/release', 'POST a simple backup …/step with x-probe-write-hold: restore-write-late, GET /probe/storage-hold/restore-write-late', wcmd('r2 object put both deletion/<case>.json --local') + ', GET /cases/<case>/documents/<ref> while held, POST /probe/storage-hold/restore-write-late/release'], async (check, m) => {
+		await leg('restore-removal-race', ['POST /restore/packets, PUT …/1, POST …/complete, POST …/open for a synthetic backup', 'POST …/step with x-probe-hold: restore-late, GET /probe/hold/restore-late', 'seed the same case, activate a different version and seal an export', 'POST /cases/<case>/deletion/{request,approve,offer,remove}', 'POST /probe/hold/restore-late/release, GET /recovery/head/live/orig/<sha>', wcmd('d1 execute DB --local --env client-a --command "SELECT erased_at FROM case_deletion; SELECT * FROM restore_object"'), 'POST a complete backup …/open, …/step, then …/finish with x-probe-finish-hold: restore-finish-late', wcmd('r2 object put {recovery-a,recovery-copies-a}/deletion/<case>.json --local') + ', GET /cases/<case>/documents/<ref>, POST /probe/storage-hold/restore-finish-late/release', 'POST a simple backup …/step with x-probe-write-hold: restore-write-late, GET /probe/storage-hold/restore-write-late', wcmd('r2 object put both deletion/<case>.json --local') + ', GET /probe/erasure/<case> while held, POST /probe/storage-hold/restore-write-late/release'], async (check, m) => {
 			const caseId = 'case-recovery-late';
 			const bytes = synthetic('recovery probe late restore original', 60);
 			const sha = sha256(bytes);
@@ -1174,7 +1174,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 				writeWaiting = (await http('/probe/storage-hold/restore-write-late')).json().waiting === true;
 				if (!writeWaiting) await sleep(50);
 			}
-			const pendingBefore = d1('client-a', `SELECT count(*) AS n FROM restore_object WHERE case_id = '${pendingCase}' AND in_progress = 1`)[0]?.n;
+			const pendingBefore = (await json(`/probe/erasure/${pendingCase}`) as { pending: number }).pending;
 			check(writeWaiting && pendingBefore === 1 && !(await held('live', `orig/${pendingSha}`)), 'the restore intent is pending in D1 before its original is published to R2');
 			const pendingRecord = { ...record, caseId: pendingCase, offeredExport: { ...record.offeredExport, exportId: crypto.randomUUID() } };
 			const pendingRecordFile = path.join(scratch, 'pending-record.json');
@@ -1184,11 +1184,11 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			const removingPending = http(`/cases/${pendingCase}/documents/S-0001`, { timeout: 60_000 });
 			let pendingRemoved = false;
 			for (let i = 0; i < 40 && !pendingRemoved; i++) {
-				pendingRemoved = d1('client-a', `SELECT state, erased_at FROM case_deletion WHERE case_id = '${pendingCase}'`)[0]?.state === 'removed';
+				pendingRemoved = (await json(`/probe/erasure/${pendingCase}`) as { state: string | null }).state === 'removed';
 				if (!pendingRemoved) await sleep(50);
 			}
-			const midErase = d1('client-a', `SELECT state, erased_at FROM case_deletion WHERE case_id = '${pendingCase}'`)[0] as { state: string; erased_at: string | null } | undefined;
-			check(pendingLiveRecord.code === 0 && pendingCopyRecord.code === 0 && midErase?.state === 'removed' && midErase.erased_at === null, 'removal records the case as removed but leaves erased_at unset while the restore write is pending');
+			const midErase = await json(`/probe/erasure/${pendingCase}`) as { state: string | null; erasedAt: string | null; pending: number };
+			check(pendingLiveRecord.code === 0 && pendingCopyRecord.code === 0 && midErase.state === 'removed' && midErase.erasedAt === null && midErase.pending === 1, 'removal records the case as removed but leaves erased_at unset while the restore write is pending');
 			await post('/probe/storage-hold/restore-write-late/release', {});
 			const pendingAnswer = await pendingStep;
 			const removedAnswer = await removingPending;

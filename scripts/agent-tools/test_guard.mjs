@@ -10,6 +10,7 @@ import { compile, parse } from 'svelte/compiler';
 import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { builtinModules, createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -1226,6 +1227,61 @@ function main() {
     return result.status ?? 1;
   };
   const findings = JSON.parse(readFileSync(options['--findings'], 'utf8'));
+  const protectedFiles = new Set();
+  if (Object.hasOwn(findings, 'protection')) {
+    const protection = findings.protection;
+    const refuse = why => { throw Error(`file protection ${why}`); };
+    const shape = (value, keys) => value && typeof value === 'object' && !Array.isArray(value)
+      && Object.keys(value).sort().join() === keys;
+    const full = value => typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value);
+    const repoPath = value => typeof value === 'string' && value.length && !/[\\\\\x00-\x1f\x7f]/.test(value)
+      && !path.isAbsolute(value) && value.split('/').every(part => part && !['.', '..', '.git', '.local', 'RAWS'].includes(part));
+    if (!shape(protection, 'files,kind,review') || protection.kind !== 'files'
+        || !Array.isArray(protection.files) || !protection.files.length) refuse('requires explicit kind files and a nonempty files list');
+    if (!Array.isArray(findings.tests) || findings.tests.length || Object.hasOwn(findings, 'noTests')) {
+      refuse('is exclusive with named tests and noTests; tests must be []');
+    }
+    if (!shape(protection.review, 'file,sha256') || !repoPath(protection.review.file)
+        || typeof protection.review.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(protection.review.sha256)) {
+      refuse('requires a committed review file and SHA256');
+    }
+    if (findings.fixBase !== base || !/^[0-9a-f]{64}$/.test(findings.reviewFindingsSha256 ?? '')
+        || typeof findings.unit !== 'string' || !/^[A-Z][A-Z0-9]*-[1-9][0-9]*\/[a-z][a-z0-9-]*$/.test(findings.unit)) {
+      refuse('requires the original unit and review findings hash');
+    }
+    const ancestor = (older, newer) => spawnSync('git', ['-C', root, 'merge-base', '--is-ancestor', older, newer], { env }).status === 0;
+    const commit = revision => {
+      if (!full(revision)) return false;
+      const result = spawnSync('git', ['-C', root, 'rev-parse', '--verify', `${revision}^{commit}`], { env, encoding: 'utf8' });
+      return result.status === 0 && result.stdout.trim() === revision;
+    };
+    const regular = (revision, file) => REGULAR.includes(tracked(revision).get(file)?.mode);
+    if (!regular(head, protection.review.file)) refuse('review must be a committed regular file');
+    const bytes = execFileSync('git', ['-C', root, 'show', `${head}:${protection.review.file}`], { env, maxBuffer: 32 * 1024 * 1024 });
+    if (createHash('sha256').update(bytes).digest('hex') !== protection.review.sha256) refuse('review hash differs from committed bytes');
+    const review = JSON.parse(bytes.toString('utf8'));
+    if (!shape(review, 'files,fixBase,fresh,implementer,reviewFindingsSha256,reviewedHead,reviewer,schema,unit,verdict')
+        || review.schema !== 'clearcase-file-protection-review/1' || review.unit !== findings.unit
+        || review.fixBase !== base || review.reviewFindingsSha256 !== findings.reviewFindingsSha256
+        || review.verdict !== 'PASS' || review.fresh !== true
+        || typeof review.reviewer !== 'string' || !review.reviewer.trim()
+        || typeof review.implementer !== 'string' || !review.implementer.trim() || review.reviewer === review.implementer
+        || !commit(review.reviewedHead) || !ancestor(base, review.reviewedHead) || !ancestor(review.reviewedHead, head)
+        || !Array.isArray(review.files) || review.files.length !== protection.files.length) refuse('review provenance or original range binding is invalid');
+    for (const [index, entry] of protection.files.entries()) {
+      const approved = review.files[index];
+      if (!shape(entry, 'file,revision') || !repoPath(entry.file) || !commit(entry.revision) || protectedFiles.has(entry.file)
+          || !shape(approved, 'file,revision') || approved.file !== entry.file || approved.revision !== entry.revision
+          || entry.file === protection.review.file || !ancestor(base, entry.revision) || !ancestor(entry.revision, review.reviewedHead)) {
+        refuse('files must be unique repository paths and full ancestor revisions identical to the separate review');
+      }
+      if (!regular(entry.revision, entry.file) || !regular(head, entry.file)
+          || treeEntry(entry.revision, entry.file) !== treeEntry(head, entry.file)) {
+        refuse(`committed regular-file bytes or mode changed/deleted: ${entry.file}`);
+      }
+      protectedFiles.add(entry.file);
+    }
+  }
   // A no-test declaration (docs/agent-tooling.md, Docs-only fix rounds): the review named no test, so the manifest names
   // none, binds the declaration to the reviewed commit and the review's findings hash, and gives a reason. Its range may
   // change only Markdown documentation outside code and test directories, and the manifest itself. Nothing else runs.
@@ -1279,7 +1335,7 @@ function main() {
     return proceed();
   }
   if (tip !== head) throw Error('a fix head bounds a no-test declaration only');
-  if (!Array.isArray(findings.tests) || !findings.tests.length) {
+  if (!Array.isArray(findings.tests) || (!findings.tests.length && !protectedFiles.size)) {
     throw Error('findings.tests must be a nonempty list of {file, name}; a fix round that protects no test declares it in noTests');
   }
   const reasons = findings.assertionCountReasons ?? {};
@@ -1953,7 +2009,7 @@ function main() {
   // loaded that way, the module under test and the test-support files it loads alike, so none may reach the test
   // framework, and none may newly load a test file or support code that does. Test files are collected as entries of
   // their own, so they are left to the assertion count below.
-  const compared = new Set([...oldClosure.found.keys(), ...currentClosure.found.keys()]);
+  const compared = new Set([...oldClosure.found.keys(), ...currentClosure.found.keys(), ...protectedFiles]);
   // Test files are left to their assertion counts only while the runner isolates each: Vitest and Jest do by default,
   // bun's runner does not, nor does a configuration or test script that turns isolation off or shares one worker.
   // Runner code is read without its comments; a test script counts as running bun test only as a command.
@@ -2084,7 +2140,7 @@ function main() {
     console.log(`test-guard: ${diff.length - changed.length} changed file(s) are the base's, not this branch's: the base ${trusted} `
       + `is merged into HEAD and HEAD holds each as it does; protected among them: ${[...new Set(inherited)].join(', ') || 'none'}`);
   }
-  console.log(`test-guard: PASS (${findings.tests.length} named tests; ${base}..${head}${trusted ? `; trusted base ${trusted}` : ''})`);
+  console.log(`test-guard: PASS (${findings.tests.length} named tests${protectedFiles.size ? `; file protection: ${protectedFiles.size} frozen files` : ''}; ${base}..${head}${trusted ? `; trusted base ${trusted}` : ''})`);
   return proceed();
 }
 try { process.exitCode = main(); }

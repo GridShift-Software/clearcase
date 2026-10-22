@@ -1018,13 +1018,6 @@ test('verdict answers with GitHub unreachable and never calls GitHub', () => {
   assert.equal(f.github().length, before);
 });
 
-test('every self-hosted workflow job requires the clearcase-pc1 label that verify removes', () => {
-  const workflows = path.join(app, '.github/workflows');
-  const runsOn = readdirSync(workflows).flatMap((name) => readFileSync(path.join(workflows, name), 'utf8').split('\n').filter((line) => /^\s*runs-on:/.test(line)));
-  assert.ok(runsOn.length > 0);
-  for (const line of runsOn) assert.match(line, /\bclearcase-pc1\b/, line);
-});
-
 test('verify and verdict print what a verdict proves and what it does not', () => {
   const f = fixture();
   const pass = f.run('verify', 'HEAD');

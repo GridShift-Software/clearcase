@@ -11,7 +11,7 @@
 | `S-bundle4` | medium | defects.md | registered | IDR-047 (defect-fix), IDR-110 (defect-fix), IDR-111 (defect-fix), IDR-120 (defect-fix), IDR-121 (defect-fix), IDR-132 (defect-fix), IDR-133 (defect-fix), IDR-122 (defect-fix) |  |
 | `S-overview-3` | medium | defects.md | registered | IDR-047 (defect-fix) |  |
 | `S-documents-*` | medium | defects.md | registered | IDR-110 (defect-fix), IDR-111 (defect-fix), IDR-107 (improvement), IDR-135 (defect-fix) |  |
-| `S-chronology-*` | medium | defects.md | registered | IDR-055 (defect-fix), IDR-056 (defect-fix), IDR-088 (defect-fix), IDR-090 (defect-fix), IDR-087 (defect-fix), IDR-089 (defect-fix), IDR-091 (known-gap) |  |
+| `S-chronology-*` | medium | defects.md | registered | IDR-055 (defect-fix), IDR-056 (defect-fix), IDR-088 (defect-fix), IDR-090 (defect-fix), IDR-092 (defect-fix), IDR-093 (defect-fix), IDR-094 (defect-fix), IDR-095 (defect-fix), IDR-087 (defect-fix), IDR-089 (defect-fix), IDR-091 (known-gap) |  |
 | `S-search-*` | medium | defects.md | registered | IDR-077 (defect-fix), IDR-120 (defect-fix), IDR-121 (defect-fix), IDR-132 (defect-fix), IDR-133 (defect-fix), IDR-122 (defect-fix), IDR-123 (improvement), IDR-142 (known-gap), IDR-143 (defect-fix), IDR-144 (known-gap), IDR-145 (defect-fix) |  |
 | `S-index-keys` | medium | defects.md | registered | IDR-170 (defect-fix) |  |
 | `S-seed-copy` | medium | defects.md | registered | IDR-101 (improvement) |  |
@@ -41,7 +41,7 @@
 | `S-chronology-2` | low | view-checklist.md | registered | IDR-087 (defect-fix) |  |
 | `S-chronology-3` | low | view-checklist.md | registered | IDR-088 (defect-fix) |  |
 | `S-chronology-4` | low | view-checklist.md | registered | IDR-089 (defect-fix) |  |
-| `S-chronology-5` | low | view-checklist.md | registered | IDR-090 (defect-fix) |  |
+| `S-chronology-5` | low | view-checklist.md | registered | IDR-090 (defect-fix), IDR-092 (defect-fix), IDR-093 (defect-fix), IDR-094 (defect-fix), IDR-095 (defect-fix) |  |
 | `S-chronology-6` | low | view-checklist.md | registered | IDR-091 (known-gap) |  |
 | `S-quantum_tab-1` | low | view-checklist.md | registered | IDR-240 (defect-fix) |  |
 | `S-quantum_tab-2` | low | view-checklist.md | registered | IDR-240 (defect-fix) |  |

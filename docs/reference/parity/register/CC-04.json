@@ -511,7 +511,8 @@
       "approvedBy": null,
       "approvedOn": null,
       "when": {
-        "v5": "<absent>"
+        "v5": "<absent>",
+        "app": "1"
       }
     },
     {
@@ -529,27 +530,94 @@
       "approvedBy": null,
       "approvedOn": null,
       "when": {
-        "v5": "<absent>"
+        "v5": "<absent>",
+        "app": "1"
       }
     },
     {
       "id": "IDR-148",
       "view": "search",
+      "field": "list.select.any.count",
+      "type": "improvement",
+      "source": "GRS-183",
+      "reason": "Search shares the text-status filter correction: when no document has OCR status, the empty OCR option is omitted, so the list is one shorter and the later options move up. One entry per path, each pinned to its own v5 and app pair, so a changed, dropped or extra option is not covered.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null,
+      "when": {
+        "v5": "5",
+        "app": "4"
+      }
+    },
+    {
+      "id": "IDR-149",
+      "view": "search",
+      "field": "list.select.any.item.2",
+      "type": "improvement",
+      "source": "GRS-183",
+      "reason": "Search shares the text-status filter correction: when no document has OCR status, the empty OCR option is omitted, so the list is one shorter and the later options move up. One entry per path, each pinned to its own v5 and app pair, so a changed, dropped or extra option is not covered.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null,
+      "when": {
+        "v5": "ocr",
+        "app": "none"
+      }
+    },
+    {
+      "id": "IDR-500",
+      "view": "search",
+      "field": "list.select.any.item.3",
+      "type": "improvement",
+      "source": "GRS-183",
+      "reason": "Search shares the text-status filter correction: when no document has OCR status, the empty OCR option is omitted, so the list is one shorter and the later options move up. One entry per path, each pinned to its own v5 and app pair, so a changed, dropped or extra option is not covered.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null,
+      "when": {
+        "v5": "none",
+        "app": "pending"
+      }
+    },
+    {
+      "id": "IDR-501",
+      "view": "search",
+      "field": "list.select.any.item.4",
+      "type": "improvement",
+      "source": "GRS-183",
+      "reason": "Search shares the text-status filter correction: when no document has OCR status, the empty OCR option is omitted, so the list is one shorter and the later options move up. One entry per path, each pinned to its own v5 and app pair, so a changed, dropped or extra option is not covered.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null,
+      "when": {
+        "v5": "pending",
+        "app": "<absent>"
+      }
+    },
+    {
+      "id": "IDR-502",
+      "view": "search",
       "field": [
-        "list.select.any.count",
-        "list.select.any.item.2",
-        "list.select.any.item.3",
-        "list.select.any.item.4",
         "sweep.search_filters.s2.set",
         "sweep.search_filters.s2.order"
       ],
       "type": "improvement",
       "source": "GRS-183",
-      "reason": "Search shares the text-status filter correction: when no document has OCR status, the empty OCR option is omitted and cannot be selected in a filter sweep.",
+      "reason": "Search shares the text-status filter correction: v5 finds no rows for its OCR option, and ClearCase omits that empty option, so the sweep finds no option to select (no-option). An OCR sweep that shows rows on either side is not covered.",
       "productVisible": true,
       "author": "GRS-183 implementation (GPT-6-Sol)",
       "approvedBy": null,
-      "approvedOn": null
+      "approvedOn": null,
+      "when": {
+        "v5": {
+          "re": "^0\\|[0-9a-f]+:[0-9a-f]+(\\|shown 0)?$"
+        },
+        "app": "no-option"
+      }
     },
     {
       "id": "IDR-135",

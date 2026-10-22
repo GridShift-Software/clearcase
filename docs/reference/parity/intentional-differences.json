@@ -425,37 +425,102 @@
       "field": "table.table_1.row.*.excerpt",
       "type": "defect-fix",
       "source": "S-chronology-3",
-      "reason": "v5 appends an ellipsis to short Chronology excerpts. ClearCase shows the complete short excerpt without a truncation mark and marks only excerpts longer than the preview.",
+      "reason": "v5 appends an ellipsis to short Chronology excerpts. ClearCase shows the complete short excerpt without a truncation mark and marks only excerpts longer than the preview. Covered only when the app text is v5's text minus its ellipsis and shorter than the 140-character cut; a vanished excerpt or another row's text is not.",
       "productVisible": true,
       "author": "GRS-183 implementation (GPT-6-Sol)",
       "approvedBy": null,
       "approvedOn": null,
       "when": {
         "v5": {
-          "re": "…$"
+          "re": "^.{1,139}…$"
         },
         "app": {
-          "re": "[^…]$"
-        }
+          "re": "^(?!<absent>$)[^…]{1,139}$"
+        },
+        "relation": "app-is-v5-without-ellipsis"
       }
     },
     {
       "id": "IDR-090",
       "view": "chronology",
-      "field": [
-        "list.select.any_text_status.count",
-        "list.select.any_text_status.item.2",
-        "list.select.any_text_status.item.3",
-        "list.select.any_text_status.item.4",
-        "sweep.filter_sort_ui.b0.t0.s2.q0.date.asc"
-      ],
+      "field": "list.select.any_text_status.count",
       "type": "defect-fix",
       "source": "S-chronology-5",
-      "reason": "v5 offers an OCR filter even when no document has OCR status. ClearCase omits that empty option in Chronology, including the corresponding filter sweep; an OCR row makes the option available.",
+      "reason": "v5 offers an OCR text-status filter even when no document has OCR status. ClearCase omits that empty option in Chronology, so the list is one shorter and the later options move up. One entry per path, each pinned to its own v5 and app pair, so a changed, dropped or extra option is not covered.",
       "productVisible": true,
       "author": "GRS-183 implementation (GPT-6-Sol)",
       "approvedBy": null,
-      "approvedOn": null
+      "approvedOn": null,
+      "when": {
+        "v5": "5",
+        "app": "4"
+      }
+    },
+    {
+      "id": "IDR-092",
+      "view": "chronology",
+      "field": "list.select.any_text_status.item.2",
+      "type": "defect-fix",
+      "source": "S-chronology-5",
+      "reason": "v5 offers an OCR text-status filter even when no document has OCR status. ClearCase omits that empty option in Chronology, so the list is one shorter and the later options move up. One entry per path, each pinned to its own v5 and app pair, so a changed, dropped or extra option is not covered.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null,
+      "when": {
+        "v5": "ocr",
+        "app": "none"
+      }
+    },
+    {
+      "id": "IDR-093",
+      "view": "chronology",
+      "field": "list.select.any_text_status.item.3",
+      "type": "defect-fix",
+      "source": "S-chronology-5",
+      "reason": "v5 offers an OCR text-status filter even when no document has OCR status. ClearCase omits that empty option in Chronology, so the list is one shorter and the later options move up. One entry per path, each pinned to its own v5 and app pair, so a changed, dropped or extra option is not covered.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null,
+      "when": {
+        "v5": "none",
+        "app": "pending"
+      }
+    },
+    {
+      "id": "IDR-094",
+      "view": "chronology",
+      "field": "list.select.any_text_status.item.4",
+      "type": "defect-fix",
+      "source": "S-chronology-5",
+      "reason": "v5 offers an OCR text-status filter even when no document has OCR status. ClearCase omits that empty option in Chronology, so the list is one shorter and the later options move up. One entry per path, each pinned to its own v5 and app pair, so a changed, dropped or extra option is not covered.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null,
+      "when": {
+        "v5": "pending",
+        "app": "<absent>"
+      }
+    },
+    {
+      "id": "IDR-095",
+      "view": "chronology",
+      "field": "sweep.filter_sort_ui.b0.t0.s2.q0.date.asc",
+      "type": "defect-fix",
+      "source": "S-chronology-5",
+      "reason": "v5 offers an OCR text-status filter even when no document has OCR status, so its OCR sweep shows no rows. ClearCase omits that empty option, so the sweep finds no option to select (no-option). An OCR sweep that shows rows on either side is not covered.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null,
+      "when": {
+        "v5": {
+          "re": "^0\\|[0-9a-f]+:[0-9a-f]+\\|shown 0$"
+        },
+        "app": "no-option"
+      }
     },
     {
       "id": "IDR-074",

@@ -484,6 +484,10 @@ const keyName = (tree, checker, key, declaredKey, seen = new Set()) => {
   key = unwrap(key);
   if (!key) return undefined;
   if (ts.isStringLiteralLike(key) || ts.isNumericLiteral(key)) return key.text;
+  if (key.kind === ts.SyntaxKind.TrueKeyword) return 'true';
+  if (key.kind === ts.SyntaxKind.FalseKeyword) return 'false';
+  if (key.kind === ts.SyntaxKind.NullKeyword) return 'null';
+  if (ts.isBigIntLiteral(key)) return key.text.replace(/n$/, '');
   if (ts.isTemplateExpression(key)) {
     let text = key.head.text;
     for (const span of key.templateSpans) {
@@ -498,6 +502,47 @@ const keyName = (tree, checker, key, declaredKey, seen = new Set()) => {
     if (left === undefined || left === UNRESOLVED_KEY) return left;
     const right = keyName(tree, checker, key.right, declaredKey, seen);
     return right === undefined || right === UNRESOLVED_KEY ? right : left + right;
+  }
+  if (ts.isBinaryExpression(key)) {
+    if (key.operatorToken.kind === ts.SyntaxKind.CommaToken) return keyName(tree, checker, key.right, declaredKey, seen);
+    const left = keyName(tree, checker, key.left, declaredKey, seen);
+    const right = keyName(tree, checker, key.right, declaredKey, seen);
+    return left === undefined || right === undefined ? undefined : UNRESOLVED_KEY;
+  }
+  if (ts.isConditionalExpression(key)) {
+    if (key.condition.kind === ts.SyntaxKind.TrueKeyword) return keyName(tree, checker, key.whenTrue, declaredKey, seen);
+    if (key.condition.kind === ts.SyntaxKind.FalseKeyword) return keyName(tree, checker, key.whenFalse, declaredKey, seen);
+    const yes = keyName(tree, checker, key.whenTrue, declaredKey, seen);
+    const no = keyName(tree, checker, key.whenFalse, declaredKey, seen);
+    return yes === undefined || no === undefined ? undefined : yes === no ? yes : UNRESOLVED_KEY;
+  }
+  if (ts.isArrayLiteralExpression(key)) {
+    const parts = key.elements.map(element => ts.isSpreadElement(element) ? undefined : keyName(tree, checker, element, declaredKey, seen));
+    return parts.includes(undefined) ? undefined : UNRESOLVED_KEY; // array coercion is fixed, but not a string literal tree
+  }
+  if (ts.isPropertyAccessExpression(key) || ts.isElementAccessExpression(key)) {
+    const members = [];
+    let root = key;
+    while (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root)) {
+      const member = ts.isPropertyAccessExpression(root) ? root.name.text : keyName(tree, checker, root.argumentExpression, declaredKey, seen);
+      if (member === undefined || member === UNRESOLVED_KEY) return member;
+      members.unshift(member);
+      root = unwrap(root.expression);
+    }
+    if (ts.isIdentifier(root)) {
+      const declaration = declarationOf(checker, tree, root);
+      if (declaration && importedFrom(declaration) !== undefined) {
+        if (seen.has(declaration)) return UNRESOLVED_KEY;
+        seen.add(declaration);
+        try { return declaredKey(declaration, seen, members); } finally { seen.delete(declaration); }
+      }
+    }
+    if (ts.isObjectLiteralExpression(root) || ts.isArrayLiteralExpression(root)) return UNRESOLVED_KEY;
+    return undefined;
+  }
+  if (ts.isPrefixUnaryExpression(key) || ts.isVoidExpression(key) || ts.isTypeOfExpression(key)) {
+    const operand = key.operand ?? key.expression;
+    return keyName(tree, checker, operand, declaredKey, seen) === undefined ? undefined : UNRESOLVED_KEY;
   }
   if (ts.isIdentifier(key)) {
     const declaration = declarationOf(checker, tree, key);
@@ -559,13 +604,14 @@ const analysisOf = (file, text, exporter) => {
     const target = exporter(file, specifier);
     return target ? analysisOf(target.file, target.text, exporter).exportKey(name, seen) : UNRESOLVED_KEY;
   };
-  const keyOfDeclaration = (declaration, seen) => {
+  const keyOfDeclaration = (declaration, seen, members = []) => {
     const source = importedFrom(declaration);
     if (source !== undefined) {
-      if (ts.isNamespaceImport(declaration)) return undefined;
+      if (ts.isNamespaceImport(declaration)) return members.length ? fromKey(source, members.join('.'), seen) : undefined;
       const name = ts.isImportSpecifier(declaration) ? (declaration.propertyName ?? declaration.name).text : 'default';
-      return fromKey(source, name, seen);
+      return fromKey(source, [name, ...members].join('.'), seen);
     }
+    if (members.length) return UNRESOLVED_KEY;
     return ts.isVariableDeclaration(declaration) && ts.isIdentifier(declaration.name) && declaration.initializer
       && declaration.parent.flags & ts.NodeFlags.Const ? fixedKey(declaration.initializer, seen) : undefined;
   };
@@ -574,23 +620,29 @@ const analysisOf = (file, text, exporter) => {
     if (seen.has(mark)) return UNRESOLVED_KEY;
     seen.add(mark);
     try {
+      const [first, ...members] = name.split('.');
+      const suffix = members.length ? `.${members.join('.')}` : '';
       const stars = [];
       for (const statement of tree.statements) {
         if (ts.isVariableStatement(statement) && isExported(statement)) {
           for (const declaration of statement.declarationList.declarations) {
-            if (ts.isIdentifier(declaration.name) && declaration.name.text === name) return keyOfDeclaration(declaration, seen);
+            if (ts.isIdentifier(declaration.name) && declaration.name.text === first) return keyOfDeclaration(declaration, seen, members);
           }
         }
-        if (ts.isExportAssignment(statement) && name === 'default') return fixedKey(statement.expression, seen);
+        if (ts.isExportAssignment(statement) && first === 'default') return members.length ? UNRESOLVED_KEY : fixedKey(statement.expression, seen);
         if (!ts.isExportDeclaration(statement) || statement.isTypeOnly) continue;
         if (!statement.exportClause) { stars.push(literal(statement.moduleSpecifier)); continue; }
-        if (ts.isNamespaceExport(statement.exportClause)) continue;
-        const element = statement.exportClause.elements.find(part => !part.isTypeOnly && part.name.text === name);
+        if (ts.isNamespaceExport(statement.exportClause)) {
+          if (statement.exportClause.name.text === first) return members.length
+            ? fromKey(literal(statement.moduleSpecifier), members.join('.'), seen) : undefined;
+          continue;
+        }
+        const element = statement.exportClause.elements.find(part => !part.isTypeOnly && part.name.text === first);
         if (!element) continue;
-        if (statement.moduleSpecifier) return fromKey(literal(statement.moduleSpecifier), (element.propertyName ?? element.name).text, seen);
+        if (statement.moduleSpecifier) return fromKey(literal(statement.moduleSpecifier), (element.propertyName ?? element.name).text + suffix, seen);
         const declaration = checker.getExportSpecifierLocalTargetSymbol(element)?.declarations
           ?.find(part => part.getSourceFile() === tree && !(part.flags & ts.NodeFlags.Ambient));
-        return declaration ? keyOfDeclaration(declaration, seen) : UNRESOLVED_KEY;
+        return declaration ? keyOfDeclaration(declaration, seen, members) : UNRESOLVED_KEY;
       }
       for (const specifier of name === 'default' ? [] : stars) {
         const result = fromKey(specifier, name, seen);

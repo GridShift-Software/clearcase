@@ -539,10 +539,12 @@ and handlers, with a component that does not parse or compile failing closed) re
   `for-of` or `for-in` head, a shorthand `{ constructor }`, a nested pattern, or a default. `x.constructor` and `x[k]`
   with a fixed `k` root at a constructor under the same rule. A computed key is resolved from a literal, a template
   with constant parts, a `+` tree of these, or any chain of `const` aliases, including an alias imported from an
-  unchanged tracked module through named, default or bare-star exports. There is no configured expression-depth cap.
-  A computed pattern key or element-read key whose static resolution cannot finish (an alias cycle, an unavailable
-  import or an export the resolver cannot establish) fails closed. A `const` initialized by a runtime call is a
-  runtime key, not a fixed alias. For example, `{ ['constr' + 'uctor']: C }` refuses, as does a longer concatenation. A
+  unchanged tracked module through named, default, namespace or bare-star exports. There is no configured
+  expression-depth cap. A computed pattern key or element-read key whose static resolution cannot finish (an alias
+  cycle, an unavailable import or export, or a pure array, conditional or other expression the folder cannot reduce)
+  fails closed. A conditional with fixed branches can therefore refuse even when its condition is runtime. A `const`
+  initialized by a runtime call is a runtime key, not a fixed alias. For example, `{ ['constr' + 'uctor']: C }`
+  refuses, as does a longer concatenation. A
   `getPrototypeOf` result remains rooted. A pattern that reads a plain string, `{ constructor: label } = { constructor:
   'x' }`, refuses too, as conservative.
   The global object may appear only as the object of a property read with a literal, non-framework name

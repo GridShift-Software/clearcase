@@ -2053,6 +2053,15 @@ class GuardResidual(GuardCase):
                    base={'src/keys.ts': "export const k = 'constructor';\n",
                          'src/middle.ts': "export * as Keys from './keys';\n"}, why='reaches the test framework')
 
+    def test_runtime_element_keys_stay_reviewer_owned(self):
+        for label, code in (
+                ('parameter', 'export function read(k: string) { return ({} as any)[k]; }'),
+                ('call result', "const key = () => 'constructor'; export const value = ({} as any)[key()];"),
+                ('join result', "export const value = ({} as any)[['constr', 'uctor'].join('')];"),
+                ('fromCharCode result', "export const value = ({} as any)[String.fromCharCode(" +
+                 ', '.join(str(ord(char)) for char in 'constructor') + ")];")):
+            self.route(label, {'src/api.ts': code + '\n' + self.weakened})
+
     def test_export_star_as_a_namespace_forwards_a_capability(self):
         # M1: `export * as N from` is a name, so a capability behind it refuses, directly or under an `export *` chain
         self.route('a star over a module that namespaces a builtin module',

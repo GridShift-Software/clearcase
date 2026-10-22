@@ -1149,6 +1149,11 @@ function main() {
   if (tip !== head && (git('merge-base', tip, head).trim() !== tip || git('merge-base', base, tip).trim() !== base)) {
     throw Error('fix head must lie between the fix base and HEAD');
   }
+  const namedTestReference = options['--named-test-reference'] === undefined ? undefined
+    : git('rev-parse', '--verify', `${options['--named-test-reference']}^{commit}`).trim();
+  if (namedTestReference && git('merge-base', namedTestReference, head).trim() !== namedTestReference) {
+    throw Error('named-test reference must be an ancestor of HEAD');
+  }
   // A manifest's range spans every later merge from the base it targets. --trusted-base is that base's commit, which
   // fix-round-guard passes only for an explicit --base and no --ledger (CI: the pull request's base branch). A path that
   // changed between the fix base and HEAD is the base's change, and not this branch's, when the base is merged into HEAD,
@@ -1631,13 +1636,14 @@ function main() {
       throw Error('each protected test requires a repository-relative file and literal name');
     }
     // a named test stays as each reference holds it, so a base change to it after the review refuses until a new review
-    for (const reference of references(entry.file)) {
+    for (const reference of new Set([...references(entry.file), ...(namedTestReference ? [namedTestReference] : [])])) {
       const old = (reference === base || exists(reference, entry.file) ? load(reference, entry.file).tests.get(entry.name) : undefined) ?? [];
       const current = load(head, entry.file).tests.get(entry.name) ?? [];
       if (old.length !== 1 || old[0].inactive) throw Error(`baseline test absent, ambiguous or inactive: ${entry.file}: ${entry.name}${against(reference)}`);
       if (current.length !== 1) throw Error(`named test deleted, renamed or ambiguous: ${entry.file}: ${entry.name}`);
       if (current[0].inactive) throw Error(`named test skipped/todo/isolated: ${entry.file}: ${entry.name}`);
-      if (old[0].body !== current[0].body) throw Error(`named test changed (assertions may be removed or loosened): ${entry.file}: ${entry.name}${against(reference)}`);
+      if (old[0].body !== current[0].body) throw Error(`named test changed (assertions may be removed or loosened): ${entry.file}: ${entry.name}`
+        + (reference === namedTestReference ? ' (against the manifest\'s original fixBase)' : against(reference)));
     }
   }
   const starts = [...new Set(findings.tests.map(entry => entry.file))];

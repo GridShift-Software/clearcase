@@ -7,8 +7,10 @@
 // and a missing tool (the skill's preflight). Then `refusals` (tests/hosted-foundation/gate/refusals.mjs) proves each
 // refusal on a throwaway checkout, and one offline network namespace runs the verify-clearcase-hosted lifecycle with
 // the gate's checks: build:hosted (hosted-gate, stamped with HEAD), the emitted-artifact scan, GRS-106's probe
-// `test:check`, start:hosted, the live doctor and its negatives, test:hosted (its smoke legs and the import-boundary
-// negative test), the Chromium drive of the feature map, start:hosted --stop. The gate then re-reads every summary the
+// `test:check`, each other hosting probe's check of its committed evidence (PROBE_CHECKS), the storage and notifications
+// probes' own cases (PROBE_TESTS), start:hosted, the live doctor
+// and its negatives, test:hosted (its smoke legs and the import-boundary negative test), the Chromium drive of the feature
+// map, start:hosted --stop. The gate then re-reads every summary the
 // run wrote and requires each to be evidence for HEAD, rechecks HEAD and the tree, and writes its own summary, with
 // `evidence: true` only when nothing was reduced, stale, skipped or failed; a summary that does not validate fails it.
 // The summary names each boundary real or a test double; no run is evidence for Clerk, Cloudflare D1 or R2, or email.
@@ -56,15 +58,39 @@ export function failureTail(step, evidence, room) {
 	return [...(cause ? [`cause: ${cause.trim()}`] : []), ...error.filter((l) => l !== cause).slice(-TAIL_LINES)].slice(0, room).map(clip);
 }
 
+/**
+ * Each hosting probe's check of its committed evidence (docs/acceptance/hosting/evidence/<probe>-summary.json), so that
+ * drift (an input changed since the run, or a summary that no longer has the probe's shape) fails the gate instead of the
+ * page that cites it. They read committed files and git only. A probe's own check command is the row's command, run
+ * unchanged from the probe's directory.
+ */
+const EVIDENCE_DIR = join('docs', 'acceptance', 'hosting', 'evidence');
+const probeDir = (probe) => join('tests', 'hosting-probe', probe);
+const summaryOf = (probe) => join('..', '..', '..', EVIDENCE_DIR, `${probe}-summary.json`);
+const probeCheck = (probe, cmd, cwd, title) => ({ id: `probe-check:${probe}`, at: 'build', title: `${probe} probe evidence: ${title}`, cmd, ...(cwd ? { cwd } : {}) });
+export const PROBE_CHECKS = [
+	probeCheck('deployment', [process.execPath, 'deploy/probes/summary-check.ts'], null, 'summary-check.ts: an ancestor sourceSha, each input as it was, the page naming it'),
+	probeCheck('identity', [process.execPath, 'run', '--bun', 'check:evidence'], probeDir('identity'), 'check:evidence: the inputs\' digest, the route table and the counts'),
+	...['storage', 'recovery', 'notifications'].map((probe) => probeCheck(probe, [process.execPath, 'run', '--bun', 'probe', '--check', summaryOf(probe)], probeDir(probe), 'probe --check: its exact shape, an ancestor sourceSha and its inputs as they were')),
+];
+
+/**
+ * The hosting probes whose cases (`cases.ts`, run by their `test` script) no runner else executes: not the root Vitest, not CI
+ * and not a probe's own `--check`. Each row runs `bun run --bun test` in the probe's directory, and a failing case fails the gate.
+ */
+export const PROBE_TESTS = ['storage', 'notifications'].map((probe) => ({ id: `probe-test:${probe}`, at: 'build', title: `${probe} probe cases: bun run --bun test in ${probeDir(probe)}`, cmd: [process.execPath, 'run', '--bun', 'test'], cwd: probeDir(probe) }));
+
 /** The gate's checks inside the lifecycle: after the build, and against the running server. */
 export const CHECKS = [
 	{ id: 'artifact', at: 'build', title: 'scripts/ci/hosted-artifact.ts: the emitted modules hold no local-only import and only hosted-gate doubles', cmd: [process.execPath, 'scripts/ci/hosted-artifact.ts', '--profile', PROFILE] },
 	{ id: 'probe-check', at: 'build', title: 'GRS-106 probe test:check: every mutation of a passing runtime summary is refused', cmd: [process.execPath, 'run', '--bun', 'test:check'], cwd: join('tests', 'hosting-probe', 'runtime') },
+	...PROBE_CHECKS,
+	...PROBE_TESTS,
 	{ id: 'test:hosted', at: 'server', title: 'test:hosted: request, render, action, feature map, denials, sign-out and the import-boundary negative test on workerd', cmd: [process.execPath, 'run', '--bun', 'test:hosted'], env: { PORT: String(PORTS.app) } },
 ];
 const testSummary = (sha) => join('.local', 'hosted', `test-${sha.slice(0, 12)}-${PROFILE}.json`);
 /** Every step a passing run reports, in order. */
-export const REQUIRED = ['refusals', 'net-offline', 'build', 'artifact', 'probe-check', 'start', 'live-doctor', 'live-doctor-negative', 'test:hosted', 'drive', 'stop', 'offline', 'cleanup', 'evidence-kept'];
+export const REQUIRED = ['refusals', 'net-offline', 'build', 'artifact', 'probe-check', ...PROBE_CHECKS.map((c) => c.id), ...PROBE_TESTS.map((c) => c.id), 'start', 'live-doctor', 'live-doctor-negative', 'test:hosted', 'drive', 'stop', 'offline', 'cleanup', 'evidence-kept'];
 
 /** Which boundary each run exercised, real or a test double. A local gate never claims Clerk, Cloudflare or email. */
 export const BOUNDARIES = {

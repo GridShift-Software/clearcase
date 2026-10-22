@@ -1,0 +1,2339 @@
+{
+  "schema": "clearcase.identity-probe/1",
+  "sourceSha": "a0b458afc993fe5c2393268c5079205d8499f9f7",
+  "inputs": {
+    "paths": [
+      "tests/hosting-probe/identity",
+      "deploy/probes/secrets.ts",
+      "deploy/probes/secrets-child.mjs",
+      "deploy/probes/secrets-env.mjs",
+      "deploy/probes/secrets-fd.mjs",
+      "deploy/probes/scan.ts"
+    ],
+    "digest": "sha256:8b4925c703d46e76170716c15c3ee00e5b245979d56b547ec2c9b78a3360d9de"
+  },
+  "treeClean": true,
+  "servedStamp": "a0b458afc993fe5c2393268c5079205d8499f9f7",
+  "startedAt": "2026-10-22T00:38:37.131Z",
+  "finishedAt": "2026-10-22T00:44:09.699Z",
+  "runDir": ".local/hosting-probe/identity/2026-10-22T00-38-37-131Z",
+  "hosts": {
+    "bun": "1.4.2",
+    "node": "26.10.0",
+    "build": "Bun 1.4.2",
+    "runner": "Node 26.10.0",
+    "wrangler": "Node 26.10.0",
+    "app": "workerd 1.20261019.1 (native)"
+  },
+  "pins": {
+    "@clerk/backend": "3.26.0",
+    "@sveltejs/adapter-cloudflare": "8.0.1",
+    "@sveltejs/kit": "3.1.0",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "miniflare": "5.20261019.1-beta",
+    "svelte": "5.57.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.5",
+    "workerd": "1.20261019.1",
+    "wrangler": "4.151.3"
+  },
+  "artifact": "sha256:7f443778a18aca643e424daf2f986e510d6271c42b1e2f5e7c9b9b8bf54017f5",
+  "instances": {
+    "client": {
+      "name": "Clear-Case-Dev-A",
+      "environment": "development",
+      "signUpMode": "restricted",
+      "mfaRequired": false,
+      "secondFactors": 0,
+      "captcha": false,
+      "tokenSeconds": 60
+    },
+    "staff": {
+      "name": "Clear-Case-Dev-B",
+      "environment": "development",
+      "signUpMode": "restricted",
+      "mfaRequired": false,
+      "secondFactors": 0,
+      "captcha": false,
+      "tokenSeconds": 60
+    }
+  },
+  "legs": {
+    "integration": {
+      "status": "PASS",
+      "asserted": [
+        "the SvelteKit build (adapter-cloudflare) ran under Bun 1.4.2",
+        "the build is stamped with HEAD",
+        "@clerk/backend's authenticateRequest is in the server bundle",
+        "@clerk/backend resolved its worker build: no node:crypto import in the server bundle",
+        "wrangler d1 execute --local and wrangler r2 object put --local seeded both apps (a separate process from the Workers)",
+        "serve.mjs (Node) started both Workers through Wrangler startWorker with the keys from fd 3 as secret_text bindings",
+        "native workerd processes, descendants of serve.mjs, serve the Workers",
+        "client: GET / answers the public home page",
+        "client: /_app/version.json serves the HEAD stamp",
+        "staff: GET / answers the public home page",
+        "staff: /_app/version.json serves the HEAD stamp"
+      ]
+    },
+    "instances": {
+      "status": "PASS",
+      "asserted": [
+        "client: the Frontend API is the development instance Clear-Case-Dev-A",
+        "client: sign-up mode is restricted (invite-only)",
+        "client: MFA is not required at sign-up or sign-in",
+        "client: no attribute is enabled as a second factor",
+        "client: a sign-up with no invitation is refused by Clerk (403 sign_up_mode_restricted)",
+        "staff: the Frontend API is the development instance Clear-Case-Dev-B",
+        "staff: sign-up mode is restricted (invite-only)",
+        "staff: MFA is not required at sign-up or sign-in",
+        "staff: no attribute is enabled as a second factor",
+        "staff: a sign-up with no invitation is refused by Clerk (403 sign_up_mode_restricted)"
+      ]
+    },
+    "invite-only": {
+      "status": "PASS",
+      "asserted": [
+        "staff: a signed-up Global Admin has a session but no role until enrolled",
+        "staff: before enrolment the Global Admin routes refuse (403)",
+        "staff: /invite/accept enrols the initial Global Admin from the deployer's D1 invitation",
+        "staff: a second accept is refused (409)",
+        "client: the Global Admin's staff session takes up client A's provisioning invitation (instance admin)",
+        "staff: the Global Admin invites an operator (Clerk invitation through @clerk/backend in the Worker)",
+        "staff: the operator accepts and is enrolled as operator",
+        "staff: an operator cannot invite (403)",
+        "client: the Global Admin (instance admin) invites client A's first firm admin through Dev-A",
+        "client: the firm admin accepts and is enrolled as firm admin",
+        "client: the firm admin invites viewer1",
+        "client: viewer1 accepts and is enrolled as member",
+        "client: viewer1 sees no case before an assignment",
+        "client: the firm admin invites editor1",
+        "client: editor1 accepts and is enrolled as member",
+        "client: editor1 sees no case before an assignment",
+        "client: the firm admin invites viewer2",
+        "client: viewer2 accepts and is enrolled as member",
+        "client: viewer2 sees no case before an assignment",
+        "client: the firm admin assigns viewer1 to case-1 as viewer",
+        "client: the firm admin assigns editor1 to case-1 as editor",
+        "client: the firm admin assigns viewer2 to case-2 as viewer",
+        "client: a Clerk user with no app invitation, signed in by email code, cannot enrol (403 no-invitation)",
+        "staff: a Clerk user with no app invitation, signed in by email code, cannot enrol (403 no-invitation)",
+        "client: that user reads no case list (403 not-a-member)"
+      ]
+    },
+    "grants-outside-clerk": {
+      "status": "PASS",
+      "asserted": [
+        "staff: ga's Clerk user has empty public, private and unsafe metadata",
+        "staff: ga has no second factor (MFA off)",
+        "staff: ga's session token has only Clerk's v2 claims and no case id",
+        "staff: operator's Clerk user has empty public, private and unsafe metadata",
+        "staff: operator has no second factor (MFA off)",
+        "staff: operator's session token has only Clerk's v2 claims and no case id",
+        "client: firmadmin's Clerk user has empty public, private and unsafe metadata",
+        "client: firmadmin has no second factor (MFA off)",
+        "client: firmadmin's session token has only Clerk's v2 claims and no case id",
+        "client: viewer1's Clerk user has empty public, private and unsafe metadata",
+        "client: viewer1 has no second factor (MFA off)",
+        "client: viewer1's session token has only Clerk's v2 claims and no case id",
+        "client: editor1's Clerk user has empty public, private and unsafe metadata",
+        "client: editor1 has no second factor (MFA off)",
+        "client: editor1's session token has only Clerk's v2 claims and no case id",
+        "client: viewer2's Clerk user has empty public, private and unsafe metadata",
+        "client: viewer2 has no second factor (MFA off)",
+        "client: viewer2's session token has only Clerk's v2 claims and no case id",
+        "client: outsider-client's Clerk user has empty public, private and unsafe metadata",
+        "client: outsider-client has no second factor (MFA off)",
+        "client: outsider-client's session token has only Clerk's v2 claims and no case id",
+        "staff: outsider-staff's Clerk user has empty public, private and unsafe metadata",
+        "staff: outsider-staff has no second factor (MFA off)",
+        "staff: outsider-staff's session token has only Clerk's v2 claims and no case id",
+        "client: the Clerk invitation for viewer2 carries no metadata",
+        "client: the Clerk invitation for editor1 carries no metadata",
+        "client: the Clerk invitation for viewer1 carries no metadata",
+        "client: the Clerk invitation for firmadmin carries no metadata",
+        "staff: the Clerk invitation for operator carries no metadata",
+        "staff: the Clerk invitation for ga carries no metadata",
+        "case assignments (3) and memberships live in the apps' own D1, not in Clerk"
+      ]
+    },
+    "operator-access": {
+      "status": "PASS",
+      "asserted": [
+        "client: an operator with no grant reads nothing of case 1 (403)",
+        "client: the Global Admin itself has no case content without a grant (403)",
+        "client: the firm admin has no case content without an assignment (404)",
+        "client: the Global Admin grants the operator case 1 for 10 minutes",
+        "client: and case 2 for 20 seconds (the expiry leg replays it later)",
+        "client: a grant to a subject that is no user of the staff instance (Dev-B) is refused (404)",
+        "client: the operator reads case 1 metadata under the grant",
+        "client: the operator reads case 1's draft asset under the grant",
+        "client: an assigned viewer cannot reach the draft through the published-asset route (404)",
+        "client: case 2's document id under a case-1 URL answers 404",
+        "client: the Global Admin reads the audit, which holds no case content",
+        "client: the operator's granted read is an audit event (actor, route, case, outcome)",
+        "client: the operator's refused read before the grant is an audit event",
+        "client: each grant is an audit event naming the Global Admin",
+        "client: the grant itself is an audit event naming the case and the operator, written in the grant's transaction",
+        "client: the firm admin's refused case read is an audit event",
+        "client: the refused grant is an audit event naming the Global Admin and the case, and no grant row was written for that subject",
+        "client: a firm admin's client session cannot read the audit (401)"
+      ]
+    },
+    "revocation": {
+      "status": "PASS",
+      "asserted": [
+        "client: viewer2 reads case 2 with a fresh token",
+        "client: POST /auth/sign-out revokes the session in Clerk",
+        "client: the same token, 3 s old and unexpired, is refused at once (401 session-revoked)",
+        "client: Clerk refuses a new token for the revoked session (FAPI 401)",
+        "client: editor1 reads case 1 Notes on a second session",
+        "client: after a Backend API revoke, the same unexpired token is refused on its next request",
+        "client: and so is its mutation",
+        "client: after the firm admin removes viewer1's assignment, viewer1's active session reads nothing of case 1 (404)",
+        "client: the assignment is restored for the matrix"
+      ]
+    },
+    "expiry-and-recovery": {
+      "status": "PASS",
+      "asserted": [
+        "client: Clerk development session tokens live 60 s",
+        "client: a token past exp (and the 5 s skew) is refused (401 token-expired)",
+        "client: a Note posted with the expired token is refused and nothing is written",
+        "client: the browser refreshes the same session through FAPI, with no new sign-in",
+        "client: the retried Note is saved (201)",
+        "client: a second retry after a lost response returns the first save (200 replayed): one Note",
+        "client: the operator's 20-second grant for case 2 has expired (403)",
+        "client: a document request with an expired __session cookie is redirected to the Frontend API handshake (307)",
+        "client: the handshake redirect carries no case content",
+        "client: the Frontend API answers the handshake with a redirect back to the app",
+        "client: the app takes the handshake, sets a fresh __session cookie, and serves case 1 with no new sign-in",
+        "client: the handshake round trip ended on the requested page",
+        "client: a revoked session, which cannot refresh, lands on the sign-in entry with its reason (BA-19)"
+      ]
+    },
+    "restart": {
+      "status": "PASS",
+      "asserted": [
+        "serve.mjs and its workerd processes stopped on SIGINT",
+        "after the Workers restart, editor1's same Clerk session mints a token with no new sign-in",
+        "the Note saved before the restart is still there (local D1 persisted)"
+      ]
+    },
+    "route-matrix": {
+      "status": "PASS",
+      "asserted": [
+        "each class changed D1 by exactly its allowed writes (firm admin one invitation, editor two Notes, Global Admin two invitations and one grant; refused requests change nothing)",
+        "all 251 route checks met their gate"
+      ]
+    },
+    "public-entry": {
+      "status": "PASS",
+      "asserted": [
+        "client: GET / answers 200 logged out, with a stale cookie, sets no cookie and carries no case content",
+        "client: GET /login answers 200 logged out, with a stale cookie, sets no cookie and carries no case content",
+        "client: GET /support answers 200 logged out, with a stale cookie, sets no cookie and carries no case content",
+        "client: GET /information-handling answers 200 logged out, with a stale cookie, sets no cookie and carries no case content",
+        "staff: GET / answers 200 logged out, with a stale cookie, sets no cookie and carries no case content",
+        "staff: GET /login answers 200 logged out, with a stale cookie, sets no cookie and carries no case content",
+        "client: a logged-out document request from a browser with no __clerk_db_jwt goes to the Frontend API handshake first (307, development instances only), with no case content",
+        "client: a logged-out document request from a browser that has its dev browser is sent to the sign-in entry with its reason and return path (BA-19)",
+        "client: /login refuses an off-site return path",
+        "client: /support carries placeholder copy marked for review, not invented content (BA-20)",
+        "client: /information-handling carries placeholder copy marked for review, not invented content (BA-20)"
+      ]
+    },
+    "cleanup": {
+      "status": "PASS",
+      "asserted": [
+        "all 14 sessions the run created are gone or ended (14 ended, 0 pending)",
+        "client: no user or invitation of this run is left in Clerk",
+        "client: the user count and pending invitations are back to the run's baseline",
+        "staff: no user or invitation of this run is left in Clerk",
+        "staff: the user count and pending invitations are back to the run's baseline",
+        "created 8 users and 9 invitations; deleted the same",
+        "every object of the run was deleted or ended"
+      ]
+    },
+    "credential-scan": {
+      "status": "PASS",
+      "asserted": [
+        "no key, token, dev browser JWT, ticket or password of this run, and no credential shape, in 326 files of logs, local state, the build and the summary"
+      ]
+    }
+  },
+  "routes": [
+    {
+      "app": "client",
+      "method": "GET",
+      "route": "/",
+      "gate": "public",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "GET",
+      "route": "/login",
+      "gate": "public",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "GET",
+      "route": "/support",
+      "gate": "public",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "GET",
+      "route": "/information-handling",
+      "gate": "public",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "GET",
+      "route": "/auth/session",
+      "gate": "session",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "non-member",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-case",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "firm-admin",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "viewer",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "editor",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "POST",
+      "route": "/invite/accept",
+      "gate": "session",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "non-member",
+          "expect": "403 no-invitation",
+          "got": "403 no-invitation",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-case",
+          "expect": "409 already-a-member",
+          "got": "409 already-a-member",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "firm-admin",
+          "expect": "409 already-a-member",
+          "got": "409 already-a-member",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "viewer",
+          "expect": "409 already-a-member",
+          "got": "409 already-a-member",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "editor",
+          "expect": "409 already-a-member",
+          "got": "409 already-a-member",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "GET",
+      "route": "/cases",
+      "gate": "member",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "non-member",
+          "expect": "403 not-a-member",
+          "got": "403 not-a-member",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-case",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "firm-admin",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "viewer",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "editor",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "GET",
+      "route": "/cases/[case]",
+      "gate": "case-read",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "non-member",
+          "expect": "403 not-a-member",
+          "got": "403 not-a-member",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-case",
+          "expect": "404 no-case-access",
+          "got": "404 no-case-access",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "firm-admin",
+          "expect": "404 no-case-access",
+          "got": "404 no-case-access",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "viewer",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "editor",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "POST",
+      "route": "/cases/[case]",
+      "gate": "case-write",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "non-member",
+          "expect": "403 not-a-member",
+          "got": "403 not-a-member",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-case",
+          "expect": "404 no-case-access",
+          "got": "404 no-case-access",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "firm-admin",
+          "expect": "404 no-case-access",
+          "got": "404 no-case-access",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "viewer",
+          "expect": "403 editor-required",
+          "got": "403 editor-required",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "editor",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "GET",
+      "route": "/cases/[case]/documents/[doc]",
+      "gate": "case-read",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "non-member",
+          "expect": "403 not-a-member",
+          "got": "403 not-a-member",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-case",
+          "expect": "404 no-case-access",
+          "got": "404 no-case-access",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "firm-admin",
+          "expect": "404 no-case-access",
+          "got": "404 no-case-access",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "viewer",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "editor",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "GET",
+      "route": "/cases/[case]/notes",
+      "gate": "case-read",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "non-member",
+          "expect": "403 not-a-member",
+          "got": "403 not-a-member",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-case",
+          "expect": "404 no-case-access",
+          "got": "404 no-case-access",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "firm-admin",
+          "expect": "404 no-case-access",
+          "got": "404 no-case-access",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "viewer",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "editor",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "POST",
+      "route": "/cases/[case]/notes",
+      "gate": "case-write",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "non-member",
+          "expect": "403 not-a-member",
+          "got": "403 not-a-member",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-case",
+          "expect": "404 no-case-access",
+          "got": "404 no-case-access",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "firm-admin",
+          "expect": "404 no-case-access",
+          "got": "404 no-case-access",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "viewer",
+          "expect": "403 editor-required",
+          "got": "403 editor-required",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "editor",
+          "expect": "201",
+          "got": "201",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "GET",
+      "route": "/cases/[case]/assets/[...name]",
+      "gate": "case-read",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "non-member",
+          "expect": "403 not-a-member",
+          "got": "403 not-a-member",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-case",
+          "expect": "404 no-case-access",
+          "got": "404 no-case-access",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "firm-admin",
+          "expect": "404 no-case-access",
+          "got": "404 no-case-access",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "viewer",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "editor",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "GET",
+      "route": "/admin/members",
+      "gate": "firm-admin",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "non-member",
+          "expect": "403 not-a-member",
+          "got": "403 not-a-member",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-case",
+          "expect": "403 firm-admin-required",
+          "got": "403 firm-admin-required",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "firm-admin",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "viewer",
+          "expect": "403 firm-admin-required",
+          "got": "403 firm-admin-required",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "editor",
+          "expect": "403 firm-admin-required",
+          "got": "403 firm-admin-required",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "POST",
+      "route": "/admin/invitations",
+      "gate": "firm-admin",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "non-member",
+          "expect": "403 not-a-member",
+          "got": "403 not-a-member",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-case",
+          "expect": "403 firm-admin-required",
+          "got": "403 firm-admin-required",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "firm-admin",
+          "expect": "201",
+          "got": "201",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "viewer",
+          "expect": "403 firm-admin-required",
+          "got": "403 firm-admin-required",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "editor",
+          "expect": "403 firm-admin-required",
+          "got": "403 firm-admin-required",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "POST",
+      "route": "/admin/assignments",
+      "gate": "firm-admin",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "non-member",
+          "expect": "403 not-a-member",
+          "got": "403 not-a-member",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-case",
+          "expect": "403 firm-admin-required",
+          "got": "403 firm-admin-required",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "firm-admin",
+          "expect": "201",
+          "got": "201",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "viewer",
+          "expect": "403 firm-admin-required",
+          "got": "403 firm-admin-required",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "editor",
+          "expect": "403 firm-admin-required",
+          "got": "403 firm-admin-required",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "DELETE",
+      "route": "/admin/assignments",
+      "gate": "firm-admin",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "non-member",
+          "expect": "403 not-a-member",
+          "got": "403 not-a-member",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-case",
+          "expect": "403 firm-admin-required",
+          "got": "403 firm-admin-required",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "firm-admin",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "viewer",
+          "expect": "403 firm-admin-required",
+          "got": "403 firm-admin-required",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "editor",
+          "expect": "403 firm-admin-required",
+          "got": "403 firm-admin-required",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "POST",
+      "route": "/manage/accept",
+      "gate": "staff-session",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "global-admin",
+          "expect": "409 already-a-member",
+          "got": "409 already-a-member",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "operator",
+          "expect": "403 no-invitation",
+          "got": "403 no-invitation",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "POST",
+      "route": "/manage/firm-admin-invitations",
+      "gate": "instance-admin",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "global-admin",
+          "expect": "201",
+          "got": "201",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "operator",
+          "expect": "403 instance-admin-required",
+          "got": "403 instance-admin-required",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "POST",
+      "route": "/manage/operator-grants",
+      "gate": "instance-admin",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "global-admin",
+          "expect": "201",
+          "got": "201",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "operator",
+          "expect": "403 instance-admin-required",
+          "got": "403 instance-admin-required",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "GET",
+      "route": "/manage/audit",
+      "gate": "instance-admin",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "global-admin",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "operator",
+          "expect": "403 instance-admin-required",
+          "got": "403 instance-admin-required",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "GET",
+      "route": "/operator/cases/[case]",
+      "gate": "operator-grant",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "global-admin",
+          "expect": "403 no-operator-grant",
+          "got": "403 no-operator-grant",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "operator",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "GET",
+      "route": "/operator/cases/[case]/documents/[doc]",
+      "gate": "operator-grant",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "global-admin",
+          "expect": "403 no-operator-grant",
+          "got": "403 no-operator-grant",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "operator",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "GET",
+      "route": "/operator/cases/[case]/drafts/[...name]",
+      "gate": "operator-grant",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "global-admin",
+          "expect": "403 no-operator-grant",
+          "got": "403 no-operator-grant",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "operator",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "GET",
+      "route": "/operator/cases/[case]/notes",
+      "gate": "operator-grant",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "global-admin",
+          "expect": "403 no-operator-grant",
+          "got": "403 no-operator-grant",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "operator",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "client",
+      "method": "POST",
+      "route": "/auth/sign-out",
+      "gate": "session",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "non-member",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "staff",
+      "method": "GET",
+      "route": "/",
+      "gate": "public",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "staff",
+      "method": "GET",
+      "route": "/login",
+      "gate": "public",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "staff",
+      "method": "GET",
+      "route": "/auth/session",
+      "gate": "session",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "global-admin",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "operator",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "staff",
+      "method": "POST",
+      "route": "/invite/accept",
+      "gate": "session",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "global-admin",
+          "expect": "409 already-a-member",
+          "got": "409 already-a-member",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "operator",
+          "expect": "409 already-a-member",
+          "got": "409 already-a-member",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "staff",
+      "method": "GET",
+      "route": "/manage/staff",
+      "gate": "global-admin",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "global-admin",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "operator",
+          "expect": "403 global-admin-required",
+          "got": "403 global-admin-required",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "staff",
+      "method": "POST",
+      "route": "/manage/staff-invitations",
+      "gate": "global-admin",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "global-admin",
+          "expect": "201",
+          "got": "201",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "operator",
+          "expect": "403 global-admin-required",
+          "got": "403 global-admin-required",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "staff",
+      "method": "GET",
+      "route": "/manage/audit",
+      "gate": "global-admin",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "global-admin",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "operator",
+          "expect": "403 global-admin-required",
+          "got": "403 global-admin-required",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    },
+    {
+      "app": "staff",
+      "method": "POST",
+      "route": "/auth/sign-out",
+      "gate": "session",
+      "checks": [
+        {
+          "class": "anonymous",
+          "expect": "401 signed-out",
+          "got": "401 signed-out",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "expired",
+          "expect": "401 token-expired",
+          "got": "401 token-expired",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "revoked",
+          "expect": "401 session-revoked",
+          "got": "401 session-revoked",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-app",
+          "expect": "401 token-invalid",
+          "got": "401 token-invalid",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "wrong-party",
+          "expect": "401 wrong-party",
+          "got": "401 wrong-party",
+          "leak": [],
+          "missing": false
+        },
+        {
+          "class": "operator",
+          "expect": "200",
+          "got": "200",
+          "leak": [],
+          "missing": false
+        }
+      ]
+    }
+  ],
+  "counts": {
+    "routes": 34,
+    "checks": 251,
+    "refused": 196,
+    "allowed": 55
+  },
+  "clerk": {
+    "users": {
+      "created": 8,
+      "deleted": 8
+    },
+    "invitations": {
+      "created": 9,
+      "deleted": 9
+    },
+    "sessions": {
+      "created": 14,
+      "ended": 14,
+      "pending": 0
+    },
+    "testingTokens": {
+      "created": 17
+    },
+    "devBrowsers": {
+      "created": 17
+    },
+    "apiCalls": {
+      "backend": 88
+    }
+  },
+  "sweep": {
+    "users": 0,
+    "invitations": 0,
+    "failed": 0,
+    "undated": 0
+  },
+  "hold": [
+    "wrong-client issuer and audience: needs a second client development application (client B) besides Clear-Case-Dev-A; until it exists no token of another client instance can be presented",
+    "sibling-subdomain session isolation (moment M3): development instances keep the Clerk client in __clerk_db_jwt, not in first-party cookies on the app domain, so cookie scoping across client subdomains under sandbox.gridshift.co.za can only be shown on production instances there",
+    "hosted CSP for clerk-js and the Frontend API (moment M3): the probe serves no clerk-js and sets no CSP",
+    "Clerk production instances (moment M3): custom domains under sandbox.gridshift.co.za, the Frontend API CNAMEs and production keys are the release reviewer's provisioning step"
+  ],
+  "failure": null,
+  "evidence": true
+}

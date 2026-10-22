@@ -1,0 +1,11 @@
+{
+  "name": "clearcase-recovery-probe",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.2",
+  "scripts": {
+    "probe": "bun probe.ts",
+    "test:check": "bun probe.ts --self-test",
+    "build": "bun build src/worker.ts --target browser --format esm --outfile dist/worker.js"
+  }
+}

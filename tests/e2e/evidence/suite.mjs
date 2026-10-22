@@ -12,7 +12,7 @@ const { join, resolve } = await import('node:path');
 const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { launch, sleep } = await import('../pilot/lib/cdp.mjs');
-const { asking, cancelIfAsked, confirmPressed, describedBy, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { asking, cancelIfAsked, confirmPressed, describedBy, draftThroughDeleteWithoutJs, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
 const { bunIdentity } = await import('../pilot/lib/server.mjs');
 const { outDir } = await import('../pilot/lib/record.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
@@ -894,6 +894,20 @@ try {
 		await sleep(1500);
 		const ev = { key, shown: (await regRows()).some((r) => r.key === key), stored: storedFilings().some((r) => `row:${r.id}` === key), focus: await p.evaluate(`document.activeElement?.hasAttribute('data-delete-confirm') ?? false`), cancel: await p.evaluate(`!!document.querySelector(${J(`${row} [data-delete-cancel]`)})`) };
 		return { pass: ev.shown && ev.stored && ev.focus && ev.cancel, evidence: ev };
+	});
+	await scenario('E-FILINGS-NOJS-CONFIRM-DRAFT', 'filings_tab', 'without JavaScript, Delete then Cancel or Confirm keeps text typed into Add', async () => {
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		const n = (await regRows()).length;
+		await setFields(p, { fl_filing: 'Synthetic no-JS target filing' });
+		await p.click('#register-add');
+		await p.waitFor(`document.querySelectorAll('#filing-register tbody tr[data-key]').length === ${n + 1} && !document.getElementById('register-status')`, 20000);
+		const key = (await regRows()).find((r) => r.filing === 'Synthetic no-JS target filing')?.key;
+		const row = `#filing-register tr[data-key=${J(key)}]`;
+		const round = await draftThroughDeleteWithoutJs(p, { url: `${V}/evidence/filings_tab`, ready: R('filings_tab'), draft: '#fl_filing', text: 'Synthetic unsaved filing', row, opener: `${row} [data-delete]` });
+		const checks = { askKeeps: round.askedBeforeCancel.value === 'Synthetic unsaved filing' && round.askedBeforeCancel.row && round.askedBeforeCancel.asking,
+			cancelKeeps: round.cancelled.value === 'Synthetic unsaved filing' && round.cancelled.row && !round.cancelled.asking,
+			confirmKeeps: round.askedBeforeConfirm.value === 'Synthetic unsaved filing' && round.confirmed.value === 'Synthetic unsaved filing' && !round.confirmed.row && !storedFilings().some((r) => `row:${r.id}` === key) };
+		return { pass: Object.values(checks).every(Boolean), evidence: { checks, round } };
 	});
 	await scenario('E-FILINGS-CONFIRM-CASES', 'filings_tab', "GRS-175: Cancel and Escape keep the row and return focus to its Delete; a second row's Delete moves the question and deletes nothing; a reload drops the question and keeps both rows; a POST without the row's confirmation is refused; Confirm delete deletes exactly that row", async () => {
 		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));

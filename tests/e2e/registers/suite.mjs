@@ -14,7 +14,7 @@ const { join, resolve } = await import('node:path');
 const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { launch, sleep } = await import('../pilot/lib/cdp.mjs');
-const { asking, cancelIfAsked, confirmPressed, describedBy, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { asking, cancelIfAsked, confirmPressed, describedBy, draftThroughDeleteWithoutJs, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
 const { INIT, openPage } = await import('../pilot/suite/browser.mjs');
 const { appServer, vpath } = await import('../pilot/suite/context.mjs');
 const { startServer } = await import('../pilot/lib/server.mjs');
@@ -751,6 +751,17 @@ try {
 		await sleep(1500);
 		const ev = { id: r.id, shown: (await rows()).some((x) => x.id === r.id), stored: stored('deadlines').some((x) => x.id === r.id), focus: await p.evaluate(`document.activeElement?.hasAttribute('data-delete-confirm') ?? false`), cancel: await p.evaluate(`!!document.querySelector(${J(`${row} [data-delete-cancel]`)})`) };
 		return { evidence: ev, checks: { shown: ev.shown, stored: ev.stored, focus: ev.focus, cancel: ev.cancel } };
+	});
+	await scenario('SC26-nojs-draft', 'deadlines_tab', 'without JavaScript, Delete then Cancel or Confirm keeps text typed into Add', async () => {
+		await openView('deadlines_tab');
+		await add({ title: 'Synthetic no-JS target', date: '2026-11-04', note: '' });
+		const r = (await rows()).find((x) => x.cells.some((c) => c.includes('Synthetic no-JS target')));
+		const row = `#register-table tr[data-row-id=${J(r.id)}]`;
+		const round = await draftThroughDeleteWithoutJs(p, { url: `${base()}/registers/deadlines_tab`, ready: ready('deadlines_tab'), draft: '#in-title', text: 'Synthetic unsaved deadline', row, opener: `${row} [data-delete]` });
+		const checks = { askKeeps: round.askedBeforeCancel.value === 'Synthetic unsaved deadline' && round.askedBeforeCancel.row && round.askedBeforeCancel.asking,
+			cancelKeeps: round.cancelled.value === 'Synthetic unsaved deadline' && round.cancelled.row && !round.cancelled.asking,
+			confirmKeeps: round.askedBeforeConfirm.value === 'Synthetic unsaved deadline' && round.confirmed.value === 'Synthetic unsaved deadline' && !round.confirmed.row && !stored('deadlines').some((x) => x.id === r.id) };
+		return { evidence: { checks, round }, checks };
 	});
 	await scenario('SC27-delete-confirm-cases', 'deadlines_tab', "GRS-175: Cancel and Escape keep the row and return focus to its Delete; a second row's Delete moves the question and deletes nothing; a reload drops the question and keeps both rows; a POST without the row's confirmation is refused; Confirm delete deletes exactly that row", async () => {
 		await openView('deadlines_tab');

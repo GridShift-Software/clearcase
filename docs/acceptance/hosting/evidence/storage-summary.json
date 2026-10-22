@@ -1,16 +1,16 @@
 {
   "schema": "clearcase.storage-probe/1",
-  "sourceSha": "63a4fcb9ff819ee40e4b466038ce9fcc64dc1082",
+  "sourceSha": "05565749aeee0f7574c02ff02f3e8e05f31a107a",
   "inputs": {
-    "tests/hosting-probe/storage": "cc1770d90d4024c28109631c91caafed6519bcdc",
+    "tests/hosting-probe/storage": "829e0e6276a5ef87c539908ede072d12b9185ece",
     "tests/e2e/pilot/offline.sh": "f10ef9f0b803bb058b17fe456b0b27788b32dad6"
   },
   "treeClean": true,
   "scale": "poc",
   "seed": "grs-109",
-  "startedAt": "2026-10-22T09:22:18.230Z",
-  "finishedAt": "2026-10-22T09:32:42.235Z",
-  "runDir": ".local/hosting-probe/storage/2026-10-22T09-22-18-230Z",
+  "startedAt": "2026-10-22T11:41:43.157Z",
+  "finishedAt": "2026-10-22T11:55:10.741Z",
+  "runDir": ".local/hosting-probe/storage/2026-10-22T11-41-43-156Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -25,7 +25,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:7809b92c33076a954c3a70a045e0c2914f1dbac1d12ae249c908e2ef6dc97230",
+  "artifact": "sha256:591c08bfd59237842c0267d3daf13fdd78f8c28319bece943d5bf9696e838336",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [
@@ -153,7 +153,7 @@
         "the bundle imports no node:, bun: or CommonJS module"
       ],
       "measured": {
-        "workerBytes": 87458
+        "workerBytes": 88079
       }
     },
     "provision": {
@@ -220,13 +220,13 @@
         "finalize without a size answers 400 naming the field, never a default (400 {\"code\":\"invalid-field\",\"field\":\"size\"})"
       ],
       "measured": {
-        "wallMs": 89110.1,
+        "wallMs": 92934.9,
         "originals": 1662,
         "bytes": 3211390882,
         "multipart": 9,
         "singlePuts": 1653,
         "failures": 0,
-        "retries": 2,
+        "retries": 3,
         "verifiedAtFinalizeBytes": 3211390882,
         "maxR2OpsPerFinalize": 2
       }
@@ -260,7 +260,7 @@
       ],
       "measured": {
         "recoveredRows": 3253,
-        "wallMs": 6075.8,
+        "wallMs": 8987,
         "documents": 1689,
         "assets": 3054,
         "seeds": 7,
@@ -305,10 +305,10 @@
         "chronologyR2Ops": 1,
         "originalRangeD1Statements": 1,
         "originalRangeR2Ops": 1,
-        "coldDocumentMs": 21.8,
-        "warmDocumentMs": 3,
-        "coldChronologyMs": 8.5,
-        "warmChronologyMs": 6.4
+        "coldDocumentMs": 53.2,
+        "warmDocumentMs": 4.7,
+        "coldChronologyMs": 12.6,
+        "warmChronologyMs": 9.6
       }
     },
     "range": {
@@ -339,10 +339,10 @@
         "client A's deployment knows no asset of client B's case (404, from A's own database)"
       ],
       "measured": {
-        "wholeLargestMs": 2793.7,
-        "rangeOnLargestMs": 1035.4,
+        "wholeLargestMs": 4299.2,
+        "rangeOnLargestMs": 1476.7,
         "largestOriginalBytes": 258590305,
-        "workerdPeakRssBytes": 283054080
+        "workerdPeakRssBytes": 281759744
       }
     },
     "write-once": {
@@ -374,18 +374,20 @@
         "POST /originals/<sha>/uploads twice",
         "PUT a verified part in the first upload and different bytes in the second",
         "POST second …/complete with x-probe-hold: multipart-loser, GET /probe/hold/multipart-loser",
-        "POST first …/complete, POST /probe/hold/multipart-loser/release",
+        "POST first …/complete, POST /probe/hold/multipart-loser/release, GET /probe/head/staging/orig/<sha>/<nonce> of each",
         "POST /cases/<case>/originals and GET /cases/<case>/originals/<asset>"
       ],
       "asserted": [
         "both multipart uploads for the same content address have a stored part",
         "the second completion has passed its canonical-key check and is held before publication",
         "the first completion wins and the held completion is refused (first 200, second 409)",
+        "neither completion leaves a staging/orig/ object: the winner deletes its own after publication (404, 404)",
         "the canonical key still contains the first verified bytes and serves them after finalize"
       ],
       "measured": {
         "winningBytesKept": true,
-        "loserRefused": true
+        "loserRefused": true,
+        "stagingLeft": 0
       }
     },
     "two-pass": {
@@ -473,16 +475,16 @@
         "seal hashes the completed packet whole and records its size and SHA-256",
         "the packet downloads after a whole-object verification",
         "the downloaded bytes match the sealed SHA-256 and size",
-        "a backup download errors before its end when a byte of the backup changes after its headers (3222958080 of 3222959051 bytes, no error); at smoke scale the backup may be read before the byte changes, and then it must be intact",
-        "Python's zipfile opens the packet offline: every entry's CRC-32 and the manifest's SHA-256 and size match, and the manifest's format is clearcase.case-backup/1 ({\"entries\": 1705, \"bytes\": 3222225140, \"client\": \"client-a\", \"caseId\": \"case-synthetic-1\", \"format\": \"clearcase.case-backup/1\"})",
+        "a backup download errors before its end when a byte of the backup changes after its headers (3222958080 of 3222959050 bytes, no error); at smoke scale the backup may be read before the byte changes, and then it must be intact",
+        "Python's zipfile opens the packet offline: every entry's CRC-32 and the manifest's SHA-256 and size match, and the manifest's format is clearcase.case-backup/1 ({\"entries\": 1705, \"bytes\": 3222225139, \"client\": \"client-a\", \"caseId\": \"case-synthetic-1\", \"format\": \"clearcase.case-backup/1\"})",
         "the source deployment’s state digest covers the case’s rows and every object, none missing"
       ],
       "measured": {
-        "wallMs": 109557.6,
-        "workerdPeakRssBytes": 936017920,
-        "offlineCheckMs": 2734.1,
+        "wallMs": 199560.8,
+        "workerdPeakRssBytes": 882905088,
+        "offlineCheckMs": 3323.1,
         "entries": 1706,
-        "packetBytes": 3222959051,
+        "packetBytes": 3222959050,
         "parts": 385,
         "steps": 385,
         "maxR2OpsPerStep": 45,
@@ -545,7 +547,7 @@
         "finishing the same restore again answers 409 already-restored and changes nothing"
       ],
       "measured": {
-        "wallMs": 135697.5,
+        "wallMs": 165724.5,
         "entries": 1706,
         "steps": 32,
         "objects": 1700
@@ -566,7 +568,8 @@
         "POST …/finish of a backup whose counts disagree with its rows, then of a corrected one",
         "POST …/uploads and …/finalize of a shared original, then …/step and …/finish of a backup carrying it",
         "POST …/finish of a backup whose user work repeats a key or leaves a NOT NULL column null, then of a corrected one",
-        "POST …/finish of a backup whose read model repeats a key or retypes a value"
+        "POST …/finish of a backup whose read model repeats a key or retypes a value",
+        "r2 object put orig/<sha> --local of two originals with no SHA-256 (a legacy multipart object), POST /cases/<case>/originals for one, then …/open, …/step and …/finish of a backup carrying each"
       ],
       "asserted": [
         "an original is stored and verified through the upload path",
@@ -591,6 +594,9 @@
         "the corrected backup of the same case and version restores",
         "an original is verified through multipart and recorded by another case under its SHA-256 key",
         "a backup carrying that shared original steps and restores without replacing its verified bytes",
+        "two originals are stored with no SHA-256 in R2, as multipart objects were before staging verification, and another case finalizes one of them",
+        "a backup carrying the recorded one steps and restores: its verified original row stands in for the missing SHA-256 and the object is left as it was",
+        "a backup carrying the one no original row records is refused 409 conflicting-object at its step, and the object is left as it was",
         "a backup whose user work holds one note key twice opens, and finishing it answers 422 invalid-packet naming uw_note; the case holds no version, row or revision it did not hold before",
         "a note whose NOT NULL body is null is refused the same way, and the case is as it was",
         "a backup whose register rows carry seq 1 and \"01\" (one INTEGER key) is refused 422 invalid-packet naming uw_register_row, before the first write; the case is as it was",
@@ -599,7 +605,7 @@
         "the corrected backup of the same case and version restores"
       ],
       "measured": {
-        "refusals": 17
+        "refusals": 18
       }
     },
     "snapshot-consistency": {
@@ -619,7 +625,7 @@
         "a save is acknowledged while the snapshot is held: revision 4",
         "the save acknowledged while the snapshot was read survives a restore of that snapshot at the current revision (the snapshot named revision 4 and held 4 rows; the restore answered 200 written)",
         "the snapshot's revision names exactly the rows it holds (revision 4, 4 rows): one read, not two",
-        "a hold that is never released answers 504 hold-timeout by itself within 45 s (504 after 30014 ms)",
+        "a hold that is never released answers 504 hold-timeout by itself within 45 s (504 after 30022 ms)",
         "two snapshot reads are held at once, each by its own token; releasing hold-a lets that read answer 200 and leaves hold-b held",
         "releasing hold-b then answers its read 200, and no hold is left"
       ],
@@ -627,7 +633,7 @@
         "savesDuringSnapshot": 1,
         "savesLost": 0,
         "snapshotRows": 4,
-        "unreleasedHoldMs": 30013.8,
+        "unreleasedHoldMs": 30021.5,
         "independentHolds": 2
       }
     }
@@ -642,10 +648,14 @@
     "P4 to P6 against the two-database layout arm (results and user work in separate D1 databases): not run, so the layout is chosen structurally, from statement and batch counts, until both layouts are compared (M2)"
   ],
   "devProxyRetries": {
-    "count": 4,
+    "count": 8,
     "requests": [
-      "upload: POST /originals/<sha256>/uploads/WyIzNzE4YWRkZi0wNjY4LTQxOTktODA0OC0xZjhhNmNjNWI3ZjciLCJqbXU5a291OXo1Qmo2SmdwUlhQbUhZdGkwdlotOFdNTlUzVGo1TGlQVjF4ckczOFJuZDB4QUcta1EzbVg0TnhkWGlEZHRrSzlvVjlWX1p0emtIcDQ5TnRQQTRTeWVkcVpNS2xqWmh0Z0FKWUwzWEdpMEJRcGNISDk1RXVZUGFwWHhtRjBES2EzY1BKZ2lhSmVoV1RqaWhGQ19HaXBWbk1Yd0Q0ellWeDk2c28iXQ/complete (attempt 2)",
+      "upload: POST /originals/<sha256>/uploads/WyI1ZmFlNDE2NC1kZTc2LTQ5YTktOGU2Yi1mMWE5NjczNTIyODYiLCJ1TVpsQlRtemh6LWNWMjFOb1gtRjBMamlXX2Y3RGtfeXdBT05jQjRtai1XUXNBd2lxQ04yYkc2Z3lsT0ZWd3JZOW9GYmtQZ284amZXVzlJbkZfUzRnM2hmNFNZcWV4R3dfSm1LUU5WbHZhb1Nhb0lRTkxrcHp6WGMxUkVWZzlDdElEMnhOTDRCdWw3Z1dWRmhXRFhERmw2M2VteEotczZHSC1CbzlJWHVzRGMiXQ/complete (attempt 2)",
       "upload: POST /cases/case-synthetic-1/originals (attempt 2)",
+      "upload: POST /cases/case-synthetic-1/originals (attempt 2)",
+      "restore: POST /restore/packets/<id>/step (attempt 2)",
+      "restore: POST /restore/packets/<id>/step (attempt 2)",
+      "restore: POST /restore/packets/<id>/step (attempt 2)",
       "restore: POST /restore/packets/<id>/step (attempt 2)",
       "restore: POST /restore/packets/<id>/step (attempt 2)"
     ]
@@ -653,7 +663,7 @@
   "failure": null,
   "evidence": true,
   "checker": {
-    "mutationsRefused": 2321,
+    "mutationsRefused": 2361,
     "accepted": null
   }
 }

@@ -4,6 +4,8 @@
 	import type { SubmitFunction } from '$app/forms';
 	import type { ActionData, PageData } from './$types';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import { download } from '$lib/components/csv';
+	import { INFO_CSV_NAME, infoCsv, infoStatus } from '$lib/views/analysis/info';
 	import { infoTone } from '$lib/views/analysis/tone';
 	import '$lib/views/analysis/analysis.css';
 	import TableScroll from '$lib/components/TableScroll.svelte';
@@ -70,6 +72,7 @@
 		};
 	};
 	const itemOf = (key: string) => data.rows.find((r) => r.key === key)?.item ?? '';
+	const exportCsv = () => download(INFO_CSV_NAME, infoCsv(data.rows));
 	onMount(() => {
 		for (const f of noJs) { choice[f.key] = f.done; failures[f.key] = { done: f.done, message: f.message }; }
 		hydrated = true;
@@ -77,7 +80,9 @@
 </script>
 
 <main id="main" tabindex="-1" data-analysis data-ready="info_required_tab" data-hydrated={hydrated ? '' : null}>
-	<PageHeader heading={data.heading} section="Info Required" caseName={data.version.titleName} subtitle="Checklist of outstanding items" />
+	<PageHeader heading={data.heading} section="Info Required" caseName={data.version.titleName} subtitle="Checklist of outstanding items">
+		{#snippet actions()}<button type="button" onclick={exportCsv} id="export-csv" disabled={data.rows.length === 0}>Export CSV</button>{/snippet}
+	</PageHeader>
 	{#if problems.length}
 		<div class="an-error" role="alert" id="info-error">
 			{#each problems as pr (pr.key)}
@@ -112,7 +117,7 @@
 								</form>
 							</td>
 							<td data-label="Item" class:struck={shown(r)}>{r.item}{#if busy(r.key)}<span class="row-state" data-state="saving">Saving…</span>{:else if unsaved(r.key)}<span class="row-state an-danger" data-state="unsaved">Not saved</span>{/if}</td>
-							<td data-label="Status"><span class="badge {infoTone(r.status)}">{r.status}</span></td>
+						<td data-label="Status"><span class="badge {infoTone(infoStatus(r.status, shown(r)))}">{infoStatus(r.status, shown(r))}</span></td>
 							<td data-label="Owner">{r.owner}</td>
 						</tr>
 					{/each}

@@ -12,6 +12,7 @@ const { join, resolve } = await import('node:path');
 const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { launch, sleep } = await import('../pilot/lib/cdp.mjs');
+const { asking, cancelIfAsked, confirmPressed, describedBy, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
 const { bunIdentity } = await import('../pilot/lib/server.mjs');
 const { outDir } = await import('../pilot/lib/record.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
@@ -307,6 +308,7 @@ try {
 		await p.click('#register-save');
 		await p.waitFor(`document.querySelector('#filing-register tr[data-key=${J(s1.key)}]')?.dataset.state === 'edited'`, 15000);
 		await p.click(`#filing-register tr[data-key=${J(s2.key)}] [data-delete], #filing-register tr[data-key=${J(s2.key)}] .actions form:last-child button`);
+		await confirmPressed(p, `#filing-register tr[data-key=${J(s2.key)}]`);
 		await p.waitFor(`!document.querySelector('#filing-register tr[data-key=${J(s2.key)}]')`, 15000);
 		const edited = await reg();
 		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
@@ -361,7 +363,7 @@ try {
 		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
 		const afterKill = { db: dbRows(), shown: await reg() };
 
-		// the register export: imported values unchanged, a user-entered formula neutralised
+		// the register export: imported text neutralised at a formula start as typed text is (a plain number stays a number), a user-entered formula neutralised
 		await fill({ fl_filing: '=1+2' });
 		await p.click('#register-add');
 		await p.waitFor(`document.querySelectorAll('#filing-register tbody tr[data-key]').length === ${afterKill.shown.length + 1}`, 15000);
@@ -394,6 +396,7 @@ try {
 	const holdStore = () => { const l = new Database(join(A.dataDir, 'work.sqlite')); l.exec('PRAGMA busy_timeout=0; BEGIN IMMEDIATE'); const at = Date.now(); return () => { try { l.exec('ROLLBACK'); } finally { l.close(); } return Date.now() - at; }; };
 	const storedFilings = () => A.work(`SELECT row_id, fields FROM register_row WHERE store = 'filings-register' ORDER BY row_id`).map((r) => ({ id: r.row_id, filing: JSON.parse(r.fields).filing, response: JSON.parse(r.fields).response }));
 	const deleteOf = (key) => `#filing-register tr[data-key=${J(key)}] [data-delete], #filing-register tr[data-key=${J(key)}] .actions form[action*=delete] button`;
+	const confirmOf = (key) => `#filing-register tr[data-key=${J(key)}] [data-delete-confirm]`;
 	const editOf = (key) => `#filing-register tr[data-key=${J(key)}] [data-edit], #filing-register tr[data-key=${J(key)}] .actions form:first-child button`;
 	const errorShown = `!!document.getElementById('register-error') || !!document.getElementById('register-delete-error')`;
 	let draftKeys = [];
@@ -418,6 +421,7 @@ try {
 			let release = holdStore();
 			try {
 				await p.click(deleteOf(kB));
+				await confirmPressed(p, `#filing-register tr[data-key=${J(kB)}]`);
 				await sleep(400);
 				ev.d1InFlight = await inFlight(p);
 				await p.waitFor(errorShown, 30000).catch(() => null);
@@ -440,6 +444,7 @@ try {
 				await p.waitFor(`!!document.getElementById('register-error')`, 30000).catch(() => null);
 				ev.addFailed = await formOf(p);
 				await p.click(deleteOf(kB));
+				await confirmPressed(p, `#filing-register tr[data-key=${J(kB)}]`);
 				await p.waitFor(`!document.getElementById('register-status') && (!!document.getElementById('register-delete-error') || !document.getElementById('register-error'))`, 30000).catch(() => null);
 				await sleep(200);
 				ev.both = await formOf(p);
@@ -538,8 +543,9 @@ try {
 			await open(`${V}/evidence/filings_tab?edit=${encodeURIComponent(kA)}`);
 			ev.hydrated = await q.evaluate(`!!document.querySelector('main#main')?.dataset.hydrated`);
 			await setFields(q, { fl_filing: 'No-JS edited filing', fl_response: 'No-JS edited reply' }, false);
+			await post(deleteOf(kC));
 			let release = holdStore();
-			try { await post(deleteOf(kC)); } finally { release(); }
+			try { await post(confirmOf(kC)); } finally { release(); }
 			ev.d1 = { ...(await formOf(q)), rowKept: (await q.evaluate(`[...document.querySelectorAll('#filing-register tbody tr[data-key]')].map((r) => r.dataset.key)`)).includes(kC) };
 			// a refused save of the edit comes back in edit mode
 			release = holdStore();
@@ -547,6 +553,7 @@ try {
 			ev.saveFailed = await formOf(q);
 			// a Delete of another row (done) keeps the draft and its failure
 			await post(deleteOf(kC));
+			await post(confirmOf(kC));
 			ev.afterDelete = { ...(await formOf(q)), rows: await q.evaluate(`[...document.querySelectorAll('#filing-register tbody tr[data-key]')].map((r) => r.dataset.key)`) };
 			const before = storedFilings().length;
 			await post('#register-retry');
@@ -595,6 +602,7 @@ try {
 			try {
 				await other.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
 				await other.click(deleteOf(key));
+				await confirmPressed(other, `#filing-register tr[data-key=${J(key)}]`);
 				await other.waitFor(`!document.querySelector(${J(`#filing-register tr[data-key="${key}"]`)}) && !document.getElementById('register-status')`, 20000);
 			} finally { await other.close().catch(() => {}); }
 		};
@@ -639,9 +647,11 @@ try {
 				await q.waitFor(`document.querySelector('main#main')?.dataset.ready === 'filings_tab' && document.getElementById('register-form')?.dataset.mode === 'edit'`, 20000);
 				await setFields(q, { fl_response: 'Synthetic r3 no-JS draft' }, false);
 				await deleteElsewhere(kN);
-				const mk = await q.evaluate('(window.__mk = Math.random())');
-				await q.click(deleteOf(kM));
-				await q.waitFor(`window.__mk !== ${mk} && document.querySelector('main#main')?.dataset.ready === 'filings_tab'`, 40000);
+				for (const press of [deleteOf(kM), confirmOf(kM)]) {
+					const mk = await q.evaluate('(window.__mk = Math.random())');
+					await q.click(press);
+					await q.waitFor(`window.__mk !== ${mk} && document.querySelector('main#main')?.dataset.ready === 'filings_tab'`, 40000);
+				}
 				await sleep(200);
 				ev.noJsGone = { ...(await formOf(q)), code: await q.evaluate(`document.getElementById('register-error')?.dataset.code ?? null`), mDeleted: !storedFilings().some((r) => `row:${r.id}` === kM) };
 			} finally { await q.close().catch(() => {}); }
@@ -872,6 +882,105 @@ try {
 	});
 
 	// E10 (diff): compare two known texts as an explicit pair, with coverage
+	await scenario('E-FILINGS-CONFIRM', 'filings_tab', 'GRS-175: one press of Delete deletes nothing: the row stays on the page and in the store, and the inline confirmation takes focus (Confirm delete, Cancel)', async () => {
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		const n = (await regRows()).length;
+		await setFields(p, { fl_filing: 'Synthetic confirm row' });
+		await p.click('#register-add');
+		await p.waitFor(`document.querySelectorAll('#filing-register tbody tr[data-key]').length === ${n + 1} && !document.getElementById('register-status')`, 20000);
+		const key = (await regRows()).find((r) => r.filing === 'Synthetic confirm row')?.key;
+		const row = `#filing-register tr[data-key=${J(key)}]`;
+		await p.click(deleteOf(key));
+		await sleep(1500);
+		const ev = { key, shown: (await regRows()).some((r) => r.key === key), stored: storedFilings().some((r) => `row:${r.id}` === key), focus: await p.evaluate(`document.activeElement?.hasAttribute('data-delete-confirm') ?? false`), cancel: await p.evaluate(`!!document.querySelector(${J(`${row} [data-delete-cancel]`)})`) };
+		return { pass: ev.shown && ev.stored && ev.focus && ev.cancel, evidence: ev };
+	});
+	await scenario('E-FILINGS-CONFIRM-CASES', 'filings_tab', "GRS-175: Cancel and Escape keep the row and return focus to its Delete; a second row's Delete moves the question and deletes nothing; a reload drops the question and keeps both rows; a POST without the row's confirmation is refused; Confirm delete deletes exactly that row", async () => {
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		const n = (await regRows()).length;
+		await setFields(p, { fl_filing: 'Synthetic second confirm row' });
+		await p.click('#register-add');
+		await p.waitFor(`document.querySelectorAll('#filing-register tbody tr[data-key]').length === ${n + 1} && !document.getElementById('register-status')`, 20000);
+		const keyOf = async (filing) => (await regRows()).find((r) => r.filing === filing)?.key;
+		const k = await keyOf('Synthetic confirm row'), o = await keyOf('Synthetic second confirm row');
+		const opener = (key) => `#filing-register tr[data-key=${J(key)}] [data-delete]`;
+		const both = async () => { const keys = (await regRows()).map((r) => r.key), db = storedFilings().map((r) => `row:${r.id}`); return [k, o].every((x) => keys.includes(x) && db.includes(x)); };
+		const step = async () => ({ asking: await asking(p), focus: await focusOf(p, opener(k)), both: await both() });
+		await p.click(opener(k));
+		const asked = await step();
+		await holdEnter(p);
+		await sleep(500);
+		const heldConfirm = await step();
+		if (!heldConfirm.both) throw new Error(`a held Enter on Confirm deleted without a second press: ${J(heldConfirm)}`);
+		await p.click(`#filing-register tr[data-key=${J(k)}] [data-delete-cancel]`);
+		await sleep(300);
+		const cancelled = await step();
+		await p.click(opener(k));
+		await p.evaluate(`document.querySelector(${J(`#filing-register tr[data-key=${J(k)}] [data-delete-cancel]`)}).focus()`);
+		await holdEnter(p, { first: true });
+		await sleep(500);
+		const heldCancel = await step();
+		await cancelIfAsked(p, `#filing-register tr[data-key=${J(k)}]`);
+		await sleep(300);
+		await p.click(opener(k));
+		await pressEscape(p);
+		await sleep(300);
+		const escaped = await step();
+		await p.click(opener(k));
+		await p.click(opener(o));
+		await sleep(1000);
+		const second = await step();
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		const reloaded = await step();
+		const bare = await postAction(p, '?/delete', { delete: k });
+		const other = await postAction(p, '?/delete', { delete: k, confirm: o });
+		const refused = await both();
+		// without JavaScript the server's answer asks: a held Enter on Delete must not reach the Confirm of that page
+		const nojs = await holdEnterWithoutJs(p, `${V}/evidence/filings_tab`, `document.querySelector('main#main')?.dataset.ready === 'filings_tab'`, opener(k));
+		nojs.both = await both();
+		if (!nojs.both) throw new Error(`without JavaScript a held Enter on Delete deleted without a second press: ${J(nojs)}`);
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		const m = (await regRows()).length;
+		await p.click(opener(k));
+		await confirmPressed(p, `#filing-register tr[data-key=${J(k)}]`);
+		await p.waitFor(`document.querySelectorAll('#filing-register tbody tr[data-key]').length === ${m - 1} && !document.getElementById('register-status')`, 20000);
+		const settled = await p.waitFor(`document.activeElement && document.activeElement !== document.body ? document.activeElement.tagName : false`, 3000).catch(() => null);
+		const after = { k: (await regRows()).some((r) => r.key === k) || storedFilings().some((r) => `row:${r.id}` === k), o: (await regRows()).some((r) => r.key === o) && storedFilings().some((r) => `row:${r.id}` === o) };
+		const checks = {
+			asked: J(asked.asking) === J([k]) && asked.focus === 'confirm' && asked.both,
+			heldEnterOnConfirm: J(heldConfirm.asking) === J([k]) && heldConfirm.focus === 'confirm' && heldConfirm.both,
+			heldEnterOnCancel: heldCancel.both,
+			heldEnterOnCancelStaysClosed: heldCancel.asking.length === 0 && heldCancel.focus === 'opener',
+			noJsHeldEnterOnDelete: !nojs.hydrated && J(nojs.asked.asking) === J([k]) && !nojs.held.submitted && J(nojs.held.asking) === J([k]) && nojs.both,
+			noJsAskFocus: nojs.asked.focus === 'question' && nojs.tab === 'confirm',
+			cancelKeeps: cancelled.asking.length === 0 && cancelled.focus === 'opener' && cancelled.both,
+			escapeKeeps: escaped.asking.length === 0 && escaped.focus === 'opener' && escaped.both,
+			secondMoves: J(second.asking) === J([o]) && second.both,
+			reloadDrops: reloaded.asking.length === 0 && reloaded.both,
+			serverRefuses: bare.type === 'failure' && bare.status === 400 && other.type === 'failure' && other.status === 400 && refused,
+			confirmDeletesThatRow: !after.k && after.o,
+			focusSettles: settled === 'H1',
+		};
+		return { pass: Object.values(checks).every(Boolean), evidence: { checks, settled, asked, heldConfirm, heldCancel, nojs, cancelled, escaped, second, reloaded, bare, other, after } };
+	});
+	await scenario('E-FILINGS-CONFIRM-FOCUS', 'filings_tab', "GRS-175 L1: a Confirm delete refused by a busy store leaves focus on that row's Delete, with the error shown, the row kept and the error as the Delete's description", async () => {
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		const o = (await regRows()).find((r) => r.filing === 'Synthetic second confirm row')?.key;
+		const opener = `#filing-register tr[data-key=${J(o)}] [data-delete]`;
+		let focus = false, error = null, message = null, described = null;
+		const release = holdStore();
+		try {
+			await p.click(opener);
+			await confirmPressed(p, `#filing-register tr[data-key=${J(o)}]`);
+			await p.waitFor(`!!document.getElementById('register-delete-error')`, 30000);
+			error = await p.evaluate(`document.getElementById('register-delete-error').textContent.trim()`);
+			message = await p.evaluate(`document.querySelector('#register-delete-error p')?.textContent.trim() ?? null`);
+			focus = await p.waitFor(`document.activeElement === document.querySelector(${J(opener)})`, 5000).catch(() => false);
+			described = await describedBy(p);
+		} finally { release(); }
+		const checks = { errorShown: !!error, rowKept: storedFilings().some((r) => `row:${r.id}` === o), focusOnDelete: focus === true, errorDescribesDelete: !!message && described === message };
+		return { pass: Object.values(checks).every(Boolean), evidence: { checks, error, message, described, now: await focusOf(p, opener) } };
+	});
 	await scenario('E-DIFF', 'hoa_diff_tab', 'Document Diff: an explicitly chosen pair of known texts gives the literal word diff, states the compared coverage (BA-06, BA-08), survives reload; one document only asks for two; every document with an excerpt is offered', async () => {
 		const nav = await viaNav('hoa_diff_tab', 'Document Diff');
 		const options = await p.evaluate(`[...document.getElementById('diffA').options].map((o) => o.value).filter(Boolean)`);

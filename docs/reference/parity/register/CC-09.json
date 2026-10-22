@@ -17,8 +17,8 @@
       "reason": "v5 adds its click listeners again on every render, so after three schedule switches one press of Download cover page gives several downloads; the app gives exactly one.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-352",
@@ -35,8 +35,8 @@
       "reason": "The court bundle index says when the selection is incomplete (an item only partly selected, or selected files not in the verified index), so an incomplete export stays visibly incomplete. Only that line (its own key) is covered; the rest of the index compares exactly.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-353",
@@ -51,8 +51,8 @@
       "reason": "The certified cover page now follows the user's Copy/Original marks (all C, all O, or C&O per item); v5 printed the data-level value and ignored the marks. With no marks it equals v5. Only the C/O cell of the item the sweep marks Original is covered; the rest of the cover compares exactly.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-354",
@@ -67,8 +67,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 leaves it on the navigation link.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-355",
@@ -83,8 +83,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 leaves it on the navigation link.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-356",
@@ -101,8 +101,8 @@
       "reason": "The page says what CaseLines search covers: only its page-text index, with the number of pages indexed and without text derived from the imported index, and which pages have no text.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-357",
@@ -117,8 +117,8 @@
       "reason": "The page heading is the navigation label (BA-18); v5's list view says Court Bundles.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-361",
@@ -133,8 +133,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 leaves it on the navigation link.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-365",
@@ -151,8 +151,8 @@
       "reason": "Builder sweep, Gamma_Report.pdf: its page text is drawn by a Form XObject that borrows font F2 from the page. v5's Form XObject check never fires, so F2 is pruned from the copied page and that text loses its font; the app keeps every resource a form uses.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-366",
@@ -167,8 +167,8 @@
       "reason": "After Save to the bundle list, pressing Create Bundle again revokes the saved bundle's session PDF in v5, so its Bundle PDF link in the list is dead; the app keeps a saved bundle's PDF for the session.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-367",
@@ -183,8 +183,8 @@
       "reason": "After a reload a saved builder bundle has no PDF. For a part that starts after page 1, v5 links the item to '#page=N' on the app itself; the app shows no link.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-368",
@@ -201,8 +201,8 @@
       "reason": "The same saved part: v5 offers Open item for the '#page=N' self-link; the app offers nothing to open, as the PDF is gone.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-369",
@@ -217,8 +217,8 @@
       "reason": "Pressing Create Bundle and moving to another view before it finishes: v5 renders the builder over the other view when assembly ends; the app stays on the view the user chose.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-370",
@@ -237,8 +237,8 @@
       "reason": "PDF index (bundle and Index only): v5 drops every non-ASCII character from a description; the app keeps what the index font can show (é, ï) and folds the rest to its base letter (Ł to L). The rest of the page compares through the same key.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-371",
@@ -257,8 +257,8 @@
       "reason": "PDF index page ranges: v5 writes ' - ' where its HTML and Word indexes use ' – '; the app's PDF index uses ' – ' like the others.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-372",
@@ -275,8 +275,8 @@
       "reason": "Beta_Letter.pdf has a CropBox inside its MediaBox and /Rotate 90. v5 places the page number from the MediaBox, outside what a viewer shows; the app places it inside the visible box.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-373",
@@ -291,8 +291,8 @@
       "reason": "The same pages: where the page number sits relative to the visible (crop) box.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-374",
@@ -307,8 +307,8 @@
       "reason": "Saving the same output twice: v5 adds a second bundle (C2); the app updates the first and keeps its number.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-375",
@@ -323,8 +323,8 @@
       "reason": "The list after saving one output twice: v5 lists the duplicate; the app lists the bundle once.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-376",
@@ -339,8 +339,8 @@
       "reason": "v5's duplicate bundle from saving twice (its link is also dead, S-2); the app has no duplicate.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-377",
@@ -355,8 +355,8 @@
       "reason": "With a global PDFKDBG defined, v5's assembler writes a debug line per page to the console; the app has no debug hook.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-378",
@@ -373,8 +373,8 @@
       "reason": "After Create Bundle, a page range is edited without creating again and Index (Word) is pressed: v5 still links each row into the bundle PDF at the pages it had when created, so after a range shrinks the rows link to the wrong pages (v5 L2352 compares only the title and the item count; found in the CC-09 review, so it is not in the view checklist); the app links only when every item's bundle page numbers are unchanged, and otherwise writes the index without links.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-379",
@@ -422,8 +422,8 @@
       "reason": "v5 keeps the schedule/bundle sub-view across navigation, so returning shows the bundle view. ClearCase keeps this deliberately: the sub-view, filter and only-unmatched flag persist for the session. Resetting them on entry would need an app change. Evidence: src/lib/views/bundles/state.svelte.ts:2.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-383",
@@ -459,8 +459,8 @@
       "reason": "v5 shares one selection across both schedules keyed by file, and Empty bundle clears it without asking. ClearCase keeps that: one selection across both schedules, and Empty bundle unticks every selected file with no confirmation. Changing it would need an app change. Evidence: src/routes/v/[vid]/bundles/discovery_tab/+page.svelte:149.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-386",
@@ -483,8 +483,8 @@
       "reason": "v5 moved the header key but left the old one in its backup list, so the index header was neither backed up nor restored. ClearCase stores the header as a registered table, and a test shows the header reads back identically after restore. Parity sees the change: IDR-413. Evidence: tests/system/stores-21.test.ts:77.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-388",
@@ -495,8 +495,8 @@
       "reason": "v5 opens source-part links with a page fragment in a new tab while page-1 parts open in the viewer. ClearCase resolves every part link to the in-app document route with the page, so all behave the same. Evidence: src/lib/views/bundles/links.ts:50.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-389",
@@ -516,7 +516,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-court_bundle_tab-11",
-      "reason": "v5 hard-codes case content in the bundle renderer: the extracts figure and notes, the narrative, header examples, the document creator and the all-indexes file name. ClearCase reads each of them from the package's view content, with generic fallbacks. Evidence: src/routes/v/[vid]/bundles/court_bundle_tab/+page.server.ts:44.",
+      "reason": "v5 hard-codes case content in the bundle renderer: the extracts figure and notes, the narrative, header examples, the document creator and the all-indexes file name. ClearCase reads each of them from the package's view content, with generic fallbacks. Evidence: src/routes/v/[vid]/bundles/court_bundle_tab/+page.server.ts:45.",
       "productVisible": false,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,
@@ -526,10 +526,9 @@
       "id": "IDR-391",
       "view": "court_bundle_tab",
       "field": [],
-      "type": "known-gap",
+      "type": "defect-fix",
       "source": "S-court_bundle_tab-13",
-      "owner": "GRS-19",
-      "reason": "v5 Restore matter defaults and Clear all overwrite the header without confirmation. ClearCase asks only when there are unsaved typed fields; with none, the stored header is replaced at once. A confirmation for the stored header would need an app change. Evidence: src/routes/v/[vid]/bundles/court_bundle_tab/+page.svelte:63.",
+      "reason": "v5 Restore matter defaults and Clear all overwrite the header without confirmation. ClearCase asks first: the button shows Confirm restore or Confirm clear and Cancel inline, says when unsaved typed fields are discarded too, and only the confirmation replaces the stored header, which the page then reloads. The server refuses Restore or Clear without it. A Retry after a failed Restore or Clear posts with the confirmation already given, and asks again only when typed fields would be lost. Evidence: src/routes/v/[vid]/bundles/court_bundle_tab/+page.server.ts:91.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,
@@ -544,8 +543,8 @@
       "reason": "v5 session-upload Open links navigate the app tab to the blob and lose state. ClearCase offers a Download link for a download-only copy of the upload, so the app page is never replaced. Evidence: src/routes/v/[vid]/bundles/caselines_tab/+page.svelte:109.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-393",
@@ -568,8 +567,8 @@
       "reason": "v5 does not back up the linked documents. ClearCase stores them as a registered table, and a test round-trips them through backup and restore. Parity sees the change: IDR-413. Evidence: tests/system/stores-21.test.ts:82.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-395",
@@ -581,8 +580,8 @@
       "reason": "v5 re-encodes typed link paths into broken links with no check. ClearCase stores the typed path, links it only when it names an indexed document, and otherwise marks it not served; it does not remove duplicate links, which the defect also names; that would need an app change. Evidence: src/routes/v/[vid]/bundles/caselines_tab/+page.svelte:108.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-396",
@@ -594,8 +593,8 @@
       "reason": "v5 applies match offsets from lower-cased text to the original, shifting the highlight for characters whose case change alters length. ClearCase keeps this: the same offsets are applied to the original text. Fixing it would need an app change. Evidence: src/lib/views/bundles/caselines.ts:23.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-397",
@@ -619,8 +618,8 @@
       "reason": "v5 Go to page has no upper bound check beyond the max attribute. ClearCase keeps this: it opens any page number of at least one. Clamping or refusing a page above the page count would need an app change. Evidence: src/routes/v/[vid]/bundles/caselines_tab/+page.svelte:18.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     }
   ]
 }

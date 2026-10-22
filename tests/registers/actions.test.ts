@@ -47,7 +47,7 @@ async function post(view: View, action: 'save' | 'delete', fields: Record<string
 	return r && typeof r.status === 'number' && 'data' in r ? { failed: r.status, ...r.data } : { ok: true, ...r };
 }
 const load = async (view: View) => (await P.registerLoad(view)({ parent: async () => ({ version: { id: rv, caseId } }) })) as { rows: { rowId: string; values: Record<string, string>; version: string; intact: boolean; cells: { text?: string; flag?: string }[] }[] };
-const clear = async (view: View) => { for (const r of (await load(view)).rows) await post(view, 'delete', { rowId: r.rowId }); };
+const clear = async (view: View) => { for (const r of (await load(view)).rows) await post(view, 'delete', { rowId: r.rowId, confirm: r.rowId }); };
 const hold = () => { const l = new DatabaseSync(lc.storage.workFile); l.exec('PRAGMA busy_timeout=0; BEGIN IMMEDIATE'); return () => { l.exec('ROLLBACK'); l.close(); }; };
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const D = 'disbursements_tab' as const;
@@ -69,7 +69,7 @@ describe('register actions', () => {
 		await post(D, 'save', v0);
 		const [r] = (await load(D)).rows;
 		const release = hold();
-		const del = post(D, 'delete', { rowId: r!.rowId });
+		const del = post(D, 'delete', { rowId: r!.rowId, confirm: r!.rowId });
 		await pause(50);
 		const edit = post(D, 'save', { rowId: r!.rowId, version: r!.version, ...v0, desc: 'Synthetic tab A' });
 		await pause(50);
@@ -83,7 +83,7 @@ describe('register actions', () => {
 		const release2 = hold();
 		const edit2 = post(D, 'save', { rowId: s!.rowId, version: s!.version, ...v0, desc: 'Synthetic tab A' });
 		await pause(50);
-		const del2 = post(D, 'delete', { rowId: s!.rowId });
+		const del2 = post(D, 'delete', { rowId: s!.rowId, confirm: s!.rowId });
 		await pause(50);
 		release2();
 		expect([await edit2, await del2]).toMatchObject([{ ok: true, saved: true }, { ok: true, deleted: true }]);
@@ -160,13 +160,26 @@ describe('register actions', () => {
 		expect(res).toMatchObject({ failed: 404 });
 	});
 
+	it('delete nothing without the confirmation: ask for the row, and refuse a Cancel or a confirmation of another row (GRS-175)', async () => {
+		await clear(D);
+		await post(D, 'save', v0);
+		await post(D, 'save', { ...v0, desc: 'Synthetic second' });
+		const [r, s] = (await load(D)).rows;
+		expect(await post(D, 'delete', { rowId: r!.rowId })).toEqual({ failed: 400, op: 'delete', rowId: r!.rowId, confirm: r!.rowId });
+		expect(await post(D, 'delete', { rowId: r!.rowId, confirm: s!.rowId })).toEqual({ failed: 400, op: 'delete', rowId: r!.rowId, confirm: r!.rowId });
+		expect(await post(D, 'delete', { rowId: r!.rowId, confirm: r!.rowId, cancel: r!.rowId })).toEqual({ failed: 400, op: 'delete', rowId: r!.rowId, confirm: null });
+		expect((await load(D)).rows.map((x) => x.rowId)).toEqual([r!.rowId, s!.rowId]);
+		expect(await post(D, 'delete', { rowId: r!.rowId, confirm: r!.rowId })).toMatchObject({ ok: true, deleted: true });
+		expect((await load(D)).rows.map((x) => x.rowId)).toEqual([s!.rowId]);
+	});
+
 	it('report a failed delete as a delete, apart from any save failure (D4)', async () => {
 		await clear(D);
 		await post(D, 'save', v0);
 		const [r] = (await load(D)).rows;
 		const release = hold(), wait = withoutBusyWait(lc.storage);
 		let del;
-		try { del = await post(D, 'delete', { rowId: r!.rowId }); } finally { release(); wait(); }
+		try { del = await post(D, 'delete', { rowId: r!.rowId, confirm: r!.rowId }); } finally { release(); wait(); }
 		expect(del).toMatchObject({ failed: 503, op: 'delete', rowId: r!.rowId, message: expect.stringMatching(/did not happen.*still there/) });
 		expect((await load(D)).rows).toHaveLength(1);
 	}, 60_000);

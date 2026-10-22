@@ -19,8 +19,8 @@
       "reason": "The register paragraph's introduction is the package's view-content (filings_tab.registerIntro, v5's case wording, read by the view); only the closing storage sentence differs. v5 says the register is saved in the browser under a storage key, which is false in the app; the app says it is kept in the case's local work store, apart from the imported seed rows. Both sides are pinned by shape: no storage key or case value appears here.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-102",
@@ -35,8 +35,8 @@
       "reason": "Acceptance (edit and reload a filing relationship): each register row has an Edit control beside v5s Delete. An edit of an imported row is a seed overlay; a user row is replaced in place.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-103",
@@ -51,8 +51,8 @@
       "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-104",
@@ -69,8 +69,8 @@
       "reason": "BA-05: the filing groups and document types are imported classifications with no verification state; the view says they are unverified.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-105",
@@ -97,8 +97,8 @@
       "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-109",
@@ -113,8 +113,8 @@
       "reason": "BA-17: the list states its order; BA-05: document types are imported classifications without a verification state.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-110",
@@ -129,8 +129,8 @@
       "reason": "S-bundle4 and S-documents-1: v5 hard-codes four bundle buttons, so the Additional bundle cannot be shown; the app offers a button for every imported bundle.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-111",
@@ -144,8 +144,8 @@
       "reason": "S-bundle4 and S-documents-1: combinations with a bundle v5 offers no button for (no-option) show that bundle's rows in the app.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-107",
@@ -178,8 +178,8 @@
       "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-113",
@@ -196,8 +196,8 @@
       "reason": "BA-07: the people list is inferred from e-mail headers; the view says no identity is confirmed, so an automated sender is never presented as a verified attorney.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-114",
@@ -212,8 +212,8 @@
       "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-115",
@@ -228,8 +228,8 @@
       "reason": "BA-07: entity roles are imported inferences without a verification state; the view says so.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-117",
@@ -244,8 +244,8 @@
       "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-118",
@@ -262,8 +262,8 @@
       "reason": "BA-05: contract groups and the Signed marker are imported or heuristic classifications without a verification state; the view says so.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-119",
@@ -278,8 +278,8 @@
       "reason": "BA-08: v5 claims a search over every field, but it reads metadata and a short excerpt only; the app says what it searches.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-120",
@@ -294,8 +294,8 @@
       "reason": "S-bundle4 and S-search-4: v5 hard-codes four bundle options; the app offers every imported bundle (one more on this package).",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-121",
@@ -310,8 +310,8 @@
       "reason": "S-bundle4 and S-search-4: the bundle options are every imported bundle in order of first appearance, so the Additional bundle comes third and the later options move down one. One entry per option, each pinned to its own pair, so a wrong order is not covered.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-132",
@@ -326,8 +326,8 @@
       "reason": "S-bundle4 and S-search-4: the bundle options are every imported bundle in order of first appearance, so the Additional bundle comes third and the later options move down one. One entry per option, each pinned to its own pair, so a wrong order is not covered.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-133",
@@ -342,8 +342,8 @@
       "reason": "S-bundle4 and S-search-4: the bundle options are every imported bundle in order of first appearance, so the Additional bundle comes third and the later options move down one. One entry per option, each pinned to its own pair, so a wrong order is not covered.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-122",
@@ -357,8 +357,8 @@
       "reason": "S-bundle4 and S-search-4: combinations with a bundle v5 offers no option for (no-option) search that bundle in the app.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-123",
@@ -379,8 +379,8 @@
       "reason": "BA-15 (and S-search-5 for a bound that is not a number): a reversed date or amount interval is rejected with a message instead of an empty result; a valid search that matches nothing still shows the empty result (combinations d4, m5, p2 compare equal).",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-125",
@@ -395,8 +395,8 @@
       "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-126",
@@ -413,8 +413,8 @@
       "reason": "BA-08: the view discloses what search covers and how much text is absent, with counts derived from the rows, never from summary metadata.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-127",
@@ -429,8 +429,8 @@
       "reason": "BA-18: the page heading is the navigation label (Document Diff); v5 heads the page Document / Version Diff, which also suggests a version relationship the app does not establish (BA-06).",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-128",
@@ -462,8 +462,8 @@
       "reason": "S-hoa_diff_tab-1: the documents after v5s first 1,200 excerpt-bearing ones can be chosen in the app (options only the app has; the earlier options still compare). The when pins only v5's side, because the app's options are case values: tests/evidence/diff.test.ts guards the candidate list (every row with an excerpt and no other).",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-130",
@@ -478,8 +478,8 @@
       "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-131",
@@ -496,8 +496,8 @@
       "reason": "BA-06 and BA-08: the comparison needs an explicit user-chosen pair and says so; the page counts, from the rows, how many documents have an excerpt to compare and how long excerpts are.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-135",
@@ -508,8 +508,8 @@
       "reason": "v5 takes bundle button counts from build metadata while the table lists all rows including rescan additions, so they disagree after a rescan. ClearCase counts each bundle button from the same rows the table lists, so the counts always agree. Evidence: src/lib/views/evidence/documents.ts:23.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-136",
@@ -520,8 +520,8 @@
       "reason": "v5 tests unsigned in the note only and matches a loose sign pattern anywhere, so words such as assignment or designated read as signed. ClearCase reads whole words in title and note, treats negated wording as uncertain, and labels the marker as an unverified heuristic. Evidence: src/lib/views/evidence/contracts.ts:12.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-137",
@@ -544,17 +544,16 @@
       "reason": "v5 copies the seed register into user storage on first read, so a later results version seed is never shown to existing users. ClearCase keeps imported seeds and user rows apart: edits and deletes are overlays on the seed, and a changed seed shows again with a note. Parity sees the change: IDR-101. Evidence: tests/evidence/filings.test.ts:24.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-139",
       "view": "filings_tab",
       "field": [],
-      "type": "known-gap",
+      "type": "defect-fix",
       "source": "S-filings_tab-2",
-      "owner": "GRS-14",
-      "reason": "v5 deletes a register row by array index without asking. ClearCase deletes by stable row key, so a stale list cannot remove another row, but Delete still acts at once with no confirmation; adding one would need an app change. Evidence: src/routes/v/[vid]/evidence/filings_tab/+page.svelte:103.",
+      "reason": "v5 deletes a register row by array index without asking. ClearCase deletes by stable row key and asks first: Delete shows Confirm delete and Cancel inline, with focus on Confirm delete, and Cancel or Escape keeps the row. The server deletes nothing unless the request names the row it was confirmed for, so a page without JavaScript asks the same question. Evidence: src/lib/views/evidence/filings.server.ts:112.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,
@@ -566,7 +565,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-filings_tab-3",
-      "reason": "v5 hard-codes the orientation paragraph, with a bundle ref, a file size and a date, in the renderer. ClearCase shows that paragraph from the imported package view-content, so no case content is in code. Evidence: src/lib/views/evidence/filings.server.ts:33.",
+      "reason": "v5 hard-codes the orientation paragraph, with a bundle ref, a file size and a date, in the renderer. ClearCase shows that paragraph from the imported package view-content, so no case content is in code. Evidence: src/lib/views/evidence/filings.server.ts:34.",
       "productVisible": false,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,
@@ -582,8 +581,8 @@
       "reason": "v5 gives user-added register rows no way to set Status, so only imported rows carry one. ClearCase copies this: the register form has no Status field and user rows keep an empty status; adding the field would need an app change. Evidence: src/lib/views/evidence/filings.ts:8.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-142",
@@ -595,8 +594,8 @@
       "reason": "v5 exports and extracts action items from the last submitted search, not the current form values. ClearCase copies this: the submitted search is the page address and the export and action items use exactly it, so unsubmitted edits are not exported; making them follow the form would need an app change. Evidence: src/routes/v/[vid]/evidence/search/+page.svelte:36.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-143",
@@ -607,8 +606,8 @@
       "reason": "v5 global search sets only the query and leaves older filters in place, and auto-runs only for a query or bundle. ClearCase has no global box; the Advanced Search form shows exactly the filters in its address and runs whenever any field is present, so no remembered filter silently yields nothing. Evidence: src/lib/views/evidence/search.ts:18.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-144",
@@ -633,8 +632,8 @@
       "reason": "v5 always appends an ellipsis to the excerpt preview, even when the excerpt is shorter than the cut. ClearCase copies this for every non-empty excerpt; fixing it would need an app change. Evidence: src/lib/views/evidence/search.ts:72.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-146",
@@ -646,8 +645,8 @@
       "reason": "v5 diffs only the short indexed excerpt, so lines mode degenerates to replacing the whole single-line excerpt. ClearCase still compares only the excerpts, but states each side excerpt length and text status; full-text comparison needs a full-text rebuild. Parity sees the change: IDR-131. Evidence: src/lib/views/evidence/diff.ts:5.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-147",
@@ -659,8 +658,8 @@
       "reason": "v5 offers two long plain selects with no search. ClearCase keeps two plain selects, now listing every document that has an excerpt, so they are longer and still have no search box; a searchable picker would need an app change. Evidence: src/routes/v/[vid]/evidence/hoa_diff_tab/+page.svelte:20.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     }
   ]
 }

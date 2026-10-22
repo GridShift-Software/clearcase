@@ -35,11 +35,11 @@ describe('committed register', () => {
 			mkdirSync(join(dir, 'register'));
 			const main = join(dir, 'intentional-differences.json');
 			writeFileSync(main, JSON.stringify({ version: 1, entries: [good] }));
-			writeFileSync(join(dir, 'register', 'CC-05.json'), JSON.stringify({ version: 1, entries: [{ ...good, id: 'IDR-150' }] }));
+			writeFileSync(join(dir, 'register', 'CC-05.json'), JSON.stringify({ version: 1, entries: [{ ...good, id: 'IDR-151' }] }));
 			expect(registerProblems(main)).toEqual([]);
 			writeFileSync(join(dir, 'register', 'CC-05.json'), JSON.stringify({ version: 1, entries: [] }));
-			writeFileSync(main, JSON.stringify({ version: 1, entries: [good, { ...good, id: 'IDR-150' }] }));
-			expect(registerProblems(main).join('\n')).toMatch(/IDR-150: in CC-05's id range; it belongs in register\/CC-05\.json/);
+			writeFileSync(main, JSON.stringify({ version: 1, entries: [good, { ...good, id: 'IDR-151' }] }));
+			expect(registerProblems(main).join('\n')).toMatch(/IDR-151: in CC-05's id range; it belongs in register\/CC-05\.json/);
 			writeFileSync(main, JSON.stringify({ version: 1, entries: [good] }));
 			writeFileSync(join(dir, 'register', 'CC-05.json'), JSON.stringify({ version: 1, entries: [{ ...good, id: 'IDR-120' }] }));
 			expect(registerProblems(main).join('\n')).toMatch(/register\/CC-05\.json: IDR-120: outside CC-05's id range/);

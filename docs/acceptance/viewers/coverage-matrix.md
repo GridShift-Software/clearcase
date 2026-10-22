@@ -4,13 +4,13 @@ The frozen alpha file coverage, with the fixture evidence behind each cell. The 
 
 | Evaluation | Value |
 | --- | --- |
-| Revision | `8f3194619db99626f074661bce2e67903477ba89`, harness tree `3cbc76c24d8ff604c441350358adcc914e7c2eb8`, clean (the tree is unchanged by the commit that adds `results.json`). Re-run after the review of 3fc4b68; the first run was at `e083325` |
-| Harness | `tests/viewer-evaluation/` (run instructions in its README), 105 synthetic fixtures generated in code (75 at `e083325`; 29 added for the review's classes; `archive/stored-lying-size.zip` added at `cfbaa52`, after the recorded run, so `results.json` does not cover it) |
+| Revision | `1932037ab00fd919e945ad17b40422d7688c5d75`, harness tree `3cbc76c24d8ff604c441350358adcc914e7c2eb8`, clean (the tree is unchanged by the commit that adds `results.json`). Re-run after the review of aad3e04; the first run was at `7c0a58e`. `results.json` was recorded before the 21 October 2026 history rewrite and names the earlier form (first six characters) of the revision, `8f3194` for `1932037a` |
+| Harness | `tests/viewer-evaluation/` (run instructions in its README), 105 synthetic fixtures generated in code (75 at `7c0a58e`; 29 added for the review's classes; `archive/stored-lying-size.zip` added at `bd4d3dc`, after the recorded run, so `results.json` does not cover it) |
 | Browser | Chrome for Testing 148.0.7778.96, headless, driven by `playwright-core` 1.64.1 |
 | Network | `tests/e2e/pilot/offline.sh` (loopback only); the browser context also aborts and records any request leaving the harness origin |
 | Viewports | 1440×900 and 1024×768 desktop; 390×844 Chromium mobile emulation (DPR 3, touch) |
 | **HOLD** | Firefox, WebKit, real iOS Safari, real Android Chrome: not installed, no devices |
-| Result | **418 PASS, 11 FAIL, 0 HOLD** in 429 checks (339 PASS, 11 FAIL in 350 before the fix round; the same counts at `e0f3d7e`, before the documents were folded in). The 11 FAILs are the same component findings as before, asserted on purpose (listed under [Findings](#findings)); none is new and none is a harness fault |
+| Result | **418 PASS, 11 FAIL, 0 HOLD** in 429 checks (339 PASS, 11 FAIL in 350 before the fix round; the same counts at `7440982`, before the documents were folded in). The 11 FAILs are the same component findings as before, asserted on purpose (listed under [Findings](#findings)); none is new and none is a harness fault |
 
 Raw results are in [results.json](results.json), a copy of the run's own `.local/viewer-evaluation/results.json` (per check: verdict, the assertion that decided it, and the observation; the Git revision and harness tree are inside it). Screenshots are under `.local/viewer-evaluation/screenshots/` (ignored, not committed).
 
@@ -82,7 +82,7 @@ PASS/FAIL counts are per fixture across all viewports.
 | Archive | Files renamed to mislead: DOCX/XLSX named `.zip`, ZIP named `.docx`, `.doc`/`.xls`/`.msg` named `.dat`, `.msg` named `.doc`, a PowerPoint-shaped package | adapt | The family comes from the OOXML parts or the OLE directory; the PowerPoint-shaped package is `unknown`, held `unsupported-office-format` | `rename/*` 1/0 each (nine fixtures) |
 | Archive | Nesting: six ZIPs, and a ZIP/EML alternating chain | unsupported beyond depth 3 | One depth counter for both; the container at the limit is held `nesting-limit` and not expanded. One expansion budget for the tree (checked at a 1,000,000-byte cap) | `nest-zip-6.zip` 1/0, `nest-eml-zip-chain.zip` 1/0, `budget-mixed.zip` 1/0 |
 | Archive | Duplicate member names | adapt | Kept by position; citing the duplicated name is refused | `duplicates.zip` 4/0 |
-| Archive | Traversal and symlink, CRC mismatch, encrypted, unsupported method, declared and lying-size bombs | unsupported | Held, each with its reason | `traversal.zip`, `corrupt-crc.zip`, `encrypted-flag.zip`, `unsupported-method.zip`, `bomb-256mib.zip`, `bomb-lying-size.zip`: 3/0 each. `stored-lying-size.zip` (a stored member of 64 MiB + 1 byte declaring size 1) is held `expansion-limit-exceeded`, and a stored member whose compressed size, declared size and stored length disagree is held `size-mismatch`; the archive-only harness run at `ce04012` passes the first, no fixture exercises the second |
+| Archive | Traversal and symlink, CRC mismatch, encrypted, unsupported method, declared and lying-size bombs | unsupported | Held, each with its reason | `traversal.zip`, `corrupt-crc.zip`, `encrypted-flag.zip`, `unsupported-method.zip`, `bomb-256mib.zip`, `bomb-lying-size.zip`: 3/0 each. `stored-lying-size.zip` (a stored member of 64 MiB + 1 byte declaring size 1) is held `expansion-limit-exceeded`, and a stored member whose compressed size, declared size and stored length disagree is held `size-mismatch`; the archive-only harness run at `4b7cd57` passes the first, no fixture exercises the second |
 | Archive | ZIP64, split archives | unsupported, **unevaluated** | Held by the import code; no fixture exercised it | none |
 | Archive | Total expansion over 512 MiB and more than 10,000 items in a tree | unsupported, **unevaluated** at the stated limits | The code is exercised at a 1,000,000-byte cap only; no fixture reaches 512 MiB or 10,000 items | `budget-mixed.zip` at the lowered cap |
 | Text | Plain text members and OCR companions | adopt | Plain-text reader | via `basic.zip` member 1 and `scanned-no-text.ocr.txt` |
@@ -113,7 +113,7 @@ By viewport: 1440×900 274 PASS and 11 FAIL (all component findings); 1024×768 
 
 ## Scale
 
-These are measurements at the proposed starting tiers on desktop Chrome, not agreed limits (open question 2).
+These are measurements at the starting tiers on desktop Chrome, not limits the product enforces (open question 2, [decided 20 October 2026][decision]).
 
 | Tier | Fixture | Result |
 | --- | --- | --- |
@@ -145,7 +145,7 @@ All 13 containment checks pass at every viewport:
 | C: unmatched supplied locations | Held, one code per location | PASS (`invalid-target` ×2, `ambiguous-attachment`, `unmapped-original-location`) |
 | D: citation to rendition version 2 | Held | PASS (`stale-rendition`) |
 | E: TIFF without a prepared rendition | Held | PASS (`prepared-rendition-missing`, `required-preview-missing`) |
-| F: a file that passes import whose reader fails (`png-corrupt-body.png`) | Held through `preview-failed:*` with no import hold on the file | PASS (`preview-failed:decode-failed`). The branch worked at `3fc4b68` and no candidate reached it; with reader errors ignored in `evaluate()` this check fails |
+| F: a file that passes import whose reader fails (`png-corrupt-body.png`) | Held through `preview-failed:*` with no import hold on the file | PASS (`preview-failed:decode-failed`). The branch worked at `aad3e04` and no candidate reached it; with reader errors ignored in `evaluate()` this check fails |
 | G: unknown and unsupported bytes inside a ZIP and on an EML | Held, every one of the six blobs in each container carries a hold | PASS (`bulk-mailbox-…`, `unsupported-container-…`, `unrecognised-format`, each with `child-preview-failed:no-reader`) |
 | H: encrypted PDF with a decrypted rendition; the unlinked twin | Ready; the twin held | PASS (`pdf-encrypted-needs-decrypted-rendition` on the twin only) |
 | I: RTF-only MSG with a reviewed companion; the unlinked twin | Ready, companion shown by the reader; the twin held | PASS (`rtf-only-body-needs-companion` on the twin only) |
@@ -164,3 +164,5 @@ The 11 FAILs. Each assertion was written to fail if the component behaves the wa
 | `sheet/main.supplement-v1.pdf` ×2 | The office supplement recalculated the absent result to 20 and omitted the hidden sheets, row, column and comment | Supplements are visual-only; values come from the grid |
 | `media/mp4-two-audio-tracks.mp4` | Chrome exposes no `audioTracks` API, so the second track is unreachable | Prepared rendition per material track |
 | `media/mp4-truncated.mp4` | Chrome plays a cut MP4 as complete and shows a black frame past the cut | Import holds it (`media-damaged`); the reader alone cannot be trusted to fail |
+
+[decision]: https://linear.app/vaper/issue/GRS-27#comment-629983a8

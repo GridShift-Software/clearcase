@@ -92,6 +92,8 @@ To move the pin, run `bun upgrade --stable` (`pacman -Syu bun` for the distribut
 | `scripts/agent-tools/bootstrap [--relock \| --remove]` | See above. Plain `bootstrap` runs the doctor, which writes the doctor's receipt. A refused conflicting link, `--relock` and `--remove` write none. | 0 or 1 |
 | `python3 scripts/planning/generate.py --compare-linear EXPORT` | Diffs generated briefs against the descriptions in a full Linear export. Writes no receipt unless wrapped in `receipt`. | 0 all match, 1 drift |
 
+`verify` has no `check` capability (its list is `models`, `test-guard`, the plan and pstack checks, `pstack` and `app`): run `bun run --bun check` directly, wrapped in `receipt` if a record is wanted. `receipt` waits for every process that holds its output pipes, so a wrapped command that leaves a daemon with inherited stdout hangs it (`receipt -- sh -c 'sleep 40 & echo hi'` was still waiting after 20 s); redirect the daemon's stdout and stderr.
+
 All commands accept `--skills-dir`, `--receipts`, `--base REF` and `--root DIR`. `--root` checks a different planning tree, which must be the top of a Git checkout; the tests use it for fixtures. `doctor` and `bootstrap` ignore `--root` and check the checkout that holds the tools. `--base` names the revision that receipts compare against; see [Revision identity](#revision-identity).
 
 Capabilities and the commands they wrap:
@@ -268,6 +270,8 @@ The plugin section of the suite is self-contained. `tests/agent-tools/make_plugi
 
 Escalation tests prove missing linkage, source, exact/clean SHA or bounded question cannot write; complete request/outcome records retain the task fields without dispatch. Spend tests distinguish unavailable and zero, require an actual source, reject invalid numbers and prove overspend targets do not stop commands. These are tooling behavior tests, not evidence of a real escalation, live Linear agreement, provider billing, hosted deployment or deadline enforcement.
 
+`tests/agent-tools/test_controls.py` runs as one row of `run.sh` (`python3 -I tests/agent-tools/test_controls.py [Class]`). The `-m unittest` form cannot import under `-I`. A `GuardCase`'s subtests share one repository, so a file written identically in an earlier subtest is unchanged in the next diff.
+
 The suite exits nonzero on any unexpected behavior. `check-plan` can independently remain FAIL for the real plan even when every tooling behavior test passes.
 
 `tests/agent-tools/test_docs_only.py`, which the suite runs after `test_controls.py`, drives the real `fix-round-guard`,
@@ -293,8 +297,9 @@ CI runs it from the repository. A fix round commits its findings as a manifest,
 `docs/acceptance/fix-rounds/<ISSUE>-<round>.json`: the findings JSON below plus `"schema": "clearcase-fix-round/1"`,
 the canonical `unit`, `fixBase` (the reviewed commit's full SHA) and `reviewFindingsSha256` (the content hash of the
 review's findings file). The reviewer's findings file, the one `review-record` retains, carries
-`"protectedTests": [{"file", "name"}]` (a list; empty only when the review names no test) and the manifest's `tests`
-must equal it; an empty list is declared in `noTests` ([Docs-only fix rounds](#docs-only-fix-rounds)). The fix worker
+`"protectedTests": [{"file", "name"}]` (a list; empty when the review names no test or uses explicit file protection)
+and the manifest's `tests` must equal it; without file protection, an empty list is declared in `noTests`
+([Docs-only fix rounds](#docs-only-fix-rounds)). The fix worker
 commits the manifest first, with the red tests. `scripts/agent-tools/fix-round-guard
 --base REF [--root DIR]` lists the manifests added or changed between the merge base with REF and HEAD, and runs
 the guard at HEAD for each one, with one `test-guard` receipt per manifest. A deleted manifest, a malformed one, or a
@@ -369,9 +374,9 @@ It fails closed, and a reviewed `fixBase` advance is the remedy. `--ledger` bind
 prints how many changed files it left to the base and which protected ones, and its PASS line ends `; trusted base <full SHA>` when a base was trusted. Reviewer-owned: a base change to the runner
 configuration is accepted even where it decides whether the branch's named tests run (a base `exclude`, or an `include`
 list that no longer matches the branch's test directory), since the guard cannot evaluate globs; the re-check reads each
-protected file the guard's line names. A `fixBase` advance like `e7681a6` (PR #75) is no longer needed for a base change
+protected file the guard's line names. A `fixBase` advance like `9699b18` (PR #75) is no longer needed for a base change
 to a path the branch had not touched; it still is for a hand-resolved union and for a later ticket in the same wave
-(`afd48fc4`, PR #84, where the change came from the wave, not the base). Existing manifests stay as they are.
+(`fc8ad471`, PR #84, where the change came from the wave, not the base). Existing manifests stay as they are.
 
 A path the base added, changed or deleted after the review has the base's copy as a reference beside the fix base's
 (GRS-169). Its test is that a copy of it at a base commit HEAD holds, the trusted base's own once HEAD has merged it and
@@ -408,12 +413,13 @@ the path. Per kind of path:
 - A changed module's import is new when any of its references lacks it, and a module restored to the fix base's copy
   after a base change counts as changed.
 
-An unchanged branch merging any base change passes: an addition, a change, a deletion or a rename of a test, a runtime
-file or a fixture, and a change to a helper or the runner configuration. A protected fixture or helper the base deletes,
-and a setup/helper dependency the base adds, refuse, as before, including when the same origin is also imported by a new
-runner configuration. A runner configuration, a module it imports or a derived package entry (test scripts or resolution
-fields) absent at review passes when the merged trusted base added its origin file and HEAD holds that origin's full blob
-and mode unchanged (GRS-195). Protected test/setup traversal follows every shared, transitive or cyclic dependency even
+An unchanged branch merging a base change to an existing test, runtime file, fixture, helper or runner configuration
+passes. Additions can still refuse: a protected fixture or setup/helper dependency the base adds or deletes remains
+protected, including when the same origin is imported by a new runner configuration. GRS-195's exception applies to a
+runner configuration, a module it imports or a derived package entry (test scripts or resolution fields) absent at review
+only when that origin is not also a protected setup/helper dependency, the merged trusted base added its origin file and
+HEAD holds that origin's full blob and mode unchanged. Protected
+test/setup traversal follows every shared, transitive or cyclic dependency even
 when the runner already visited the file. Protected membership takes precedence over runner membership for every origin.
 Import, re-export, dynamic import and require specifiers, including explicit extensions and TypeScript import-equals,
 belong to the runner import graph; setup entries and other path expressions still create protected setup membership.
@@ -655,10 +661,10 @@ best-effort net, not a sandbox. The cases below remain reviewer-owned; GRS-150 d
   - a member of a `const` object, array or enum: `K.k` or `T[0]` with `const K = { k: 'constructor' }` or
     `const T = ['constructor']`;
   - a binding destructured from a literal: `const { k } = { k: 'constructor' }` and then `{ [k]: C }`;
-  - `??`, `||` and `&&` with literal operands: `'constructor' || x`;
+  - `??`, `||` and `&&` with a runtime or `undefined` operand, such as `'constructor' || x` or `undefined ?? 'constructor'`;
   - a `const` set from `String.raw` with the template `constructor`, or from `Object.freeze({ k: 'constructor' })`,
     which count as runtime calls;
-  - `Symbol.for(x)` keys, which fold to the string `x`, so `globalThis[Symbol.for('$$jest-matchers-object')]` reads
+  - `Symbol.for(x)` keys, which fold to the string `x`, so `globalThis[Symbol.for('$$matchers-object')]` reads
     as a plain name.
 - code generation: `eval`, indirect eval (`(0, eval)(...)`), `Function`, a constructor chain. Search the diff for
   the words.
@@ -816,10 +822,11 @@ In the wave. A wave pull request into `dev` reruns the declaration at the wave h
 also holds the wave's later tickets. With an explicit `--base` that is `dev` (`origin/dev`), no `--ledger`, a `--branch`
 of the form `wave/<name>` (one component, as `merge-check` admits) and a manifest added in the range, `fix-round-guard`
 bounds the declaration at its own fix round. The head branch's name alone proves nothing: CI passes the pull request's own,
-and a ticket PR into a wave may use any, so the bound also needs a base of `dev` and a first-parent line of merges alone
-from the merge base to HEAD; one commit of the wave's own on that line, before the joining merge or after it, or a
-manifest committed there, gives the whole range. The oldest commit on HEAD's first-parent line that holds the manifest is the merge that brought the round's line
-into the wave, and its one other parent holding the same manifest bytes is the line's tip. The guard judges the fix base
+and a ticket PR into a wave may use any, so the bound also needs a base of `dev` and a first-parent line of two-parent
+merges from the merge base to HEAD; any direct commit or octopus merge on that line, before or after the joining merge,
+or a manifest committed there gives the whole range. The oldest commit on HEAD's first-parent line that holds the manifest
+is the merge that brought the round's line into the wave, and its one other parent holding the same manifest bytes is the
+line's tip. The guard judges the fix base
 to that tip (`--fix-head`, recorded as `guard.fixHead`), with the newest wave state the tip holds as the trusted base, so
 a wave change the ticket merged in before its own merge is the wave's, as at the ticket's pull request. A manifest changed
 after the merge or brought in any other way gets the whole range, which fails closed. The merges that follow it on the
@@ -831,6 +838,14 @@ judged whole. Approval refuses a bounded receipt as it refuses a base-aware one.
 Rollout. CI and `base-guard` run the guard of the pull request's base branch, never the pull request's own. A
 declaration is therefore refused (`findings.tests must be a nonempty list`) until this change reaches the PR's base
 branch, and a wave's pull request into `dev` refuses one until the wave itself has landed the change.
+
+### Guard internals
+
+Where a change to `scripts/agent-tools/test_guard.mjs` lands:
+
+- `closure(revision, starts)` returns `{found, ids, modes, data, runner, resolve, loadedBy, declared, origin}`. `follow()` fills `found` (all compared text, including runner configuration and resolver inputs) and the import edges; `loadedBy(start)` walks those edges from one named file plus the shared files, so the files a test loads are per file, not one `loaded` set. `importsOf(tree, file, strict)` skips nonliteral imports of app code when `strict` is false; strict mode still throws for protected files.
+- `analysisOf(file, text, exporter)` (module level, cached per exporter) owns `rootOf`, `exportRoot` and `exportedBy`. `reachesFramework(file, text, exporter)` takes `main()`'s `exporter`, which links a specifier and reads `runnableOf` at HEAD, memoised; without an exporter, imports are not followed. It is an allowlist (`held`, `rootOf`, `mutation`), and Svelte files read `scriptOf` (parse) and `runnableOf` (compile).
+- `link`, `unquery`, `external` and `exporter` sit in `main()` just after `currentClosure`, because `quiet()` uses them. `link()` binds `.svelte` and extensioned specifiers for new-load edges only; the closure's own `resolve` still fails closed on them.
 
 ## Exact-revision approval ledger
 
@@ -868,8 +883,8 @@ not from the worker's files: the review that prompted the fix is the unit's late
 `fixBase`, another findings hash or a shorter `tests` list refuses, and so does a receipt from `fix-round-guard --base`
 without `--ledger` (its `guard.trustedBase` is set, or its recorded command carries `--trusted-base`), since a worker
 chooses that base. A receipt bounded at a fix head (`guard.fixHead`, or `--fix-head` in its command) refuses too.
-Outside the explicit files mode above, a review with no `protectedTests` field refuses approval. An empty list records
-`guard.nothingToProtect` and still needs the receipt: approval admits no recorded fix that `fix-round-guard --ledger`
+Outside the explicit files mode above, a review with no `protectedTests` field refuses approval. Outside that mode, an
+empty list records `guard.nothingToProtect` and still needs the receipt: approval admits no recorded fix that `fix-round-guard --ledger`
 refuses, and that guard demands a manifest. Outside files mode, an empty list needs a docs-only declaration
 ([Docs-only fix rounds](#docs-only-fix-rounds)), whose PASS receipt must name the recorded review's SHA and findings hash,
 so a recorded fix with no manifest refuses, whatever it changes. A declaration for a review that names tests

@@ -168,6 +168,23 @@ try {
 		return { pass: /Not an amount/.test(r.error) && J(r.values) === J(typed.map(([, v]) => v)) && r.after === before && /^No payments recorded/.test(r.empty ?? ''), evidence: { before, ...r } };
 	});
 
+	// ---- the same-date control of Q-INTEREST-UNLIKE-BASIS (after Q6): no payment is recorded yet (GRS-173) -------------
+	await scenario('Q-INTEREST-LIKE-BASIS', 'interest_calc_tab', 'a total as at the amount due\'s own date, with no payment recorded, keeps v5\'s comparison line and says the difference is arithmetic, not a reconciliation', async () => {
+		await k.open(`${route('interest_calc_tab')}?p=1000&r=10&m=Simple&from=2093-01-10&to=2094-01-10`, 'interest_calc_tab');
+		const r = { stored: S.rows('payments').length, kpis: await k.kpis('#ic_out'), verdict: await k.text('#ic-compare-verdict') };
+		const pass = r.stored === 0 && J(r.kpis[3]) === J({ label: 'vs extracted Amount Due', value: 'R 1 150.00', sub: '-R 50.07 vs your calc' }) &&
+			r.verdict === 'Same date, no payment recorded on or before it: both figures are as at 2094-01-10. The difference is arithmetic, not a reconciliation: ClearCase does not know the statement\'s capital, rates or dates.';
+		return { pass, evidence: r };
+	});
+
+	await scenario('Q-INTEREST-NO-CAPITAL', 'interest_calc_tab', 'without capital, an unlike date leaves the amount due dated, asks for capital, and explains the future basis conflict without a verdict', async () => {
+		await k.open(`${route('interest_calc_tab')}?p=&r=10&m=Simple&from=2093-01-10&to=2093-07-10`, 'interest_calc_tab');
+		const r = { kpis: await k.kpis('#ic_out'), verdict: await k.exists('#ic-compare-verdict'), note: await k.text('#ic-basis-note') };
+		const pass = J(r.kpis[3]) === J({ label: 'vs extracted Amount Due', value: 'R 1 150.00', sub: 'as at 2094-01-10 · enter a capital figure' }) &&
+			!r.verdict && /your total is as at 2093-07-10 and the amount due as at 2094-01-10/.test(r.note ?? '') && !/not comparable with your total/.test(r.note ?? '');
+		return { pass, evidence: r };
+	});
+
 	// ---- 6. record a payment and reload the net claim ---------------------------------------------------------------------
 	await scenario('Q6-PAYMENT-RELOAD', 'payments_tab', 'a payment typed as R 1 000.50 counts in full in the table and the net claim, after a reload too, and the settlement prefill is net', async () => {
 		await k.open(route('payments_tab'), 'payments_tab');
@@ -184,6 +201,25 @@ try {
 			J(reloaded) === J(after.kpis) && settle.claim === '150' && /net of 1 recorded payment \(R 1 000\.50\)/.test(settle.note ?? '') &&
 			stored.length === 1 && stored[0].fields.amount === 'R 1 000.50' && stored[0].fields.amountCents === 100050 && stored[0].fields.seq === 1;
 		return { pass, evidence: { after, reloaded, settle, stored: stored.map((r) => r.fields) } };
+	});
+
+	// ---- the interest total against the imported amount due: compared only on one basis (GRS-173, IDR-245, IDR-246) ----
+	// Q6's payment (2089-03-31) is recorded. The amount due is R 1 150.00 as at 2094-01-10 (lib.mjs).
+	await scenario('Q-INTEREST-UNLIKE-BASIS', 'interest_calc_tab', 'a total as at another date, or with a recorded payment in its period, is not compared with the amount due: no difference is shown, the reason and each figure\'s basis and payment treatment are', async () => {
+		const read = async (to) => {
+			await k.open(`${route('interest_calc_tab')}?p=1000&r=10&m=Simple&from=2093-01-10&to=${to}`, 'interest_calc_tab');
+			return { kpis: await k.kpis('#ic_out'), verdict: await k.text('#ic-compare-verdict'), total: await k.text('#ic-basis-total'), due: await k.text('#ic-basis-due') };
+		};
+		const refused = (r) => r.kpis.length === 4 && !r.kpis.some((x) => /vs your calc/.test(x.sub)) && J(r.kpis[3]) === J({ label: 'vs extracted Amount Due', value: 'R 1 150.00', sub: 'as at 2094-01-10: not comparable with your total' }) &&
+			r.total === `Your total: the capital plus simple interest from 2093-01-10 to ${r.to}, on that one figure for the whole period. No payment is deducted.` &&
+			r.due === 'Extracted amount due: as at 2094-01-10, as the source statement gives it; ClearCase does not check what it includes. No recorded payment is deducted from it here; Payments & Net Claim deducts them for the net claim.';
+		const paid = 'recorded payment is dated on or before %s or undated, and your total deducts none: netting it needs a rule on whether a payment pays interest or capital first, which ClearCase does not apply.';
+		const earlier = { to: '2093-07-10', ...(await read('2093-07-10')) };
+		const sameDay = { to: '2094-01-10', ...(await read('2094-01-10')) };
+		const pass = S.rows('payments').length === 1 && refused(earlier) && refused(sameDay) &&
+			earlier.verdict === `Not compared, so no difference is shown: your total is as at 2093-07-10 and the amount due as at 2094-01-10; 1 ${paid.replace('%s', '2093-07-10')}` &&
+			sameDay.verdict === `Not compared, so no difference is shown: 1 ${paid.replace('%s', '2094-01-10')}`;
+		return { pass, evidence: { earlier, sameDay } };
 	});
 
 	// ---- failed writes: a busy store and a lost transport across a submit ------------------------------------------------

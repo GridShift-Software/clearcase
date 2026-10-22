@@ -71,5 +71,5 @@ export function safeExternalHref(raw: string): string | null {
   return c.kind === 'external' ? c.href : null;
 }
 
-/** CSV/XLSX export guard against formula injection (user-entered text only; imported values stay unchanged). */
-export const exportCell = (s: string): string => (/^[=+\-@\t\r]/.test(s) ? `'${s}` : s);
+/** CSV export guard against formula injection, for every text cell (imported or typed): a `'` at position 0 when the text starts with spaces, if any, and then `=`, `+`, `-`, `@`, TAB or CR (a "Trim spaces" import runs ` =1+1`). Same start rule as the segment rule in csv.ts. */
+export const exportCell = (s: string): string => (/^ *[=+\-@\t\r]/.test(s) ? `'${s}` : s);

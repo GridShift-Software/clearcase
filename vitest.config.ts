@@ -43,6 +43,8 @@ export default defineConfig({
       'tests/e2e/pilot/**/*.test.ts',
       'tests/demo/**/*.test.ts',
       'tests/hosted-foundation/runtime/**/*.test.ts',
+      'tests/hosting-probe/deployment/*.test.ts',
+      'tests/hosting-probe/identity/*.test.ts',
       'tests/acceptance/CC-25/*.test.ts',
     ],
     pool: 'forks',

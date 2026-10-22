@@ -4,7 +4,7 @@ What the audience sees: a case already loaded, a second case imported live by cl
 
 ## Safe build for the demo
 
-The rehearsed build is tag `v0.0.1-rc.4` (commit 8410f4d); the tag `demo-safe` is the same code with this runbook. To get back to it from any later state:
+The rehearsed build is tag `v0.0.1-rc.4` (commit b50d8b4); the tag `demo-safe` is the same code with this runbook. To get back to it from any later state:
 
 ```sh
 git fetch --tags origin

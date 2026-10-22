@@ -1,0 +1,17 @@
+{
+  "name": "clearcase-storage-probe",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.2",
+  "scripts": {
+    "probe": "bun probe.ts",
+    "test": "bun cases.ts",
+    "test:check": "bun check-mutations.ts",
+    "build": "bun build src/worker.ts --target browser --format esm --outfile dist/worker.js"
+  },
+  "devDependencies": {
+    "miniflare": "5.20261012.1-beta",
+    "workerd": "1.20261012.1",
+    "wrangler": "4.151.1"
+  }
+}

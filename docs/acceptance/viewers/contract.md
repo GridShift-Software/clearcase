@@ -2,7 +2,7 @@
 
 Frozen by [GRS-97](https://linear.app/vaper/issue/GRS-97) from the evaluation in `tests/viewer-evaluation/`. The evaluation revision and per-fixture results are in [coverage-matrix.md](coverage-matrix.md). Authority: [ADR 0011](../../adr/0011-originals-and-complete-in-app-file-viewing.md), the GRS-136 readiness decision recorded in its "Originals before publication" section, and the pre-read `.orchestration/reports/CODEX-VIEWER-CANDIDATES-20261017/report.md` (ignored; local to the orchestrator checkout).
 
-Items marked **assumed, pending user answer** are defaults chosen because the five open questions in [handoff.md](handoff.md#open-questions-and-the-defaults-used) could not be answered during this unit. Each one may be changed by the user; until then implementation owners build to the default. Section 9 lists every such default under its question number, so none depends on `handoff.md` alone.
+Items marked **[decided 20 October 2026][decision]** are defaults chosen because the five open questions in [handoff.md](handoff.md#open-questions-and-the-defaults-used) could not be answered during this unit; the user accepted all five on 20 October 2026. A later user decision may still change one; until then implementation owners build to the default. Section 9 lists every such default under its question number, so none depends on `handoff.md` alone.
 
 This contract is component evidence from one local Chromium. It does not replace the hosted viewer pass in release acceptance, and it does not prove original integrity or range delivery (see [handoff.md](handoff.md#proof-still-owed-at-the-design-gate)).
 
@@ -24,7 +24,7 @@ The GRS-136 obligation recorded in `docs/plan/tickets/HA-grs-97.md` ("Final work
 
 > Freeze two distinct readiness states: acknowledged originals are retrievable during processing, with supported PDF/images viewable where supported and manual-conversion formats clearly Preview pending processing; published files must have their required in-app previews. The temporary retrieval/download exception must not silently reduce published-format coverage.
 
-**What this contract adds.** The decision says that PDFs and images open "wherever the viewer supports them" and that "a format that needs a manually prepared preview may show 'Preview pending processing'". It does not say what a natively readable workbook, email, media file or ZIP shows. This contract does not narrow them to pending: **only a format whose reader cannot open the original as it is shows "Preview pending processing"** (**assumed, pending user answer**, question 4; the user may instead restrict processing-time viewing to PDFs and images). `descriptor.native` records, per asset, whether the family's reader opens the original byte for byte with no prepared file.
+**What this contract adds.** The decision says that PDFs and images open "wherever the viewer supports them" and that "a format that needs a manually prepared preview may show 'Preview pending processing'". It does not say what a natively readable workbook, email, media file or ZIP shows. This contract does not narrow them to pending: **only a format whose reader cannot open the original as it is shows "Preview pending processing"** (**[decided 20 October 2026][decision]**, question 4). `descriptor.native` records, per asset, whether the family's reader opens the original byte for byte with no prepared file.
 
 **Processing (acknowledged original).** Authorized case users can retrieve each acknowledged original while it is processed. Retrieval may be a download.
 
@@ -32,16 +32,16 @@ The GRS-136 obligation recorded in `docs/plan/tickets/HA-grs-97.md` ("Final work
 | --- | --- | --- |
 | PDF that passes the import checks (not damaged, not encrypted) | yes | Viewable in the PDF reader |
 | PNG, JPEG, GIF, WebP, AVIF | yes | Viewable in the image reader |
-| XLSX, XLS, CSV | yes | Viewable in the workbook reader (**assumed, pending user answer**) |
-| EML, and MSG with a body other than RTF-only | yes | Viewable in the email reader (**assumed, pending user answer**) |
-| MP4/MOV/MKV (H.264/AAC), WebM, MP3, WAV, Ogg, M4A that pass the box walk | yes | Viewable in the media reader (**assumed, pending user answer**) |
-| ZIP (stored or deflate) and plain text | yes | Viewable in the archive and text readers (**assumed, pending user answer**) |
+| XLSX, XLS, CSV | yes | Viewable in the workbook reader (**[decided 20 October 2026][decision]**) |
+| EML, and MSG with a body other than RTF-only | yes | Viewable in the email reader (**[decided 20 October 2026][decision]**) |
+| MP4/MOV/MKV (H.264/AAC), WebM, MP3, WAV, Ogg, M4A that pass the box walk | yes | Viewable in the media reader (**[decided 20 October 2026][decision]**) |
+| ZIP (stored or deflate) and plain text | yes | Viewable in the archive and text readers (**[decided 20 October 2026][decision]**) |
 | DOCX, DOC | no | "Preview pending processing", with the unchanged original retrievable |
 | TIFF, HEIC | no | "Preview pending processing" |
 | AVI and other video the browser cannot play | no | "Preview pending processing" |
 | Encrypted or damaged PDF; truncated MP4/MOV/M4A | no | "Preview pending processing" |
-| MSG whose body is only RTF; TNEF; mbox, PST, OST; 7z, RAR, gzip and other containers; bytes that match no reader | no | "Preview pending processing" until the operator prepares a companion or extracts the contents (**assumed, pending user answer**, question 4) |
-| Content that sniffs as SVG or HTML, or whose bytes contradict its name | – | Refused at acknowledgement (**assumed, pending user answer**) |
+| MSG whose body is only RTF; TNEF; mbox, PST, OST; 7z, RAR, gzip and other containers; bytes that match no reader | no | "Preview pending processing" until the operator prepares a companion or extracts the contents (**[decided 20 October 2026][decision]**, question 4) |
+| Content that sniffs as SVG or HTML, or whose bytes contradict its name | – | Refused at acknowledgement (**[decided 20 October 2026][decision]**) |
 
 Viewable while processing says nothing about publication: a viewable original can still carry import holds (an archive with a traversal member, an EML with a TNEF attachment) that block publication of the update.
 
@@ -70,16 +70,16 @@ Classification is one function over the bytes (`sniff()` in `shared/formats.mjs`
 | `unrecognised-format` | The bytes match no signature and are not valid text (UTF-8, no NUL, almost no control characters) | `unknown/opaque.bin` at all three levels |
 | `unsupported-office-format` | A ZIP-based package that is not Word or a workbook, or an OLE file that is not Word 97, Excel 97 or an Outlook message | `rename/pptx-shaped.zip` |
 | `rendition-page-count-mismatch` | A TIFF's prepared page images are not exactly pages 1 to N, N counted from the file's own image directories | `image/tiff-gappy.tif` (pages 1 and 3 of 3) |
-| `nesting-limit` | A container at depth 3 has contents (depth counts every ZIP and message above an asset; one counter for both) (**assumed, pending user answer**) | `archive/nest-zip-6.zip`, `archive/nest-eml-zip-chain.zip` |
+| `nesting-limit` | A container at depth 3 has contents (depth counts every ZIP and message above an asset; one counter for both) (**[decided 20 October 2026][decision]**) | `archive/nest-zip-6.zip`, `archive/nest-eml-zip-chain.zip` |
 | `archive-unsafe-path` | A member path is absolute, has a drive letter or backslash, or contains `..` | `archive/traversal.zip` |
 | `archive-symlink` | A member is a symbolic link | `archive/traversal.zip` |
 | `archive-encrypted` | General-purpose bit 0 is set | `archive/encrypted-flag.zip` |
 | `archive-unsupported-method-N` | Compression method is not stored (0) or deflate (8) | `archive/unsupported-method.zip` |
 | `archive-crc-mismatch` | The extracted bytes do not match the recorded CRC-32 | `archive/corrupt-crc.zip` |
-| `archive-declared-size-over-limit` | A member declares more than 64 MiB (**assumed, pending user answer**) | `archive/bomb-256mib.zip` |
+| `archive-declared-size-over-limit` | A member declares more than 64 MiB (**[decided 20 October 2026][decision]**) | `archive/bomb-256mib.zip` |
 | `archive-expansion-limit-exceeded` | Inflation passes 64 MiB whatever the header said | `archive/bomb-lying-size.zip` |
-| `archive-total-expansion-limit` | The bytes extracted from the whole tree (every ZIP member and email attachment under one original) pass 512 MiB (**assumed, pending user answer**); the evaluation runs the same code with a 1,000,000-byte cap | `archive/budget-mixed.zip` (each container under the cap, the tree over it) |
-| `archive-too-many-entries`, `archive-zip64-unsupported`, `archive-split-unsupported` | More than 10,000 members in one archive or in the whole tree, ZIP64 or split archives (**assumed, pending user answer**) | none (limit only) |
+| `archive-total-expansion-limit` | The bytes extracted from the whole tree (every ZIP member and email attachment under one original) pass 512 MiB (**[decided 20 October 2026][decision]**); the evaluation runs the same code with a 1,000,000-byte cap | `archive/budget-mixed.zip` (each container under the cap, the tree over it) |
+| `archive-too-many-entries`, `archive-zip64-unsupported`, `archive-split-unsupported` | More than 10,000 members in one archive or in the whole tree, ZIP64 or split archives (**[decided 20 October 2026][decision]**) | none (limit only) |
 | `required-preview-missing`, `preview-failed:*`, `child-preview-failed:*` | The reader for the file or a child does not report ready, or the preview asset itself carries a hold | candidates B and E; `preview-failed:*` with no import hold on the file: candidate F (`image/png-corrupt-body.png`) |
 | a resolution code from section 4 | A supplied location does not resolve | candidates C, D |
 
@@ -150,7 +150,7 @@ The pdf.js reader keeps the incumbent's settings: scripting, XFA, forms and WASM
 
 ## 6. Limits
 
-Stress tiers below are measurements at the proposed starting tiers, not agreed limits (**assumed, pending user answer**): 1,000 PDF pages, 20 and 100 MP images, 100k and 1m populated cells, 1,000 archive members. ZIP limits are 10,000 members, 64 MiB per member, 512 MiB total and nesting depth 3 (**assumed, pending user answer**). Measured times are in the [coverage matrix](coverage-matrix.md#scale).
+Stress tiers below are measurements at the starting tiers, not limits the product enforces (**[decided 20 October 2026][decision]**): 1,000 PDF pages, 20 and 100 MP images, 100k and 1m populated cells, 1,000 archive members. ZIP limits are 10,000 members, 64 MiB per member, 512 MiB total and nesting depth 3 (**[decided 20 October 2026][decision]**). Measured times are in the [coverage matrix](coverage-matrix.md#scale).
 
 ## 7. File reservations for the implementation owners
 
@@ -188,9 +188,9 @@ GRS-122: `email.mjs` checks for both provider shapes, MSG and EML: headers in or
 
 GRS-123: `media.mjs` and `archive.mjs` checks: decode, seek accuracy by frame colour at start/middle/end, captions, refusal outside the duration, explicit failure for AVI, a truncated MP4 held at import by the box walk (the reader alone shows it as complete), the prepared H.264/AAC rendition path; every member listed in order with its status, recursive dispatch to each family's reader, duplicates by position, every hostile archive held with its reason, the 1,000-member tier.
 
-## 9. Defaults awaiting a user answer
+## 9. Defaults decided 20 October 2026
 
-Every default below was chosen because the question could not be put to the user during this unit. All of them are **assumed, pending user answer**; implementation owners build to the default until the user answers. The question text is in [handoff.md](handoff.md#open-questions-and-the-defaults-used).
+Every default below was chosen because the question could not be put to the user during this unit. The user accepted all of them (**[decided 20 October 2026][decision]**); implementation owners build to the default. The question text is in [handoff.md](handoff.md#open-questions-and-the-defaults-used).
 
 | # | Question | Default built into this contract | Where it appears |
 | --- | --- | --- | --- |
@@ -199,3 +199,5 @@ Every default below was chosen because the question could not be put to the user
 | 3 | Reference application, fonts and presentation of tracked changes, hidden content, chart-only data, stale caches and embedded objects | LibreOffice 26.2 with `ExportNotesInMargin=true` as the operator reference; comments in the margin; tracked changes as exported markup; hidden content and comments shown from the original in the grid; stored formula results shown as stored, never recalculated, and a missing one as "value unavailable"; an office-rendered supplement is visual-only | Sections 2 (`sheet-visual-content-needs-supplement`) and 8 (GRS-121) |
 | 4 | Who prepares and reviews OCR, RTF companions, captions and location maps, and the turnaround shown as "Preview pending processing" | The operator running the processing recipe prepares and reviews them; there is no turnaround target; any unmappable supplied reference holds the whole update. The processing-state list in section 1 (natively readable originals viewable; only formats that need a prepared preview pending; SVG/HTML and name-contradicting bytes refused at acknowledgement) is also this question's default | Sections 1 and 2 (`rtf-only-body-needs-companion`, `tnef-needs-companion`, `prepared-rendition-missing`) |
 | 5 | SheetJS CE cadence and operator licences | SheetJS CE 0.20.3 from the official CDN, pinned by integrity, with an update lane owned by GRS-112; LibreOffice (MPL) and a GPL FFmpeg build on the operator workstation only, notices kept; no commercial or external viewer or conversion service | Section 7 (shared files) and the dependency table in handoff.md |
+
+[decision]: https://linear.app/vaper/issue/GRS-27#comment-629983a8

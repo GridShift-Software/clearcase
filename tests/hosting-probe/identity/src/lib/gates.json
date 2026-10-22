@@ -1,0 +1,39 @@
+{
+	"//": "Every route each app serves, per method, and the gate hooks.server.js enforces before the route runs (GRS-108). A route id or method missing here is not served (404 or 405). public: no identity call. session, member, case-read, case-write, firm-admin, global-admin: a session of the app's own Clerk instance. staff-session, instance-admin, operator-grant: a session of the staff instance, accepted by the client app on /manage and /operator only (staffGates lists them; access.js and matrix.ts read that list).",
+	"staffGates": ["staff-session", "instance-admin", "operator-grant"],
+	"client": {
+		"/": { "GET": "public" },
+		"/login": { "GET": "public" },
+		"/support": { "GET": "public" },
+		"/information-handling": { "GET": "public" },
+		"/auth/session": { "GET": "session" },
+		"/auth/sign-out": { "POST": "session" },
+		"/invite/accept": { "POST": "session" },
+		"/cases": { "GET": "member" },
+		"/cases/[case]": { "GET": "case-read", "POST": "case-write" },
+		"/cases/[case]/documents/[doc]": { "GET": "case-read" },
+		"/cases/[case]/notes": { "GET": "case-read", "POST": "case-write" },
+		"/cases/[case]/assets/[...name]": { "GET": "case-read" },
+		"/admin/members": { "GET": "firm-admin" },
+		"/admin/invitations": { "POST": "firm-admin" },
+		"/admin/assignments": { "POST": "firm-admin", "DELETE": "firm-admin" },
+		"/manage/accept": { "POST": "staff-session" },
+		"/manage/firm-admin-invitations": { "POST": "instance-admin" },
+		"/manage/operator-grants": { "POST": "instance-admin" },
+		"/manage/audit": { "GET": "instance-admin" },
+		"/operator/cases/[case]": { "GET": "operator-grant" },
+		"/operator/cases/[case]/documents/[doc]": { "GET": "operator-grant" },
+		"/operator/cases/[case]/drafts/[...name]": { "GET": "operator-grant" },
+		"/operator/cases/[case]/notes": { "GET": "operator-grant" }
+	},
+	"staff": {
+		"/": { "GET": "public" },
+		"/login": { "GET": "public" },
+		"/auth/session": { "GET": "session" },
+		"/auth/sign-out": { "POST": "session" },
+		"/invite/accept": { "POST": "session" },
+		"/manage/staff": { "GET": "global-admin" },
+		"/manage/staff-invitations": { "POST": "global-admin" },
+		"/manage/audit": { "GET": "global-admin" }
+	}
+}

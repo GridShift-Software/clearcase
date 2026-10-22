@@ -1,4 +1,5 @@
 import { fail } from '@sveltejs/kit';
+import { deleteStep } from '$lib/components/confirm-delete';
 import { app } from '$lib/local-case/app.server';
 import { datasetOf, viewContentOf, viewText } from '$lib/local-case/results.server';
 import { HEADER_FIELDS, HEADER_KEYS, bundlesOf, headerRaw } from '$lib/views/bundles/court';
@@ -56,15 +57,16 @@ const CONFLICT = 'Not saved: the header was changed in another tab since this pa
 function headerWrite(vid: string, c: string, version: string, values: Record<string, string>, write: () => Promise<void>) {
 	return guarded(values, () => serial(c, HEADER_STORE, async () => {
 		const now = singleHash(c, HEADER_STORE);
-		if (version !== now) {
-			const raw = datasetOf<Raw>(app().store, vid, 'bundles');
-			return fail(409, { message: CONFLICT, values, stored: headerRaw(raw?.headerDefaults ?? {}, singleRow(c, HEADER_STORE)?.fields ?? null), version: now });
-		}
+		const stored = () => headerRaw(datasetOf<Raw>(app().store, vid, 'bundles')?.headerDefaults ?? {}, singleRow(c, HEADER_STORE)?.fields ?? null);
+		if (version !== now) return fail(409, { message: CONFLICT, values, stored: stored(), version: now });
 		await write();
-		return { saved: true, version: singleHash(c, HEADER_STORE) };
+		// the stored header comes back with the answer, so the page holds it even when its reload fails (GRS-160)
+		return { saved: true, version: singleHash(c, HEADER_STORE), stored: stored() };
 	}));
 }
 const versionOf = (f: FormData) => String(f.get('version') ?? '');
+// Restore and Clear replace the stored header, so each needs the page's confirmation (GRS-175)
+const UNCONFIRMED = { restore: 'Not restored: Restore matter defaults was not confirmed. Nothing was changed.', clear: 'Not cleared: Clear all was not confirmed. Nothing was changed.' };
 const MAX_ROWS = 5000, MAX_JSON = 2_000_000;
 
 export const actions: Actions = {
@@ -79,11 +81,15 @@ export const actions: Actions = {
 	},
 	restore: async ({ request, params }) => {
 		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
-		return headerWrite(params.vid, c, versionOf(await request.formData()), {}, () => deleteSingle(c, HEADER_STORE));
+		const f = await request.formData();
+		if (deleteStep(f, 'restore') !== 'confirm') return fail(400, { message: UNCONFIRMED.restore });
+		return headerWrite(params.vid, c, versionOf(f), {}, () => deleteSingle(c, HEADER_STORE));
 	},
 	clear: async ({ request, params }) => {
 		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
-		return headerWrite(params.vid, c, versionOf(await request.formData()), {}, () => putSingle(c, HEADER_STORE, Object.fromEntries(HEADER_KEYS.map((k) => [k, '']))));
+		const f = await request.formData();
+		if (deleteStep(f, 'clear') !== 'confirm') return fail(400, { message: UNCONFIRMED.clear });
+		return headerWrite(params.vid, c, versionOf(f), {}, () => putSingle(c, HEADER_STORE, Object.fromEntries(HEADER_KEYS.map((k) => [k, '']))));
 	},
 	save: async ({ request, params }) => {
 		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });

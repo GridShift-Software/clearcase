@@ -103,6 +103,8 @@ const v5Ready = async (repo = REPO) => v5Prerequisite(repo) ?? (await v5Current(
 export const STEPS = [
 	{ name: 'build', cmd: bun('build') },
 	{ name: 'check', cmd: bun('check') },
+	// tests/hosting-probe/identity has its own pins and bun.lock (GRS-108), outside the root install; the test step builds and serves it
+	{ name: 'install:identity', cmd: [process.execPath, 'install', '--frozen-lockfile', '--cwd', join('tests', 'hosting-probe', 'identity')] },
 	{ name: 'test', cmd: bun('test', '--maxWorkers=2') },
 	{ name: 'test:e2e', cmd: bun('test:e2e'), browser: true, summary: { dir: join('.local', 'gate', 'e2e-out'), file: 'summary.json', env: 'CLEARCASE_E2E_OUT' } },
 	{ name: 'parity', cmd: bun('parity', '--', '--all', '--strict-register', '--fixture-config', LOCATOR, '--out', join('.local', 'gate', 'parity-out')), browser: true, needs: v5Ready, summary: { dir: join('.local', 'gate', 'parity-out'), file: 'scorecard.json' } },

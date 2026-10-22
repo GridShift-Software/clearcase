@@ -1,0 +1,116 @@
+// GRS-173 (S-interest_calc_tab-5, S-payments_tab-3; IDR-245, IDR-246): the Interest Recalculator compares its total
+// with the imported amount due only as at the same date with no recorded payment in reach, and then calls the difference
+// arithmetic, not a reconciliation; otherwise it shows the amount due alone, says why, and names each figure's basis and
+// payment treatment. Synthetic figures only.
+import { describe, expect, it } from 'vitest';
+import { importedUnits } from '../../src/lib/calculations/money';
+import { interestOutcome, shownOutcome, unlikeBasis, type Due, type InterestInputs } from '../../src/lib/views/quantum/interest';
+
+const I = (x: Partial<InterestInputs> = {}): InterestInputs => ({ p: '1000', r: '10', m: 'Simple', from: '2093-01-10', to: '2094-01-10', ...x });
+const due = (x: Partial<Due> = {}): Due => ({ units: importedUnits('1150.00'), date: '2094-01-10', paymentDates: [], ...x });
+const line = (i: InterestInputs, d: Due) => shownOutcome(i, d).kpis![3];
+const PAID = 'needs a rule on whether a payment pays interest or capital first, which ClearCase does not apply';
+
+describe('same date and no payment: v5\'s comparison line', () => {
+	it('as at the same date with no payment recorded, the line is interestOutcome\'s, and the verdict says what matches and that it is arithmetic', () => {
+		const o = shownOutcome(I(), due());
+		expect(o.kpis).toEqual(interestOutcome(I(), importedUnits('1150.00')).kpis);
+		expect(o.kpis![3]).toEqual({ label: 'vs extracted Amount Due', value: 'R 1 150.00', sub: '-R 50.07 vs your calc' });
+		expect(o.comparison!.verdict).toBe('Same date, no payment recorded on or before it: both figures are as at 2094-01-10. The difference is arithmetic, not a reconciliation: ClearCase does not know the statement\'s capital, rates or dates.');
+	});
+	it('a payment dated after the as-at date is outside both figures, so the line stays', () => {
+		expect(unlikeBasis('2094-01-10', due({ paymentDates: ['2094-01-11'] }))).toEqual([]);
+		expect(line(I(), due({ paymentDates: ['2094-01-11'] })).sub).toBe('-R 50.07 vs your calc');
+	});
+	it('an empty capital still asks for one, as in v5, and shows no verdict', () => {
+		expect(line(I({ p: '' }), due()).sub).toBe('as at 2094-01-10 · enter a capital figure');
+		expect(shownOutcome(I({ p: '' }), due()).comparison).toBeNull();
+	});
+	it('names each figure\'s basis and payment treatment', () => {
+		const c = shownOutcome(I({ m: 'Compound (monthly)' }), due()).comparison!;
+		expect(c.total).toBe('Your total: the capital plus compound (monthly) interest from 2093-01-10 to 2094-01-10, on that one figure for the whole period. No payment is deducted.');
+		expect(c.due).toBe('Extracted amount due: as at 2094-01-10, as the source statement gives it; ClearCase does not check what it includes. No recorded payment is deducted from it here; Payments & Net Claim deducts them for the net claim.');
+	});
+});
+
+describe('same date is not a reconciliation (GRS-173 fix round)', () => {
+	const SAME = 'Same date, no payment recorded on or before it: both figures are as at 2094-01-10. The difference is arithmetic, not a reconciliation: ClearCase does not know the statement\'s capital, rates or dates.';
+	it('the verdict says what matches and that the difference is arithmetic, whatever the rate, method or From date', () => {
+		for (const x of [{}, { r: '25' }, { m: 'Compound (monthly)' }, { from: '2093-12-01' }, { p: '1' }]) {
+			const v = shownOutcome(I(x), due()).comparison!.verdict;
+			expect(v, JSON.stringify(x)).toBe(SAME);
+			expect(v).not.toMatch(/one basis/i);
+		}
+	});
+	it('no capital typed: no comparison verdict at all, and the tile still asks for one', () => {
+		for (const p of ['', ' ', '0']) {
+			const o = shownOutcome(I({ p }), due());
+			expect(o.comparison, p).toBeNull();
+			expect(o.kpis![3]!.sub).toBe('as at 2094-01-10 · enter a capital figure');
+		}
+	});
+});
+
+describe('unlike bases: the amount due alone, not compared', () => {
+	it('a total as at another date', () => {
+		const o = shownOutcome(I({ to: '2093-07-10' }), due());
+		expect(o.kpis![3]).toEqual({ label: 'vs extracted Amount Due', value: 'R 1 150.00', sub: 'as at 2094-01-10: not comparable with your total' });
+		expect(o.comparison!.verdict).toBe('Not compared, so no difference is shown: your total is as at 2093-07-10 and the amount due as at 2094-01-10.');
+	});
+	it('a recorded payment on or before the date, on it, or undated', () => {
+		for (const d of ['2093-02-01', '2094-01-10', '', 'not a date', '0999-12-31']) {
+			expect(line(I(), due({ paymentDates: [d] })).sub).toBe('as at 2094-01-10: not comparable with your total');
+			expect(unlikeBasis('2094-01-10', due({ paymentDates: [d] }))).toEqual([`1 recorded payment is dated on or before 2094-01-10 or undated, and your total deducts none: netting it ${PAID}`]);
+		}
+	});
+	it('counts only the payments in reach, and says them', () => {
+		expect(unlikeBasis('2094-01-10', due({ paymentDates: ['2090-05-05', '', '2095-01-01'] }))).toEqual([`2 recorded payments are dated on or before 2094-01-10 or undated, and your total deducts none: netting them ${PAID}`]);
+	});
+	it('both reasons at once, in the verdict', () => {
+		expect(shownOutcome(I({ to: '2093-07-10' }), due({ paymentDates: ['2093-02-01'] })).comparison!.verdict)
+			.toBe(`Not compared, so no difference is shown: your total is as at 2093-07-10 and the amount due as at 2094-01-10; 1 recorded payment is dated on or before 2093-07-10 or undated, and your total deducts none: netting it ${PAID}.`);
+	});
+	it('no amount due in the package: nothing is compared against R 0.00', () => {
+		const o = shownOutcome(I(), due({ units: null }));
+		expect(o.kpis![3]).toEqual({ label: 'vs extracted Amount Due', value: '—', sub: 'not in this package' });
+		expect(o.comparison).toEqual({ verdict: 'Not compared, so no difference is shown: this package gives no amount due.', total: expect.any(String), due: 'Extracted amount due: none in this package.' });
+	});
+	it('an amount due with no as-at date', () => {
+		for (const date of ['', '2094-02-30']) {
+			const o = shownOutcome(I(), due({ date }));
+			expect(o.kpis![3]!.sub).toBe('with no as-at date: not comparable with your total');
+			expect(o.comparison!.verdict).toBe('Not compared, so no difference is shown: the amount due has no as-at date.');
+		}
+	});
+	it('the first three figures do not change', () => {
+		expect(shownOutcome(I({ to: '2093-07-10' }), due({ paymentDates: [''] })).kpis!.slice(0, 3)).toEqual(interestOutcome(I({ to: '2093-07-10' }), importedUnits('1150.00')).kpis!.slice(0, 3));
+	});
+});
+
+describe('no figures, no comparison', () => {
+	it('an invalid or reversed input shows its error and no comparison', () => {
+		for (const x of [{ to: '2092-01-10' }, { p: 'lots' }, { r: '' }]) {
+			const o = shownOutcome(I(x), due({ paymentDates: [''] }));
+			expect(o.kpis).toBeNull();
+			expect(o.comparison).toBeNull();
+			expect(Object.keys(o.errors).length).toBeGreaterThan(0);
+		}
+	});
+});
+
+describe('no capital on every comparison basis', () => {
+	it.each([
+		['same date', due(), null],
+		['unlike date', due({ date: '2094-02-10' }), 'your total is as at 2094-01-10 and the amount due as at 2094-02-10'],
+		['payment before To', due({ paymentDates: ['2093-05-01'] }), '1 recorded payment is dated on or before 2094-01-10 or undated'],
+		['undated payment', due({ paymentDates: [''] }), '1 recorded payment is dated on or before 2094-01-10 or undated'],
+		['unlike date and payment', due({ date: '2094-02-10', paymentDates: ['2093-05-01'] }), 'your total is as at 2094-01-10 and the amount due as at 2094-02-10; 1 recorded payment is dated on or before 2094-01-10 or undated'],
+	])('%s: asks for capital, shows the dated amount due alone, and leaves only the applicable basis note', (_basis, d, reason) => {
+		const o = shownOutcome(I({ p: '' }), d);
+		expect(o.kpis![3]).toEqual({ label: 'vs extracted Amount Due', value: 'R 1 150.00', sub: `as at ${d.date} · enter a capital figure` });
+		expect(o.comparison).toBeNull();
+		if (reason) expect(o.basisNote).toContain(reason);
+		else expect(o.basisNote).toBeNull();
+		expect(o.basisNote ?? '').not.toContain('not comparable with your total');
+	});
+});

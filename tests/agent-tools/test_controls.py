@@ -1938,6 +1938,38 @@ class GuardEscapes(GuardCase):
                    base={'package.json': manifest, 'src/api.ts': imp + self.api, f'src/{name}': limits}, why='is loaded by')
 
 
+class GuardResidual(GuardCase):
+    """GRS-150: residual capability routes must fail closed in a changed module."""
+    named_api, api, weakened = GuardAllowlist.named_api, GuardAllowlist.api, GuardAllowlist.weakened
+    route = GuardRoutes.route
+
+    def test_plain_literal_destructuring_cannot_write_a_shared_constructor_or_prototype(self):
+        for label, code in (
+                ('constructor from an object', 'const { constructor: C } = {} as any; C.is = () => true;'),
+                ('computed constructor from an object', "const { ['constructor']: C } = {} as any; C.is = () => true;"),
+                ('nested constructor from an object', 'const { inner: { constructor: C } } = { inner: {} } as any; C.is = () => true;'),
+                ('prototype from an array', 'const { __proto__: P } = [] as any; P.includes = () => true;'),
+                ('assignment destructuring', 'let C: any; ({ constructor: C } = {}); C.is = () => true;'),
+                ('getPrototypeOf then constructor', 'const C: any = Object.getPrototypeOf({}).constructor; C.is = () => true;')):
+            self.route(label, {'src/api.ts': code + '\n' + self.weakened}, why='reaches the test framework')
+
+    def test_bare_export_star_cannot_move_a_capability(self):
+        self.route('bare export star of an Object alias',
+                   {'src/api.ts': "export * from './cap';\n" + self.weakened},
+                   base={'src/cap.ts': 'const O = Object; export { O as P };\n'}, why='reaches the test framework')
+        self.route('bare export star of a plain value',
+                   {'src/api.ts': "export * from './plain';\n" + self.weakened},
+                   base={'src/plain.ts': 'export const count = 1;\n'})
+
+    def test_changed_commonjs_exports_fail_closed(self):
+        for label, line in (('module.exports', 'module.exports = { count: 1 };\n'),
+                            ('exports property', 'exports.x = { count: 1 };\n'),
+                            ('computed exports property', "exports['x'] = { count: 1 };\n")):
+            self.route(label, {'src/api.ts': "import './c.cjs';\n" + self.weakened,
+                               'src/c.cjs': line}, base={'src/c.cjs': 'module.exports = 1;\n'},
+                       why='reaches the test framework')
+
+
 class GuardBinding(ControlCase):
     """H1: once a fix attempt is recorded, approval needs a PASS guard receipt bound to the reviewed commit and findings."""
     unit = 'GRS-104/implementation'

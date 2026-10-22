@@ -70,7 +70,7 @@
 | `S-timesheet_tab-2` | low | view-checklist.md | registered | IDR-287 (known-gap) |  |
 | `S-deadlines_tab-2` | medium | view-checklist.md | registered | IDR-274 (defect-fix), IDR-275 (defect-fix), IDR-276 (defect-fix), IDR-277 (defect-fix) |  |
 | `S-deadlines_tab-3` | low | view-checklist.md | registered | IDR-288 (known-gap) |  |
-| `S-deadlines_tab-4` | low | view-checklist.md | registered | IDR-289 (known-gap) |  |
+| `S-deadlines_tab-4` | low | view-checklist.md | registered | IDR-289 (defect-fix) |  |
 | `S-discovery_tab-2` | medium | view-checklist.md | registered | IDR-353 (defect-fix) |  |
 | `S-discovery_tab-3` | medium | view-checklist.md | registered | IDR-380 (defect-fix) |  |
 | `S-discovery_tab-4` | low | view-checklist.md | registered | IDR-381 (defect-fix) |  |

@@ -12,12 +12,14 @@
 // approves them. The script owns only entries whose author is AUTHOR; it keeps their ids and any approvedBy and
 // approvedOn the user set while type, productVisible and the reason (apart from its evidence file:line) are unchanged, so
 // a rerun changes nothing unless the table, the evidence lines or the register changed; an entry that changed in any
-// other way loses its approval, and the script names it. --check exits 1 when the committed register differs, and (also without --check) when a
+// other way loses its approval, and the script names it. --check also compares the generated CC-11 defects table with its
+// committed copy; --table FILE overrides that copy for a synthetic test. --check exits 1 when the register or table differs, and (also without --check) when a
 // defect of defects.md or view-checklist.md has no entry naming it, a disposition names a defect that is no longer
 // listed, a defects.md row does not parse, or an evidence pattern is empty. --reference DIR reads docs/reference from DIR instead (the tests'
 // synthetic copy); evidence files are always read from the repository.
 // scripts/verify/dispositions.mjs then reports every defect as registered.
 import { readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { RANGES, RETIRED, registerFiles } from '../parity/lib/register.mjs';
 import { citing, isListed, readDefects } from './lib/defects.mjs';
@@ -343,6 +345,14 @@ for (const [file, doc] of docs) {
 	if (process.argv.includes('--check')) console.error(`register-dispositions: ${file} differs; rerun without --check`);
 	else writeFileSync(file, body);
 }
+let tableDrift = 0;
+if (process.argv.includes('--check')) {
+	const tableAt = process.argv.indexOf('--table');
+	const table = tableAt > 0 ? resolve(process.argv[tableAt + 1]) : join(ROOT, 'docs', 'acceptance', 'CC-11', 'defects-table.md');
+	const generated = spawnSync(process.execPath, [join(ROOT, 'scripts', 'verify', 'dispositions.mjs')], { encoding: 'utf8' });
+	if (generated.status !== 0) { console.error(generated.stderr); tableDrift = 1; }
+	else if (generated.stdout !== readFileSync(table, 'utf8')) { console.error(`register-dispositions: ${table} differs from generated defects table`); tableDrift = 1; }
+}
 const count = (k) => Object.entries(DISPOSITIONS.reduce((a, r) => ((a[k(r)] = (a[k(r)] ?? 0) + 1), a), {})).map(([t, n]) => `${t} ${n}`).join(', ');
 console.log(`register-dispositions: ${seen.size} defects in ${DISPOSITIONS.length} dispositions (${count((r) => r[2])}; by owner ${count((r) => owners[r[1]])}); ${drift} file(s) ${process.argv.includes('--check') ? 'differ' : 'written'}`);
-process.exit(process.argv.includes('--check') && drift ? 1 : 0);
+process.exit(process.argv.includes('--check') && (drift || tableDrift) ? 1 : 0);

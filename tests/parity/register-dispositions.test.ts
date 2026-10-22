@@ -52,6 +52,15 @@ describe('register-dispositions --check', () => {
 		expect(run('--check')).toMatchObject({ status: 0 });
 	});
 
+	it('checks the generated defects table against the register', () => {
+		const table = join(work, 'stale-defects-table.md');
+		const current = readFileSync(join(REPO, 'docs', 'acceptance', 'CC-11', 'defects-table.md'), 'utf8');
+		writeFileSync(table, current.replace('IDR-289 (defect-fix)', 'IDR-289 (known-gap)'));
+		const r = run('--check', '--table', table);
+		expect(r.status).toBe(1);
+		expect(r.out).toContain('differs from generated defects table');
+	});
+
 	it('keeps an approval through a rerun, and does not report the approval as drift', () => {
 		edit(FILE, (d) => { const e = d.entries.find((x) => x.author?.startsWith('GRS-67 dispositions'))!; e.approvedBy = 'dianbrown'; e.approvedOn = '2026-10-20'; });
 		expect(run('--check')).toMatchObject({ status: 0 });

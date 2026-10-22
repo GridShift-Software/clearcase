@@ -41,6 +41,13 @@ describe('interest_calc_tab: the separated capital', () => {
 		expect(entries.find((e) => e.id === 'IDR-236')).toBeUndefined();
 		expect(entries.find((e) => e.id === 'IDR-450')?.approvedBy).toBeNull();
 	});
+	it('registers only the dated capital prompt on the no-capital defaults path', () => {
+		const path = 'sweep.compute.defaults.k3.sub';
+		expect(cover('interest_calc_tab', path, 'enter a capital figure', 'as at 2094-01-10 · enter a capital figure')).toBe('IDR-451');
+		expect(cover('interest_calc_tab', path, 'enter a capital figure', 'as at 2094-01-10 · enter a capital figure. Extra')).toBeNull();
+		expect(cover('interest_calc_tab', 'sweep.compute.simple.k3.sub', 'enter a capital figure', 'as at 2094-01-10 · enter a capital figure')).toBeNull();
+		expect(entries.find((e) => e.id === 'IDR-451')?.approvedBy).toBeNull();
+	});
 	it('leaves a wrong interest, total or capital unregistered', () => {
 		expect(cover('interest_calc_tab', 'sweep.compute.separated.k1.value', 'R10.02', 'R10020.54')).toBeNull();
 		expect(cover('interest_calc_tab', 'sweep.compute.separated.k2.value', 'R110.02', 'R110020.52')).toBeNull();

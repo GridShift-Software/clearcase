@@ -374,18 +374,32 @@ protected file the guard's line names. A `fixBase` advance like `e7681a6` (PR #7
 to a path the branch had not touched; it still is for a hand-resolved union and for a later ticket in the same wave
 (`afd48fc4`, PR #84, where the change came from the wave, not the base). Existing manifests stay as they are.
 
-A path that the fix base lacks, and that every merge base of the fix base and the base lacks too, is one the base added
-after the review, a rename's new path included (GRS-169). The fix base's absence is no reference for it. The reference is
-the base's copy that HEAD received: the trusted base's own once HEAD has merged it, otherwise the copy at each base
-commit HEAD holds (`merge-base --all` of the base and HEAD), so the base moving on after the merge does not free the path.
-A changed test file there counts its assertions from that copy, not from 0. So a weakening that a base rename carries to
-the new path refuses with `assertion count fell`, and so does a branch edit that drops assertions from a test the base
-added. Deleting such a test refuses the same way, though a deleted base addition shows no difference from the fix base.
-A fixture the base added must keep that copy, or the guard refuses with `protected fixture changed or deleted`. In a
-docs-only range a deleted base addition counts as a changed path, so only a document may go. Four kinds of path are
-unaffected: the branch's own new test or fixture, a path the reviewed commit had deleted (a merge base still holds it),
-a path the base added after HEAD's last merge, and a later base change to a path HEAD already holds. Without a trusted
-base nothing changes. A weakening under a base rename then refuses at the old path, which counts as the branch's.
+A path the base added, changed or deleted after the review has the base's copy as its reference, and not the fix base's
+(GRS-169). Its test is that a copy of it at a base commit HEAD holds, the trusted base's own once HEAD has merged it and
+otherwise each commit in `merge-base --all` of the base and HEAD, differs from every merge base's copy of the fix base and
+from the fix base's own. A base addition, a rename's new path included, is the case where all the others are absent. The
+fix base's copy is no reference for such a path, so a branch cannot undo or mask the base's change by merging it and then
+restoring the fix base's copy, and the base moving on after the merge does not free the path. Per kind of path:
+
+- A test file counts the fix base's assertions plus the ones the base added (its copy's count less the merge base's, 0 where
+  absent), whatever the branch did with the merge. A base rename carrying a weakening to the new path, a restore of the fix
+  base's copy after a base strengthening (5 -> 3), a drop of one assertion from it (5 -> 4) and a deletion of a base
+  addition all refuse with `assertion count fell`. A reviewed weakening merged with a base strengthening counts both: the
+  floor is the fix base's count plus what the base added, not the larger of the two.
+- A protected fixture must hold the base's copy: a restore of the fix base's blob, an edit and a deletion refuse with
+  `protected fixture changed or deleted`.
+- In a docs-only range a path the round restored to the fix base's copy, after HEAD received the base's change to it,
+  counts as a changed path, so only a document may be restored or deleted.
+
+An unchanged branch merging any base change passes: an addition, a change, a deletion or a rename of a test, a runtime
+file or a fixture (a protected fixture the base deletes refuses, as before). Four kinds of path are unaffected: the
+branch's own new test or fixture, a path the reviewed commit had deleted (a merge base still holds it), a path the base
+added or changed after HEAD's last merge, and a later base change to a path HEAD already holds. Without a trusted base
+nothing changes. A weakening under a base rename then refuses at the old path, which counts as the branch's. A path that the
+branch added in the reviewed commit and the base added with other content is a hand-resolved union: it counts both sides'
+assertions, so a resolution that keeps only one refuses. At a wave PR into `dev`, another wave ticket's recorded weakening
+of a test `dev` added now refuses an earlier ticket's manifest, which used to pass against 0 (consistent with the
+conservatism for fix-base paths in `afd48fc4`, PR #84); the remedy is the reviewed `fixBase` advance.
 
 Findings JSON has `tests: [{"file": "tests/example.test.ts", "name": "rejects stale evidence"}]`.
 The list must be nonempty, unless the manifest declares that the review names no test

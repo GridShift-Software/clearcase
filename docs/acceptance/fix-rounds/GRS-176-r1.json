@@ -1,7 +1,7 @@
 {
   "schema": "clearcase-fix-round/1",
   "unit": "GRS-176/implementation",
-  "fixBase": "bdd08d206c2508aae8b953313fae2a2e2307b120",
+  "fixBase": "a61eee15d17965c98b62bb2f69c71b60585cac2d",
   "reviewFindingsSha256": "8ec4c94c2011820eb1a375f2c37cd2a8a8a57598dbd50b3277a07faa294ff705",
   "review": {
     "issue": "GRS-176",
@@ -9,7 +9,7 @@
     "reviewer": "internal diff review",
     "reviewedHead": "08494615b8d08b11bb5271ced1fa60e0a7dccf5d",
     "waveBase": "225b7e00578319d16383678a8d1ae6efb362a0ba",
-    "note": "fixBase is the red commit, which adds the three adverse tests. reviewFindingsSha256 is the SHA-256 of .orchestration/reports/GRS-176/review.md."
+    "note": "Red commit bdd08d20 adds the three failing adverse tests. fixBase is the later commit that expresses the same two list tests as individually named tests for the guard. reviewFindingsSha256 is the SHA-256 of .orchestration/reports/GRS-176/review.md."
   },
   "findings": [
     {

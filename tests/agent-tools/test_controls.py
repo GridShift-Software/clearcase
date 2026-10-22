@@ -2632,6 +2632,63 @@ class FixRoundBaseAdditions(ControlCase):
             self.guard('--base', 'dev')
 
 
+class FixRoundBaseChanges(ControlCase):
+    """GRS-169 fix round 1 (M1): a path the fix base holds and the base changed after the review has the base's copy as its
+    reference, as a path the base added does. A branch that merges the base's change and then undoes or masks it refuses
+    on a test's assertion count and on a protected fixture; an unchanged branch merging any base change passes."""
+    original = TestWeakening.original
+    path = FixRoundManifest.path
+    manifest = FixRoundManifest.manifest
+    reset = FixRoundMergedBase.reset
+    change = FixRoundMergedBase.change
+    on_dev = FixRoundMergedBase.on_dev
+    merge = FixRoundMergedBase.merge
+    guard = FixRoundMergedBase.guard
+    config = FixRoundMergedBase.config
+    helper = FixRoundMergedBase.helper
+    test = FixRoundMergedBase.test
+    added = FixRoundBaseAdditions.added
+    stronger = added + ''.join(f"test('added {n}', () => {{ expect({n}).toEqual({n}); }});\n" for n in range(3, 5))
+
+    def setUp(self):
+        super().setUp()
+        self.write('vitest.config.ts', self.config)
+        self.write('support/helper.ts', self.helper)
+        self.write('tests/fixtures/cases.json', '{"a":false}')
+        self.write('tests/old.test.ts', self.added)
+        self.dev = self.commit('runner configuration, helper, fixture and a test')
+        self.git('switch', '-q', '-c', 'feature/grs-104-tooling')
+        self.write('tests/protected.test.ts', self.test)
+        self.base = self.commit('reviewed tests')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.fixed = self.commit('fix round')
+
+    def test_a_base_strengthening_that_the_branch_merged_and_undid_refuses(self):
+        # A1 and A2: the base strengthens a test the fix base holds from 3 to 5 assertions, the branch merges it and then
+        # restores the fix base's copy, or drops only one
+        for label, (restored, fell) in {'restoring the fix base copy': (self.added, '5 -> 3'),
+                                      'dropping one assertion': (self.stronger.replace(self.stronger.splitlines()[-1] + '\n', ''), '5 -> 4')}.items():
+            with self.subTest(bypass=label):
+                self.reset()
+                self.on_dev({'tests/old.test.ts': self.stronger})
+                self.merge()
+                self.change({'tests/old.test.ts': restored}, label)
+                self.assertIn(f'assertion count fell in tests/old.test.ts: {fell}', self.guard('--base', 'dev', code=1))
+                self.on_dev({'docs/note.md': 'later\n'})
+                self.assertIn(f'assertion count fell in tests/old.test.ts: {fell}', self.guard('--base', 'dev', code=1))
+
+    def test_a_base_change_to_a_fixture_that_the_branch_merged_and_undid_refuses(self):
+        # A3: the branch restores the fix base's blob after merging the base's change to a protected fixture
+        self.on_dev({'tests/fixtures/cases.json': '{"a":true}'})
+        self.merge()
+        self.change({'tests/fixtures/cases.json': '{"a":false}'}, "restore the fix base's fixture")
+        self.assertIn('protected fixture changed or deleted: tests/fixtures/cases.json', self.guard('--base', 'dev', code=1))
+        with self.subTest(bypass='the base moved on after the merge'):
+            self.on_dev({'docs/note.md': 'later\n'})
+            self.assertIn('protected fixture changed or deleted: tests/fixtures/cases.json', self.guard('--base', 'dev', code=1))
+
+
 class FixRoundFixtureModule(ControlCase):
     """GRS-153 polish L1: a fixture module a protected test imports is in the closure twice, as code and as data, and the
     receipt line names it once."""

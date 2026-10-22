@@ -475,6 +475,56 @@ class IntoTheWave(DocsOnlyFixRound):
         self.assertIn('src/grs-105-other.ts', self.guard(base='dev', branch='wave/with/slash', code=1))
 
 
+class WaveChangeReverted(DocsOnlyFixRound):
+    """GRS-169 fix round 1 (M1): the wave changes a file the fix base holds, the round merges it and restores the fix
+    base's copy. The restore leaves no difference from the fix base, but it undoes the wave's change, so it is the
+    round's change: only a document may be restored."""
+
+    def setUp(self):
+        super(DocsOnlyFixRound, self).setUp()
+        self.write('src/app.ts', 'export const value = 1;\n')
+        self.write('src/lib.ts', 'export const lib = 1;\n')
+        self.write('tests/app.test.ts', self.test)
+        self.write('docs/guide.md', '# Guide\n\nThe old step.\n')
+        self.write('docs/other.md', '# Other\n')
+        self.dev = self.commit('dev: an app, a library, its test and two guides')
+        self.git('switch', '-q', '-c', WAVE)
+        self.git('switch', '-q', '-c', BRANCH)
+        self.write('src/app.ts', 'export const value = 2;\n')
+        self.reviewed = self.commit('the implementation, as reviewed')
+        self.saved_review([])
+
+    def wave_changes(self, files):
+        self.git('switch', '-q', WAVE)
+        for name, text in files.items():
+            self.write(name, text)
+        self.commit('the wave changes files after the review')
+        self.git('switch', '-q', BRANCH)
+        self.merge(WAVE)
+
+    def test_restoring_a_file_the_wave_changed_is_the_round_s_change(self):
+        stronger = self.test + "test('more', () => { expect(2).toEqual(2); });\n"
+        for label, (name, text) in {'a test': ('tests/app.test.ts', stronger),
+                                    'a runtime file': ('src/lib.ts', 'export const lib = 2;\n')}.items():
+            with self.subTest(bypass=label):
+                self.reset()
+                self.git('branch', '-f', WAVE, self.dev)
+                self.fix_round()
+                self.wave_changes({name: text})
+                self.write(name, self.git('show', f'{self.reviewed}:{name}') + '\n')
+                self.commit('restore the fix base copy')
+                out = self.guard(code=1)
+                self.assertIn('docs-only', out)
+                self.assertIn(name, out)
+
+    def test_restoring_a_document_the_wave_changed_is_documentation(self):
+        self.fix_round()
+        self.wave_changes({'docs/other.md': '# Other, as the wave edited it\n'})
+        self.write('docs/other.md', '# Other\n')
+        self.commit('restore the fix base copy of a guide')
+        self.guard()
+
+
 class TheRepositoryItself(DocsOnlyFixRound):
     """The repository's own tracked tree at HEAD is the reviewed commit, so its real readers, comments and printed text
     judge the round, as they judged GRS-154's history."""

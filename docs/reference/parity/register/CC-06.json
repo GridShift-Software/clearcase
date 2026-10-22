@@ -282,7 +282,25 @@
       },
       "type": "defect-fix",
       "source": "S-interest_calc_tab-5",
-      "reason": "The line under the amount due, for the sweep's computed cases. ClearCase compares the total with the imported amount due only as at the same date with no recorded payment on or before it (S-interest_calc_tab-5, IDR-245); the sweep's To date is not the amount due's, so the app shows the amount due as not comparable where v5 shows a difference. Only that refusal is registered: the old \"vs your calc\" shape is not, so a return to always comparing fails parity. Replaces IDR-236, retired because its difference no longer reaches parity.",
+      "reason": "The line under the amount due, for the sweep's capital-typed cases. ClearCase compares the total with the imported amount due only as at the same date with no recorded payment on or before it (S-interest_calc_tab-5, IDR-245); the sweep's To date is not the amount due's, so the app shows the amount due as not comparable where v5 shows a difference. Only that refusal is registered on these paths: the old \"vs your calc\" shape is not, so a return to always comparing fails parity. Replaces IDR-236, retired because its difference no longer reaches parity.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-173)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-451",
+      "view": "interest_calc_tab",
+      "field": "sweep.compute.defaults.k3.sub",
+      "when": {
+        "v5": "enter a capital figure",
+        "app": {
+          "re": "^as at \\d{4}-\\d{2}-\\d{2} · enter a capital figure$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-interest_calc_tab-5",
+      "reason": "The defaults sweep leaves capital empty. ClearCase dates the extracted amount due and asks for a capital figure without claiming a comparison. This entry covers only that caption; IDR-450 covers the typed-capital refusal on the three computed paths.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-173)",
       "approvedBy": null,
@@ -711,7 +729,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-interest_calc_tab-5",
-      "reason": "v5 compares the computed total on one typed capital with the headline amount due, which may be on a different basis. ClearCase compares them only as at the same date with no recorded payment on or before it or undated, and then calls the difference arithmetic, not a reconciliation: it does not know the statement's capital, rates or dates. Otherwise it shows the amount due alone, not comparable, and says why. That disclosure is how this closes the defect; the user approves or rejects it. Parity sees the change: IDR-450. Evidence: tests/quantum/interest-basis.test.ts:55.",
+      "reason": "v5 compares a computed total on one typed capital with the headline due on unlike bases. ClearCase compares only with capital, matching dates and no payment on or before To or undated. Even then the difference is arithmetic, not a reconciliation: the statement's capital, rates and dates are unknown. With no capital, the dated due asks for one and any basis conflict appears without a verdict (IDR-451). With capital on unlike bases, due stands alone with the reason. This disclosure closes the defect. Parity sees the change: IDR-450. Evidence: tests/quantum/interest-basis.test.ts:55.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,
@@ -723,7 +741,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-payments_tab-3",
-      "reason": "v5's Settlement and Interest views use gross figures and ignore recorded payments. ClearCase's Settlement claim prefill is net of payments. Interest does not net them, which would need a rule on whether a payment pays interest or capital first. When a recorded payment is dated on or before the To date or undated, it does not compare its total with the amount due, says why, and states that neither figure deducts payments. That disclosure, not netting, is how this closes the defect; the user approves or rejects it. Evidence: tests/quantum/interest-basis.test.ts:60.",
+      "reason": "v5's Settlement and Interest views use gross figures and ignore recorded payments. ClearCase's Settlement claim prefill is net of payments. Interest does not net them, which would need a rule on whether a payment pays interest or capital first. A payment on or before To, or undated, prevents comparison with capital and is explained in a conditional note without capital. That disclosure, not netting, is how this closes the defect; the user approves or rejects it. Evidence: tests/quantum/interest-basis.test.ts:60.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

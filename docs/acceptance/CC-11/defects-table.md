@@ -125,7 +125,7 @@
 | `S-interest_calc_tab-2` | medium | view-checklist.md | registered | IDR-243 (defect-fix) |  |
 | `S-interest_calc_tab-3` | low | view-checklist.md | registered | IDR-213 (defect-fix), IDR-214 (defect-fix) |  |
 | `S-interest_calc_tab-4` | low | view-checklist.md | registered | IDR-244 (defect-fix) |  |
-| `S-interest_calc_tab-5` | low | view-checklist.md | registered | IDR-450 (defect-fix), IDR-245 (defect-fix) |  |
+| `S-interest_calc_tab-5` | low | view-checklist.md | registered | IDR-450 (defect-fix), IDR-451 (defect-fix), IDR-245 (defect-fix) |  |
 | `S-payments_tab-2` | medium | view-checklist.md | registered | IDR-204 (defect-fix), IDR-205 (defect-fix) |  |
 | `S-payments_tab-3` | low | view-checklist.md | registered | IDR-246 (defect-fix) |  |
 | `S-payments_tab-4` | low | view-checklist.md | registered | IDR-201 (improvement), IDR-202 (improvement) |  |

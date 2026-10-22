@@ -46,7 +46,7 @@ describe('register-dispositions --check', () => {
 		});
 		const result = run();
 		expect(result.status, result.out).toBe(0);
-		expect(mine('register/CC-06.json').find((e) => e.source === 'S-interest_calc_tab-5')?.id).toBe('IDR-451');
+		expect(mine('register/CC-06.json').find((e) => e.source === 'S-interest_calc_tab-5')?.id).toBe('IDR-452');
 	});
 	it('passes on the committed register', () => {
 		expect(run('--check')).toMatchObject({ status: 0 });

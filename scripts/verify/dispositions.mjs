@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // Source-defect dispositions against the parity register (GRS-21, CC-11):
 //
-//   bun scripts/verify/dispositions.mjs [--md FILE] [--json FILE]
+//   bun scripts/verify/dispositions.mjs [--reference DIR] [--md FILE] [--json FILE]
 //
 // Reads every v5 source defect: the cross-cutting table of docs/reference/defects.md (ID, severity, disposition, owner)
 // and the per-view list of docs/reference/view-checklist.md (`S-<view>-<n>` (severity) text), and every entry of the
@@ -9,7 +9,8 @@
 // A defect has a register disposition when an entry's id, field, reason or source names it (the whole ID, or for a
 // table row naming a family such as `S-documents-*`, any member). The imported-data defects (IMPORTED_DATA below,
 // a reviewed list: the fault is in the embedded datasets, not in v5's code) must carry an entry of type
-// data-correction-deferred-to-pipeline. Writes a Markdown table (--md, default stdout) and a JSON record (--json).
+// data-correction-deferred-to-pipeline. --reference reads a synthetic docs/reference copy. Writes a Markdown table
+// (--md, default stdout) and a JSON record (--json).
 // Exit 0 when every defect has a disposition and every imported-data defect is tagged, 1 otherwise. Reads the
 // committed register only; it never writes it and never sets approvedBy.
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -18,7 +19,7 @@ import { citing, readDefects } from './lib/defects.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const arg = (k) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : null; };
-const REF = join(ROOT, 'docs', 'reference');
+const REF = resolve(arg('--reference') ?? join(ROOT, 'docs', 'reference'));
 
 /**
  * Defects whose fault is in the imported data (the embedded datasets), not in v5's code, reviewed against their text

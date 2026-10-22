@@ -1,7 +1,7 @@
 import { fail, type RequestEvent } from '@sveltejs/kit';
 import type { DocumentAnchor } from '../../case-package/index.ts';
 import { now } from '../../components/clock.ts';
-import { deleteStep } from '../../components/confirm-delete.ts';
+import { CANCEL, deleteStep } from '../../components/confirm-delete.ts';
 import { viewAt } from '../../components/views.ts';
 import { app } from '../../local-case/app.server.ts';
 import { resolveRefs } from '../../local-case/documents.server.ts';
@@ -122,18 +122,21 @@ export function registerActions(view: RegisterView) {
 		},
 		delete: async ({ params, request }: RequestEvent) => {
 			const f = await request.formData();
-			const rowId = f.get('rowId');
+			const rowId = f.get('delete') ?? f.get(CANCEL) ?? f.get('rowId');
+			const draft = def.fields.some((x) => f.has(x.k))
+				? { values: entryFrom(def, Object.fromEntries(def.fields.map((x) => [x.k, f.get(x.k)]))) }
+				: {};
 			const c = caseOf(params);
-			if (!c) return fail(404, { op: 'delete' as const, rowId: null, message: 'Unknown results version.' });
-			if (typeof rowId !== 'string' || !rowId) return fail(400, { op: 'delete' as const, rowId: null, message: 'No entry was named.' });
+			if (!c) return fail(404, { op: 'delete' as const, rowId: null, ...draft, message: 'Unknown results version.' });
+			if (typeof rowId !== 'string' || !rowId) return fail(400, { op: 'delete' as const, rowId: null, ...draft, message: 'No entry was named.' });
 			// a Delete that is not confirmed deletes nothing: the page asks for the confirmation (none after Cancel)
 			const step = deleteStep(f, rowId);
-			if (step !== 'confirm') return fail(400, { op: 'delete' as const, rowId, confirm: step === 'ask' ? rowId : null });
+			if (step !== 'confirm') return fail(400, { op: 'delete' as const, rowId, ...draft, confirm: step === 'ask' ? rowId : null });
 			try {
-				return { deleted: await deleteEntry(app().userWork, c.caseId, def, rowId) };
+				return { op: 'delete' as const, deleted: await deleteEntry(app().userWork, c.caseId, def, rowId), ...draft };
 			} catch (e) {
 				const x = failure(e, 'The deletion');
-				return fail(x.status, { op: 'delete' as const, rowId, message: x.message.replace('was not saved', 'did not happen').replace('try again', 'the entry is still there; try again') });
+				return fail(x.status, { op: 'delete' as const, rowId, ...draft, message: x.message.replace('was not saved', 'did not happen').replace('try again', 'the entry is still there; try again') });
 			}
 		},
 	};

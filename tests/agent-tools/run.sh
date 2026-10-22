@@ -1400,6 +1400,8 @@ done
 run "unattended controls synthetic CLI suite" 0 python3 -I "$HERE/test_controls.py"
 run "docs-only fix round controls (GRS-156)" 0 python3 -I "$HERE/test_docs_only.py"
 
+run "custom-file protection controls (GRS-193)" 0 python3 -I "$HERE/test_file_protection.py"
+
 echo "# summary"
 echo "$passed passed, $failed failed"
 ((failed == 0))

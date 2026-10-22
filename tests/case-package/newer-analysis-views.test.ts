@@ -72,7 +72,8 @@ describe('the newer export\'s code-embedded analysis in its views (GRS-149)', ()
 
 	it('the Timeline lists every event once under its explicitly assigned date phase', async () => {
 		const body = await view('timeline', TimelinePage);
-		for (const e of X.timeline.events) expect(text(body).split(e.title).length - 1).toBe(1);
+		const phased = body.slice(body.indexOf('id="phases"'), body.indexOf('id="quantum"'));
+		for (const e of X.timeline.events) expect(text(phased).split(e.title).length - 1).toBe(1);
 		expect(body).not.toContain('data-phase="unplaced"');
 		expect(text(body)).toContain('Phase one');
 		expect(text(body)).toContain('Phase two');

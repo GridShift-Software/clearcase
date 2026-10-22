@@ -1076,6 +1076,8 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			const repeatFailing = await http(`/cases/${a6.caseId}/deletion/remove`, { method: 'POST', headers: { 'content-type': 'application/json', ...failing(a6) }, body: JSON.stringify({ actor: GA }) });
 			const staleAfterRepeat = errorOf(a6) === null ? 0 : 1;
 			check(repeatFailing.status === 500 && row(a6).erased_at === erasedAt6 && staleAfterRepeat === 0 && code(await http(`/cases/${a6.caseId}/documents/S-0001`), 410, 'case-deleted'), "a repeated removal of the erased A6 whose erasure fails answers 500, yet A6 keeps its erased_at, its row records no erasure failure, and it is still refused");
+			const direct = wrangler('d1', 'execute', 'DB', '--local', '--env', 'client-a', '--command', `UPDATE case_deletion SET erase_error = 'probe write' WHERE case_id = '${a6.caseId}'`);
+			check(direct.code !== 0 && errorOf(a6) === null && row(a6).erased_at === erasedAt6, "the schema itself refuses an erase_error on an erased case: a direct write to A6's row fails and changes nothing");
 			Object.assign(m, { interruptedRemovals: 2, finishedByRoute: left5.length === 0 ? 1 : 0, finishedByNewIsolate: left6.length === 0 ? 1 : 0, objectsLeftAfterFinish: left5.length + left6.length, residueRows: res[0]!.left.length + res[1]!.left.length, failedErasuresIsolated: other.status === 200 && left7.length === 0 ? 1 : 0, otherCasesServed: other.status === 200 ? 1 : 0, staleErrorsAfterCopyBack: staleErrors });
 		});
 	} catch (e) {

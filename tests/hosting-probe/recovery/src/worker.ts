@@ -216,16 +216,15 @@ async function eraseNow(ctx: Ctx, caseId: string, set: [string, D1Value[]], cond
  * A failure of one case's work that is not an integrity refusal (R2 or D1 unavailable, a crash): it stops that case only. It is
  * written to the case's row (erase_error, which a finished erasure clears) and to the log, and the next request that reconciles
  * tries the case again. An integrity refusal (a conflicting, foreign or invalid record) still stops everything, by design.
- * erase_error means one thing: the erasure is unfinished, and why. A failure to write the case's record (`record`: the copy back
- * into the bucket that lost it, or the first write) says nothing of an erasure that is finished, so it reaches the row only while
- * erased_at is unset, where the finishing erasure clears it; for an erased case it goes to the log alone and is retried when the
- * next isolate reads the ledger.
+ * erase_error means one thing: the erasure is unfinished, and why. The schema holds that (erase_error IS NULL OR erased_at IS NULL),
+ * so every write of it is guarded by `erased_at IS NULL`: a failure on a case that is already erased (a repeated removal, or the
+ * copy back of its record, `record`) goes to the log alone and is tried again on the next request or isolate.
  */
 async function failed(ctx: Ctx, caseId: string, e: unknown, record = false) {
 	if (e instanceof Refused) throw e;
 	const message = String(e instanceof Error ? e.message : e).slice(0, 300);
 	console.error(`${record ? 'the record of' : 'erasure of'} ${caseId} did not finish: ${message}`);
-	await ctx.db.prepare(`UPDATE case_deletion SET erase_error = ? WHERE case_id = ? AND state = 'removed'${record ? ' AND erased_at IS NULL' : ''}`).bind(message, caseId).run().catch(() => undefined);
+	await ctx.db.prepare("UPDATE case_deletion SET erase_error = ? WHERE case_id = ? AND state = 'removed' AND erased_at IS NULL").bind(message, caseId).run().catch((w: unknown) => console.error(`the failure of ${caseId} was not written to its row: ${String(w instanceof Error ? w.message : w).slice(0, 300)}`));
 }
 
 const RECORD_FORMAT = 'clearcase.deletion-record/1';

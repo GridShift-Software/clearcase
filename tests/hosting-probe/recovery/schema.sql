@@ -9,7 +9,7 @@
 -- of its unsealed exports, so a repeated removal or a reapplied record erases the same objects. The deletion record in the
 -- buckets carries no erase_plan. erased_at is set last, after the R2 deletes and upload aborts: a `removed` row without it is an
 -- erasure that stopped part-way, and the next request for the case or a new isolate finishes it. erase_error holds why the last
--- try failed, until a try finishes; a failed copy of the deletion record never sets it on a row whose erased_at is set (it is logged only).
+-- try failed, until a try finishes, and never on a row whose erased_at is set: the CHECK below refuses it, and a failure on an erased case is logged only.
 CREATE TABLE case_deletion (
   case_id TEXT PRIMARY KEY,
   state TEXT NOT NULL CHECK (state IN ('requested', 'approved', 'offered', 'removed')),
@@ -25,7 +25,8 @@ CREATE TABLE case_deletion (
   removed_at TEXT,
   erase_plan TEXT,
   erased_at TEXT,
-  erase_error TEXT
+  erase_error TEXT,
+  CHECK (erase_error IS NULL OR erased_at IS NULL)
 );
 
 -- Bundle history: a stand-in for GRS-128's PDF bundle versions (bundle/<caseId>/<bundleId>.pdf in BUCKET), modelled only

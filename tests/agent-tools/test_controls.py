@@ -3196,7 +3196,7 @@ class FixRoundArrival(ControlCase):
         self.git('switch', '-q', current)
 
     def pull_request(self):
-        """The pull request into the wave: cut from the wave, a polish commit, then dev merged in."""
+        """The pull request into the wave: cut from the wave, with a polish commit. Each test merges dev into it."""
         self.git('switch', '-q', '-c', 'feature/grs-105-polish', 'wave/proofs')
         self.change({'docs/polish.md': 'polish\n'}, 'polish')
 

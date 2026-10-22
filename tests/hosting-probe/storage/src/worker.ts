@@ -477,13 +477,21 @@ const uwTables = async (ctx: Ctx) => {
 };
 const columnsOf = async (ctx: Ctx, table: string) => (await ctx.db.all<{ name: string }>('SELECT name FROM pragma_table_info(?) ORDER BY cid', table)).map((r) => r.name);
 
-async function snapshot(ctx: Ctx, caseId: string) {
+/**
+ * PROBE_HOOKS exists only in the probe's client-a deployment: a GET work request that sends x-probe-hold stops inside its snapshot
+ * until the runner posts /probe/hold/release, so the runner can write at that point. Never bind it in production.
+ */
+const probeHold: { waiting: (() => void) | null } = { waiting: null };
+const holdHere = () => new Promise<void>((resolve) => (probeHold.waiting = resolve));
+
+async function snapshot(ctx: Ctx, caseId: string, between?: () => Promise<void>) {
 	const tables: Record<string, { columns: string[]; rows: Row[] }> = {};
 	for (const t of await uwTables(ctx)) {
 		const columns = await columnsOf(ctx, t);
 		const rows = await ctx.db.all(`SELECT * FROM ${t} WHERE case_id = ? ORDER BY ${columns.map((_, i) => i + 1).join(', ')}`, caseId);
 		tables[t] = { columns, rows };
 	}
+	await between?.();
 	const rev = (await ctx.db.first<{ rev: number }>('SELECT rev FROM case_rev WHERE case_id = ?', caseId))?.rev ?? 0;
 	return { format: 'clearcase.user-work/1', caseId, rev, tables };
 }
@@ -1085,6 +1093,14 @@ async function route(request: Request, env: Env): Promise<Response> {
 		return o ? json(ctx, { key, size: o.size, sha256: checksum(o), etag: o.etag }) : json(ctx, { code: 'not-found' }, 404);
 	}
 	if (m === 'GET' && seg[0] === 'probe' && seg[1] === 'live' && seg.length === 3 && isText(ID)(seg[2])) return liveState(ctx, seg[2]);
+	if (env.PROBE_HOOKS === '1' && seg[0] === 'probe' && seg[1] === 'hold') {
+		if (m === 'GET' && seg.length === 2) return json(ctx, { waiting: probeHold.waiting !== null });
+		if (m === 'POST' && seg.length === 3 && seg[2] === 'release') {
+			probeHold.waiting?.();
+			probeHold.waiting = null;
+			return json(ctx, { released: true });
+		}
+	}
 	if (seg[0] === 'originals' && isText(SHA)(seg[1])) {
 		const sha = seg[1];
 		if (m === 'PUT' && seg.length === 2) return putOriginal(ctx, request, sha);
@@ -1204,7 +1220,7 @@ async function route(request: Request, env: Env): Promise<Response> {
 		}
 		if (rest[0] === 'registers' && isText(/^[a-z][a-z0-9-]{0,40}$/)(rest[1]) && rest.length === 3 && m === 'POST') return registerWrite(ctx, request, caseId, rest[1], rest[2]!);
 		if (m === 'GET' && rest.join('/') === 'work') {
-			const snap = await snapshot(ctx, caseId);
+			const snap = await snapshot(ctx, caseId, env.PROBE_HOOKS === '1' && request.headers.get('x-probe-hold') === '1' ? holdHere : undefined);
 			return json(ctx, url.searchParams.get('backup') === '1' ? { ...snap, backup: await backup(ctx, caseId, 'snapshot', snap) } : snap);
 		}
 		if (m === 'POST' && rest.join('/') === 'work/restore') return restore(ctx, request, caseId);

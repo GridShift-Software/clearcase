@@ -28,7 +28,7 @@ import { type OriginalPlan, type Plan, type Scale, V5, aggregates, listText, ori
 
 const HERE = import.meta.dirname;
 const SCHEMA = 'clearcase.storage-probe/1';
-const LEGS = ['build', 'provision', 'crossed-bindings', 'upload', 'import', 'layout', 'range', 'write-once', 'two-pass', 'user-work', 'export', 'corruption', 'restore', 'restore-guards'] as const;
+const LEGS = ['build', 'provision', 'crossed-bindings', 'upload', 'import', 'layout', 'range', 'write-once', 'two-pass', 'user-work', 'export', 'corruption', 'restore', 'restore-guards', 'snapshot-consistency'] as const;
 type LegName = (typeof LEGS)[number];
 type Measure = Record<string, number | string | boolean>;
 type Leg = { status: 'PASS' | 'FAIL' | 'NOT RUN'; commands: string[]; asserted: string[]; measured: Measure; failure?: string };
@@ -95,6 +95,7 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	corruption: [11, 12],
 	restore: [8, 8],
 	'restore-guards': [13, 28],
+	'snapshot-consistency': [5, 5],
 };
 
 type Spec = null | boolean | number | string | RegExp | ((v: unknown) => boolean) | Spec[] | { [key: string]: Spec };
@@ -156,6 +157,7 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 	corruption: { casesRefused: 8 },
 	restore: { entries: POSITIVE, steps: POSITIVE, wallMs: MS, objects: POSITIVE },
 	'restore-guards': { refusals: 17 },
+	'snapshot-consistency': { savesDuringSnapshot: 1, savesLost: 0, snapshotRows: 4 },
 };
 
 /** The one expected shape of a PASS summary for `sha`: every field, its type and its value. */
@@ -1371,6 +1373,33 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			const uwAfter = JSON.parse(await live(uw));
 			check(uwOk.opened && uwOk.res.status === 200 && uwAfter.active === Vu && uwAfter.work.uw_note === 1, 'the corrected backup of the same case and version restores');
 			m.refusals = refusals;
+		});
+
+		// ----- a snapshot read while another save commits (the snapshot's rows and its revision are one read) -----
+		await serve('client-a');
+		await leg('snapshot-consistency', ['POST /cases/<case>/registers/notes/add (3 rows)', 'GET /cases/<case>/work with x-probe-hold (held inside the snapshot), GET /probe/hold', 'POST /cases/<case>/registers/notes/add while the snapshot is held, POST /probe/hold/release', 'POST /cases/<case>/work/restore with that snapshot at the current revision', 'GET /cases/<case>/work'], async (check, m) => {
+			const snapCase = 'case-snapshot-race';
+			const note = (i: number) => post(`/cases/${snapCase}/registers/notes/add`, { fields: { label: `synthetic note ${i}` }, operationId: `op-snapshot-${i}` });
+			const first = await Promise.all([0, 1, 2].map((i) => note(i)));
+			check(first.every((r) => r.status === 200) && (await http(`/cases/${snapCase}/work`)).json().rev === 3, 'three saves are written: the case is at revision 3 with 3 rows');
+			const snapshotRead = http(`/cases/${snapCase}/work`, { headers: { 'x-probe-hold': '1' }, timeout: 60_000 });
+			let waiting = false;
+			for (let i = 0; i < 200 && !waiting; i++) {
+				waiting = (await http('/probe/hold')).json().waiting === true;
+				if (!waiting) await new Promise((r) => setTimeout(r, 50));
+			}
+			check(waiting, 'a snapshot read is held inside the Worker by the probe-only hook, as far as its reads have run');
+			const late = await note(3);
+			check(late.status === 200 && late.json().rev === 4 && late.json().repeated === false, 'a save is acknowledged while the snapshot is held: revision 4');
+			await post('/probe/hold/release', {});
+			const snap = (await snapshotRead).json();
+			const rows = (snap.tables.uw_register_row.rows as { operation_id: string }[]).length;
+			const restore = await post(`/cases/${snapCase}/work/restore`, { expectedRev: 4, snapshot: snap });
+			const after = (await http(`/cases/${snapCase}/work`)).json();
+			const lost = (after.tables.uw_register_row.rows as { operation_id: string }[]).some((r) => r.operation_id === 'op-snapshot-3') ? 0 : 1;
+			check(lost === 0, `the save acknowledged while the snapshot was read survives a restore of that snapshot at the current revision (the snapshot named revision ${snap.rev} and held ${rows} rows; the restore answered ${restore.status} ${restore.json().kind ?? ''})`);
+			check(snap.rev === rows, `the snapshot's revision names exactly the rows it holds (revision ${snap.rev}, ${rows} rows): one read, not two`);
+			Object.assign(m, { savesDuringSnapshot: 1, savesLost: lost, snapshotRows: rows });
 		});
 
 	} catch (e) {

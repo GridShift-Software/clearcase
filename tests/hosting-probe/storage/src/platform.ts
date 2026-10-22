@@ -45,7 +45,7 @@ export interface R2 {
 	createMultipartUpload(key: string, options?: R2PutOptions): Promise<R2MultipartUpload>;
 	resumeMultipartUpload(key: string, uploadId: string): R2MultipartUpload;
 }
-export interface Env { CLEARCASE_CLIENT_ID?: unknown; DB?: unknown; BUCKET?: unknown }
+export interface Env { CLEARCASE_CLIENT_ID?: unknown; DB?: unknown; BUCKET?: unknown; PROBE_HOOKS?: unknown }
 
 /** workerd's streaming SHA-256 (`crypto.DigestStream`) and its fixed-length stream; neither is in the DOM library. */
 interface DigestStream extends WritableStream<Uint8Array> { readonly digest: Promise<ArrayBuffer> }

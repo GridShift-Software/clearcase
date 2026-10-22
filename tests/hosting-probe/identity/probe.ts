@@ -192,7 +192,8 @@ async function main(out: string): Promise<number> {
 	 * An earlier run that was killed before its cleanup leaves its `cc108-` users and invitations in the development
 	 * instances. Removes those over an hour old (never this run's own, nor a concurrent run's), invitations before users.
 	 * A failure is reported and the sweep goes on: it is housekeeping, not evidence. A row for which Clerk states no finite
-	 * creation time is left in place, as there is no telling its age, and is counted so that a stranded row shows up.
+	 * creation time is left in place, as there is no telling its age, and is counted so that a stranded row shows up: the
+ * counts are printed and recorded in the summary's sweep, zeros included.
 	 */
 	const swept = { users: 0, invitations: 0, failed: 0, undated: 0 };
 	async function sweep(): Promise<void> {
@@ -296,7 +297,7 @@ async function main(out: string): Promise<number> {
 		console.error(`interrupted: clerk users ${clerk.users.created}/${clerk.users.deleted} invitations ${clerk.invitations.created}/${clerk.invitations.deleted} sessions ${clerk.sessions.created}/${clerk.sessions.ended} (created/deleted or ended)`);
 	});
 	await sweep();
-	console.log(`sweep: removed ${swept.users} users and ${swept.invitations} invitations of earlier runs older than an hour${swept.undated ? `; ${swept.undated} rows with no creation time left in place` : ''}${swept.failed ? `; ${swept.failed} failed (see above)` : ''}`);
+	console.log(`sweep: removed ${swept.users} users and ${swept.invitations} invitations of earlier runs older than an hour; ${swept.undated} rows with no creation time left in place; ${swept.failed} failed${swept.failed ? ' (see above)' : ''}`);
 
 	try {
 		await leg('integration', async (check) => {
@@ -745,6 +746,7 @@ async function main(out: string): Promise<number> {
 		routes: routeTable,
 		counts: countsOf(routeTable),
 		clerk: { ...clerk, apiCalls: { backend: bapi.client.calls + bapi.staff.calls } },
+		sweep: { ...swept },
 		hold: HOLD,
 		failure,
 		evidence: false,

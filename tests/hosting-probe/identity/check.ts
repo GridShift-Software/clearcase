@@ -13,7 +13,9 @@
 //     matrix's classes, each check's expectation recomputed here from matrix.ts and met, no leaked marker and no
 //     missing one;
 //   - its counts recompute from the table, and every Clerk user, invitation and session it created was deleted or ended
-//     (sessions counted from Clerk's own status, none pending).
+//     (sessions counted from Clerk's own status, none pending);
+//   - it records the start-of-run sweep's counts (users and invitations removed, undated rows left, failures), each a
+//     whole number of zero or more.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -51,6 +53,7 @@ const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const SHA = /^[0-9a-f]{40}$/;
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const posInt = (v: unknown) => Number.isInteger(v) && (v as number) > 0;
+const count = (v: unknown) => Number.isInteger(v) && (v as number) >= 0;
 const strings = (v: unknown) => Array.isArray(v) && v.length > 0 && v.every((s) => typeof s === 'string' && s.length > 0);
 
 function conform(value: unknown, spec: Spec, at: string, problems: string[]): void {
@@ -144,6 +147,8 @@ function expectedShape(summary: Record<string, unknown>, ctx: { head: string; di
 			devBrowsers: { created: posInt },
 			apiCalls: { backend: posInt },
 		},
+		// the start-of-run sweep of earlier runs' rows: housekeeping, so any count is evidence, but each is recorded
+		sweep: { users: count, invitations: count, undated: count, failed: count },
 		hold: HOLD,
 		failure: null,
 		evidence: true,

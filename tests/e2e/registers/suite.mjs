@@ -14,7 +14,7 @@ const { join, resolve } = await import('node:path');
 const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { launch, sleep } = await import('../pilot/lib/cdp.mjs');
-const { asking, confirmPressed, focusOf, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { asking, cancelIfAsked, confirmPressed, focusOf, holdEnter, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
 const { INIT, openPage } = await import('../pilot/suite/browser.mjs');
 const { appServer, vpath } = await import('../pilot/suite/context.mjs');
 const { startServer } = await import('../pilot/lib/server.mjs');
@@ -762,9 +762,19 @@ try {
 		const step = async () => ({ asking: await asking(p), focus: await focusOf(p, `${row(r)} [data-delete]`), both: await both() });
 		await p.click(`${row(r)} [data-delete]`);
 		const asked = await step();
+		await holdEnter(p);
+		await sleep(500);
+		const heldConfirm = await step();
 		await p.click(`${row(r)} [data-delete-cancel]`);
 		await sleep(300);
 		const cancelled = await step();
+		await p.click(`${row(r)} [data-delete]`);
+		await p.evaluate(`document.querySelector(${J(`${row(r)} [data-delete-cancel]`)}).focus()`);
+		await holdEnter(p, { first: true });
+		await sleep(500);
+		const heldCancel = await step();
+		await cancelIfAsked(p, row(r));
+		await sleep(300);
 		await p.click(`${row(r)} [data-delete]`);
 		await pressEscape(p);
 		await sleep(300);
@@ -779,16 +789,35 @@ try {
 		const other = await postAction(p, '?/delete', { rowId: r.id, confirm: o.id });
 		const refused = await both();
 		await del(r.id);
+		const settled = await p.waitFor(`document.activeElement && document.activeElement !== document.body ? document.activeElement.tagName : false`, 3000).catch(() => null);
 		const ids = { page: (await rows()).map((x) => x.id), db: stored('deadlines').map((x) => x.id) };
-		const ev = { asked, cancelled, escaped, second, reloaded, bare, other, refused, ids };
+		const ev = { settled, asked, heldConfirm, heldCancel, cancelled, escaped, second, reloaded, bare, other, refused, ids };
 		return { evidence: ev, checks: {
 			asked: J(asked.asking) === J([r.id]) && asked.focus === 'confirm' && asked.both,
+			heldEnterOnConfirm: J(heldConfirm.asking) === J([r.id]) && heldConfirm.focus === 'confirm' && heldConfirm.both,
+			heldEnterOnCancel: heldCancel.both,
 			cancelKeeps: cancelled.asking.length === 0 && cancelled.focus === 'opener' && cancelled.both,
 			escapeKeeps: escaped.asking.length === 0 && escaped.focus === 'opener' && escaped.both,
 			secondMoves: J(second.asking) === J([o.id]) && second.both,
 			reloadDrops: reloaded.asking.length === 0 && reloaded.both,
 			serverRefuses: bare.type === 'failure' && bare.status === 400 && other.type === 'failure' && other.status === 400 && refused,
-			confirmDeletesThatRow: J(ids.page) === J([o.id]) && J(ids.db) === J([o.id]) } };
+			confirmDeletesThatRow: J(ids.page) === J([o.id]) && J(ids.db) === J([o.id]),
+			focusSettles: settled === 'H1' } };
+	});
+	await scenario('SC28-delete-failed-focus', 'deadlines_tab', "GRS-175 L1: a Confirm delete that fails leaves focus on that row's Delete, with the error shown and the row kept", async () => {
+		await openView('deadlines_tab');
+		const [r] = await rows();
+		const row = `#register-table tr[data-row-id="${r.id}"]`;
+		let focus = null;
+		const release = hold();
+		try {
+			await p.click(`${row} [data-delete]`);
+			await confirmPressed(p, row);
+			await p.waitFor(`!!document.getElementById('register-delete-error')`, 30000);
+			focus = await p.waitFor(`document.activeElement === document.querySelector(${J(`${row} [data-delete]`)})`, 5000).catch(() => false);
+		} finally { release(); }
+		const ev = { focus, now: await focusOf(p, `${row} [data-delete]`), kept: stored('deadlines').some((x) => x.id === r.id), error: await p.evaluate(`document.getElementById('register-delete-error')?.textContent.trim() ?? null`) };
+		return { evidence: ev, checks: { errorShown: !!ev.error, rowKept: ev.kept, focusOnDelete: focus === true } };
 	});
 	await scenario('SC18-prodid', 'deadlines_tab', "the exported calendar's PRODID carries the case part from the package's view-content (read from the built synthetic package, raw text) (D18)", async () => {
 		const field = vc ? JSON.parse(new TextDecoder().decode(vc)).data?.deadlines_tab?.icsProductId : undefined;

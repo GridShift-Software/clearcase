@@ -12,7 +12,7 @@ const { join, resolve } = await import('node:path');
 const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { launch, sleep } = await import('../pilot/lib/cdp.mjs');
-const { asking, confirmPressed, focusOf, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { asking, cancelIfAsked, confirmPressed, focusOf, holdEnter, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
 const { bunIdentity } = await import('../pilot/lib/server.mjs');
 const { outDir } = await import('../pilot/lib/record.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
@@ -908,9 +908,19 @@ try {
 		const step = async () => ({ asking: await asking(p), focus: await focusOf(p, opener(k)), both: await both() });
 		await p.click(opener(k));
 		const asked = await step();
+		await holdEnter(p);
+		await sleep(500);
+		const heldConfirm = await step();
 		await p.click(`#filing-register tr[data-key=${J(k)}] [data-delete-cancel]`);
 		await sleep(300);
 		const cancelled = await step();
+		await p.click(opener(k));
+		await p.evaluate(`document.querySelector(${J(`#filing-register tr[data-key=${J(k)}] [data-delete-cancel]`)}).focus()`);
+		await holdEnter(p, { first: true });
+		await sleep(500);
+		const heldCancel = await step();
+		await cancelIfAsked(p, `#filing-register tr[data-key=${J(k)}]`);
+		await sleep(300);
 		await p.click(opener(k));
 		await pressEscape(p);
 		await sleep(300);
@@ -928,17 +938,37 @@ try {
 		await p.click(opener(k));
 		await confirmPressed(p, `#filing-register tr[data-key=${J(k)}]`);
 		await p.waitFor(`document.querySelectorAll('#filing-register tbody tr[data-key]').length === ${m - 1} && !document.getElementById('register-status')`, 20000);
+		const settled = await p.waitFor(`document.activeElement && document.activeElement !== document.body ? document.activeElement.tagName : false`, 3000).catch(() => null);
 		const after = { k: (await regRows()).some((r) => r.key === k) || storedFilings().some((r) => `row:${r.id}` === k), o: (await regRows()).some((r) => r.key === o) && storedFilings().some((r) => `row:${r.id}` === o) };
 		const checks = {
 			asked: J(asked.asking) === J([k]) && asked.focus === 'confirm' && asked.both,
+			heldEnterOnConfirm: J(heldConfirm.asking) === J([k]) && heldConfirm.focus === 'confirm' && heldConfirm.both,
+			heldEnterOnCancel: heldCancel.both,
 			cancelKeeps: cancelled.asking.length === 0 && cancelled.focus === 'opener' && cancelled.both,
 			escapeKeeps: escaped.asking.length === 0 && escaped.focus === 'opener' && escaped.both,
 			secondMoves: J(second.asking) === J([o]) && second.both,
 			reloadDrops: reloaded.asking.length === 0 && reloaded.both,
 			serverRefuses: bare.type === 'failure' && bare.status === 400 && other.type === 'failure' && other.status === 400 && refused,
 			confirmDeletesThatRow: !after.k && after.o,
+			focusSettles: settled === 'H1',
 		};
-		return { pass: Object.values(checks).every(Boolean), evidence: { checks, asked, cancelled, escaped, second, reloaded, bare, other, after } };
+		return { pass: Object.values(checks).every(Boolean), evidence: { checks, settled, asked, heldConfirm, heldCancel, cancelled, escaped, second, reloaded, bare, other, after } };
+	});
+	await scenario('E-FILINGS-CONFIRM-FOCUS', 'filings_tab', "GRS-175 L1: a Confirm delete refused by a busy store leaves focus on that row's Delete, with the error shown and the row kept", async () => {
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		const o = (await regRows()).find((r) => r.filing === 'Synthetic second confirm row')?.key;
+		const opener = `#filing-register tr[data-key=${J(o)}] [data-delete]`;
+		let focus = false, error = null;
+		const release = holdStore();
+		try {
+			await p.click(opener);
+			await confirmPressed(p, `#filing-register tr[data-key=${J(o)}]`);
+			await p.waitFor(`!!document.getElementById('register-delete-error')`, 30000);
+			error = await p.evaluate(`document.getElementById('register-delete-error').textContent.trim()`);
+			focus = await p.waitFor(`document.activeElement === document.querySelector(${J(opener)})`, 5000).catch(() => false);
+		} finally { release(); }
+		const checks = { errorShown: !!error, rowKept: storedFilings().some((r) => `row:${r.id}` === o), focusOnDelete: focus === true };
+		return { pass: Object.values(checks).every(Boolean), evidence: { checks, error, now: await focusOf(p, opener) } };
 	});
 	await scenario('E-DIFF', 'hoa_diff_tab', 'Document Diff: an explicitly chosen pair of known texts gives the literal word diff, states the compared coverage (BA-06, BA-08), survives reload; one document only asks for two; every document with an excerpt is offered', async () => {
 		const nav = await viaNav('hoa_diff_tab', 'Document Diff');

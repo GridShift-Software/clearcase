@@ -14,7 +14,7 @@ const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { outDir } = await import('../pilot/lib/record.mjs');
 const { CHROME, launch } = await import('../pilot/lib/cdp.mjs');
-const { asking, confirmPressed, focusOf, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { asking, cancelIfAsked, confirmPressed, focusOf, holdEnter, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
 const { bunIdentity } = await import('../pilot/lib/server.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
 const { INIT, openPage, sleep } = await import('../pilot/suite/browser.mjs');
@@ -657,9 +657,19 @@ try {
 		const step = async () => ({ asking: await asking(p), focus: await focusOf(p, opener(k)), both: await both() });
 		await p.click(opener(k));
 		const asked = await step();
+		await holdEnter(p);
+		await sleep(500);
+		const heldConfirm = await step();
 		await p.click(`#heads-table tr[data-row=${J(k)}] [data-delete-cancel]`);
 		await sleep(300);
 		const cancelled = await step();
+		await p.click(opener(k));
+		await p.evaluate(`document.querySelector(${J(`#heads-table tr[data-row=${J(k)}] [data-delete-cancel]`)}).focus()`);
+		await holdEnter(p, { first: true });
+		await sleep(500);
+		const heldCancel = await step();
+		await cancelIfAsked(p, `#heads-table tr[data-row=${J(k)}]`);
+		await sleep(300);
 		await p.click(opener(k));
 		await pressEscape(p);
 		await sleep(300);
@@ -676,17 +686,35 @@ try {
 		await p.click(opener(k));
 		await confirmPressed(p, `#heads-table tr[data-row=${J(k)}]`);
 		const gone = await until(p, `!document.querySelector(${J(`#heads-table tr[data-row=${J(k)}]`)})`);
+		const settled = await until(p, `document.activeElement && document.activeElement !== document.body ? document.activeElement.tagName : false`, 3000);
 		const after = { k: savedRows().some((r) => r.store === 'heads' && r.row_id === k), o: savedRows().some((r) => r.store === 'heads' && r.row_id === o) && !!(await p.evaluate(`!!document.querySelector(${J(opener(o))})`)) };
 		return all({
 			asked: J(asked.asking) === J([dk]) && asked.focus === 'confirm' && asked.both,
+			heldEnterOnConfirm: J(heldConfirm.asking) === J([dk]) && heldConfirm.focus === 'confirm' && heldConfirm.both,
+			heldEnterOnCancel: heldCancel.both,
 			cancelKeeps: cancelled.asking.length === 0 && cancelled.focus === 'opener' && cancelled.both,
 			escapeKeeps: escaped.asking.length === 0 && escaped.focus === 'opener' && escaped.both,
 			secondMoves: J(second.asking) === J([dO]) && second.both,
 			reloadDrops: reloaded.asking.length === 0 && reloaded.both,
 			serverRefuses: bare.type === 'failure' && bare.status === 400 && other.type === 'failure' && other.status === 400 && refused,
 			confirmDeletesThatRow: gone === true && !after.k && after.o,
-			evidence: { dk, dO, asked, cancelled, escaped, second, reloaded, bare, other, after },
+			focusSettles: settled === 'H1',
+			evidence: { settled, dk, dO, asked, heldConfirm, heldCancel, cancelled, escaped, second, reloaded, bare, other, after },
 		});
+	});
+	await scenario('CONFIRM-delete-failed-focus', 'heads_tab', "GRS-175 L1: a Confirm delete refused by a busy store leaves focus on that submission's Delete, with the error shown and the submission kept", async () => {
+		await p.goto(`${V}${route('heads_tab')}`, ready('heads_tab'));
+		const o = rowsWhere('heads', 'head', 'Confirm second')[0].row_id;
+		const opener = `#heads-table tr[data-row=${J(o)}] [data-delete]`;
+		const lock = holdLock();
+		let err = '', focus = false;
+		try {
+			await p.click(opener);
+			await confirmPressed(p, `#heads-table tr[data-row=${J(o)}]`);
+			err = await until(p, `document.querySelector(${J(`#heads-table tr[data-row=${J(o)}]`)})?.querySelector('[data-delete-error]')?.textContent.trim() ?? ''`, 25000);
+			focus = await until(p, `document.activeElement === document.querySelector(${J(opener)})`, 5000);
+		} finally { lock.release(); }
+		return all({ errorShown: !!err, rowKept: rowsWhere('heads', 'head', 'Confirm second').length === 1, focusOnDelete: focus === true, evidence: { err, focus: await focusOf(p, opener) } });
 	});
 	await scenario('EXPORT-neutral', 'heads_tab', 'a package without view-content export names: Heads of Argument and Authorities export under their neutral names, each with the generic-name note beside its export button', async () => {
 		const neutral = await neutralCase(join(tmp, 'neutral'));

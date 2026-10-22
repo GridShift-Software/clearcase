@@ -28,3 +28,19 @@ export async function pressEscape(p) {
 
 /** POST `fields` to `action` (`?/delete`) of the open page as a script would, with no confirmation unless given: the action result's type, status and serialized data. */
 export const postAction = (p, action, fields) => p.evaluate(`(async () => { const fd = new FormData(); for (const [k, v] of Object.entries(${JSON.stringify(fields)})) fd.set(k, v); const r = await fetch(location.pathname + ${JSON.stringify(action)}, { method: 'POST', body: fd, headers: { 'x-sveltekit-action': 'true', accept: 'application/json' } }); const j = await r.json().catch(() => null); return { type: j?.type ?? null, status: j?.status ?? null, data: typeof j?.data === 'string' ? j.data.slice(0, 400) : null }; })()`);
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Hold Enter on the focused element as a keyboard does: an optional first press, then `repeats` auto-repeat keydowns (`autoRepeat: true`), then the release. */
+export async function holdEnter(p, { first = false, repeats = 6 } = {}) {
+	const key = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' };
+	if (first) await p.s('Input.dispatchKeyEvent', { type: 'keyDown', ...key });
+	for (let i = 0; i < repeats; i++) { await sleep(20); await p.s('Input.dispatchKeyEvent', { type: 'keyDown', ...key, autoRepeat: true }); }
+	await p.s('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+}
+
+/** Press the inline Cancel within `scope` when a question shows, so the next step starts from the Delete. */
+export async function cancelIfAsked(p, scope = '') {
+	const sel = `${scope} [data-delete-cancel]`.trim();
+	if (await shown(p, sel)) await p.click(sel);
+}

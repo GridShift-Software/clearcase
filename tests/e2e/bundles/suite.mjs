@@ -11,7 +11,7 @@ const { join, resolve } = await import('node:path');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { recorder, outDir } = await import('../pilot/lib/record.mjs');
 const { launch, newPage, sleep } = await import('../pilot/lib/cdp.mjs');
-const { asking, confirmPressed, focusOf, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { asking, cancelIfAsked, confirmPressed, focusOf, holdEnter, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
 const { buildCase, putOriginal, pdf, row, url } = await import('../pilot/lib/fixtures.ts');
 const { appServer } = await import('../pilot/suite/context.mjs');
 const { vpath } = await import('../pilot/lib/client.mjs');
@@ -677,9 +677,19 @@ try {
 		const step = async () => ({ asking: await asking(p), focus: await focusOf(p, '#cb-clear'), kept: await kept() });
 		await p.click('#cb-clear');
 		const asked = await step();
+		await holdEnter(p);
+		await sleep(500);
+		const heldClear = await step();
 		await p.click('#cb-header [data-delete-cancel]');
 		await sleep(300);
 		const cancelled = await step();
+		await p.click('#cb-clear');
+		await p.evaluate(`document.querySelector('#cb-header [data-delete-cancel]').focus()`);
+		await holdEnter(p, { first: true });
+		await sleep(500);
+		const heldCancel = await step();
+		await cancelIfAsked(p, '#cb-header');
+		await sleep(300);
 		await p.click('#cb-clear');
 		await pressEscape(p);
 		await sleep(300);
@@ -688,6 +698,9 @@ try {
 		await p.click('#cb-restore');
 		await sleep(1000);
 		const second = await step();
+		await holdEnter(p);
+		await sleep(500);
+		const heldRestore = await step();
 		await p.go(B, 'court_bundle_tab');
 		const reloaded = await step();
 		const bare = await postAction(p, '?/clear', {});
@@ -697,12 +710,19 @@ try {
 		await confirmPressed(p, '#cb-header');
 		await idleBusy(p);
 		const cleared = { stored: storedHeader()?.court ?? null, field: await val(p, 'cbh_court') };
+		await sleep(300);
+		const clearFocus = await focusOf(p, '#cb-clear');
 		await p.click('#cb-restore');
 		await confirmPressed(p, '#cb-header');
 		await idleBusy(p);
+		await sleep(300);
+		const restoreFocus = await focusOf(p, '#cb-restore');
 		const restored = storedHeader();
 		const checks = {
 			asked: J(asked.asking) === J(['clear']) && asked.focus === 'confirm' && asked.kept,
+			heldEnterOnClear: J(heldClear.asking) === J(['clear']) && heldClear.focus === 'confirm' && heldClear.kept,
+			heldEnterOnCancel: heldCancel.kept,
+			heldEnterOnRestore: J(heldRestore.asking) === J(['restore']) && heldRestore.focus === 'confirm' && heldRestore.kept,
 			cancelKeeps: cancelled.asking.length === 0 && cancelled.focus === 'opener' && cancelled.kept,
 			escapeKeeps: escaped.asking.length === 0 && escaped.focus === 'opener' && escaped.kept,
 			secondMoves: J(second.asking) === J(['restore']) && second.kept,
@@ -710,8 +730,28 @@ try {
 			serverRefuses: bare.status === 400 && /not confirmed/.test(bare.data ?? '') && other.status === 400 && /not confirmed/.test(other.data ?? '') && refused,
 			confirmClears: cleared.stored === '' && cleared.field === '',
 			confirmRestores: restored === null,
+			focusSettles: clearFocus === 'opener' && restoreFocus === 'opener',
 		};
-		return { pass: Object.values(checks).every(Boolean), evidence: { checks, asked, cancelled, escaped, second, reloaded, bare, other, cleared } };
+		return { pass: Object.values(checks).every(Boolean), evidence: { checks, asked, heldClear, heldCancel, heldRestore, cancelled, escaped, second, reloaded, bare, other, cleared, clearFocus, restoreFocus } };
+	});
+	await S('CB-HEADER-CONFIRM-FOCUS', 'court_bundle_tab', 'GRS-175 L1: a Confirm clear and a Confirm restore that fail leave focus on their own control, with the error shown and the header kept', async () => {
+		await p.go(B, 'court_bundle_tab');
+		await p.type('#cbh_court', 'SYN FOCUS COURT');
+		await p.click('#cb-save');
+		await idleBusy(p);
+		const focus = {};
+		for (const k of ['clear', 'restore']) {
+			const release = holdStore(A.dataDir);
+			try {
+				await p.click(`#cb-${k}`);
+				await confirmPressed(p, '#cb-header');
+				await p.waitFor(`document.getElementById('cb-error-${k}')`, 30000);
+				focus[k] = await p.waitFor(`document.activeElement === document.getElementById('cb-${k}')`, 5000).catch(() => false);
+			} finally { release(); }
+			await idleBusy(p);
+		}
+		const kept = storedHeader()?.court === 'SYN FOCUS COURT';
+		return { pass: kept && focus.clear === true && focus.restore === true, evidence: { kept, focus } };
 	});
 	await S('CL-RETRY-INFLIGHT', 'caselines_tab', 'review L1: Retry pressed during a link in flight is disabled and the path is linked once', async () => {
 		await p.go(C, 'caselines_tab');

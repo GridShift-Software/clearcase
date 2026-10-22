@@ -1,7 +1,7 @@
 // Disposable cloud resources for proof runs (GRS-107, the 17 October local-first plan on GRS-26). Every Worker, D1
-// database and R2 bucket a run creates is named cc-<ticket>-<worker>-<sha7>, in lowercase. A run writes its manifest,
-// <dir>/<name>.json, before it creates anything, records each creation after the provider returns, and an exit trap
-// deletes the (kind, name) pairs the run itself opened, held in memory and each checked against the run's own name
+// database and R2 bucket a run creates is named cc-<ticket>-<worker>-<sha7>-<run UUID>, in lowercase. A run claims its manifest,
+// <dir>/<name>.json, with a unique run id before it creates anything, records each successful provider creation, and
+// an exit trap deletes only the (kind, name) pairs whose creation was recorded, held in memory and checked against the run's name
 // (the Worker first, then the database, then the bucket), and records each result. The manifest file is a record
 // for operators and the janitor: the run reads only its status, so a file rewritten during the run deletes nothing.
 // The janitor deletes only cc-* resources older than 24 hours whose manifest is finished or missing, and never one
@@ -14,19 +14,21 @@
 // `janitor` is a dry run: it prints the plan for a resource listing (a JSON array of { kind, name, createdAt }) and
 // deletes nothing. It has no default manifests directory: a default inside one checkout would read another checkout's
 // open runs as orphaned.
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const RUN_SCHEMA = 'clearcase.cloud-run/1';
-export const RUN_NAME = /^cc-([0-9]{1,6})-([a-z0-9]{1,12})-([0-9a-f]{7})$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+export const RUN_NAME = /^cc-([0-9]{1,6})-([a-z0-9]{1,8})-([0-9a-f]{7})-([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/;
 export const MAX_AGE_HOURS = 24;
 /** Teardown order: the Worker first, so nothing writes to its database or bucket while they are deleted; the bucket last. */
 export const KINDS = ['worker', 'd1', 'r2'] as const;
 export type Kind = (typeof KINDS)[number];
 
 export type Resource = { kind: Kind; name: string; created: boolean; teardown: 'pending' | 'deleted' | 'failed'; error: string | null };
-export type RunManifest = { schema: typeof RUN_SCHEMA; name: string; sha: string; createdAt: string; state: 'open' | 'finished'; finishedAt: string | null; resources: Resource[] };
+export type RunManifest = { schema: typeof RUN_SCHEMA; runId: string; name: string; sha: string; createdAt: string; state: 'open' | 'finished'; finishedAt: string | null; resources: Resource[] };
 export type Listed = { kind: Kind; name: string; createdAt: string };
 
 /** What a run asks of the cloud. `remove` empties a bucket before deleting it, and succeeds when the resource is already gone. */
@@ -35,15 +37,22 @@ export interface Provider {
 	remove(kind: Kind, name: string): void;
 }
 
-export function runName(a: { ticket: string; worker: string; sha: string }): string {
-	const name = `cc-${a.ticket}-${a.worker}-${a.sha.slice(0, 7)}`.toLowerCase();
-	if (!RUN_NAME.test(name) || !/^[0-9a-f]{7,40}$/i.test(a.sha)) throw new Error(`${name} is not cc-<ticket digits>-<worker [a-z0-9]>-<sha7>`);
+export function runName(a: { ticket: string; worker: string; sha: string; runId?: string }): string {
+	const runId = a.runId ?? randomUUID();
+	const name = `cc-${a.ticket}-${a.worker}-${a.sha.slice(0, 7)}-${runId}`.toLowerCase();
+	if (!RUN_NAME.test(name) || !/^[0-9a-f]{7,40}$/i.test(a.sha) || !UUID.test(runId)) throw new Error(`${name} is not cc-<ticket digits>-<worker [a-z0-9]>-<sha7>-<run UUID>`);
 	return name;
 }
 
-const write = (file: string, m: RunManifest) => {
-	writeFileSync(`${file}.tmp`, `${JSON.stringify(m, null, 2)}\n`);
-	renameSync(`${file}.tmp`, file);
+const write = (file: string, m: RunManifest, claim = false) => {
+	const body = `${JSON.stringify(m, null, 2)}\n`;
+	if (claim) {
+		writeFileSync(file, body, { flag: 'wx' });
+		return;
+	}
+	const temporary = `${file}.${m.runId}.tmp`;
+	writeFileSync(temporary, body);
+	renameSync(temporary, file);
 };
 
 export type Run = { name: string; file: string; create(kind: Kind): void; teardown(): RunManifest };
@@ -55,19 +64,26 @@ export type Run = { name: string; file: string; create(kind: Kind): void; teardo
  */
 export function openRun(a: { dir: string; ticket: string; worker: string; sha: string; kinds: Kind[]; provider: Provider; now?: () => Date; trap?: boolean }): Run {
 	const now = a.now ?? (() => new Date());
-	const name = runName(a);
+	const runId = randomUUID();
+	const name = runName({ ...a, runId });
 	const file = path.join(a.dir, `${name}.json`);
-	if (existsSync(file)) throw new Error(`${file} exists: one manifest per run name`);
 	if (new Set(a.kinds).size !== a.kinds.length || !a.kinds.length) throw new Error(`kinds ${a.kinds.join(',')} must be distinct and nonempty`);
 	mkdirSync(a.dir, { recursive: true });
 	const order = [...a.kinds].sort((x, y) => KINDS.indexOf(x) - KINDS.indexOf(y));
-	// The run's own record, in memory: the teardown deletes these (kind, name) pairs and nothing the file says.
-	const manifest: RunManifest = { schema: RUN_SCHEMA, name, sha: a.sha, createdAt: now().toISOString(), state: 'open', finishedAt: null, resources: order.map((kind) => ({ kind, name, created: false, teardown: 'pending', error: null })) };
-	write(file, manifest);
+	const manifest: RunManifest = { schema: RUN_SCHEMA, runId, name, sha: a.sha, createdAt: now().toISOString(), state: 'open', finishedAt: null, resources: order.map((kind) => ({ kind, name, created: false, teardown: 'pending', error: null })) };
+	try {
+		write(file, manifest, true);
+	} catch (e) {
+		if (e instanceof Error && 'code' in e && e.code === 'EEXIST') throw new Error(`${file} exists: one manifest per run name`);
+		throw e;
+	}
+	// A successful provider create and a durable manifest update both precede ownership.
+	const owned = new Set<Kind>();
 	/** The one thing read back from the file: whether the run is still open. */
 	const status = () => {
 		try {
-			return (JSON.parse(readFileSync(file, 'utf8')) as RunManifest).state;
+			const record = JSON.parse(readFileSync(file, 'utf8')) as RunManifest;
+			return record.runId === manifest.runId ? record.state : 'unreadable';
 		} catch {
 			return 'unreadable';
 		}
@@ -82,12 +98,14 @@ export function openRun(a: { dir: string; ticket: string; worker: string; sha: s
 			a.provider.create(kind, name);
 			r.created = true;
 			write(file, manifest);
+			owned.add(kind);
 		},
 		teardown() {
 			if (done) return done;
 			for (const r of manifest.resources) {
+				if (!owned.has(r.kind)) continue;
 				try {
-					// a run deletes its own names and nothing else, whatever its manifest file or its caller says
+					// A successful provider create and manifest record are required, whatever the file or caller says.
 					if (r.name !== name || !RUN_NAME.test(r.name) || !KINDS.includes(r.kind)) throw new Error(`${r.kind} ${r.name} is not one of ${name}'s own`);
 					a.provider.remove(r.kind, r.name);
 					r.teardown = 'deleted';
@@ -121,7 +139,7 @@ export function janitorPlan(a: { listing: Listed[]; manifests: string; now: Date
 		const created = Date.parse(resource.createdAt);
 		const file = path.join(a.manifests, `${resource.name}.json`);
 		if (!KINDS.includes(resource.kind)) keep(`kind ${resource.kind} is not one a run creates`);
-		else if (!RUN_NAME.test(resource.name)) keep('not a run name (cc-<ticket>-<worker>-<sha7>): never touched');
+		else if (!RUN_NAME.test(resource.name)) keep('not a run name (cc-<ticket>-<worker>-<sha7>-<run UUID>): never touched');
 		else if (!Number.isFinite(created)) keep(`createdAt ${JSON.stringify(resource.createdAt)} is not a time`);
 		else if (a.now.getTime() - created < MAX_AGE_HOURS * 3_600_000) keep(`younger than ${MAX_AGE_HOURS} hours`);
 		else if (!existsSync(file)) plan.remove.push(resource);

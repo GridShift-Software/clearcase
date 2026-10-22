@@ -71,7 +71,7 @@ export function openRun(a: { dir: string; ticket: string; worker: string; sha: s
 	try {
 		write(file, manifest, true);
 	} catch (e) {
-		if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`${file} exists: one manifest per run name`);
+		if (e instanceof Error && 'code' in e && e.code === 'EEXIST') throw new Error(`${file} exists: one manifest per run name`);
 		throw e;
 	}
 	// A successful provider create and a durable manifest update both precede ownership.

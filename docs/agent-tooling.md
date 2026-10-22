@@ -538,10 +538,13 @@ and handlers, with a component that does not parse or compile failing closed) re
   whatever the pattern reads: a variable, a call result, a string, a function, a parameter, a `catch` binding, a
   `for-of` or `for-in` head, a shorthand `{ constructor }`, a nested pattern, or a default. `x.constructor` and `x[k]`
   with a fixed `k` root at a constructor under the same rule. A computed key is resolved from a literal, a template
-  with constant parts, a `+` tree of these, or any chain of `const` aliases, including an alias imported from an
-  unchanged tracked module through named, default, namespace or bare-star exports. There is no configured
-  expression-depth cap. A computed pattern key or element-read key whose static resolution cannot finish (an alias
-  cycle, an unavailable import or export, or a pure array or other expression the folder cannot reduce) fails closed.
+  with constant parts, a `+` tree of these, a `satisfies` or `!` wrapper, or any chain of `const` aliases, including
+  an alias imported or re-exported from a tracked module through named, default, namespace or bare-star exports
+  (`export { k as j }` chains and `export default` included). There is no configured expression-depth cap. A computed
+  pattern key or element-read key refuses as unresolved when its static resolution cannot finish: an alias cycle, an
+  unavailable import or export, an unresolved static key, or an inline array or object literal read in place
+  (`['constructor'][0]`, `({ k: 'constructor' }).k`). Any other expression the folder does not reduce is not refused;
+  see the reviewer-owned list below.
   Conditionals with fixed branches carry up to 256 possible strings through templates and `+`: a special possibility
   refuses, safe possibilities pass, and more than 256 possibilities fail closed. A `const`
   initialized by a runtime call is a runtime key, not a fixed alias. For example, `{ ['constr' + 'uctor']: C }`
@@ -588,8 +591,9 @@ module cannot name a framework, move or write a rooted capability (the global ob
 Bun builtin module, a constructor or prototype) through the shapes listed above, followed through `const`/`let`/`var`,
 destructuring, `await`, conditionals, a literal `require`/`import()` and import bindings across modules. It also refuses:
 
-- a `constructor` or dunder key in any object binding or assignment pattern, from any source, with pure keys resolved
-  through local or imported constants; an unresolved static key in a pattern or element read fails closed;
+- a `constructor` or dunder key in any object binding or assignment pattern, from any source, with keys folded
+  through literals, templates, `+`, `const` aliases and imported constants as above; a static key that cannot be
+  resolved (a cycle, an unavailable import, an inline array or object member) refuses;
 - a bare `export *`, or an `export * as N`, whose local target exports a capability, directly or under an `export *`
   chain;
 - any reference to an unbound `module` or `exports` (an assignment, `Object.assign(module.exports, ...)`,
@@ -602,6 +606,16 @@ best-effort net, not a sandbox. The cases below remain reviewer-owned; GRS-150 d
   `let`, call result or `const` initialized by a call; `['constr', 'uctor'].join('')` and
   `String.fromCharCode(...)` also stay reviewer-owned. Look for a computed key beside a member write. A call result
   such as `Reflect.get(o, 'constructor')` stays under the function-return review rule below.
+- a fixed `constructor` or `__proto__` key that the folder does not reduce, which passes today and which GRS-190
+  tracks closing:
+  - a member of a `const` object, array or enum: `K.k` or `T[0]` with `const K = { k: 'constructor' }` or
+    `const T = ['constructor']`;
+  - a binding destructured from a literal: `const { k } = { k: 'constructor' }` and then `{ [k]: C }`;
+  - `??`, `||` and `&&` with literal operands: `'constructor' || x`;
+  - a `const` set from `String.raw` with the template `constructor`, or from `Object.freeze({ k: 'constructor' })`,
+    which count as runtime calls;
+  - `Symbol.for(x)` keys, which fold to the string `x`, so `globalThis[Symbol.for('$$jest-matchers-object')]` reads
+    as a plain name.
 - code generation: `eval`, indirect eval (`(0, eval)(...)`), `Function`, a constructor chain. Search the diff for
   the words.
 - an unchanged CommonJS module's `module.exports`/`exports.x` or `export { default as P } from './c.cjs'` is not

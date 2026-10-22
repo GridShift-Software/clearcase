@@ -2683,6 +2683,20 @@ class FixRoundConfigurationAdditions(ControlCase):
                 if entry == 'package.json#scripts':
                     self.assertIn('package.json#resolution', out)
 
+    def test_setup_addition_still_refuses_when_it_is_also_imported_by_a_new_runner(self):
+        setup = "import './setup';\nexport default { test: { include: ['tests/**/*.test.ts'], setupFiles: ['./setup.ts'] } };\n"
+        self.receive({self.added: setup, 'tests/deployment/setup.ts': 'export {};\n'})
+        out = self.guard('--base', 'dev', code=1)
+        self.assertIn('protected dependency added/deleted: tests/deployment/setup.ts', out)
+
+    def test_helper_addition_still_refuses_when_it_is_also_imported_by_a_new_runner(self):
+        runner = "import '../../support/added';\n" + self.config
+        self.receive({self.added: runner,
+                      'support/helper.ts': "import './added';\n" + self.helper,
+                      'support/added.ts': 'export const added = true;\n'})
+        out = self.guard('--base', 'dev', code=1)
+        self.assertIn('protected dependency added/deleted: support/added.ts', out)
+
     def test_a_candidate_edit_to_an_inherited_configuration_module_or_package_refuses(self):
         package = {'type': 'module', 'scripts': {'test': 'vitest run'}}
         for files, changed, entry in (

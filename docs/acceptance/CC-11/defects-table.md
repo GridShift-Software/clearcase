@@ -108,7 +108,7 @@
 | `S-vdm_matrix_tab-1` | medium | view-checklist.md | registered | IDR-182 (known-gap) |  |
 | `S-vdm_matrix_tab-2` | low | view-checklist.md | registered | IDR-178 (defect-fix) |  |
 | `S-info_required_tab-1` | medium | view-checklist.md | registered | IDR-170 (defect-fix), IDR-179 (defect-fix) |  |
-| `S-info_required_tab-2` | low | view-checklist.md | registered | IDR-180 (known-gap) |  |
+| `S-info_required_tab-2` | low | view-checklist.md | registered | IDR-180 (defect-fix) |  |
 | `S-conflict_tab-1` | medium | view-checklist.md | registered | IDR-332 (defect-fix) |  |
 | `S-conflict_tab-2` | low | view-checklist.md | registered | IDR-333 (known-gap) |  |
 | `S-conflict_tab-3` | low | view-checklist.md | registered | IDR-334 (known-gap) |  |

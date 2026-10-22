@@ -215,6 +215,15 @@ try {
 		return { pass: ok, evidence: { ...out, risk, screenshots: 'screens/<view>-<width>.png' } };
 	});
 
+	await scenario('AN-06-EXPORT', 'risk_matrix_tab', 'Risk rows export as displayed and every case of High has the danger tone', async () => {
+		await p.goto(V(vid, 'risk_matrix_tab'), L.ready('risk_matrix_tab'));
+		const tones = await p.evaluate(`[...document.querySelectorAll('#risk-table tbody tr')].slice(0, 2).map((r) => ({ level: r.querySelector('[data-label=Likelihood]').textContent.trim(), danger: r.querySelector('[data-label=Likelihood] .badge').classList.contains('b-dang') }))`);
+		const clicked = await p.click('#export-csv');
+		const downloads = clicked ? await p.downloads() : [];
+		const csv = downloads[0]?.text ?? '';
+		return { pass: J(tones) === J([{ level: 'High', danger: true }, { level: 'high', danger: true }]) && downloads[0]?.name?.endsWith('.csv') && csv.startsWith('Issue,Likelihood,Impact,Mitigation\r\n') && csv.includes('Second invented issue,high,Low,Short invented mitigation'), evidence: { tones, name: downloads[0]?.name, csvRows: csv.split('\r\n').length - 1 } };
+	});
+
 	await scenario('AN-07', 'vdm_matrix_tab', 'Scenario 7: trace a defence to its evidence: document chips open their documents; the export keeps the package\'s CSV keys and file name; the free-text refs are shown, and exported after those keys, only with CLEARCASE_ANALYSIS_ADDITIONS=1 (S-vdm_matrix_tab-1, GRS-48)', async () => {
 		const nav = await arrive(p, vid, 'vdm_matrix_tab', name);
 		const note = await notes();
@@ -267,6 +276,20 @@ try {
 		const ok = nav.ok && J(afterCheck) === J([[false, false], [true, true], [false, false]]) && rows1.length === 1 && /^info:[0-9a-f]{32}$/.test(rows1[0].id) && rows1[0].fields.item === 'Invented item B' && rows1[0].fields.done === true
 			&& J(afterUncheck) === J([[false, false], [false, false], [false, false]]) && rows2.length === 1 && rows2[0].id === rows1[0].id && rows2[0].fields.done === false;
 		return { pass: ok, evidence: { nav, afterCheck, afterUncheck, rows: rows2.length } };
+	});
+
+	await scenario('AN-08-EXPORT', 'info_required_tab', 'A completed item displays Done in Status and the CSV exports that status', async () => {
+		await p.goto(V(vid, 'info_required_tab'), L.ready('info_required_tab'));
+		await p.click('#info-table tbody tr:nth-child(2) input[type=checkbox]');
+		await saved();
+		await p.goto(V(vid, 'info_required_tab'), L.ready('info_required_tab'));
+		const status = await p.evaluate(`document.querySelector('#info-table tbody tr:nth-child(2) [data-label=Status]')?.textContent.trim()`);
+		const clicked = await p.click('#export-csv');
+		const downloads = clicked ? await p.downloads() : [];
+		const csv = downloads[0]?.text ?? '';
+		await p.click('#info-table tbody tr:nth-child(2) input[type=checkbox]');
+		await saved();
+		return { pass: status === 'Done' && downloads[0]?.name?.endsWith('.csv') && csv.startsWith('Done,Item,Status,Owner\r\n') && csv.includes('Invented item B,Done,Ben'), evidence: { status, name: downloads[0]?.name, csvRows: csv.split('\r\n').length - 1 } };
 	});
 
 	await scenario('AN-FW1', 'info_required_tab', 'Failed write, busy store: a save during a held write lock shows the error, keeps the choice and writes nothing; after release one Retry saves exactly one row', async () => {

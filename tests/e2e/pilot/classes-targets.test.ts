@@ -267,14 +267,14 @@ describe('the other page discoveries follow the same edges (GRS-61, PR #63 revie
  });
 });
 
-// The real app's CSV inventory at the GRS-61 base (1332ea8), recomputed there with that revision's own targets.mjs and declarations.
+// The real app's CSV inventory, updated when a page gains an export so the class suite drives it.
 import baseProducers from './csv-producers.json';
 // @ts-expect-error plain .mjs
 import * as declared from '../classes/declared.mjs';
-test('keeps the real app inventory at the base 19 pages and one server without rejected producers', () => {
+test('keeps the real app inventory at 21 pages and one server without rejected producers', () => {
  const result = csvExports(join(import.meta.dirname, '..', '..', '..'), { notProducers: declared.NOT_PRODUCERS, helpers: declared.HELPERS });
  expect(result).toEqual(baseProducers);
- expect(result.pages).toHaveLength(19);
+ expect(result.pages).toHaveLength(21);
  expect(result.servers).toHaveLength(1);
  expect(result.declaredButCsv).toEqual([]);
  expect(result.unrecognised).toEqual([]);

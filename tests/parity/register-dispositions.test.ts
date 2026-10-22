@@ -163,3 +163,26 @@ describe('register-dispositions --check', () => {
 		expect(`${x.stdout}${x.stderr}`).toContain('S-prescription-frozen: empty evidence pattern');
 	});
 });
+
+// GRS-184: the dispositions of the two analysis exports say what parity sees and what remains.
+describe('analysis export dispositions in the committed register', () => {
+	const cc05 = (JSON.parse(readFileSync(join(REPO, 'docs', 'reference', 'parity', 'register', 'CC-05.json'), 'utf8')) as { entries: Entry[] }).entries;
+	const entry = (id: string) => cc05.find((e) => e.id === id)!;
+
+	it('names IDR-183 as the entry where parity sees the risk export, and IDR-184 for the info export', () => {
+		expect(String(entry('IDR-177').reason)).toContain('Parity sees the change: IDR-183.');
+		expect(String(entry('IDR-180').reason)).toContain('Parity sees the change: IDR-184.');
+	});
+
+	it('gives the risk gap the owner its reason names, and anchors it on the remaining edit gap', () => {
+		const risk = entry('IDR-177');
+		expect(String(risk.reason)).toContain('GRS-130');
+		expect(risk.owner).toBe('GRS-130');
+		expect(String(risk.reason)).not.toContain('+page.svelte');
+		expect(String(risk.reason)).toMatch(/Evidence: src\/routes\/v\/\[vid\]\/analysis\/risk_matrix_tab\/\+page\.server\.ts:\d+\.$/);
+	});
+
+	it('leaves every changed entry unapproved', () => {
+		for (const id of ['IDR-177', 'IDR-180']) expect([entry(id).approvedBy, entry(id).approvedOn]).toEqual([null, null]);
+	});
+});

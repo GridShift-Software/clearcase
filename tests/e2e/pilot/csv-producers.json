@@ -1,6 +1,8 @@
 {
   "pages": [
     "/v/[vid]/analysis/contradictions_tab",
+    "/v/[vid]/analysis/info_required_tab",
+    "/v/[vid]/analysis/risk_matrix_tab",
     "/v/[vid]/analysis/vdm_matrix_tab",
     "/v/[vid]/chronology",
     "/v/[vid]/evidence/contracts_tab",

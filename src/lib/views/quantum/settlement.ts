@@ -54,10 +54,10 @@ export function settleOutcome(i: SettleInputs): SettleOutcome {
 	return {
 		errors,
 		kpis: [
-			{ label: 'Pessimistic (p-25)', value: R(s.pessimistic.cents), sub: '' },
-			{ label: `Base (p=${pv}%)`, value: R(s.base.cents), sub: '' },
-			{ label: 'Optimistic (p+15)', value: R(s.optimistic.cents), sub: '' },
+			{ label: s.pessimistic.probability === pv - 25 ? 'Pessimistic (p-25)' : `Pessimistic (p=${s.pessimistic.probability}%)`, value: R(s.pessimistic.cents), sub: `Recovery probability ${s.pessimistic.probability}%` },
+			{ label: `Base (p=${s.base.probability}%)`, value: R(s.base.cents), sub: `Recovery probability ${s.base.probability}%` },
+			{ label: s.optimistic.probability === pv + 15 ? 'Optimistic (p+15)' : `Optimistic (p=${s.optimistic.probability}%)`, value: R(s.optimistic.cents), sub: `Recovery probability ${s.optimistic.probability}%` },
 		],
-		floor: `a rational settlement sits around the base risk-adjusted present value of ${R(s.base.cents)} (claim ${R(claim.value)} discounted for a ${pv}% recovery probability over ${y.value.value} year(s) at ${d.value.value}%, net of ${R(cost.value)} costs). Below this, litigation is preferable; a premium above it reflects certainty and time saved.`,
+		floor: `a rational settlement sits around the base risk-adjusted present value of ${R(s.base.cents)} (claim ${R(claim.value)} discounted for a ${pv}% recovery probability over ${y.value.value} year(s) at ${d.value.value}%, net of ${R(cost.value)} costs). The ${R(cost.value)} undiscounted enforcement costs are subtracted after the claim is discounted. Below this, litigation is preferable; a premium above it reflects certainty and time saved.`,
 	};
 }

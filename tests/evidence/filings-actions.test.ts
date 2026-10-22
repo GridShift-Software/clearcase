@@ -187,4 +187,12 @@ describe('filings register actions', () => {
 		expect(seqs).toHaveLength(2);
 		expect(new Set(seqs).size).toBe(2);
 	}, 60_000);
+
+	it('IDR-141 an added filing retains its chosen status after reload and edit', async () => {
+		expect(await post('add', { ...blank, filing: 'Synthetic status row', status: 'Filed' })).toMatchObject({ ok: true });
+		const added = (await entries()).find((e) => e.fields.filing === 'Synthetic status row')!;
+		expect(added.fields.status).toBe('Filed');
+		expect(await post('save', { key: added.key, version: await versionOf(added.key), ...blank, filing: 'Synthetic status row', status: 'Served' })).toEqual({ redirect: page().pathname });
+		expect((await entries()).find((e) => e.key === added.key)?.fields.status).toBe('Served');
+	});
 });

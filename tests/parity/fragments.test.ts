@@ -74,10 +74,16 @@ describe('rules across files', () => {
 		expect(load(register([], { 'CC-05': [whole('IDR-004', 'people')] })).problems.join()).toMatch(/IDR-004: outside CC-05's id range/);
 		expect(load(register([], { 'CC-04': [whole('IDR-004', 'people'), entry('IDR-149')] })).problems).toEqual([]);
 		expect(load(register([], { 'CC-10': [entry('IDR-400'), entry('IDR-449')] })).problems).toEqual([]);
+		// CC-06 has a second range, IDR-450–IDR-474 (GRS-173); the first stays
+		expect(load(register([], { 'CC-06': [entry('IDR-200'), entry('IDR-249'), entry('IDR-450'), entry('IDR-474')] })).problems).toEqual([]);
+		expect(load(register([], { 'CC-06': [entry('IDR-475')] })).problems).toEqual(["register/CC-06.json: IDR-475: outside CC-06's id range IDR-200–IDR-249, IDR-450–IDR-474"]);
+		expect(load(register([], { 'CC-06': [entry('IDR-199')] })).problems.join()).toMatch(/outside CC-06's id range/);
+		expect(load(register([], { 'CC-05': [entry('IDR-450')] })).problems.join()).toMatch(/outside CC-05's id range/);
 	});
 	test("the main file may not use an owner's range", () => {
 		expect(load(register([entry('IDR-120')])).problems).toEqual(["IDR-120: in CC-04's id range; it belongs in register/CC-04.json"]);
-		expect(load(register([entry('IDR-450'), entry('IDR-073')])).problems).toEqual([]);
+		expect(load(register([entry('IDR-475'), entry('IDR-073')])).problems).toEqual([]);
+		expect(load(register([entry('IDR-450')])).problems).toEqual(["IDR-450: in CC-06's id range; it belongs in register/CC-06.json"]);
 	});
 	test('a fragment must be named after an M2 owner', () => {
 		expect(load(register([], { 'CC-11': [entry('IDR-100')] })).problems.join()).toMatch(/fragment CC-11 is not an M2 owner's/);

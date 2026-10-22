@@ -31,6 +31,24 @@ describe('one basis: v5\'s comparison line', () => {
 	});
 });
 
+describe('same date is not a reconciliation (GRS-173 fix round)', () => {
+	const SAME = 'Same date, no payment recorded on or before it: both figures are as at 2094-01-10. The difference is arithmetic, not a reconciliation: ClearCase does not know the statement\'s capital, rates or dates.';
+	it('the verdict says what matches and that the difference is arithmetic, whatever the rate, method or From date', () => {
+		for (const x of [{}, { r: '25' }, { m: 'Compound (monthly)' }, { from: '2093-12-01' }, { p: '1' }]) {
+			const v = shownOutcome(I(x), due()).comparison!.verdict;
+			expect(v, JSON.stringify(x)).toBe(SAME);
+			expect(v).not.toMatch(/one basis/i);
+		}
+	});
+	it('no capital typed: no comparison verdict at all, and the tile still asks for one', () => {
+		for (const p of ['', ' ', '0']) {
+			const o = shownOutcome(I({ p }), due());
+			expect(o.comparison, p).toBeNull();
+			expect(o.kpis![3]!.sub).toBe('enter a capital figure');
+		}
+	});
+});
+
 describe('unlike bases: the amount due alone, not compared', () => {
 	it('a total as at another date', () => {
 		const o = shownOutcome(I({ to: '2093-07-10' }), due());

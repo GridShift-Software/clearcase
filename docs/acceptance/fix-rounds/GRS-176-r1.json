@@ -1,0 +1,57 @@
+{
+  "schema": "clearcase-fix-round/1",
+  "unit": "GRS-176/implementation",
+  "fixBase": "bdd08d206c2508aae8b953313fae2a2e2307b120",
+  "reviewFindingsSha256": "8ec4c94c2011820eb1a375f2c37cd2a8a8a57598dbd50b3277a07faa294ff705",
+  "review": {
+    "issue": "GRS-176",
+    "round": "review-r1",
+    "reviewer": "internal diff review",
+    "reviewedHead": "08494615b8d08b11bb5271ced1fa60e0a7dccf5d",
+    "waveBase": "225b7e00578319d16383678a8d1ae6efb362a0ba",
+    "note": "fixBase is the red commit, which adds the three adverse tests. reviewFindingsSha256 is the SHA-256 of .orchestration/reports/GRS-176/review.md."
+  },
+  "findings": [
+    {
+      "file": "docs/reference/parity/intentional-differences.json",
+      "line": 195,
+      "severity": "medium",
+      "comment": "IDR-053",
+      "text": "The waived saved-note count and item wildcard accept an extra rendered note.",
+      "tests": [
+        { "file": "tests/parity/pending-coverage.test.ts", "name": "an extra saved-note item is refused despite its register wildcard" },
+        { "file": "tests/parity/pending-coverage.test.ts", "name": "the pending register entries cover only their observed structures" }
+      ]
+    },
+    {
+      "file": "docs/reference/parity/intentional-differences.json",
+      "line": 230,
+      "severity": "medium",
+      "comment": "IDR-055",
+      "text": "The bundle option item wildcard accepts a wrong existing option.",
+      "tests": [
+        { "file": "tests/parity/pending-coverage.test.ts", "name": "a changed existing bundle option is refused despite its register wildcard" },
+        { "file": "src/lib/local-case/chronology.test.ts", "name": "orders every imported bundle in a synthetic six-bundle case" }
+      ]
+    },
+    {
+      "file": "docs/reference/parity/register/CC-10.json",
+      "line": 237,
+      "severity": "medium",
+      "comment": "IDR-414",
+      "text": "The backup inventory heading and row wildcards accept a phantom table.",
+      "tests": [
+        { "file": "tests/parity/pending-coverage.test.ts", "name": "a phantom backup table is refused despite the inventory wildcard" },
+        { "file": "tests/system/backup.test.ts", "name": "replacement round trip restores the earlier saved work and its pre-restore copy" }
+      ]
+    }
+  ],
+  "tests": [
+    { "file": "tests/parity/pending-coverage.test.ts", "name": "an extra saved-note item is refused despite its register wildcard" },
+    { "file": "tests/parity/pending-coverage.test.ts", "name": "the pending register entries cover only their observed structures" },
+    { "file": "tests/parity/pending-coverage.test.ts", "name": "a changed existing bundle option is refused despite its register wildcard" },
+    { "file": "src/lib/local-case/chronology.test.ts", "name": "orders every imported bundle in a synthetic six-bundle case" },
+    { "file": "tests/parity/pending-coverage.test.ts", "name": "a phantom backup table is refused despite the inventory wildcard" },
+    { "file": "tests/system/backup.test.ts", "name": "replacement round trip restores the earlier saved work and its pre-restore copy" }
+  ]
+}

@@ -39,7 +39,7 @@ export function settleOutcome(i: SettleInputs): SettleOutcome {
 	const claim = parseClaim(i.claim);
 	if (!claim.ok) errors.claim = `Claim value: ${claim.error}`;
 	const cost = parseAmount(i.c);
-	if (!cost.ok) errors.c = `Enforcement cost: ${cost.error}`;
+	if (!cost.ok) errors.c = `Enforcement cost (undiscounted): ${cost.error}`;
 	const p = parseBounded(i.p, 'a probability', MAX_PROBABILITY, `A probability is 0 to ${MAX_PROBABILITY}`);
 	if (!p.ok) errors.p = p.error;
 	const y = parseBounded(i.y, 'a number of years', MAX_YEARS, `Years to recover are 0 to ${MAX_YEARS}`);

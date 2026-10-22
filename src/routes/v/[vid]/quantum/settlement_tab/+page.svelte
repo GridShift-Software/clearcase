@@ -21,7 +21,7 @@
 		else vals = { ...next };
 		sent = null;
 	});
-	const missing = $derived(([['probability', 'Probability of full recovery'], ['years', 'Years to recover'], ['discount', 'Discount rate'], ['cost', 'Enforcement cost']] as const).filter(([k]) => data.defaults[k] === null).map(([, l]) => l));
+	const missing = $derived(([['probability', 'Probability of full recovery'], ['years', 'Years to recover'], ['discount', 'Discount rate'], ['cost', 'Enforcement cost (undiscounted)']] as const).filter(([k]) => data.defaults[k] === null).map(([, l]) => l));
 	const R = (c: string) => fmtR(centsText(BigInt(c)));
 	let ready = $state(false);
 	onMount(() => { ready = true; });

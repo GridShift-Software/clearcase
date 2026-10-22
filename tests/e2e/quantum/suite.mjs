@@ -168,12 +168,12 @@ try {
 		return { pass: /Not an amount/.test(r.error) && J(r.values) === J(typed.map(([, v]) => v)) && r.after === before && /^No payments recorded/.test(r.empty ?? ''), evidence: { before, ...r } };
 	});
 
-	// ---- the like-basis control of Q-INTEREST-UNLIKE-BASIS (after Q6): no payment is recorded yet (GRS-173) -------------
-	await scenario('Q-INTEREST-LIKE-BASIS', 'interest_calc_tab', 'a total as at the amount due\'s own date, with no payment recorded, keeps v5\'s comparison line and says it compares on one basis', async () => {
+	// ---- the same-date control of Q-INTEREST-UNLIKE-BASIS (after Q6): no payment is recorded yet (GRS-173) -------------
+	await scenario('Q-INTEREST-LIKE-BASIS', 'interest_calc_tab', 'a total as at the amount due\'s own date, with no payment recorded, keeps v5\'s comparison line and says the difference is arithmetic, not a reconciliation', async () => {
 		await k.open(`${route('interest_calc_tab')}?p=1000&r=10&m=Simple&from=2093-01-10&to=2094-01-10`, 'interest_calc_tab');
 		const r = { stored: S.rows('payments').length, kpis: await k.kpis('#ic_out'), verdict: await k.text('#ic-compare-verdict') };
 		const pass = r.stored === 0 && J(r.kpis[3]) === J({ label: 'vs extracted Amount Due', value: 'R 1 150.00', sub: '-R 50.07 vs your calc' }) &&
-			r.verdict === 'Compared on one basis: both figures are as at 2094-01-10, and no payment is recorded on or before that date.';
+			r.verdict === 'Same date, no payment recorded on or before it: both figures are as at 2094-01-10. The difference is arithmetic, not a reconciliation: ClearCase does not know the statement\'s capital, rates or dates.';
 		return { pass, evidence: r };
 	});
 

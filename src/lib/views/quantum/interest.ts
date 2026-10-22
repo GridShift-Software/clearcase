@@ -22,6 +22,7 @@ export interface Kpi { label: string; value: string; sub: string }
 export interface InterestOutcome { errors: Partial<Record<InterestField | 'result', string>>; kpis: Kpi[] | null }
 
 const R = (c: bigint) => fmtR(centsText(c));
+const ENTER_CAPITAL = 'enter a capital figure';
 
 export function interestOutcome(i: InterestInputs, headlineDueUnits: bigint | null): InterestOutcome {
 	const errors: InterestOutcome['errors'] = {};
@@ -48,7 +49,7 @@ export function interestOutcome(i: InterestInputs, headlineDueUnits: bigint | nu
 			{ label: 'Capital', value: R(r.capital), sub: '' },
 			{ label: `Interest (${r.yearsLabel} yrs)`, value: R(r.interest), sub: '' },
 			{ label: 'Total', value: R(r.total), sub: '' },
-			{ label: 'vs extracted Amount Due', value: R(unitsToCents(head)), sub: capital ? `${diff >= 0n ? '+' : ''}${R(diff)} vs your calc` : 'enter a capital figure' },
+			{ label: 'vs extracted Amount Due', value: R(unitsToCents(head)), sub: capital ? `${diff >= 0n ? '+' : ''}${R(diff)} vs your calc` : ENTER_CAPITAL },
 		],
 	};
 }
@@ -75,14 +76,19 @@ export function unlikeBasis(to: string, due: Due): string[] {
 	return why;
 }
 
-/** The outcome the view shows: v5's comparison line on one basis; otherwise the amount due alone, not compared, and why. */
+/**
+ * The outcome the view shows: v5's comparison line only where the two figures share a date and no payment is in reach;
+ * otherwise the amount due alone, not compared, and why. Even then the line is arithmetic, not a reconciliation:
+ * the amount due is the statement's own balance, and ClearCase does not know its capital, rates or dates. With no
+ * capital typed there is nothing to compare, so no verdict is shown.
+ */
 export function shownOutcome(i: InterestInputs, due: Due): ShownOutcome {
 	const o = interestOutcome(i, due.units);
 	if (!o.kpis) return { ...o, comparison: null };
 	const why = unlikeBasis(i.to, due);
 	const asAt = isIsoDate(due.date) ? `as at ${due.date}` : 'with no as-at date';
-	const comparison = {
-		verdict: why.length ? `Not compared, so no difference is shown: ${why.join('; ')}.` : `Compared on one basis: both figures are as at ${i.to}, and no payment is recorded on or before that date.`,
+	const comparison = o.kpis[3]!.sub === ENTER_CAPITAL ? null : {
+		verdict: why.length ? `Not compared, so no difference is shown: ${why.join('; ')}.` : `Same date, no payment recorded on or before it: both figures are as at ${i.to}. The difference is arithmetic, not a reconciliation: ClearCase does not know the statement's capital, rates or dates.`,
 		total: `Your total: the capital plus ${i.m.toLowerCase()} interest from ${i.from} to ${i.to}, on that one figure for the whole period. No payment is deducted.`,
 		due: due.units === null ? 'Extracted amount due: none in this package.' : `Extracted amount due: ${asAt}, as the source statement gives it; ClearCase does not check what it includes. No recorded payment is deducted from it here; Payments & Net Claim deducts them for the net claim.`,
 	};

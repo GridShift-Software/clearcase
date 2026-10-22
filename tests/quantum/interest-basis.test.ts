@@ -1,6 +1,7 @@
 // GRS-173 (S-interest_calc_tab-5, S-payments_tab-3; IDR-245, IDR-246): the Interest Recalculator compares its total
-// with the imported amount due only on one basis, as at the same date with no recorded payment in reach, and otherwise
-// shows the amount due alone, says why, and names each figure's basis and payment treatment. Synthetic figures only.
+// with the imported amount due only as at the same date with no recorded payment in reach, and then calls the difference
+// arithmetic, not a reconciliation; otherwise it shows the amount due alone, says why, and names each figure's basis and
+// payment treatment. Synthetic figures only.
 import { describe, expect, it } from 'vitest';
 import { importedUnits } from '../../src/lib/calculations/money';
 import { interestOutcome, shownOutcome, unlikeBasis, type Due, type InterestInputs } from '../../src/lib/views/quantum/interest';
@@ -10,19 +11,20 @@ const due = (x: Partial<Due> = {}): Due => ({ units: importedUnits('1150.00'), d
 const line = (i: InterestInputs, d: Due) => shownOutcome(i, d).kpis![3];
 const PAID = 'needs a rule on whether a payment pays interest or capital first, which ClearCase does not apply';
 
-describe('one basis: v5\'s comparison line', () => {
-	it('as at the same date with no payment recorded, the line is interestOutcome\'s, and the verdict says why it compares', () => {
+describe('same date and no payment: v5\'s comparison line', () => {
+	it('as at the same date with no payment recorded, the line is interestOutcome\'s, and the verdict says what matches and that it is arithmetic', () => {
 		const o = shownOutcome(I(), due());
 		expect(o.kpis).toEqual(interestOutcome(I(), importedUnits('1150.00')).kpis);
 		expect(o.kpis![3]).toEqual({ label: 'vs extracted Amount Due', value: 'R 1 150.00', sub: '-R 50.07 vs your calc' });
-		expect(o.comparison!.verdict).toBe('Compared on one basis: both figures are as at 2094-01-10, and no payment is recorded on or before that date.');
+		expect(o.comparison!.verdict).toBe('Same date, no payment recorded on or before it: both figures are as at 2094-01-10. The difference is arithmetic, not a reconciliation: ClearCase does not know the statement\'s capital, rates or dates.');
 	});
 	it('a payment dated after the as-at date is outside both figures, so the line stays', () => {
 		expect(unlikeBasis('2094-01-10', due({ paymentDates: ['2094-01-11'] }))).toEqual([]);
 		expect(line(I(), due({ paymentDates: ['2094-01-11'] })).sub).toBe('-R 50.07 vs your calc');
 	});
-	it('an empty capital still asks for one, as in v5', () => {
+	it('an empty capital still asks for one, as in v5, and shows no verdict', () => {
 		expect(line(I({ p: '' }), due()).sub).toBe('enter a capital figure');
+		expect(shownOutcome(I({ p: '' }), due()).comparison).toBeNull();
 	});
 	it('names each figure\'s basis and payment treatment', () => {
 		const c = shownOutcome(I({ m: 'Compound (monthly)' }), due()).comparison!;

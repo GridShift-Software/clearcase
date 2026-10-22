@@ -82,6 +82,11 @@ export function diff(v5, app) {
 
 export const globRe = (g) => new RegExp(`^${g.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 's');
 const valueMatches = (want, got) => want === undefined || (typeof want === 'string' ? want === got : new RegExp(want.re, 's').test(got));
+/** Conditions between the two values that no pin on either side can state (`when.relation`). An unknown name matches nothing. */
+const RELATIONS = {
+	/** The app shows v5's text without the ellipsis v5 appended, so a short excerpt is waived only against its own text. */
+	'app-is-v5-without-ellipsis': (v5, app) => v5.endsWith('…') && app === v5.slice(0, -1),
+};
 
 /** The register entry that covers a difference, or null. Proposed (unapproved) entries apply unless approvedOnly. */
 export function covering(entries, view, d, { approvedOnly = false } = {}) {
@@ -91,7 +96,7 @@ export function covering(entries, view, d, { approvedOnly = false } = {}) {
 		// a field of exactly the string '*' means the whole view is absent: it alone covers the app's view-not-implemented
 		// difference, and covers nothing else (no other glob, '?', '**' or ['*'], stands for the whole view)
 		if (d.path === '*' ? !(e.field === '*' && d.kind === 'view-not-implemented') : ![e.field].flat().some((f) => f !== '*' && globRe(f).test(d.path))) continue;
-		if (e.when && !(valueMatches(e.when.v5, d.v5) && valueMatches(e.when.app, d.app))) continue;
+		if (e.when && !(valueMatches(e.when.v5, d.v5) && valueMatches(e.when.app, d.app) && (!e.when.relation || RELATIONS[e.when.relation]?.(d.v5, d.app)))) continue;
 		return e;
 	}
 	return null;

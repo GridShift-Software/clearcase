@@ -528,7 +528,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-court_bundle_tab-13",
-      "reason": "v5 Restore matter defaults and Clear all overwrite the header without confirmation. ClearCase asks each time: the button shows Confirm restore or Confirm clear and Cancel inline, says when unsaved typed fields are discarded too, and only the confirmation replaces the stored header, which the page then reloads. The server refuses Restore or Clear without it. Evidence: src/routes/v/[vid]/bundles/court_bundle_tab/+page.server.ts:91.",
+      "reason": "v5 Restore matter defaults and Clear all overwrite the header without confirmation. ClearCase asks first: the button shows Confirm restore or Confirm clear and Cancel inline, says when unsaved typed fields are discarded too, and only the confirmation replaces the stored header, which the page then reloads. The server refuses Restore or Clear without it. A Retry after a failed Restore or Clear posts with the confirmation already given, and asks again only when typed fields would be lost. Evidence: src/routes/v/[vid]/bundles/court_bundle_tab/+page.server.ts:91.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

@@ -586,7 +586,7 @@
       "type": "known-gap",
       "source": "S-heads_tab-3",
       "owner": "GRS-18",
-      "reason": "v5 has no reorder or edit of submissions and deletes by position without a prompt. ClearCase now deletes by stable row id, but still has no reorder, no edit and no delete confirmation. Those would need an app change. Evidence: src/routes/v/[vid]/litigation/heads_tab/+page.svelte:50.",
+      "reason": "v5 has no reorder or edit of submissions and deletes by position without a prompt. ClearCase deletes by stable row id only once confirmed: Delete shows Confirm delete and Cancel inline, and the server deletes nothing unless the request names the confirmed row. It still has no reorder and no edit. Those would need an app change. Evidence: src/routes/v/[vid]/litigation/heads_tab/+page.server.ts:40.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

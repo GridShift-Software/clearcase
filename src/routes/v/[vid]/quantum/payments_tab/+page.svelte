@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import { applyAction, enhance } from '$app/forms';
-	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { SubmitFunction } from '$app/forms';
 	import { askFocus } from '$lib/components/ask-focus.svelte';
@@ -14,6 +14,7 @@
 	import { checkEntry, MAX_LENGTH, paymentsCsv, totals, type EntryField, type Payment } from '$lib/views/quantum/payments';
 	import '$lib/views/quantum/quantum.css';
 	import TableScroll from '$lib/components/TableScroll.svelte';
+	import { RELOAD_UNAVAILABLE, reloader } from '$lib/components/reload.svelte';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
 	const known = $derived(new Set(data.known));
@@ -34,6 +35,7 @@
 	let deleteErrors = $state<Record<string, string>>(answered?.op === 'delete' && answered.message && !answered.gone && answered.target ? { [answered.target]: answered.message } : {});
 	let goneNotice = $state<string | null>(answered?.op === 'delete' && answered.gone && answered.message ? answered.message : null);
 	let sending = $state<Entry | null>(null);
+	const rl = reloader();
 	let deleting = $state<string | null>(null);
 	const busy = $derived(sending !== null || deleting !== null);
 	const unsaved = $derived(sending !== null || addError !== null || FIELDS.some((k) => fields[k] !== ''));
@@ -53,7 +55,8 @@
 		return async ({ result, update }) => {
 			try {
 				if (result.type === 'success') {
-					await update({ reset: false });
+					await update({ reset: false, invalidateAll: false });
+					await rl.reload();
 					for (const k of FIELDS) if (fields[k] === sent[k]) fields[k] = '';
 				} else if (result.type === 'failure') {
 					addError = { message: String(result.data?.message ?? 'Not saved. Your entry is kept.'), field: (result.data?.field as EntryField | undefined) ?? null, retry: result.data?.retry === true };
@@ -69,12 +72,12 @@
 		deleteErrors = rest;
 		return async ({ result }) => {
 			try {
-				if (result.type === 'success') await invalidateAll();
+				if (result.type === 'success') await rl.reload();
 				else if (result.type === 'failure') {
 					const message = String(result.data?.message ?? 'Not deleted; try again.');
 					if (result.data?.gone) goneNotice = message;
 					else deleteErrors = { ...deleteErrors, [id]: message };
-					if (result.status === 404 || result.status === 409) await invalidateAll();
+					if (result.status === 404 || result.status === 409) await rl.reload();
 				} else if (result.type === 'redirect') await applyAction(result);
 				else deleteErrors = { ...deleteErrors, [id]: lost(result.status).replace('Not saved', 'Not deleted').replace('Your entry is kept; check the table, then try again', 'Check the table, then try again').replace('Your entry is kept; try again', 'Try again') };
 			} finally { deleting = null; }
@@ -114,6 +117,7 @@
 	<PageHeader heading="Payments & Net Claim" section="Payments & Net Claim" caseName={data.version.titleName} subtitle={data.subtitle}>
 		{#snippet actions()}<button type="button" id="export-payments" onclick={() => download(data.exportName.name, paymentsCsv(rows))}>Export payments</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}{/snippet}
 	</PageHeader>
+	{#if rl.lost}<p class="error" role="alert" id="reload-error">{RELOAD_UNAVAILABLE}</p>{/if}
 	<div class="q-kpis">
 		<Kpi id="kpi-gross" label="Gross amount due" value={R(t.gross)} sub="as at {data.claimDate}" />
 		<Kpi id="kpi-paid" label="Payments recorded" value={R(t.paid)} sub="{t.receipts} receipts{t.uncounted ? ` (${t.uncounted} not counted: not a valid amount)` : ''}" />

@@ -905,6 +905,33 @@ try {
 		return { pass: Object.keys(layouts).length === 2 * LIT.length && Object.values(layouts).every((x) => x.ok), evidence: layouts };
 	});
 
+	const reloadDies = async (view, prepare, trigger, busy, enabled, stored) => {
+		const q = await openPage(b, { initScript: INIT });
+		let killed = false, handlerError = null;
+		const off = b.on((m) => {
+			if (m.sessionId !== q.sessionId || m.method !== 'Fetch.requestPaused') return;
+			(async () => {
+				if (!killed) { killed = true; const srv = A.srv; A.srv = null; await srv.stop('SIGKILL'); }
+				await q.s('Fetch.continueRequest', { requestId: m.params.requestId });
+			})().catch((e) => { handlerError = String(e); });
+		});
+		try {
+			await q.goto(`${V}${route(view)}#main`, ready(view));
+			await q.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json?*x-sveltekit-invalidated=*', requestStage: 'Request' }] });
+			const sent = await prepare(q);
+			await trigger(q);
+			await q.waitFor(`!(${busy})`, 10000).catch(() => null);
+			const state = await q.evaluate(`({ busy: ${busy}, enabled: ${enabled}, error: document.getElementById('reload-error')?.textContent ?? '', alert: document.getElementById('reload-error')?.getAttribute('role') })`);
+			const persisted = stored(sent);
+			await A.start();
+			await q.click('#nav-overview');
+			const left = await q.waitFor(ready('overview'), 3000).then(() => true, () => false);
+			return all({ killed, persisted, idle: !state.busy, enabled: state.enabled, alert: state.alert === 'alert' && /could not reload/.test(state.error), left, handler: !handlerError, evidence: { state, handlerError } });
+		} finally { off(); await q.s('Fetch.disable').catch(() => {}); if (!A.srv) await A.start(); await q.close(); }
+	};
+	await scenario('L-HEADS-RELOAD-LOST', 'heads_tab', 'a stored Heads of Argument entry survives a failed reload with a URL fragment, clears busy, reports the stale page and allows leaving', () => reloadDies('heads_tab', async (q) => { await q.type('#hd_head', 'Synthetic reload head'); await q.type('#hd_sub', 'Synthetic reload submission'); }, (q) => q.click('#hd-add-button'), `!!document.querySelector('#hd-add [data-saving]') || document.querySelector('#hd-add')?.getAttribute('aria-busy') === 'true'`, `!document.getElementById('hd-add-button')?.disabled`, () => rowsWhere('heads', 'head', 'Synthetic reload head').length === 1));
+	await scenario('L-ENFORCEMENT-RELOAD-LOST', 'enforcement_tab', 'a stored enforcement status survives a failed reload with a URL fragment, clears busy, reports the stale page and allows leaving', () => reloadDies('enforcement_tab', async (q) => q.evaluate(`(() => { const s = document.querySelector('#enf-form tr[data-step] select'); const value = [...s.options].find((o) => o.value !== s.value).value; s.value = value; s.dispatchEvent(new Event('change', { bubbles: true })); return { key: s.closest('tr').dataset.step, value }; })()`), async () => {}, `!!document.querySelector('#enf-form [data-saving]')`, `!!document.querySelector('#enf-form tr[data-step] select')`, (sent) => savedRows().some((r) => r.store === 'enforcement-status' && JSON.parse(r.fields).stepKey === sent.key && JSON.parse(r.fields).status === sent.value)));
+
 	offLoopback = b.events.requests.filter((r) => r.ttype === 'page' && !/^(https?:\/\/(127\.0\.0\.1|[a-z0-9-]+\.localhost)(:\d+)?\/|data:|blob:|about:|chrome-error:)/.test(r.url)).map((r) => r.url.slice(0, 120));
 	await scenario('NET-loopback', 'conflict_tab', 'no page of the run requested anything off loopback', async () => ({ pass: offLoopback.length === 0, evidence: { offLoopback } }));
 } catch (e) {

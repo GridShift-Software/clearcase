@@ -5,7 +5,7 @@
 // pass}]}) and one result file. Failures are caused from outside the app: a held work.sqlite write lock, a stopped
 // server, SIGKILL and graceful restarts. Ports 43100-43101 (this namespace only).
 process.env.CANARY_PORT ??= '43299';
-const { mkdirSync, mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+const { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs');
 const { tmpdir } = await import('node:os');
 const { join, resolve } = await import('node:path');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
@@ -337,6 +337,55 @@ try {
 			await q.go(C, 'caselines_tab');
 			return { pass: r.pass && held.length > 0, evidence: { ...r.evidence, held: held.length } };
 		} finally { off(); await q.close(); }
+	});
+	// GRS-160 (PR #109): a reload whose request stays connected and never answers is ended by RELOAD_BOUND_MS alone; no failed fetch reports it.
+	// The bound is read from the module, which the suite cannot import (it needs $app), so the scenario follows it.
+	await S('CB-RELOAD-HELD', 'court_bundle_tab', 'GRS-160: a header save whose reload request the browser holds past RELOAD_BOUND_MS: the page shows the error and leaves busy at the bound, with Save usable and no leave prompt; when the request is released the error clears and the field typed during the hold is kept', async () => {
+		const bound = Number(readFileSync(join(ROOT, 'src/lib/views/bundles/reload.svelte.ts'), 'utf8').match(/RELOAD_BOUND_MS\s*=\s*(\d+)/)?.[1]);
+		if (!(bound > 0)) throw new Error('RELOAD_BOUND_MS not found in reload.svelte.ts');
+		const q = await page(b, A.origin);
+		const typed = 'SYN TYPED DURING THE HELD RELOAD';
+		const setField = (id, v) => q.evaluate(`(() => { const e = document.getElementById('${id}'); e.value = ${JSON.stringify(v)}; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+		const state = () => q.evaluate(`(() => { const e = document.getElementById('cb-reload-error'); return { error: e?.textContent.trim() ?? '', alert: e?.getAttribute('role') ?? null, busy: document.querySelector('#main')?.dataset.busy ?? null, saveDisabled: document.getElementById('cb-save')?.disabled ?? null, caseNo: document.getElementById('cbh_caseNo')?.value ?? null, caseNoChanged: document.getElementById('cbh_caseNo')?.classList.contains('changed') ?? null, judge: document.getElementById('cbh_judge')?.value ?? null, unsaved: document.getElementById('cb-unsaved')?.textContent.trim() ?? '' }; })()`);
+		// the first reload request is held until released; any other is let through
+		const held = { id: null, at: 0, n: 0 };
+		const release = () => { const id = held.id; held.id = null; return id ? q.s('Fetch.continueRequest', { requestId: id }).catch(() => {}) : undefined; };
+		const off = b.on((m) => {
+			if (m.sessionId !== q.sessionId || m.method !== 'Fetch.requestPaused') return;
+			if (held.n++ > 0) { q.s('Fetch.continueRequest', { requestId: m.params.requestId }).catch(() => {}); return; }
+			held.id = m.params.requestId;
+			held.at = Date.now();
+		});
+		try {
+			await q.go(B, 'court_bundle_tab');
+			await q.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json?x-sveltekit-invalidated=*', requestStage: 'Request' }] });
+			await setField('cbh_caseNo', '9/2004');
+			const mk = b.mark();
+			await q.click('#cb-save');
+			const caught = await until(() => held.id, 10000);
+			await setField('cbh_judge', typed);
+			await sleep(500);
+			const early = await state();
+			// the error shows when the bound passes; the request stays held a further 2 s so the state is read with it still open
+			const shown = caught && await until(async () => (await state()).alert === 'alert', bound + 5000);
+			const alertMs = Date.now() - held.at;
+			await sleep(Math.max(0, held.at + bound + 2000 - Date.now()));
+			const during = await state();
+			const dialogsDuring = b.since(mk).dialogs.map((d) => d.type);
+			const stored = A.work("SELECT fields FROM register_row WHERE store = 'bundle-header'").map((r) => JSON.parse(r.fields).caseNo);
+			const t1 = Date.now();
+			await release();
+			const cleared = await until(async () => (await state()).alert === null, 10000);
+			const clearMs = Date.now() - t1;
+			const after = await state();
+			const dialogsAfter = b.since(mk).dialogs.map((d) => d.type);
+			return {
+				pass: caught && shown && alertMs >= bound - 1000 && alertMs <= bound + 2500 && early.alert === null
+					&& during.alert === 'alert' && /could not reload/.test(during.error) && during.busy === '0' && during.saveDisabled === false && during.judge === typed && dialogsDuring.length === 0
+					&& cleared && after.busy === '0' && after.caseNo === '9/2004' && after.caseNoChanged === false && after.judge === typed && after.unsaved === '1 field changed, not saved' && dialogsAfter.length === 0 && stored.includes('9/2004'),
+				evidence: { bound, alertMs, holdMs: t1 - held.at, clearMs, early, during, after, dialogsDuring, dialogsAfter, stored },
+			};
+		} finally { off(); await release(); await q.s('Fetch.disable').catch(() => {}); await q.close(); }
 	});
 	await S('CB-RESTART', 'court_bundle_tab', 'restarts: after a SIGKILL restart and a graceful restart every saved bundle-view row is unchanged (by id and fields)', () => restartKeepsRows(p, '9/2001'));
 	// GRS-160: the server dies once a header save is stored, while the page reloads its data (`typed` goes into the judge

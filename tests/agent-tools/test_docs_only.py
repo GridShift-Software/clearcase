@@ -328,6 +328,25 @@ class IntoTheWave(DocsOnlyFixRound):
         self.commit('a branch edit after the merge')
         self.assertIn('src/grs-105-other.ts', self.guard(code=1))
 
+    def test_a_file_the_wave_added_that_the_round_deletes_is_the_round_s_change(self):
+        # GRS-169: the fix base lacks the wave's later additions, so deleting one leaves no difference from the fix base
+        self.fix_round()
+        self.another_ticket()
+        self.write('docs/added.md', '# Added\n')
+        self.commit('the wave adds a guide')
+        self.git('switch', '-q', BRANCH)
+        self.merge(WAVE)
+        self.git('rm', '-q', 'tests/grs-105-other.test.ts')
+        self.commit('delete the test the wave added')
+        out = self.guard(code=1)
+        self.assertIn('docs-only', out)
+        self.assertIn('tests/grs-105-other.test.ts', out)
+        with self.subTest(control='a guide the wave added, deleted by the round, is documentation'):
+            self.git('reset', '-q', '--hard', 'HEAD~1')
+            self.git('rm', '-q', 'docs/added.md')
+            self.commit('delete the guide the wave added')
+            self.guard()
+
     def test_the_declaration_propagates_into_the_wave_pull_request(self):
         ticket = self.fix_round()
         self.git('switch', '-q', WAVE)

@@ -58,7 +58,7 @@ export function interestOutcome(i: InterestInputs, headlineDueUnits: bigint | nu
 export interface Due { units: bigint | null; date: string; paymentDates: readonly string[] }
 /** The comparison's verdict, and each figure's basis and payment treatment, in words. */
 export interface Comparison { verdict: string; total: string; due: string }
-export interface ShownOutcome extends InterestOutcome { comparison: Comparison | null }
+export interface ShownOutcome extends InterestOutcome { comparison: Comparison | null; basisNote: string | null }
 
 /**
  * Why the computed total and the imported amount due are not on one basis (GRS-173, S-interest_calc_tab-5,
@@ -84,16 +84,21 @@ export function unlikeBasis(to: string, due: Due): string[] {
  */
 export function shownOutcome(i: InterestInputs, due: Due): ShownOutcome {
 	const o = interestOutcome(i, due.units);
-	if (!o.kpis) return { ...o, comparison: null };
+	if (!o.kpis) return { ...o, comparison: null, basisNote: null };
 	const why = unlikeBasis(i.to, due);
 	const asAt = isIsoDate(due.date) ? `as at ${due.date}` : 'with no as-at date';
-	const comparison = o.kpis[3]!.sub === ENTER_CAPITAL ? null : {
+	const [capital, interest, total, line] = o.kpis as [Kpi, Kpi, Kpi, Kpi];
+	if (line.sub === ENTER_CAPITAL) {
+		const alone = due.units === null ? { value: '—', sub: `not in this package · ${ENTER_CAPITAL}` } : { value: line.value, sub: `${asAt} · ${ENTER_CAPITAL}` };
+		return { ...o, kpis: [capital, interest, total, { label: line.label, ...alone }], comparison: null,
+			basisNote: why.length ? `Once you enter a capital figure, these figures cannot be compared: ${why.join('; ')}.` : null };
+	}
+	const comparison = {
 		verdict: why.length ? `Not compared, so no difference is shown: ${why.join('; ')}.` : `Same date, no payment recorded on or before it: both figures are as at ${i.to}. The difference is arithmetic, not a reconciliation: ClearCase does not know the statement's capital, rates or dates.`,
 		total: `Your total: the capital plus ${i.m.toLowerCase()} interest from ${i.from} to ${i.to}, on that one figure for the whole period. No payment is deducted.`,
 		due: due.units === null ? 'Extracted amount due: none in this package.' : `Extracted amount due: ${asAt}, as the source statement gives it; ClearCase does not check what it includes. No recorded payment is deducted from it here; Payments & Net Claim deducts them for the net claim.`,
 	};
-	if (!why.length) return { ...o, comparison };
-	const [capital, interest, total, line] = o.kpis as [Kpi, Kpi, Kpi, Kpi];
+	if (!why.length) return { ...o, comparison, basisNote: null };
 	const alone = due.units === null ? { value: '—', sub: 'not in this package' } : { value: line.value, sub: `${asAt}: not comparable with your total` };
-	return { ...o, kpis: [capital, interest, total, { label: line.label, ...alone }], comparison };
+	return { ...o, kpis: [capital, interest, total, { label: line.label, ...alone }], comparison, basisNote: null };
 }

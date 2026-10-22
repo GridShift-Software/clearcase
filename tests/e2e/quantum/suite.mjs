@@ -177,6 +177,14 @@ try {
 		return { pass, evidence: r };
 	});
 
+	await scenario('Q-INTEREST-NO-CAPITAL', 'interest_calc_tab', 'without capital, an unlike date leaves the amount due dated, asks for capital, and explains the future basis conflict without a verdict', async () => {
+		await k.open(`${route('interest_calc_tab')}?p=&r=10&m=Simple&from=2093-01-10&to=2093-07-10`, 'interest_calc_tab');
+		const r = { kpis: await k.kpis('#ic_out'), verdict: await k.exists('#ic-compare-verdict'), note: await k.text('#ic-basis-note') };
+		const pass = J(r.kpis[3]) === J({ label: 'vs extracted Amount Due', value: 'R 1 150.00', sub: 'as at 2094-01-10 · enter a capital figure' }) &&
+			!r.verdict && /your total is as at 2093-07-10 and the amount due as at 2094-01-10/.test(r.note ?? '') && !/not comparable with your total/.test(r.note ?? '');
+		return { pass, evidence: r };
+	});
+
 	// ---- 6. record a payment and reload the net claim ---------------------------------------------------------------------
 	await scenario('Q6-PAYMENT-RELOAD', 'payments_tab', 'a payment typed as R 1 000.50 counts in full in the table and the net claim, after a reload too, and the settlement prefill is net', async () => {
 		await k.open(route('payments_tab'), 'payments_tab');

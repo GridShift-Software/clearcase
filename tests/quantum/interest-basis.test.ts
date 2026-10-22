@@ -23,7 +23,7 @@ describe('same date and no payment: v5\'s comparison line', () => {
 		expect(line(I(), due({ paymentDates: ['2094-01-11'] })).sub).toBe('-R 50.07 vs your calc');
 	});
 	it('an empty capital still asks for one, as in v5, and shows no verdict', () => {
-		expect(line(I({ p: '' }), due()).sub).toBe('enter a capital figure');
+		expect(line(I({ p: '' }), due()).sub).toBe('as at 2094-01-10 · enter a capital figure');
 		expect(shownOutcome(I({ p: '' }), due()).comparison).toBeNull();
 	});
 	it('names each figure\'s basis and payment treatment', () => {
@@ -46,7 +46,7 @@ describe('same date is not a reconciliation (GRS-173 fix round)', () => {
 		for (const p of ['', ' ', '0']) {
 			const o = shownOutcome(I({ p }), due());
 			expect(o.comparison, p).toBeNull();
-			expect(o.kpis![3]!.sub).toBe('enter a capital figure');
+			expect(o.kpis![3]!.sub).toBe('as at 2094-01-10 · enter a capital figure');
 		}
 	});
 });
@@ -109,7 +109,8 @@ describe('no capital on every comparison basis', () => {
 		const o = shownOutcome(I({ p: '' }), d);
 		expect(o.kpis![3]).toEqual({ label: 'vs extracted Amount Due', value: 'R 1 150.00', sub: `as at ${d.date} · enter a capital figure` });
 		expect(o.comparison).toBeNull();
-		expect(o.basisNote).toBe(reason ? expect.stringContaining(reason) : null);
+		if (reason) expect(o.basisNote).toContain(reason);
+		else expect(o.basisNote).toBeNull();
 		expect(o.basisNote ?? '').not.toContain('not comparable with your total');
 	});
 });

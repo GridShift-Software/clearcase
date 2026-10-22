@@ -54,6 +54,7 @@
 				{:else if out.kpis}
 					<div class="q-kpis">{#each out.kpis as k (k.label)}<Kpi label={k.label} value={k.value} sub={k.sub} />{/each}</div>
 					{#if out.comparison}<div class="q-note" id="ic-compare"><p id="ic-compare-verdict">{out.comparison.verdict}</p><p id="ic-basis-total">{out.comparison.total}</p><p id="ic-basis-due">{out.comparison.due}</p></div>{/if}
+					{#if out.basisNote}<p class="q-note" id="ic-basis-note">{out.basisNote}</p>{/if}
 					<p class="tag">Simple vs compound and the from-date materially change the number — this is the exposure counsel must be able to defend. Replace the rate with the rate fixed by the award/contract.</p>
 					<p class="q-note" id="ic-basis">Day count: calendar days between the dates (counted on the calendar, independent of any time zone) over 365.25 days a year; simple interest is exact, compound interest uses the monthly formula; each figure is rounded once to the cent.</p>
 				{/if}

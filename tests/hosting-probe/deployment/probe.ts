@@ -21,7 +21,7 @@ import { accessSync, appendFileSync, constants, cpSync, existsSync, mkdirSync, r
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { scanPaths } from '../../../deploy/probes/scan.ts';
-import { checkSummary, PROBE_INPUTS } from '../../../deploy/probes/summary-check.ts';
+import { checkSummary, DEPLOYMENT_HOLD, PROBE_INPUTS } from '../../../deploy/probes/summary-check.ts';
 import { BUILD_OUTPUT, checkTarget, digestDir, loadTargets } from '../../../deploy/probes/target.ts';
 
 const HERE = import.meta.dirname;
@@ -33,11 +33,6 @@ const PLACEHOLDER_ACCOUNT = '00000000000000000000000000000107';
 // A synthetic placeholder, not a credential: without any token cf stops at authentication before the step under test.
 const SYNTHETIC_TOKEN = { CLOUDFLARE_API_TOKEN: 'synthetic-placeholder-not-a-token' };
 const PORT = 18797;
-const HOLD = [
-	'P10 (moment M1, Workers Free): a real prebuilt upload with an upload-only token, enforced token grants and denied actions, a Void deploy with pending D1 migrations behind a time-travel bookmark, a Worker rollback, and teardown of cc-* resources through the run manifest',
-	"the janitor's real sweep of the account's cc-* resources (M1)",
-	'actual token breadth on the real API: no resource-scoped Worker or D1 token is claimed',
-];
 
 class Refusal extends Error {}
 
@@ -664,7 +659,7 @@ async function main(out: string): Promise<number> {
 		pins,
 		isolation: { network: isolation, env: Object.keys(baseEnv).sort() },
 		legs,
-		hold: HOLD,
+		hold: DEPLOYMENT_HOLD,
 		evidence: failed.length === 0 && clean && endSha === sha,
 	};
 	mkdirSync(path.dirname(out), { recursive: true });

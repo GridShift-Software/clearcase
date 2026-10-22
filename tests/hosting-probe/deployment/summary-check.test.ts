@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
-import { checkSummary, DEPLOYMENT_LEGS, PROBE_INPUTS } from '../../../deploy/probes/summary-check.ts';
+import { checkSummary, DEPLOYMENT_BUN, DEPLOYMENT_HOLD, DEPLOYMENT_LEGS, DEPLOYMENT_PINS, PROBE_ENV_KEYS, PROBE_INPUTS } from '../../../deploy/probes/summary-check.ts';
 
 const SCRATCH = path.join(import.meta.dirname, '../../../.local/hosting-probe/deployment', `summary-check-${process.pid}`);
 afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
@@ -27,12 +27,20 @@ function repo() {
 	git('commit', '-q', '-m', 'the probe');
 	const source = git('rev-parse', 'HEAD');
 	const inputs = Object.fromEntries(PROBE_INPUTS.map((p) => [p, git('rev-parse', `HEAD:${p}`)]));
-	const legs = Object.fromEntries(Object.entries(DEPLOYMENT_LEGS).map(([name, [steps, assertions]]) => [name, {
-		title: `Synthetic ${name}`, status: 'PASS', observed: {},
+	const legs = Object.fromEntries(Object.entries(DEPLOYMENT_LEGS).map(([name, [steps, assertions, observedKeys]]) => [name, {
+		title: `Synthetic ${name}`, status: 'PASS', observed: Object.fromEntries(observedKeys.map((key) => [key, 'synthetic'])),
 		steps: Array.from({ length: steps }, () => ({ cmd: 'synthetic command', host: 'Bun', exit: 0, ms: 1, network: [] })),
 		asserted: Array.from({ length: assertions }, () => 'synthetic assertion'),
 	}]));
-	const summary = { schema: 'clearcase.deployment-probe/1', sourceSha: source, treeClean: true, evidence: true, inputs, legs };
+	const summary = {
+		schema: 'clearcase.deployment-probe/1', sourceSha: source, treeClean: true, evidence: true, inputs, legs,
+		startedAt: '2026-10-22T00:00:00.000Z', finishedAt: '2026-10-22T00:00:01.000Z',
+		runDir: '.local/hosting-probe/deployment/2026-10-22T00-00-00-000Z',
+		hosts: { bun: DEPLOYMENT_BUN, node: '26.10.0', runner: `Bun ${DEPLOYMENT_BUN}`, appBuild: `Bun ${DEPLOYMENT_BUN}`, tools: 'Node 26.10.0 (cf, Wrangler, Void, Vitest)', app: `workerd ${DEPLOYMENT_PINS.workerd} (native, local)` },
+		pins: DEPLOYMENT_PINS,
+		isolation: { network: 'own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden', env: PROBE_ENV_KEYS },
+		hold: DEPLOYMENT_HOLD,
+	};
 	const record = (edit: (s: Record<string, unknown>) => void = () => {}, page = `PASS at ${source}\n`) => {
 		const s = structuredClone(summary) as Record<string, unknown>;
 		edit(s);
@@ -50,6 +58,18 @@ describe('the committed deployment summary is bound to an ancestor commit and to
 		const r = repo();
 		r.record((s) => (s.legs = { P1: { status: 'PASS' } }));
 		expect(r.check()).not.toEqual([]);
+	});
+
+	test('a PASS leg without its assertions is refused', () => {
+		const r = repo();
+		r.record((s) => (s.legs as Record<string, { asserted: string[] }>)['P1-discovery']!.asserted.pop());
+		expect(r.check().join('\n')).toMatch(/P1-discovery must hold 6 nonempty assertions/);
+	});
+
+	test('a PASS summary without its run metadata is refused', () => {
+		const r = repo();
+		r.record((s) => delete s.runDir);
+		expect(r.check().join('\n')).toMatch(/summary has the wrong fields/);
 	});
 
 	test('a docs-only commit after the run passes, and the sha stays the run own', () => {

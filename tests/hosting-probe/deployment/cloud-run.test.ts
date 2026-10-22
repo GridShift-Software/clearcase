@@ -48,6 +48,7 @@ describe('run manifest and teardown', () => {
 
 	test('the manifest lists every resource before the first is created', () => {
 		const w = world();
+		mkdirSync(path.join(w.cloud, 'r2', NAME), { recursive: true });
 		const seen: string[] = [];
 		const run = openRun({ ...w, dir: w.manifests, ticket: '107', worker: 'w1', sha: 'abc1234', kinds: ['worker', 'd1', 'r2'], trap: false, provider: {
 			create: (kind, name) => (seen.push(`${kind}:${manifest(w.manifests).resources.map((r) => `${r.kind}/${r.name}/${r.created}`).join(',')}`), w.provider.create(kind, name)),
@@ -59,8 +60,8 @@ describe('run manifest and teardown', () => {
 		expect(seen[1]).toBe(`d1:worker/${NAME}/true,d1/${NAME}/false,r2/${NAME}/false`);
 		expect(manifest(w.manifests).state).toBe('open');
 		const done = run.teardown();
-		expect(done.resources.map((r) => [r.kind, r.created, r.teardown])).toEqual([['worker', true, 'deleted'], ['d1', true, 'deleted'], ['r2', false, 'deleted']]);
-		expect(w.provider.names()).toEqual(OTHERS);
+		expect(done.resources.map((r) => [r.kind, r.created, r.teardown])).toEqual([['worker', true, 'deleted'], ['d1', true, 'deleted'], ['r2', false, 'pending']]);
+		expect(w.provider.names()).toEqual([`r2/${NAME}`, ...OTHERS].sort());
 	});
 
 	test('a second run with the same name is refused', () => {
@@ -87,11 +88,11 @@ describe('run manifest and teardown', () => {
 		const w = world();
 		const child = spawn(process.execPath, [CHILD, w.manifests, w.cloud, 'wait', 'r2,d1'], { stdio: ['ignore', 'pipe', 'inherit'] });
 		await new Promise<void>((resolve) => child.stdout.on('data', (d: Buffer) => d.toString().includes('created') && resolve()));
-		mkdirSync(path.join(w.cloud, 'worker', NAME)); // created by the provider, but the run died before recording it
+		mkdirSync(path.join(w.cloud, 'worker', NAME)); // exists without a successful, recorded create by this run
 		const code = await new Promise((resolve) => (child.on('close', (c) => resolve(c)), child.kill('SIGTERM')));
 		expect(code).toBe(143);
-		expect(manifest(w.manifests).resources.map((x) => `${x.kind}:${x.created}:${x.teardown}`)).toEqual(['worker:false:deleted', 'd1:true:deleted', 'r2:true:deleted']);
-		expect(w.provider.names()).toEqual(OTHERS);
+		expect(manifest(w.manifests).resources.map((x) => `${x.kind}:${x.created}:${x.teardown}`)).toEqual(['worker:false:pending', 'd1:true:deleted', 'r2:true:deleted']);
+		expect(w.provider.names()).toEqual([`worker/${NAME}`, ...OTHERS].sort());
 	});
 
 	test('a failed delete is recorded and the rest are still deleted', () => {
@@ -121,36 +122,44 @@ describe('teardown deletes only what this run opened (M3)', () => {
 	test("a manifest rewritten during the run to list an unprefixed D1 deletes nothing but the run's own", () => {
 		const w = world();
 		mkdirSync(path.join(w.cloud, 'd1', 'clearcase-client-a-db'), { recursive: true });
+		mkdirSync(path.join(w.cloud, 'worker', NAME), { recursive: true });
+		mkdirSync(path.join(w.cloud, 'r2', NAME), { recursive: true });
 		const { removed, provider } = spy(w);
 		const run = open(w, provider);
 		run.create('d1');
 		rewrite(w, (m) => m.resources.push({ kind: 'd1', name: 'clearcase-client-a-db', created: true, teardown: 'pending', error: null }));
 		run.teardown();
-		expect(removed).toEqual([`worker/${NAME}`, `d1/${NAME}`, `r2/${NAME}`]);
-		expect(w.provider.names()).toContain('d1/clearcase-client-a-db');
+		expect(removed).toEqual([`d1/${NAME}`]);
+		expect(w.provider.names()).toEqual([`d1/clearcase-client-a-db`, `worker/${NAME}`, `r2/${NAME}`, ...OTHERS].sort());
 	});
 
 	test("a manifest rewritten to name another run's resources, or another kind, deletes nothing of theirs", () => {
 		const w = world();
+		mkdirSync(path.join(w.cloud, 'worker', NAME), { recursive: true });
+		mkdirSync(path.join(w.cloud, 'r2', NAME), { recursive: true });
 		const { removed, provider } = spy(w);
 		const run = open(w, provider);
+		run.create('d1');
 		rewrite(w, (m) => {
 			m.resources[0]!.name = 'cc-107-w9-1234567';
 			m.resources[1]!.kind = 'kv' as never;
 		});
 		run.teardown();
-		expect(removed).toEqual([`worker/${NAME}`, `d1/${NAME}`, `r2/${NAME}`]);
-		expect(w.provider.names()).toEqual(OTHERS);
+		expect(removed).toEqual([`d1/${NAME}`]);
+		expect(w.provider.names()).toEqual([`worker/${NAME}`, `r2/${NAME}`, ...OTHERS].sort());
 	});
 
 	test('a manifest deleted or unreadable at teardown still tears down the run and leaves a finished record', () => {
 		const w = world();
+		mkdirSync(path.join(w.cloud, 'worker', NAME), { recursive: true });
+		mkdirSync(path.join(w.cloud, 'r2', NAME), { recursive: true });
 		const { removed, provider } = spy(w);
 		const run = open(w, provider);
 		run.create('d1');
 		writeFileSync(path.join(w.manifests, `${NAME}.json`), '{ not json');
 		const done = run.teardown();
-		expect(removed).toEqual([`worker/${NAME}`, `d1/${NAME}`, `r2/${NAME}`]);
+		expect(removed).toEqual([`d1/${NAME}`]);
+		expect(w.provider.names()).toEqual([`worker/${NAME}`, `r2/${NAME}`, ...OTHERS].sort());
 		expect(done.state).toBe('finished');
 		expect(manifest(w.manifests).state).toBe('finished');
 	});

@@ -35,7 +35,9 @@
 		pending = null;
 		onconfirm?.();
 	}
-	function escape(e: KeyboardEvent) {
+	// a held key repeats keydown: the repeats must not press Confirm (or Cancel, which would land on Delete and ask again)
+	function keys(e: KeyboardEvent) {
+		if (e.repeat) { e.preventDefault(); return; }
 		if (e.key !== 'Escape') return;
 		e.preventDefault();
 		void cancel();
@@ -48,8 +50,8 @@
 		<span class="question">{question}</span>
 		{#if !onconfirm}<input type="hidden" {form} name={CONFIRM} value={target} />{/if}
 		<!-- svelte-ignore a11y_autofocus -->
-		<button {type} class="danger" {form} {formaction} {name} {value} {disabled} autofocus data-delete-confirm onclick={onconfirm ? confirm : undefined} onkeydown={escape} {@attach (el) => el.focus()}>{confirmLabel}</button>
-		<button {type} {form} {formaction} name={onconfirm ? undefined : CANCEL} value={onconfirm ? undefined : target} data-delete-cancel onclick={cancel} onkeydown={escape}>Cancel</button>
+		<button {type} class="danger" {form} {formaction} {name} {value} {disabled} autofocus data-delete-confirm onclick={onconfirm ? confirm : undefined} onkeydown={keys} {@attach (el) => el.focus()}>{confirmLabel}</button>
+		<button {type} {form} {formaction} name={onconfirm ? undefined : CANCEL} value={onconfirm ? undefined : target} data-delete-cancel onclick={cancel} onkeydown={keys}>Cancel</button>
 	</span>
 {/if}
 

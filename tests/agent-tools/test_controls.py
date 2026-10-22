@@ -2764,23 +2764,29 @@ class FixRoundConfigurationAdditions(ControlCase):
 
 
     def test_setup_role_revisits_runner_imports_in_shared_transitive_and_cyclic_graphs(self):
-        self.reset()
-        self.git('switch', '-q', 'dev')
-        self.write('tests/bootstrap.ts', 'export {};\n')
-        self.write('vitest.config.ts', self.config.replace('include:', "setupFiles: ['./tests/bootstrap.ts'], include:"))
-        self.dev = self.commit('setup entry present before review')
-        self.git('switch', '-q', '-C', 'feature/grs-104-tooling', self.dev)
-        self.write('tests/protected.test.ts', self.test)
-        self.base = self.commit('reviewed test with setup entry')
-        self.write('app.txt', 'fixed\n')
-        self.manifest()
-        self.fixed = self.commit('fix round')
+        initial_dev, initial_fixed = self.dev, self.fixed
         for shape, imports in (
                 ('direct', {'bootstrap': ['added'], 'added': []}),
                 ('transitive', {'bootstrap': ['middle'], 'middle': ['added'], 'added': []}),
                 ('cyclic', {'bootstrap': ['middle'], 'middle': ['added'], 'added': ['middle']}),
                 ('shared', {'bootstrap': ['left', 'right'], 'left': ['added'], 'right': ['added'], 'added': []})):
             with self.subTest(shape=shape):
+                self.dev, self.fixed = initial_dev, initial_fixed
+                self.reset()
+                self.git('switch', '-q', 'dev')
+                # Only the leaf is new: intermediate setup modules and edges already belong to the reviewed closure.
+                for name, targets in imports.items():
+                    if name != 'added':
+                        self.write(f'tests/{name}.ts', ''.join(f"import './{target}';\n" for target in targets
+                                                             if target != 'added') + 'export {};\n')
+                self.write('vitest.config.ts', self.config.replace('include:', "setupFiles: ['./tests/bootstrap.ts'], include:"))
+                self.dev = self.commit('setup graph present before review')
+                self.git('switch', '-q', '-C', 'feature/grs-104-tooling', self.dev)
+                self.write('tests/protected.test.ts', self.test)
+                self.base = self.commit('reviewed test with setup graph')
+                self.write('app.txt', 'fixed\n')
+                self.manifest()
+                self.fixed = self.commit('fix round')
                 files = {f'tests/{name}.ts': ''.join(f"import './{target}';\n" for target in targets) + 'export {};\n'
                          for name, targets in imports.items()}
                 self.receive({self.added: "import '../bootstrap';\n" + self.config, **files})

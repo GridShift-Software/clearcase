@@ -27,6 +27,7 @@ INSERT INTO cases (client, id, ref, title, uploader) VALUES
   ('client-a', 'case-a6', 'SYN-A6-0006', 'New results', 'a-uploader'),
   ('client-a', 'case-a7', 'SYN-A7-0007', 'Synthetic Matter A7', 'a-uploader'),
   ('client-a', 'case-a8', 'SYN-A8-0008', 'Synthetic Matter A8', 'a-uploader'),
+  ('client-a', 'case-a9', 'SYN-A9-0009', 'Synthetic Matter A9', 'a-uploader'),
   ('client-b', 'case-b1', 'SYN-B1-0001', 'Synthetic Matter B1', 'b-uploader');
 
 INSERT INTO documents (client, case_id, title, filename) VALUES

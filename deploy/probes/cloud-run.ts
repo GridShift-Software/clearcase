@@ -14,6 +14,7 @@
 // `janitor` is a dry run: it prints the plan for a resource listing (a JSON array of { kind, name, createdAt }) and
 // deletes nothing. It has no default manifests directory: a default inside one checkout would read another checkout's
 // open runs as orphaned.
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,7 +27,7 @@ export const KINDS = ['worker', 'd1', 'r2'] as const;
 export type Kind = (typeof KINDS)[number];
 
 export type Resource = { kind: Kind; name: string; created: boolean; teardown: 'pending' | 'deleted' | 'failed'; error: string | null };
-export type RunManifest = { schema: typeof RUN_SCHEMA; name: string; sha: string; createdAt: string; state: 'open' | 'finished'; finishedAt: string | null; resources: Resource[] };
+export type RunManifest = { schema: typeof RUN_SCHEMA; runId: string; name: string; sha: string; createdAt: string; state: 'open' | 'finished'; finishedAt: string | null; resources: Resource[] };
 export type Listed = { kind: Kind; name: string; createdAt: string };
 
 /** What a run asks of the cloud. `remove` empties a bucket before deleting it, and succeeds when the resource is already gone. */
@@ -41,9 +42,15 @@ export function runName(a: { ticket: string; worker: string; sha: string }): str
 	return name;
 }
 
-const write = (file: string, m: RunManifest) => {
-	writeFileSync(`${file}.tmp`, `${JSON.stringify(m, null, 2)}\n`);
-	renameSync(`${file}.tmp`, file);
+const write = (file: string, m: RunManifest, claim = false) => {
+	const body = `${JSON.stringify(m, null, 2)}\n`;
+	if (claim) {
+		writeFileSync(file, body, { flag: 'wx' });
+		return;
+	}
+	const temporary = `${file}.${m.runId}.tmp`;
+	writeFileSync(temporary, body);
+	renameSync(temporary, file);
 };
 
 export type Run = { name: string; file: string; create(kind: Kind): void; teardown(): RunManifest };
@@ -57,17 +64,23 @@ export function openRun(a: { dir: string; ticket: string; worker: string; sha: s
 	const now = a.now ?? (() => new Date());
 	const name = runName(a);
 	const file = path.join(a.dir, `${name}.json`);
-	if (existsSync(file)) throw new Error(`${file} exists: one manifest per run name`);
 	if (new Set(a.kinds).size !== a.kinds.length || !a.kinds.length) throw new Error(`kinds ${a.kinds.join(',')} must be distinct and nonempty`);
 	mkdirSync(a.dir, { recursive: true });
 	const order = [...a.kinds].sort((x, y) => KINDS.indexOf(x) - KINDS.indexOf(y));
-	// The run's own record, in memory: the teardown deletes these (kind, name) pairs and nothing the file says.
-	const manifest: RunManifest = { schema: RUN_SCHEMA, name, sha: a.sha, createdAt: now().toISOString(), state: 'open', finishedAt: null, resources: order.map((kind) => ({ kind, name, created: false, teardown: 'pending', error: null })) };
-	write(file, manifest);
+	const manifest: RunManifest = { schema: RUN_SCHEMA, runId: randomUUID(), name, sha: a.sha, createdAt: now().toISOString(), state: 'open', finishedAt: null, resources: order.map((kind) => ({ kind, name, created: false, teardown: 'pending', error: null })) };
+	try {
+		write(file, manifest, true);
+	} catch (e) {
+		if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`${file} exists: one manifest per run name`);
+		throw e;
+	}
+	// A successful provider create and a durable manifest update both precede ownership.
+	const owned = new Set<Kind>();
 	/** The one thing read back from the file: whether the run is still open. */
 	const status = () => {
 		try {
-			return (JSON.parse(readFileSync(file, 'utf8')) as RunManifest).state;
+			const record = JSON.parse(readFileSync(file, 'utf8')) as RunManifest;
+			return record.runId === manifest.runId ? record.state : 'unreadable';
 		} catch {
 			return 'unreadable';
 		}
@@ -82,10 +95,12 @@ export function openRun(a: { dir: string; ticket: string; worker: string; sha: s
 			a.provider.create(kind, name);
 			r.created = true;
 			write(file, manifest);
+			owned.add(kind);
 		},
 		teardown() {
 			if (done) return done;
 			for (const r of manifest.resources) {
+				if (!owned.has(r.kind)) continue;
 				try {
 					// a run deletes its own names and nothing else, whatever its manifest file or its caller says
 					if (r.name !== name || !RUN_NAME.test(r.name) || !KINDS.includes(r.kind)) throw new Error(`${r.kind} ${r.name} is not one of ${name}'s own`);

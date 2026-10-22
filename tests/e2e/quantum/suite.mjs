@@ -186,6 +186,25 @@ try {
 		return { pass, evidence: { after, reloaded, settle, stored: stored.map((r) => r.fields) } };
 	});
 
+	// ---- the interest total against the imported amount due: compared only on one basis (GRS-173, IDR-245, IDR-246) ----
+	// Q6's payment (2089-03-31) is recorded. The amount due is R 1 150.00 as at 2094-01-10 (lib.mjs).
+	await scenario('Q-INTEREST-UNLIKE-BASIS', 'interest_calc_tab', 'a total as at another date, or with a recorded payment in its period, is not compared with the amount due: no difference is shown, the reason and each figure\'s basis and payment treatment are', async () => {
+		const read = async (to) => {
+			await k.open(`${route('interest_calc_tab')}?p=1000&r=10&m=Simple&from=2093-01-10&to=${to}`, 'interest_calc_tab');
+			return { kpis: await k.kpis('#ic_out'), verdict: await k.text('#ic-compare-verdict'), total: await k.text('#ic-basis-total'), due: await k.text('#ic-basis-due') };
+		};
+		const refused = (r) => r.kpis.length === 4 && !r.kpis.some((x) => /vs your calc/.test(x.sub)) && J(r.kpis[3]) === J({ label: 'vs extracted Amount Due', value: 'R 1 150.00', sub: 'as at 2094-01-10: not comparable with your total' }) &&
+			r.total === `Your total: the capital plus simple interest from 2093-01-10 to ${r.to}, on that one figure for the whole period. No payment is deducted.` &&
+			r.due === 'Extracted amount due: as at 2094-01-10, as the source statement gives it; ClearCase does not check what it includes. No recorded payment is deducted from it here; Payments & Net Claim deducts them for the net claim.';
+		const paid = 'recorded payment is dated on or before %s or undated, and your total deducts none: netting it needs a rule on whether a payment pays interest or capital first, which ClearCase does not apply.';
+		const earlier = { to: '2093-07-10', ...(await read('2093-07-10')) };
+		const sameDay = { to: '2094-01-10', ...(await read('2094-01-10')) };
+		const pass = S.rows('payments').length === 1 && refused(earlier) && refused(sameDay) &&
+			earlier.verdict === `Not compared, so no difference is shown: your total is as at 2093-07-10 and the amount due as at 2094-01-10; 1 ${paid.replace('%s', '2093-07-10')}` &&
+			sameDay.verdict === `Not compared, so no difference is shown: 1 ${paid.replace('%s', '2094-01-10')}`;
+		return { pass, evidence: { earlier, sameDay } };
+	});
+
 	// ---- failed writes: a busy store and a lost transport across a submit ------------------------------------------------
 	await scenario('Q-BUSY-STORE', 'payments_tab', 'work.sqlite held (BEGIN IMMEDIATE) for more than 12 s across Add: visible error, every field kept, no row; after release one retry saves exactly one row', async () => {
 		await k.open(route('payments_tab'), 'payments_tab');

@@ -1938,6 +1938,198 @@ class GuardEscapes(GuardCase):
                    base={'package.json': manifest, 'src/api.ts': imp + self.api, f'src/{name}': limits}, why='is loaded by')
 
 
+class GuardResidual(GuardCase):
+    """GRS-150: residual capability routes must fail closed in a changed module."""
+    named_api, api, weakened = GuardAllowlist.named_api, GuardAllowlist.api, GuardAllowlist.weakened
+    route = GuardRoutes.route
+
+    def test_plain_literal_destructuring_cannot_write_a_shared_constructor_or_prototype(self):
+        for label, code in (
+                ('constructor from an object', 'const { constructor: C } = {} as any; C.is = () => true;'),
+                ('computed constructor from an object', "const { ['constructor']: C } = {} as any; C.is = () => true;"),
+                ('nested constructor from an object', 'const { inner: { constructor: C } } = { inner: {} } as any; C.is = () => true;'),
+                ('nested constructor from an array', 'const [{ constructor: C }] = [{}] as any; C.is = () => true;'),
+                ('prototype from an array', 'const { __proto__: P } = [] as any; P.includes = () => true;'),
+                ('assignment destructuring', 'let C: any; ({ constructor: C } = {}); C.is = () => true;'),
+                ('getPrototypeOf then constructor', 'const C: any = Object.getPrototypeOf({}).constructor; C.is = () => true;')):
+            self.route(label, {'src/api.ts': code + '\n' + self.weakened}, why='reaches the test framework')
+
+    def test_bare_export_star_cannot_move_a_capability(self):
+        self.route('bare export star of an Object alias',
+                   {'src/api.ts': "export * from './cap';\n" + self.weakened},
+                   base={'src/cap.ts': 'const O = Object; export { O as P };\n'}, why='reaches the test framework')
+        self.route('bare export star through another module',
+                   {'src/api.ts': "export * from './middle';\n" + self.weakened},
+                   base={'src/cap.ts': 'export const P = Object;\n',
+                         'src/middle.ts': "export * from './cap';\n"}, why='reaches the test framework')
+        self.route('bare export star of a plain value',
+                   {'src/api.ts': "export * from './plain';\n" + self.weakened},
+                   base={'src/plain.ts': 'export const count = 1;\n'})
+        self.route('bare export star does not forward a default capability',
+                   {'src/api.ts': "export * from './default-only';\n" + self.weakened},
+                   base={'src/default-only.ts': 'export default Object;\n'})
+
+    def test_changed_commonjs_exports_fail_closed(self):
+        for label, line in (('module.exports', 'module.exports = { count: 1 };\n'),
+                            ('computed module exports', "module['exports'] = { count: 1 };\n"),
+                            ('exports property', 'exports.x = { count: 1 };\n'),
+                            ('computed exports property', "exports['x'] = { count: 1 };\n")):
+            self.route(label, {'src/api.ts': "import './c.cjs';\n" + self.weakened,
+                               'src/c.cjs': line}, base={'src/c.cjs': 'module.exports = 1;\n'},
+                       why='reaches the test framework')
+
+    # GRS-150 fix round: every way a test reaches `constructor` or `__proto__`, namespace star exports, and CommonJS
+    # aliases. Each shape below passes the guard at 17a6d95a (L2's local bindings are refused there instead).
+
+    def test_a_constructor_or_proto_key_in_any_pattern_or_folded_key_refuses(self):
+        # H1: the key is refused wherever a pattern binds it, whatever the source, and a constant key is folded
+        for label, code in (
+                ('variable source', 'const o: any = {}; const { constructor: C } = o; C.is = () => true;'),
+                ('JSON.parse source', "const o = JSON.parse('{}'); const { constructor: C } = o; C.is = () => true;"),
+                ('string source', "const { constructor: C } = ''; C.is = () => true;"),
+                ('arrow source', 'const { constructor: C } = () => 1; C.is = () => true;'),
+                ('shorthand binding', 'const { constructor } = {} as any; constructor.is = () => true;'),
+                ('shorthand assignment', 'let constructor: any; ({ constructor } = {}); constructor.is = () => true;'),
+                ('for-of binding', 'for (const { constructor: C } of [{}] as any[]) { C.is = () => true; }'),
+                ('for-of assignment', 'let C: any; for ({ constructor: C } of [{}] as any[]) { C.is = () => true; }'),
+                ('for-in assignment', 'let C: any; for ({ constructor: C } in {}) { C.is = () => true; }'),
+                ('assignment from a variable', 'const o: any = {}; let C: any; ({ constructor: C } = o); C.is = () => true;'),
+                ('function parameter', 'function f({ constructor: C }: any) { C.is = () => true; } f({});'),
+                ('arrow parameter', 'const f = ({ constructor: C }: any) => { C.is = () => true; }; f({});'),
+                ('catch binding', 'try { throw {}; } catch ({ constructor: C }: any) { C.is = () => true; }'),
+                ('nested pattern from a variable', 'const o: any = { a: {} }; const { a: { constructor: C } } = o; C.is = () => true;'),
+                ('array element pattern', 'const o: any = [{}]; const [{ constructor: C }] = o; C.is = () => true;'),
+                ('array assignment pattern', 'let C: any; const o: any = [{}]; [{ constructor: C }] = o; C.is = () => true;'),
+                ('assignment pattern default', 'const o: any = {}; const { x: { constructor: C } = {} } = o; C.is = () => true;'),
+                ('__proto__ from a variable', 'const o: any = []; const { __proto__: P } = o; P.includes = () => true;'),
+                ('__proto__ parameter', 'function f({ __proto__: P }: any) { P.includes = () => true; } f([]);'),
+                ('const key', "const k = 'constructor'; const o: any = {}; const { [k]: C } = o; C.is = () => true;"),
+                ('concatenated key', "const o: any = {}; const { ['constr' + 'uctor']: C } = o; C.is = () => true;"),
+                ('const parts concatenated', "const a = 'constr'; const b = 'uctor'; const o: any = {}; const { [a + b]: C } = o; C.is = () => true;"),
+                ('template key', "const o: any = {}; const { [`constr${'uctor'}`]: C } = o; C.is = () => true;"),
+                ('const key read', "const k = 'constructor'; (({}) as any)[k].is = () => true;"),
+                ('concatenated key read', "(({}) as any)['constr' + 'uctor'].is = () => true;")):
+            self.route(label, {'src/api.ts': code + '\n' + self.weakened}, why='reaches the test framework')
+
+    def test_a_pattern_without_a_special_key_passes_and_a_dynamic_key_is_the_reviewers(self):
+        for label, code, why in (
+                ('plain destructuring', 'const o: any = { count: 1 }; export const { count } = o;', None),
+                ('plain parameter', 'export function f({ count }: any) { return count; }', None),
+                ('dynamic key', 'export function pick(k: string) { const o: any = {}; const { [k]: v } = o; return v; }', None),
+                # conservative: the key alone refuses, though this one reads a plain string
+                ('constructor key of a literal that holds a string', "export const { constructor: label } = { constructor: 'x' };",
+                 'reaches the test framework')):
+            self.route(label, {'src/api.ts': code + '\n' + self.weakened}, why=why)
+
+    def test_fixed_computed_keys_and_unresolvable_aliases_refuse(self):
+        long_key = "'c'+'o'+'n'+'s'+'t'+'r'+'u'+'c'+'t'+'o'+'r'"
+        aliases = "const k0 = 'constructor';\n" + ''.join(f'const k{i} = k{i-1};\n' for i in range(1, 10))
+        for label, code, base in (
+                ('long literal pattern', f'const {{ [{long_key}]: C }} = {{}} as any; C.is = () => true;', {}),
+                ('long literal element read', f'(({{}}) as any)[{long_key}].is = () => true;', {}),
+                ('nine const aliases', aliases + 'const { [k9]: C } = {} as any; C.is = () => true;', {}),
+                ('imported fixed key', "import { k } from './keys';\nconst { [k]: C } = {} as any; C.is = () => true;",
+                 {'src/keys.ts': "export const k = 'constructor';\n"}),
+                ('fixed key through two modules', "import { k } from './middle';\nconst { [k]: C } = {} as any; C.is = () => true;",
+                 {'src/keys.ts': "export const original = 'constructor';\n",
+                  'src/middle.ts': "export { original as k } from './keys';\n"}),
+                ('cyclic const aliases', 'const a = b; const b = a; const { [a]: C } = {} as any; C.is = () => true;', {})):
+            self.route(label, {'src/api.ts': code + '\n' + self.weakened}, base=base,
+                       why='reaches the test framework')
+
+    def test_other_pure_computed_key_trees_cannot_hide_a_constructor(self):
+        for label, code in (
+                ('array literal coerces to constructor', "(({}) as any)[['constructor']].is = () => true;"),
+                ('constant conditional key', "const k = true ? 'constructor' : 'other'; const { [k]: C } = {} as any; C.is = () => true;"),
+                ('comma expression key', "(({}) as any)[(0, 'constructor')].is = () => true;")):
+            self.route(label, {'src/api.ts': code + '\n' + self.weakened}, why='reaches the test framework')
+
+    def test_fixed_keys_reached_through_namespace_imports_refuse(self):
+        self.route('namespace import',
+                   {'src/api.ts': "import * as keys from './keys';\nconst { [keys.k]: C } = {} as any; C.is = () => true;\n" + self.weakened},
+                   base={'src/keys.ts': "export const k = 'constructor';\n"}, why='reaches the test framework')
+        self.route('imported namespace export',
+                   {'src/api.ts': "import { Keys } from './middle';\nconst { [Keys.k]: C } = {} as any; C.is = () => true;\n" + self.weakened},
+                   base={'src/keys.ts': "export const k = 'constructor';\n",
+                         'src/middle.ts': "export * as Keys from './keys';\n"}, why='reaches the test framework')
+
+    def test_const_alias_of_an_imported_namespace_keeps_its_fixed_key(self):
+        self.route('const namespace alias',
+                   {'src/api.ts': "import * as keys from './keys';\nconst alias = keys; "
+                                  "const { [alias.k]: C } = {} as any; C.is = () => true;\n" + self.weakened},
+                   base={'src/keys.ts': "export const k = 'constructor';\n"}, why='reaches the test framework')
+
+    def test_runtime_element_keys_stay_reviewer_owned(self):
+        for label, code in (
+                ('parameter', 'export function read(k: string) { return ({} as any)[k]; }'),
+                ('call result', "const key = () => 'constructor'; export const value = ({} as any)[key()];"),
+                ('join result', "export const value = ({} as any)[['constr', 'uctor'].join('')];"),
+                ('fromCharCode result', "export const value = ({} as any)[String.fromCharCode(" +
+                 ', '.join(str(ord(char)) for char in 'constructor') + ")];")):
+            self.route(label, {'src/api.ts': code + '\n' + self.weakened})
+
+    def test_for_of_const_without_an_initializer_is_a_runtime_key(self):
+        self.route('for-of const key',
+                   {'src/api.ts': "const values: any = {}; for (const item of [{ key: 'name' }]) { "
+                                  "values[item.key] = 1; }\n" + self.weakened})
+
+    def test_fixed_branch_alternatives_refuse_only_when_they_can_name_a_special_key(self):
+        self.route('safe conditional keys',
+                   {'src/api.ts': "export function pick(flag: boolean) { return ({} as any)[flag ? 'runs' : 'jobs']; }\n" + self.weakened})
+        self.route('special conditional key',
+                   {'src/api.ts': "export function pick(flag: boolean) { const k = flag ? 'constructor' : 'other'; "
+                                  "const { [k]: C } = {} as any; C.is = () => true; }\n" + self.weakened},
+                   why='reaches the test framework')
+        self.route('special key completed after a conditional',
+                   {'src/api.ts': "export function pick(flag: boolean) { const k = 'cons' + (flag ? 'tructor' : 'x'); "
+                                  "return ({} as any)[k].is = () => true; }\n" + self.weakened},
+                   why='reaches the test framework')
+
+    def test_export_star_as_a_namespace_forwards_a_capability(self):
+        # M1: `export * as N from` is a name, so a capability behind it refuses, directly or under an `export *` chain
+        self.route('a star over a module that namespaces a builtin module',
+                   {'src/api.ts': "export * from './middle';\n" + self.weakened},
+                   base={'src/middle.ts': "export * as P from 'node:fs';\n"}, why='reaches the test framework')
+        self.route('a star over a module that namespaces a capability export',
+                   {'src/api.ts': "export * from './middle';\n" + self.weakened},
+                   base={'src/cap.ts': 'export const P = Object;\n', 'src/middle.ts': "export * as N from './cap';\n"},
+                   why='reaches the test framework')
+        self.route('a namespace over a namespace that holds a capability',
+                   {'src/api.ts': "export * as Q from './middle';\n" + self.weakened},
+                   base={'src/cap.ts': 'export const P = Object;\n', 'src/middle.ts': "export * as N from './cap';\n"},
+                   why='reaches the test framework')
+        self.route('a star cycle that carries a capability still refuses',
+                   {'src/api.ts': "export * from './middle';\n" + self.weakened},
+                   base={'src/cap.ts': "export const P = Object;\nexport * from './middle';\n",
+                         'src/middle.ts': "export * from './cap';\nexport * as N from './cap';\n"}, why='reaches the test framework')
+        self.route('a namespace cycle with no capability passes',
+                   {'src/api.ts': "export * from './middle';\n" + self.weakened},
+                   base={'src/plain.ts': "export const count = 1;\nexport * from './middle';\n",
+                         'src/middle.ts': "export * as N from './plain';\n"})
+
+    def test_a_changed_commonjs_module_may_not_reference_an_unbound_module_or_exports(self):
+        # L1: every reference, not only an assignment target
+        for label, line in (('assign into module.exports', 'Object.assign(module.exports, { count: 1 });\n'),
+                            ('defineProperty on exports', "Object.defineProperty(exports, 'x', { value: 1 });\n"),
+                            ('module.exports aliased', 'const e = module.exports;\ne.x = 1;\n'),
+                            ('exports taken from module', 'const { exports: e } = module;\ne.x = 1;\n'),
+                            ('exports aliased', 'const e = exports;\ne.x = 1;\n')):
+            self.route(label, {'src/api.ts': "import './c.cjs';\n" + self.weakened, 'src/c.cjs': line},
+                       base={'src/c.cjs': 'module.exports = 1;\n'}, why='reaches the test framework')
+
+    def test_a_local_binding_named_module_or_exports_passes(self):
+        # L2: the binding check runs before the unbound one
+        for label, name, line in (
+                ('a const named exports', 'src/api.ts', 'const exports = { count: 1 };\nexports.count = 2;\n'),
+                ('a const named module', 'src/api.ts', 'const module = { exports: 1 };\nmodule.exports = 2;\n'),
+                ('a parameter named module', 'src/api.ts', 'export function f(module: { exports: number }) { module.exports = 2; }\n'),
+                ('a catch binding named exports', 'src/api.ts', 'try { throw {}; } catch (exports: any) { exports.x = 1; }\n'),
+                ('a const named exports in a cjs file', 'src/c.cjs', 'const exports = {};\nexports.x = 1;\n')):
+            head = {'src/api.ts': "import './c.cjs';\n" + self.weakened, 'src/c.cjs': line} if name.endswith('.cjs') \
+                else {'src/api.ts': line + self.weakened}
+            self.route(label, head, base={'src/c.cjs': 'module.exports = 1;\n'})
+
+
 class GuardBinding(ControlCase):
     """H1: once a fix attempt is recorded, approval needs a PASS guard receipt bound to the reviewed commit and findings."""
     unit = 'GRS-104/implementation'

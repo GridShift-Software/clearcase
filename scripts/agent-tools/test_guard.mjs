@@ -476,13 +476,105 @@ const up = node => {
   return node;
 };
 const literal = expression => (expression && ts.isStringLiteralLike(expression) ? expression.text : undefined);
-// the name a key spells before the module runs: a literal, or Symbol.for(literal) called directly; undefined otherwise
-const keyName = (tree, key) => {
+// A pure key whose value cannot be established (a cycle or an unavailable export) is different from a runtime key.
+const UNRESOLVED_KEY = Symbol('unresolved fixed key');
+const MAX_KEY_CHOICES = 256; // exceeding this refuses; it never makes a fixed key look runtime
+const keyChoices = value => value instanceof Set ? value : [value];
+const joinKeys = (left, right) => {
+  if (left === undefined || right === undefined) return undefined;
+  if (left === UNRESOLVED_KEY || right === UNRESOLVED_KEY) return UNRESOLVED_KEY;
+  if (typeof left === 'string' && typeof right === 'string') return left + right;
+  const joined = new Set();
+  for (const a of keyChoices(left)) for (const b of keyChoices(right)) {
+    joined.add(a + b);
+    if (joined.size > MAX_KEY_CHOICES) return UNRESOLVED_KEY;
+  }
+  return joined.size === 1 ? [...joined][0] : joined;
+};
+// The name a key spells before the module runs. A declaration and export visited set bounds cycles, without an
+// arbitrary limit on literal trees or const chains. Undefined means the key depends on a runtime value.
+const keyName = (tree, checker, key, declaredKey, seen = new Set()) => {
   key = unwrap(key);
+  if (!key) return undefined;
   if (ts.isStringLiteralLike(key) || ts.isNumericLiteral(key)) return key.text;
+  if (key.kind === ts.SyntaxKind.TrueKeyword) return 'true';
+  if (key.kind === ts.SyntaxKind.FalseKeyword) return 'false';
+  if (key.kind === ts.SyntaxKind.NullKeyword) return 'null';
+  if (ts.isBigIntLiteral(key)) return key.text.replace(/n$/, '');
+  if (ts.isTemplateExpression(key)) {
+    let text = key.head.text;
+    for (const span of key.templateSpans) {
+      const part = keyName(tree, checker, span.expression, declaredKey, seen);
+      text = joinKeys(joinKeys(text, part), span.literal.text);
+      if (text === undefined || text === UNRESOLVED_KEY) return text;
+    }
+    return text;
+  }
+  if (ts.isBinaryExpression(key) && key.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = keyName(tree, checker, key.left, declaredKey, seen);
+    const right = keyName(tree, checker, key.right, declaredKey, seen);
+    return joinKeys(left, right);
+  }
+  if (ts.isBinaryExpression(key)) {
+    if (key.operatorToken.kind === ts.SyntaxKind.CommaToken) return keyName(tree, checker, key.right, declaredKey, seen);
+    const left = keyName(tree, checker, key.left, declaredKey, seen);
+    const right = keyName(tree, checker, key.right, declaredKey, seen);
+    return left === undefined || right === undefined ? undefined : UNRESOLVED_KEY;
+  }
+  if (ts.isConditionalExpression(key)) {
+    if (key.condition.kind === ts.SyntaxKind.TrueKeyword) return keyName(tree, checker, key.whenTrue, declaredKey, seen);
+    if (key.condition.kind === ts.SyntaxKind.FalseKeyword) return keyName(tree, checker, key.whenFalse, declaredKey, seen);
+    const yes = keyName(tree, checker, key.whenTrue, declaredKey, seen);
+    const no = keyName(tree, checker, key.whenFalse, declaredKey, seen);
+    if (yes === undefined || no === undefined) return undefined;
+    if (yes === UNRESOLVED_KEY || no === UNRESOLVED_KEY) return UNRESOLVED_KEY;
+    const options = new Set([...keyChoices(yes), ...keyChoices(no)]);
+    return options.size > MAX_KEY_CHOICES ? UNRESOLVED_KEY : options.size === 1 ? [...options][0] : options;
+  }
+  if (ts.isArrayLiteralExpression(key)) {
+    const parts = key.elements.map(element => ts.isSpreadElement(element) ? undefined : keyName(tree, checker, element, declaredKey, seen));
+    return parts.includes(undefined) ? undefined : UNRESOLVED_KEY; // array coercion is fixed, but not a string literal tree
+  }
+  if (ts.isPropertyAccessExpression(key) || ts.isElementAccessExpression(key)) {
+    const members = [];
+    let root = key;
+    while (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root)) {
+      const member = ts.isPropertyAccessExpression(root) ? root.name.text : finishKey(keyName(tree, checker, root.argumentExpression, declaredKey, seen));
+      if (member === undefined || member === UNRESOLVED_KEY) return member;
+      members.unshift(member);
+      root = unwrap(root.expression);
+    }
+    if (ts.isIdentifier(root)) {
+      const declaration = declarationOf(checker, tree, root);
+      const alias = declaration && ts.isVariableDeclaration(declaration) && declaration.initializer && declaration.parent.flags & ts.NodeFlags.Const
+        && ts.isIdentifier(unwrap(declaration.initializer));
+      if (declaration && (importedFrom(declaration) !== undefined || alias)) {
+        if (seen.has(declaration)) return UNRESOLVED_KEY;
+        seen.add(declaration);
+        try { return declaredKey(declaration, seen, members); } finally { seen.delete(declaration); }
+      }
+    }
+    if (ts.isObjectLiteralExpression(root) || ts.isArrayLiteralExpression(root)) return UNRESOLVED_KEY;
+    return undefined;
+  }
+  if (ts.isPrefixUnaryExpression(key) || ts.isVoidExpression(key) || ts.isTypeOfExpression(key)) {
+    const operand = key.operand ?? key.expression;
+    return keyName(tree, checker, operand, declaredKey, seen) === undefined ? undefined : UNRESOLVED_KEY;
+  }
+  if (ts.isIdentifier(key)) {
+    const declaration = declarationOf(checker, tree, key);
+    if (!declaration) return undefined;
+    if (seen.has(declaration)) return UNRESOLVED_KEY;
+    seen.add(declaration);
+    try { return declaredKey(declaration, seen); } finally { seen.delete(declaration); }
+  }
   if (ts.isCallExpression(key) && key.expression.getText(tree).replace(/\s/g, '') === 'Symbol.for') return literal(key.arguments[0]);
   return undefined;
 };
+// The keys by which a value of any origin reaches a shared constructor or prototype (x.constructor, x.__proto__,
+// x.__lookupGetter__). rootOf, destructured() and the pattern sweep in reachesFramework all decide it here.
+const isSpecialKey = key => typeof key === 'string' && /^(?:constructor|__\w+__)$/.test(key);
+const finishKey = key => key instanceof Set ? [...key].some(isSpecialKey) ? UNRESOLVED_KEY : undefined : key;
 const isExported = node => Boolean(node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword));
 const loadBuiltin = createRequire(import.meta.url);
 // whether a builtin module has an export (one the guard's runtime does not know is assumed to)
@@ -524,6 +616,67 @@ const analysisOf = (file, text, exporter) => {
   const { tree, checker } = bind(file, text);
   const self = { tree, checker };
   cache.set(`${file}\0${text}`, self);
+  const keyValue = (key, seen = new Set()) => keyName(tree, checker, key, keyOfDeclaration, seen);
+  const fixedKey = (key, seen = new Set()) => finishKey(keyValue(key, seen));
+  const fromKey = (specifier, name, seen) => {
+    if (!specifier || isBuiltin(specifier)) return UNRESOLVED_KEY;
+    const target = exporter(file, specifier);
+    return target ? analysisOf(target.file, target.text, exporter).exportKey(name, seen) : UNRESOLVED_KEY;
+  };
+  const keyOfDeclaration = (declaration, seen, members = []) => {
+    const source = importedFrom(declaration);
+    if (source !== undefined) {
+      if (ts.isNamespaceImport(declaration)) return members.length ? fromKey(source, members.join('.'), seen) : undefined;
+      const name = ts.isImportSpecifier(declaration) ? (declaration.propertyName ?? declaration.name).text : 'default';
+      return fromKey(source, [name, ...members].join('.'), seen);
+    }
+    if (members.length) {
+      const target = ts.isVariableDeclaration(declaration) && declaration.initializer && declaration.parent.flags & ts.NodeFlags.Const
+        && ts.isIdentifier(unwrap(declaration.initializer)) ? declarationOf(checker, tree, unwrap(declaration.initializer)) : undefined;
+      if (!target) return undefined; // a local object's members can change at runtime
+      if (seen.has(target)) return UNRESOLVED_KEY;
+      seen.add(target);
+      try { return keyOfDeclaration(target, seen, members); } finally { seen.delete(target); }
+    }
+    return ts.isVariableDeclaration(declaration) && ts.isIdentifier(declaration.name) && declaration.initializer
+      && declaration.parent.flags & ts.NodeFlags.Const ? keyValue(declaration.initializer, seen) : undefined;
+  };
+  const exportKey = (name, seen = new Set()) => {
+    const mark = `key\0${file}\0${name}`;
+    if (seen.has(mark)) return UNRESOLVED_KEY;
+    seen.add(mark);
+    try {
+      const [first, ...members] = name.split('.');
+      const suffix = members.length ? `.${members.join('.')}` : '';
+      const stars = [];
+      for (const statement of tree.statements) {
+        if (ts.isVariableStatement(statement) && isExported(statement)) {
+          for (const declaration of statement.declarationList.declarations) {
+            if (ts.isIdentifier(declaration.name) && declaration.name.text === first) return keyOfDeclaration(declaration, seen, members);
+          }
+        }
+        if (ts.isExportAssignment(statement) && first === 'default') return members.length ? UNRESOLVED_KEY : keyValue(statement.expression, seen);
+        if (!ts.isExportDeclaration(statement) || statement.isTypeOnly) continue;
+        if (!statement.exportClause) { stars.push(literal(statement.moduleSpecifier)); continue; }
+        if (ts.isNamespaceExport(statement.exportClause)) {
+          if (statement.exportClause.name.text === first) return members.length
+            ? fromKey(literal(statement.moduleSpecifier), members.join('.'), seen) : undefined;
+          continue;
+        }
+        const element = statement.exportClause.elements.find(part => !part.isTypeOnly && part.name.text === first);
+        if (!element) continue;
+        if (statement.moduleSpecifier) return fromKey(literal(statement.moduleSpecifier), (element.propertyName ?? element.name).text + suffix, seen);
+        const declaration = checker.getExportSpecifierLocalTargetSymbol(element)?.declarations
+          ?.find(part => part.getSourceFile() === tree && !(part.flags & ts.NodeFlags.Ambient));
+        return declaration ? keyOfDeclaration(declaration, seen, members) : UNRESOLVED_KEY;
+      }
+      for (const specifier of name === 'default' ? [] : stars) {
+        const result = fromKey(specifier, name, seen);
+        if (result !== UNRESOLVED_KEY) return result;
+      }
+      return UNRESOLVED_KEY;
+    } finally { seen.delete(mark); }
+  };
   const member = (root, key, seen) => {
     if (root.global) {
       if (key === undefined) return { path: 'a computed member of the global object' };
@@ -567,11 +720,11 @@ const analysisOf = (file, text, exporter) => {
       if (node.dotDotDotToken) continue;
       const name = node.propertyName ?? node.name;
       keys.unshift(ts.isArrayBindingPattern(node.parent) ? String(node.parent.elements.indexOf(node))
-        : ts.isComputedPropertyName(name) ? keyName(tree, name.expression) : name.text);
+        : ts.isComputedPropertyName(name) ? fixedKey(name.expression) : name.text);
     }
-    if (!ts.isVariableDeclaration(node) || !node.initializer) return undefined; // a parameter, catch or for-of binding
-    let root = rootOf(node.initializer, seen);
-    for (const key of keys) root = root && member(root, key, seen);
+    // a parameter, catch or for-of binding has no initialiser; any value still has the constructor rootOf(x.constructor) reads
+    let root = ts.isVariableDeclaration(node) && node.initializer ? rootOf(node.initializer, seen) : undefined;
+    for (const key of keys) root = root ? member(root, key === UNRESOLVED_KEY ? undefined : key, seen) : isSpecialKey(key) ? { path: key } : undefined;
     return root;
   };
   // super: the class a class extends, in a static member, or its prototype, in an instance member
@@ -604,10 +757,11 @@ const analysisOf = (file, text, exporter) => {
     }
     if (node.kind === ts.SyntaxKind.SuperKeyword) return superOf(node, seen);
     if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
-      const key = ts.isPropertyAccessExpression(node) ? node.name.text : keyName(tree, node.argumentExpression);
+      const named = ts.isPropertyAccessExpression(node) ? node.name.text : fixedKey(node.argumentExpression);
+      const key = named === UNRESOLVED_KEY ? undefined : named;
       const inner = rootOf(node.expression, seen);
       if (inner) return member(inner, key, seen);
-      return key !== undefined && /^(?:constructor|__\w+__)$/.test(key) ? { path: key } : undefined;
+      return isSpecialKey(key) ? { path: key } : undefined;
     }
     if (ts.isCallExpression(node)) {
       const specifier = node.arguments.length === 1 ? literal(node.arguments[0]) : undefined;
@@ -674,7 +828,38 @@ const analysisOf = (file, text, exporter) => {
       seen.delete(mark);
     }
   };
-  Object.assign(self, { rootOf, exportedBy, exportRoot, from });
+  const bindingNames = binding => ts.isIdentifier(binding) ? [binding.text]
+    : binding.elements.flatMap(element => ts.isOmittedExpression(element) ? [] : bindingNames(element.name));
+  const capabilityExport = (seen = new Set(), includeDefault = false) => {
+    if (seen.has(file)) return undefined;
+    seen.add(file);
+    try {
+      for (const statement of tree.statements) {
+        const names = ts.isVariableStatement(statement) && isExported(statement)
+          ? statement.declarationList.declarations.flatMap(declaration => bindingNames(declaration.name))
+          : isExported(statement) && statement.name ? [statement.name.text]
+            : ts.isExportAssignment(statement) ? ['default']
+              : ts.isExportDeclaration(statement) && statement.exportClause
+                ? ts.isNamespaceExport(statement.exportClause) ? [statement.exportClause.name.text]
+                  : statement.exportClause.elements.filter(element => !element.isTypeOnly).map(element => element.name.text) : [];
+        for (const name of names) {
+          if (name === 'default' && !includeDefault) continue; // export * does not forward default
+          const root = exportRoot(name);
+          const found = capabilityOf(root) ?? root?.namespace?.capabilityExport(seen, true);
+          if (found) return found;
+        }
+        if (ts.isExportDeclaration(statement) && !statement.isTypeOnly && !statement.exportClause) {
+          const target = from(literal(statement.moduleSpecifier), '*', new Set());
+          const found = target?.namespace?.capabilityExport(seen);
+          if (found) return found;
+        }
+      }
+      return undefined;
+    } finally {
+      seen.delete(file);
+    }
+  };
+  Object.assign(self, { rootOf, exportedBy, exportRoot, capabilityExport, from, exportKey, fixedKey });
   return self;
 };
 // How a module reaches the test framework or rewrites what the named tests rely on, if it does: a framework import,
@@ -694,8 +879,27 @@ const analysisOf = (file, text, exporter) => {
 // `exporter` lets rootOf follow an import into the module that exports it; without one, imports are not followed.
 const noExporter = () => undefined;
 const reachesFramework = (file, text, exporter = noExporter) => {
-  const { tree, checker, rootOf, exportedBy, from } = analysisOf(file, text, exporter);
+  const { tree, checker, rootOf, exportedBy, from, fixedKey } = analysisOf(file, text, exporter);
   const unbound = id => !declarationOf(checker, tree, id);
+  const propertyKey = name => (ts.isComputedPropertyName(name) ? fixedKey(name.expression) : name.text);
+  // whether an object literal is a destructuring target: the left of =, a for-in/of head, or inside another such pattern
+  const assignmentTarget = node => {
+    const top = up(node);
+    const parent = top.parent;
+    if (ts.isBinaryExpression(parent)) return parent.operatorToken.kind === ts.SyntaxKind.EqualsToken && parent.left === top;
+    if (ts.isForInStatement(parent) || ts.isForOfStatement(parent)) return parent.initializer === top;
+    if (ts.isPropertyAssignment(parent)) return parent.initializer === top && assignmentTarget(parent.parent);
+    if (ts.isArrayLiteralExpression(parent)) return assignmentTarget(parent);
+    return (ts.isSpreadElement(parent) || ts.isSpreadAssignment(parent)) && assignmentTarget(parent.parent);
+  };
+  // A special key in any object pattern, a binding or an assignment target, whatever its source (a variable, a parameter,
+  // a catch binding, a for-of head, a default): the value it reads is a shared constructor or prototype.
+  const patternKey = node => {
+    const names = ts.isObjectBindingPattern(node) ? node.elements.filter(element => !element.dotDotDotToken).map(element => element.propertyName ?? element.name)
+      : ts.isObjectLiteralExpression(node) && assignmentTarget(node)
+        ? node.properties.filter(property => ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)).map(property => property.name) : [];
+    return names.map(propertyKey).find(key => key === UNRESOLVED_KEY || isSpecialKey(key));
+  };
   // types have no runtime effect, but the expression a class extends does run
   const inType = node => Boolean(ts.findAncestor(node, ancestor => ts.isTypeNode(ancestor)
     && !(ts.isExpressionWithTypeArguments(ancestor) && ts.isHeritageClause(ancestor.parent) && ancestor.parent.token === ts.SyntaxKind.ExtendsKeyword
@@ -730,7 +934,8 @@ const reachesFramework = (file, text, exporter = noExporter) => {
     };
     if (ts.isPropertyAccessExpression(parent) && parent.expression === top) return reachedBy(parent, parent.name.text);
     if (ts.isElementAccessExpression(parent) && parent.expression === top) {
-      const key = keyName(tree, parent.argumentExpression);
+      const named = fixedKey(parent.argumentExpression);
+      const key = named === UNRESOLVED_KEY ? undefined : named;
       return key === undefined ? `a computed member of ${kind === 'global' ? 'the global object' : name}` : reachedBy(parent, key);
     }
     if (ts.isVariableDeclaration(parent) && parent.initializer === top) {
@@ -743,8 +948,9 @@ const reachesFramework = (file, text, exporter = noExporter) => {
         for (const element of parent.name.elements) {
           if (element.dotDotDotToken) return `the rest of ${name}`;
           const key = element.propertyName ?? element.name;
-          if (ts.isComputedPropertyName(key) && keyName(tree, key.expression) === undefined) return `a computed member of ${name}`;
-          const reason = reachedBy(element, ts.isComputedPropertyName(key) ? keyName(tree, key.expression) : key.text);
+          const named = ts.isComputedPropertyName(key) ? fixedKey(key.expression) : key.text;
+          if (named === undefined || named === UNRESOLVED_KEY) return `a computed member of ${name}`;
+          const reason = reachedBy(element, named);
           if (reason) return reason;
         }
         return undefined;
@@ -770,6 +976,24 @@ const reachesFramework = (file, text, exporter = noExporter) => {
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) return written(node.left);
     return [node];
   };
+  // a name declared in an enclosing scope; in a CommonJS file the binder also files `module.exports = x` and `exports.x = y`
+  // under `module` and `exports`, as expando declarations of an expression, which declare nothing
+  const expando = declaration => ts.isBinaryExpression(declaration) || ts.isPropertyAccessExpression(declaration)
+    || ts.isElementAccessExpression(declaration) || ts.isIdentifier(declaration) || ts.isSourceFile(declaration);
+  const localBinding = id => Boolean(ts.findAncestor(id, scope => scope.locals?.get(id.text)?.declarations?.some(declaration => !expando(declaration))));
+  const commonJsName = node => (ts.isIdentifier(node) && (node.text === 'module' || node.text === 'exports') && isReference(node) && !inType(node)
+    && !localBinding(node) ? `references the unbound CommonJS ${node.text}` : undefined);
+  const commonJsExport = target => {
+    target = unwrap(target);
+    if (ts.isIdentifier(target)) return target.text === 'exports' && !localBinding(target);
+    if (!ts.isPropertyAccessExpression(target) && !ts.isElementAccessExpression(target)) return false;
+    const object = unwrap(target.expression);
+    if (ts.isIdentifier(object) && object.text === 'module' && !localBinding(object)) {
+      const key = ts.isPropertyAccessExpression(target) ? target.name.text : fixedKey(target.argumentExpression);
+      return key === 'exports';
+    }
+    return commonJsExport(object);
+  };
   const mutation = node => {
     const targets = ts.isBinaryExpression(node) && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
         && node.operatorToken.kind <= ts.SyntaxKind.LastAssignment ? written(node.left)
@@ -778,6 +1002,7 @@ const reachesFramework = (file, text, exporter = noExporter) => {
         : ts.isDeleteExpression(node) ? written(node.expression)
           : (ts.isForInStatement(node) || ts.isForOfStatement(node)) && !ts.isVariableDeclarationList(node.initializer) ? written(node.initializer) : [];
     for (const target of targets.map(unwrap)) {
+      if (commonJsExport(target)) return 'assigns a CommonJS export';
       if (ts.isIdentifier(target) && !unbound(target)) continue; // rebinding a local variable changes nothing shared
       // writing a member changes the object it is read from (super.x = v sets x on this); writing a global name changes
       // that name
@@ -808,12 +1033,17 @@ const reachesFramework = (file, text, exporter = noExporter) => {
   };
   // An export is a move like any other: a capability exported under any name, or re-exported, refuses.
   const exports = node => {
+    if (ts.isExportDeclaration(node) && !node.isTypeOnly && !node.exportClause) {
+      const found = from(literal(node.moduleSpecifier), '*', new Set())?.namespace?.capabilityExport();
+      return found && `${found[1]} exported by *`;
+    }
     if (ts.isExportSpecifier(node) && !node.isTypeOnly && !node.parent.parent.isTypeOnly) {
       const found = capabilityOf(exportedBy(node));
       return found && `${found[1]} exported as ${node.name.text}`;
     }
     if (ts.isNamespaceExport(node)) {
-      const found = capabilityOf(from(literal(node.parent.moduleSpecifier), '*', new Set()));
+      const root = from(literal(node.parent.moduleSpecifier), '*', new Set());
+      const found = capabilityOf(root) ?? root?.namespace?.capabilityExport(new Set(), true);
       return found && `${found[1]} exported as ${node.name.text}`;
     }
     if (ts.isImportEqualsDeclaration(node) && !ts.isExternalModuleReference(node.moduleReference)) {
@@ -836,7 +1066,12 @@ const reachesFramework = (file, text, exporter = noExporter) => {
     else if ((ts.isCallExpression(node) || ts.isNewExpression(node))
         && (node.arguments ?? []).some(argument => FRAMEWORK.test(literal(argument) ?? ''))) reach = `names ${literal(node.arguments.find(argument => FRAMEWORK.test(literal(argument) ?? '')))} to ${node.expression.getText(tree)}`;
     else if (ts.isMetaProperty(node) && ts.isPropertyAccessExpression(node.parent) && node.parent.name.text === 'vitest') reach = 'import.meta.vitest';
-    else reach = appears(node) ?? exports(node);
+    else {
+      const key = patternKey(node);
+      reach = key ? key === UNRESOLVED_KEY ? 'cannot resolve a fixed computed pattern key' : `destructures ${key}`
+        : ts.isElementAccessExpression(node) && fixedKey(node.argumentExpression) === UNRESOLVED_KEY
+          ? 'cannot resolve a fixed computed element key' : appears(node) ?? exports(node) ?? commonJsName(node);
+    }
     if (!reach && ts.isIdentifier(node) && REACH.has(node.text) && isReference(node)) {
       const declaration = declarationOf(checker, tree, node);
       if (!declaration || (importedFrom(declaration) !== undefined && FRAMEWORK.test(importedFrom(declaration)))) reach = `uses ${node.text}`;

@@ -37,6 +37,15 @@ describe('run names', () => {
 });
 
 describe('run manifest and teardown', () => {
+	test('a failed create cannot delete a Worker owned by another checkout', () => {
+		const w = world();
+		mkdirSync(path.join(w.cloud, 'worker', NAME), { recursive: true });
+		const run = openRun({ dir: w.manifests, ticket: '107', worker: 'w1', sha: 'abc1234', kinds: ['worker'], provider: w.provider, trap: false });
+		expect(() => run.create('worker')).toThrow(/exists/);
+		run.teardown();
+		expect(w.provider.names()).toContain(`worker/${NAME}`);
+	});
+
 	test('the manifest lists every resource before the first is created', () => {
 		const w = world();
 		const seen: string[] = [];

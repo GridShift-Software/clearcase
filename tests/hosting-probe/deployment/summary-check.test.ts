@@ -41,6 +41,12 @@ function repo() {
 }
 
 describe('the committed deployment summary is bound to an ancestor commit and to the probe own inputs', () => {
+	test('a PASS summary missing deployment legs is refused', () => {
+		const r = repo();
+		r.record((s) => (s.legs = { P1: { status: 'PASS' } }));
+		expect(r.check()).not.toEqual([]);
+	});
+
 	test('a docs-only commit after the run passes, and the sha stays the run own', () => {
 		const r = repo();
 		r.record();

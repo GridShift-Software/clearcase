@@ -3,7 +3,8 @@
 	// and only Confirm acts. The page keeps the one target awaiting confirmation in `pending`. Inside a form, Confirm
 	// submits with the target in the `confirm` field; with `onconfirm`, Confirm calls it instead. Confirm unmounts when
 	// pressed, so focus returns to this control once a failed action leaves it enabled again, and to the page heading
-	// when the control itself goes (its row was deleted).
+	// when the control itself goes (its row was deleted). A failed action's message belongs in the control's
+	// aria-describedby, so it is read again when focus returns.
 	import { onMount, tick } from 'svelte';
 	import type { HTMLButtonAttributes } from 'svelte/elements';
 	import { CANCEL, CONFIRM } from './confirm-delete';

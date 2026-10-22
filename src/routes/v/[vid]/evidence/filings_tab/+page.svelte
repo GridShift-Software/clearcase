@@ -217,7 +217,7 @@
 		</form>
 		{#if deleteError}
 			<div class="error" role="alert" id="register-delete-error" data-key={deleteError.key}>
-				<p>{deleteError.message}</p>
+				<p id="register-delete-message">{deleteError.message}</p>
 				{#if ready}<button type="button" id="register-delete-dismiss" onclick={() => (deleteError = null)}>Dismiss</button>{/if}
 			</div>
 		{/if}
@@ -242,7 +242,7 @@
 						<td>{#if e.fields.status}<span class="badge info">{e.fields.status}</span>{/if}</td>
 						<td class="actions">
 							<form method="GET"><input type="hidden" name="edit" value={e.key} /><button class="ghost" data-edit disabled={busy !== null || held}>Edit</button></form>
-							<ConfirmDelete bind:pending={confirming} target={e.key} question="Delete this entry?" form="register-form" formaction="?/delete" name="delete" class="ghost" data-delete disabled={busy !== null || e.key === editing} title={e.key === editing ? 'Cancel the edit to delete this row' : undefined} />
+							<ConfirmDelete bind:pending={confirming} target={e.key} question="Delete this entry?" form="register-form" formaction="?/delete" name="delete" class="ghost" data-delete aria-describedby={deleteError?.key === e.key ? 'register-delete-message' : undefined} disabled={busy !== null || e.key === editing} title={e.key === editing ? 'Cancel the edit to delete this row' : undefined} />
 						</td>
 					</tr>
 				{/each}

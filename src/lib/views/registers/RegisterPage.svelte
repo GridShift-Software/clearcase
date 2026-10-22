@@ -241,7 +241,7 @@
 	{#if rebaseNote}<p class="status" role="status" id="register-rebase-note">{rebaseNote}</p>{/if}
 	{#if deleteError}
 		<div class="error" role="alert" id="register-delete-error">
-			<p>{deleteError.message}</p>
+			<p id="register-delete-message">{deleteError.message}</p>
 			<button type="button" id="register-delete-dismiss" onclick={() => (deleteError = null)}>Dismiss</button>
 		</div>
 	{/if}
@@ -270,7 +270,7 @@
 						<td class="row-actions">
 							{#if !r.intact}<span class="altered">this entry was altered on disk since it was saved</span>{/if}
 							<button type="button" data-edit onclick={() => edit(r)} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)}>Edit</button>
-							<form method="POST" action="?/delete" use:enhance={remove}><input type="hidden" name="rowId" value={r.rowId} /><ConfirmDelete bind:pending={confirming} target={r.rowId} question="Delete this entry?" data-delete disabled={busy || deleting === r.rowId || (saveError !== null && !ready)} /></form>
+							<form method="POST" action="?/delete" use:enhance={remove}><input type="hidden" name="rowId" value={r.rowId} /><ConfirmDelete bind:pending={confirming} target={r.rowId} question="Delete this entry?" data-delete aria-describedby={deleteError?.rowId === r.rowId ? 'register-delete-message' : undefined} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)} /></form>
 						</td>
 					</tr>
 				{/each}

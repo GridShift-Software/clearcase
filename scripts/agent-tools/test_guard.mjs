@@ -922,6 +922,9 @@ function main() {
   const common = trusted && spawnSync('git', ['-C', root, 'merge-base', '--all', base, trusted], { env, encoding: 'utf8' });
   const forks = common?.status === 0 ? common.stdout.split('\n').filter(Boolean) : [];
   const merged = forks.length > 0 && spawnSync('git', ['-C', root, 'merge-base', '--is-ancestor', trusted, tip], { env }).status === 0;
+  // The base commits HEAD holds: the trusted base once merged, else the newest base state HEAD merged before it moved on.
+  const held = forks.length > 0 && spawnSync('git', ['-C', root, 'merge-base', '--all', trusted, tip], { env, encoding: 'utf8' });
+  const received = held?.status === 0 ? held.stdout.split('\n').filter(Boolean) : [];
   // a revision's tracked files: path -> { mode, id }, parsed once for the base-change test and the closures alike
   const trees = new Map();
   const tracked = revision => {
@@ -942,6 +945,11 @@ function main() {
   const fromBase = file => merged && (treeEntry(tip, file) !== undefined || treeEntry(base, file) !== undefined)
     && treeEntry(tip, file) === treeEntry(trusted, file)
     && forks.every(fork => treeEntry(fork, file) === treeEntry(base, file));
+  // A path that the fix base and every merge base of it with the base lack is one the base added after the review (a
+  // rename's new path included). The fix base's absence is no reference for it: the base's copy HEAD received is, at
+  // each base commit HEAD holds. None without a trusted base.
+  const baseCopies = file => (treeEntry(base, file) !== undefined || forks.some(fork => treeEntry(fork, file) !== undefined) ? []
+    : received.filter(revision => treeEntry(revision, file) !== undefined));
   const inherited = [];
   const proceed = () => {
     if (!command.length) return 0;
@@ -1725,10 +1733,13 @@ function main() {
       if (/\.(?:py|sh)$/.test(file)) throw Error(`unsupported changed test syntax: ${file}; guard refuses to infer assertion counts`);
       continue;
     }
-    const old = exists(base, file) ? load(before, base, file).assertions : 0;
+    // a path the base added after the review counts from the base's copy HEAD received, not from 0
+    const copies = baseCopies(file);
+    const old = exists(base, file) ? load(before, base, file).assertions
+      : Math.max(0, ...copies.map(revision => parse(file, source(revision, file)).assertions));
     const current = exists(head, file) ? load(after, head, file).assertions : 0;
     if (current < old && !(typeof reasons[file] === 'string' && reasons[file].trim())) {
-      throw Error(`assertion count fell in ${file}: ${old} -> ${current}; record assertionCountReasons[file]`);
+      throw Error(`assertion count fell in ${file}: ${old} -> ${current}${copies.length ? ` (the base's copy at ${copies.map(revision => revision.slice(0, 12)).join(', ')}; the fix base has no ${file})` : ''}; record assertionCountReasons[file]`);
     }
   }
   if (diff.length > changed.length) {

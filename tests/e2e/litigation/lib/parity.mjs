@@ -77,6 +77,7 @@ export async function deleteRowsWith(p, marker) {
 		if (!hit) return;
 		if (hit === 'busy') { await new Promise((r) => setTimeout(r, 100)); continue; }
 		await p.click(`[data-parity-clean="${i}"]`);
+		await confirmIfAsked(p, '#main', 1500);
 		await changed(p, before);
 	}
 	throw new Error(`cleanup: rows with ${marker} remain`);

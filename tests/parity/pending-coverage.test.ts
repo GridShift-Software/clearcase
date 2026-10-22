@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
-import { covering } from '../../scripts/parity/lib/compare.mjs';
+import { classify, covering, diff } from '../../scripts/parity/lib/compare.mjs';
+import { emptySnapshot } from '../../scripts/parity/lib/snapshot.mjs';
 import { loadRegister, registryKeys, registryOwners } from '../../scripts/parity/lib/register.mjs';
 
 const register = loadRegister(undefined, { owners: await registryOwners(), keys: await registryKeys() });
@@ -52,4 +53,33 @@ it('the changed Chronology controls cover only one old and one new control', () 
 		expect(coveredBy('chronology', oldPath, '2', '<absent>')).toBeNull();
 		expect(coveredBy('chronology', newPath, '<absent>', '2')).toBeNull();
 	}
+});
+
+it.each([
+	{
+		name: 'an extra saved-note item', view: 'overview', path: 'list.my_notes',
+		v5: [], rendered: ['OD-001: 1', 'OD-002: 1'], source: ['OD-001: 1'],
+	},
+	{
+		name: 'a changed existing bundle option', view: 'chronology', path: 'list.select.all_bundles',
+		v5: ['All bundles', 'Original'], rendered: ['All bundles', 'Wrong bundle'], source: ['All bundles', 'Original'],
+	},
+])('$name is refused despite its register wildcard', ({ view, path, v5, rendered, source }) => {
+	const left = { ...emptySnapshot(view, 'v5'), lists: view === 'overview' ? {} : { [path.slice(5)]: v5 } };
+	const right = { ...emptySnapshot(view, 'app'), lists: { [path.slice(5)]: rendered } };
+	const result = classify(view, diff(left, right), register.entries, { sourceChecks: [{ path, rendered, source }] });
+	expect(result.unregistered.map((d: { path: string }) => d.path)).toContain(path);
+});
+
+it('a phantom backup table is refused despite the inventory wildcard', () => {
+	const table = (rows: { table: string; owner: string; rows: string }[]) => ({
+		columns: [{ id: 'table', label: 'Table' }, { id: 'owner', label: 'Owner' }, { id: 'rows', label: 'Rows' }], key: null, rows,
+	});
+	const source = [{ table: 'note', owner: 'GRS-12', rows: '1' }];
+	const rendered = [...source, { table: 'phantom_table', owner: 'TEST', rows: '9' }];
+	const left = emptySnapshot('backup_tab', 'v5');
+	const right = { ...emptySnapshot('backup_tab', 'app'), tables: { what_a_backup_holds_now_10_rows: table(rendered) } };
+	const path = 'table.what_a_backup_holds_now_10_rows';
+	const result = classify('backup_tab', diff(left, right), register.entries, { sourceChecks: [{ path, rendered, source }] });
+	expect(result.unregistered.map((d: { path: string }) => d.path)).toContain(path);
 });

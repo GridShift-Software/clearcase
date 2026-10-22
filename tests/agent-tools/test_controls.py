@@ -2493,6 +2493,22 @@ class FixRoundRenames(ControlCase):
         self.merge()
         self.assertIn('protected among them:', self.guard('--base', 'dev'))
 
+    def test_a_branch_weakening_that_a_base_rename_carries_to_a_new_path_refuses(self):
+        # GRS-169 (GRS-153 re-check M-F1): the branch drops an assertion, the base renames the file, and the merge carries
+        # the weakened copy to the new path. The old path is the base's change; the fix base has no file at the new one.
+        weakened = self.big.replace(self.big.splitlines()[-1] + '\n', '')
+        self.change({'tests/big.test.ts': weakened}, 'drop an assertion')
+        self.git('switch', '-q', 'dev')
+        self.git('mv', 'tests/big.test.ts', 'tests/renamed.test.ts')
+        self.commit('the base renames the test')
+        self.git('switch', '-q', 'feature/grs-104-tooling')
+        self.merge()
+        self.assertEqual(self.git('show', 'HEAD:tests/renamed.test.ts'), weakened.strip())
+        self.assertIn('assertion count fell in tests/renamed.test.ts: 8 -> 7', self.guard('--base', 'dev', code=1))
+        self.assertEqual(self.last_receipt()['result'], 'FAIL')
+        with self.subTest(control='no trusted base: the old path keeps its assertion count'):
+            self.assertIn('assertion count fell in tests/big.test.ts: 8 -> 0', self.guard(code=1))
+
 
 class FixRoundFixtureModule(ControlCase):
     """GRS-153 polish L1: a fixture module a protected test imports is in the closure twice, as code and as data, and the

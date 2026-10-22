@@ -926,6 +926,7 @@ try {
 		await p.waitFor(`!document.querySelector(${J(row)})`, 5000).catch(() => false);
 		await sleep(300);
 		const ev = { half, rowShown: (await regRows()).some((r) => r.key === key), stored: storedFilings().length, before, draft: await p.evaluate(`document.getElementById('fl_filing').value`) };
+		await setFields(p, { fl_filing: '' });
 		const checks = { rowGone: !ev.rowShown && !storedFilings().some((r) => `row:${r.id}` === key), onlyThatRow: ev.stored === before - 1, draftStays: ev.draft === 'Synthetic unsaved filing' };
 		return { pass: Object.values(checks).every(Boolean), evidence: { checks, ev } };
 	});

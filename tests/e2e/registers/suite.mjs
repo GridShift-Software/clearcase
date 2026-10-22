@@ -777,6 +777,8 @@ try {
 		await p.waitFor(`!document.querySelector(${J(row)})`, 5000).catch(() => false);
 		await sleep(300);
 		const ev = { half, rowShown: (await rows()).some((x) => x.id === r.id), stored: stored('deadlines').length, before, draft: await p.evaluate(`document.getElementById('in-title').value`), error: await errorText() };
+		// drop the draft so the next page load is not held by the leave guard
+		await p.evaluate(`(() => { const e = document.getElementById('in-title'); e.value = ''; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
 		return { evidence: ev, checks: { rowGone: !ev.rowShown && !stored('deadlines').some((x) => x.id === r.id), onlyThatRow: ev.stored === before - 1, draftStays: ev.draft === 'Synthetic unsaved deadline', noError: ev.error === null } };
 	});
 	await scenario('SC26-halfdate-nojs', 'deadlines_tab', 'GRS-181: without JavaScript, a half-typed Add date does not stop Delete, Cancel or Confirm delete: Cancel keeps the row and the Add draft, Confirm deletes the row and keeps the draft', async () => {

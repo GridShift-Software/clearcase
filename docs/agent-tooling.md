@@ -413,8 +413,11 @@ file or a fixture, and a change to a helper or the runner configuration. A prote
 and a setup/helper dependency the base adds, refuse, as before, including when the same origin is also imported by a new
 runner configuration. A runner configuration, a module it imports or a derived package entry (test scripts or resolution
 fields) absent at review passes when the merged trusted base added its origin file and HEAD holds that origin's full blob
-and mode unchanged (GRS-195). Protected test/setup membership takes precedence over runner membership for every origin;
-the rule is based on closure provenance, not filenames. Candidate additions, edits or deletions,
+and mode unchanged (GRS-195). Protected test/setup traversal follows every shared, transitive or cyclic dependency even
+when the runner already visited the file. Protected membership takes precedence over runner membership for every origin.
+Import, re-export, dynamic import and require specifiers, including explicit extensions and TypeScript import-equals,
+belong to the runner import graph; setup entries and other path expressions still create protected setup membership.
+The rule is based on closure provenance, not filenames. Candidate additions, edits or deletions,
 symlinks, mode changes, copied or unmerged base files, and missing or implicit trust still refuse. Four kinds of path are unaffected: the branch's own
 new test or fixture, a path the reviewed commit had deleted (a merge base still holds it), a path the base added or
 changed after HEAD's last merge, and a later base change to a path HEAD already holds. A base commit HEAD received is no

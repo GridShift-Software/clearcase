@@ -1383,7 +1383,8 @@ function main() {
     };
     const found = new Map();
     // Files reached from named tests or setup entries are protected test code, even when a runner configuration also
-    // imports them. Keep this provenance separate from `runner` so the inherited-runner exception cannot cover them.
+    // imports them. Each role traverses its own graph: `found` holds text, not visitation state. This keeps runner
+    // visitation from suppressing protected descendants and the inherited-runner exception from covering them.
     const protectedDeps = new Set();
     // The modules the named tests load (the test files, the support code they import, the setup files), as opposed to
     // the runner configuration and resolver inputs, which run in the runner or not at all. A test file loads what it
@@ -1464,8 +1465,8 @@ function main() {
       visit(tree);
     };
     function follow(file) {
+      if (protectedDeps.has(file)) return;
       protectedDeps.add(file);
-      if (found.has(file)) return;
       if (!REGULAR.includes(modes.get(file))) throw Error(`symlink/submodule protected dependency refuses: ${file}`);
       if (file.split('/').some(part => part === 'RAWS' || part === '.local')) throw Error('private dependency cannot be inspected');
       const text = source(revision, file);
@@ -1527,13 +1528,14 @@ function main() {
         const parent = node.parent;
         const moduleSpecifier = ts.isStringLiteralLike(node) && (
           ((ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent)) && parent.moduleSpecifier === node)
-          || (ts.isImportEqualsDeclaration(parent) && ts.isExternalModuleReference(parent.moduleReference)
-            && parent.moduleReference.expression === node)
+          || (ts.isExternalModuleReference(parent) && ts.isImportEqualsDeclaration(parent.parent)
+            && parent.expression === node)
           || (ts.isCallExpression(parent) && parent.arguments[0] === node
             && (parent.expression.kind === ts.SyntaxKind.ImportKeyword || parent.expression.getText(tree) === 'require'))
         );
+        if (moduleSpecifier) return;
         const candidates = where(tree, file, node);
-        if (ts.isStringLiteralLike(node) && !moduleSpecifier && !/[*?{}\s]/.test(node.text)) {
+        if (ts.isStringLiteralLike(node) && !/[*?{}\s]/.test(node.text)) {
           const target = resolve(file, /^\.{0,2}\//.test(node.text) ? node.text : `./${node.text}`);
           if (target) candidates.push(target);
         }

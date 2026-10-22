@@ -278,9 +278,10 @@ approval bindings, and the declaration carried from its ticket into the wave pul
 ## Fix-diff test protection
 
 A passing guard bounds test-code changes and the capability routes described below; it is not clearance for every
-runtime behavior. The re-check reviewer still owns code generation, values moved through functions or containers,
-package exports and aliases, non-literal loads, `node:process` writes, markup `<script>` under jsdom, and the
-`viewer.mjs` refusal. The detailed reviewer list is at the end of this section.
+runtime behavior. The re-check reviewer still owns code generation, a `constructor`/`__proto__` key the guard cannot
+fold, unchanged CommonJS modules, values moved through functions or containers, package exports and aliases,
+non-literal loads, `node:process` writes, markup `<script>` under jsdom, and the `viewer.mjs` refusal. The detailed
+reviewer list is at the end of this section.
 
 `scripts/agent-tools/test-guard --fix-base REVIEWED_SHA --findings PATH` runs the guard,
 and so does `verify test-guard` with the same arguments. `receipt --name CHECK --fix-base REVIEWED_SHA
@@ -533,8 +534,13 @@ and handlers, with a component that does not parse or compile failing closed) re
   `let` or `var`, a destructuring, `await`, a conditional, logical, comma or assignment expression, a literal `require`
   or `import()`, or an import binding, which the guard follows into the module that exports it (`export const`,
   `export { x as y }`, `export default`, a re-export, `export *`), across modules, whether or not that module changed.
-  A `constructor` or `__proto__` key read by destructuring a plain object or array literal refuses, including a
-  computed literal key, nested binding, or assignment destructuring to a `let`. A `getPrototypeOf` result remains rooted.
+  A `constructor` key or a dunder key such as `__proto__` in any object binding or assignment pattern refuses,
+  whatever the pattern reads: a variable, a call result, a string, a function, a parameter, a `catch` binding, a
+  `for-of` or `for-in` head, a shorthand `{ constructor }`, a nested pattern, or a default. `x.constructor` and `x[k]`
+  with a folded `k` root at a constructor under the same rule. The key is folded when it spells one before the module runs: a literal, a
+  template whose parts are constant, a literal `+`, or a `const` that holds one (`{ ['constr' + 'uctor']: C }`). A
+  `getPrototypeOf` result remains rooted. A pattern that reads a plain string, `{ constructor: label } = { constructor:
+  'x' }`, refuses too, as conservative.
   The global object may appear only as the object of a property read with a literal, non-framework name
   (`globalThis.performance`, `window['x']`, `Symbol.for('app.cache')` as the key), in `typeof`, `in` or an equality
   test, as a literal-named destructuring, or as a `const` initialiser. `Symbol.for` may only be called directly with a
@@ -542,7 +548,8 @@ and handlers, with a component that does not parse or compile failing closed) re
   extended, compared, read by name, or (a converter: `String`, `Number`, `Boolean`, `BigInt`) passed to a call. Each
   use of a `const` that holds one is checked the same way, where it appears. Moving one anywhere else refuses: an
   export under any name (`export { g as h }`, `export default`, a named or default re-export, `export * as ns`, a
-  TypeScript `export import`, or a bare `export * from` whose local target exports a capability), an
+  TypeScript `export import`, a bare `export * from` whose local target exports a capability, or one of them forwarded
+  through `export * as N` or under an `export *` chain, with a cycle in the chain judged once), an
   argument, a return value, a property, an element, a field, a `let` or an assignment, a spread, a computed key. A
   TypeScript import alias of a value (`import P = O`) fails closed. A member of a capability (`Object.keys`,
   `fs.readFile`, `fs.promises`) is a plain value and may move;
@@ -572,16 +579,24 @@ test freely, since application code is trusted as reviewed.
 What the guard bounds after GRS-150 (defence in depth, as GRS-104 was): a changed JS/TS/Svelte
 module cannot name a framework, move or write a rooted capability (the global object, `Symbol`, a builtin, a Node or
 Bun builtin module, a constructor or prototype) through the shapes listed above, followed through `const`/`let`/`var`,
-destructuring, `await`, conditionals, a literal `require`/`import()` and import bindings across modules. A changed
-module also refuses a bare `export *` whose local target exports a capability, and assignments to CommonJS
-`module.exports` or `exports.x` (including literal computed keys). The guard does not follow exports from an
-unchanged CommonJS module, so an import of one still needs review. It is a best-effort net, not a sandbox.
-The routes below remain reviewer-owned; GRS-150 does not record their acceptance:
+destructuring, `await`, conditionals, a literal `require`/`import()` and import bindings across modules. It also refuses:
 
-- **Route 4:** code generation: `eval`, indirect eval (`(0, eval)(...)`), `Function`, a constructor chain. Search the diff for
+- a `constructor` or dunder key in any object binding or assignment pattern, from any source, with constant keys folded;
+- a bare `export *`, or an `export * as N`, whose local target exports a capability, directly or under an `export *`
+  chain;
+- any reference to an unbound `module` or `exports` (an assignment, `Object.assign(module.exports, ...)`,
+  `Object.defineProperty(exports, ...)`, an alias or a destructuring); a local binding of either name passes.
+
+The guard does not follow exports from an unchanged CommonJS module, so an import of one still needs review. It is a
+best-effort net, not a sandbox. The cases below remain reviewer-owned; GRS-150 does not record their acceptance:
+
+- a `constructor` or `__proto__` key the guard cannot fold: `({})[k]` or `{ [k]: C }` with a runtime `k` (a parameter, a
+  `let`, a call result), `['constr', 'uctor'].join('')`, `String.fromCharCode(...)`. Look for a computed key beside a
+  member write.
+- code generation: `eval`, indirect eval (`(0, eval)(...)`), `Function`, a constructor chain. Search the diff for
   the words.
-- **Route 6:** an unchanged CommonJS module's `module.exports`/`exports.x` or `export { default as P } from './c.cjs'`
-  is not followed by `exportRoot`. Check imports from one; the repository has no tracked `.cjs` or `.cts` file today.
+- an unchanged CommonJS module's `module.exports`/`exports.x` or `export { default as P } from './c.cjs'` is not
+  followed by `exportRoot`. Check imports from one; the repository has no tracked `.cjs` or `.cts` file today.
 - a function's return value (`Object.getOwnPropertyDescriptor(...).get.call([])`) or parameter, a getter, an object or
   array literal's member, a class field and `this`: a capability reaching a write through one is not followed.
   Read any new function that returns or receives `Object`, `globalThis`, a prototype or a builtin module.

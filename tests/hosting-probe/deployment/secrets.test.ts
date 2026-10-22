@@ -236,3 +236,37 @@ describe('every Node option before the entry is refused unless it is on the allo
 		expect(existsSync(marker())).toBe(false);
 	});
 });
+
+describe('forms that passed the reader and ran another preload, or none, with fd 3 open (escalation of polish C, L1)', () => {
+	// pre.env and pre.json hand Node NODE_OPTIONS=--require x.cjs and nodeOptions.require, node.config.json in the cwd is
+	// what --experimental-default-config-file reads, and y.cjs is an entry that only marks that it ran.
+	const option = () => path.join(SCRATCH, 'ran-option');
+	const entry = () => path.join(SCRATCH, 'ran-entry');
+	const files = () => {
+		const x = path.join(SCRATCH, 'x.cjs');
+		writeFileSync(x, `require('node:fs').writeFileSync(${JSON.stringify(option())}, 'ran');\n`);
+		writeFileSync(path.join(SCRATCH, 'y.cjs'), `require('node:fs').writeFileSync(${JSON.stringify(entry())}, 'ran');\n`);
+		writeFileSync(path.join(SCRATCH, 'pre.env'), `NODE_OPTIONS=--require ${x}\n`);
+		writeFileSync(path.join(SCRATCH, 'pre.json'), JSON.stringify({ nodeOptions: { require: [x] } }));
+		writeFileSync(path.join(SCRATCH, 'node.config.json'), JSON.stringify({ nodeOptions: { require: [x] } }));
+	};
+	const forms: [string, string[]][] = [
+		['-p is a flag, not a value skip: -p --env-file=pre.env', ['-p', '--env-file=pre.env']],
+		['-p is a flag, not a value skip: -p --experimental-default-config-file', ['-p', '--experimental-default-config-file']],
+		['--experimental-default-config-file after the entry', ['y.cjs', '--experimental-default-config-file']],
+		["--experimental-config-file= after the entry's --", ['y.cjs', '--', '--experimental-config-file=pre.json']],
+		['--experimental-config-file= after a -- before the entry', ['--', 'y.cjs', '--experimental-config-file=pre.json']],
+		["inspect as the entry: Node's debugger, which never runs the reader's preload and starts the entry with CLEARCASE_SECRETS_FD", ['inspect', '--port=0', '--probe', 'y.cjs:1', '--expr', '1', 'y.cjs']],
+	];
+	test.each(forms)('%s', (_name, args) => {
+		files();
+		for (const to of ['fd', 'env']) {
+			const r = reader(['run', 'synthetic', '--to', to, '--', NODE, ...args]);
+			expect(r.status, `${args.join(' ')} (${to})`).toBe(2);
+			expect(r.stderr).toMatch(/^secrets: refused: /m);
+			expect(`${r.stdout}${r.stderr}`).not.toContain(VALUE);
+		}
+		expect(existsSync(option()), 'a --require preload ran').toBe(false);
+		expect(existsSync(entry()), 'the entry ran').toBe(false);
+	});
+});

@@ -1426,8 +1426,10 @@ def capability_command(name, args):
         script = TOOLS_DIR / "test_guard.mjs"
         findings = Path(args.findings).expanduser().resolve() if args.findings else None
         problem = None if findings and args.fix_base else "test-guard requires --findings PATH and --fix-base REF"
+        trusted = getattr(args, "trusted_base", None)
         return ([which("node") or "node", str(script), "--root", str(root), "--fix-base", args.fix_base or "",
-                 "--findings", str(findings or "")], ["node"], [script, *([findings] if findings else [])], problem, None)
+                 "--findings", str(findings or ""), *(["--trusted-base", trusted] if trusted else [])],
+                ["node"], [script, *([findings] if findings else [])], problem, None)
     if name == "app":
         runner = root / APP_RUNNER
         sources = sorted(runner.parent.parent.glob("lib/*.mjs")) if runner.is_file() else []
@@ -1469,7 +1471,7 @@ def guard_claims(root, args):
                       testsExact=each_string(manifest.get("tests"), seal))
     except (OSError, ValueError, TypeError):
         pass  # the guard itself refuses a missing or malformed manifest
-    return {"guard": {"fixBase": base, **claims}}
+    return {"guard": {"fixBase": base, **claims, "trustedBase": getattr(args, "trusted_base", None)}}
 
 
 def run_capability(name, args):
@@ -1855,6 +1857,10 @@ def guard_binding(store, unit, supplied, identity):
     claims = receipt.get("guard") if receipt.get("name") == "test-guard" else None
     if not isinstance(claims, dict):
         raise ValueError("the guard receipt is not a test-guard receipt")
+    # the claim, or the command it records, when an edit drops the claim
+    if claims.get("trustedBase") is not None or "--trusted-base" in (receipt.get("command") or []):
+        raise ValueError("the guard receipt was judged with a --base ref whose changes it could accept (fix-round-guard without --ledger); approval "
+                         "needs one judged against the reviewed commit alone (fix-round-guard --ledger, or test-guard)")
     if claims.get("fixBase") != record["sha"]:
         raise ValueError(f"guard fix base {str(claims.get('fixBase'))[:12]} differs from the reviewed SHA {record['sha'][:12]} in the ledger")
     if claims.get("reviewFindingsSha256") != record["findingsHash"] or claims.get("unit") != unit:
@@ -2217,7 +2223,11 @@ def cmd_fix_round_guard(args):
             sys.stderr.write(f"fix-round-guard: FAIL {path}: {error}\n")
             status = 1
             continue
-        guard = argparse.Namespace(**{**vars(args), "findings": str(root / path), "fix_base": manifest["fixBase"]})
+        # An explicit --base without the ledger lets the guard accept a change the base made and HEAD merged
+        # (test_guard.mjs, --trusted-base); with the ledger, the guard binds to the reviewed commit alone.
+        trusted = identity["base"] if args.base is not None and not args.ledger else None
+        guard = argparse.Namespace(**{**vars(args), "findings": str(root / path), "fix_base": manifest["fixBase"],
+                                      "trusted_base": trusted})
         status = run_capability("test-guard", guard) or status
     return 1 if status else 0
 

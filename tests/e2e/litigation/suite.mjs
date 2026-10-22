@@ -655,6 +655,15 @@ try {
 			cancelKeeps: round.cancelled.value === 'Synthetic unsaved head' && round.cancelled.row && !round.cancelled.asking,
 			confirmKeeps: round.askedBeforeConfirm.value === 'Synthetic unsaved head' && round.confirmed.value === 'Synthetic unsaved head' && !round.confirmed.row && !savedRows().some((r) => r.store === 'heads' && r.row_id === id), evidence: round });
 	});
+	await scenario('CONFIRM-nojs-draft-crossexam', 'crossexam_tab', 'GRS-181: without JavaScript, Delete then Cancel or Confirm keeps text typed into Add on Cross-Exam Prep', async () => {
+		await A.c.form(`${at('crossexam_tab')}?/add`, { witness: 'Synthetic no-JS target witness', topic: 'x', put: 'x', docs: '' });
+		const id = rowsWhere('crossexam', 'witness', 'Synthetic no-JS target witness')[0]?.row_id;
+		const row = `#cx-table tr[data-row=${J(`row:${id}`)}]`;
+		const round = await draftThroughDeleteWithoutJs(p, { url: `${V}${route('crossexam_tab')}`, ready: ready('crossexam_tab'), draft: '#cx_w', text: 'Synthetic unsaved witness', row, opener: `${row} [data-delete]` });
+		return all({ askKeeps: round.askedBeforeCancel.value === 'Synthetic unsaved witness' && round.askedBeforeCancel.row && round.askedBeforeCancel.asking,
+			cancelKeeps: round.cancelled.value === 'Synthetic unsaved witness' && round.cancelled.row && !round.cancelled.asking,
+			confirmKeeps: round.askedBeforeConfirm.value === 'Synthetic unsaved witness' && round.confirmed.value === 'Synthetic unsaved witness' && !round.confirmed.row && !savedRows().some((r) => r.store === 'crossexam' && r.row_id === id), evidence: round });
+	});
 	await scenario('CONFIRM-delete-cases', 'heads_tab', "GRS-175: Cancel and Escape keep the submission and return focus to its Delete; a second row's Delete moves the question and deletes nothing; a reload drops the question and keeps both; a POST without the row's confirmation is refused; Confirm delete deletes exactly that submission", async () => {
 		await A.c.form(`${at('heads_tab')}?/add`, { head: 'Confirm second', sub: 'x', auth: '', ref: '' });
 		await p.goto(`${V}${route('heads_tab')}`, ready('heads_tab'));

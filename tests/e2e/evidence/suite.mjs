@@ -13,6 +13,7 @@ const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { launch, sleep } = await import('../pilot/lib/cdp.mjs');
 const { asking, cancelIfAsked, confirmPressed, describedBy, draftThroughDeleteWithoutJs, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { draftThroughDeleteWithHalfDate, halfTypeDate } = await import('../pilot/lib/half-date.mjs');
 const { bunIdentity } = await import('../pilot/lib/server.mjs');
 const { outDir } = await import('../pilot/lib/record.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
@@ -907,6 +908,42 @@ try {
 		const checks = { askKeeps: round.askedBeforeCancel.value === 'Synthetic unsaved filing' && round.askedBeforeCancel.row && round.askedBeforeCancel.asking,
 			cancelKeeps: round.cancelled.value === 'Synthetic unsaved filing' && round.cancelled.row && !round.cancelled.asking,
 			confirmKeeps: round.askedBeforeConfirm.value === 'Synthetic unsaved filing' && round.confirmed.value === 'Synthetic unsaved filing' && !round.confirmed.row && !storedFilings().some((r) => `row:${r.id}` === key) };
+		return { pass: Object.values(checks).every(Boolean), evidence: { checks, round } };
+	});
+	await scenario('E-FILINGS-HALFDATE-JS', 'filings_tab', 'GRS-181: with JavaScript, a half-typed Add date does not stop Delete then Confirm delete: the row is deleted and the Add draft stays', async () => {
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		const n = (await regRows()).length;
+		await setFields(p, { fl_filing: 'Synthetic half-date target filing' });
+		await p.click('#register-add');
+		await p.waitFor(`document.querySelectorAll('#filing-register tbody tr[data-key]').length === ${n + 1} && !document.getElementById('register-status')`, 20000);
+		const key = (await regRows()).find((r) => r.filing === 'Synthetic half-date target filing')?.key;
+		const row = `#filing-register tr[data-key=${J(key)}]`;
+		const before = storedFilings().length;
+		await setFields(p, { fl_filing: 'Synthetic unsaved filing' });
+		const half = await halfTypeDate(p, '#fl_fdate');
+		await p.click(`${row} [data-delete]`);
+		await confirmPressed(p, row);
+		await p.waitFor(`!document.querySelector(${J(row)})`, 5000).catch(() => false);
+		await sleep(300);
+		const ev = { half, rowShown: (await regRows()).some((r) => r.key === key), stored: storedFilings().length, before, draft: await p.evaluate(`document.getElementById('fl_filing').value`) };
+		const checks = { rowGone: !ev.rowShown && !storedFilings().some((r) => `row:${r.id}` === key), onlyThatRow: ev.stored === before - 1, draftStays: ev.draft === 'Synthetic unsaved filing' };
+		return { pass: Object.values(checks).every(Boolean), evidence: { checks, ev } };
+	});
+	await scenario('E-FILINGS-HALFDATE-NOJS', 'filings_tab', 'GRS-181: without JavaScript, a half-typed Add date does not stop Delete, Cancel or Confirm delete: Cancel keeps the row and the Add draft, Confirm deletes the row and keeps the draft', async () => {
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		const n = (await regRows()).length;
+		await setFields(p, { fl_filing: 'Synthetic no-JS half-date target filing' });
+		await p.click('#register-add');
+		await p.waitFor(`document.querySelectorAll('#filing-register tbody tr[data-key]').length === ${n + 1} && !document.getElementById('register-status')`, 20000);
+		const key = (await regRows()).find((r) => r.filing === 'Synthetic no-JS half-date target filing')?.key;
+		const row = `#filing-register tr[data-key=${J(key)}]`;
+		const before = storedFilings().length;
+		const fill = async () => { await p.type('#fl_filing', 'Synthetic unsaved filing'); await halfTypeDate(p, '#fl_fdate'); };
+		const round = await draftThroughDeleteWithHalfDate(p, { url: `${V}/evidence/filings_tab`, ready: `document.querySelector('main#main')?.dataset.ready === 'filings_tab'`, fill, draft: '#fl_filing', row, opener: `${row} [data-delete]` });
+		const checks = { askMoves: round.askedBeforeCancel.moved && round.askedBeforeCancel.asking && round.askedBeforeCancel.value === 'Synthetic unsaved filing',
+			cancelMoves: round.cancelled.moved && round.cancelled.row && !round.cancelled.asking && round.cancelled.value === 'Synthetic unsaved filing',
+			confirmMoves: round.askedBeforeConfirm.moved && round.confirmed.moved && !round.confirmed.row && round.confirmed.value === 'Synthetic unsaved filing',
+			onlyThatRow: storedFilings().length === before - 1 && !storedFilings().some((r) => `row:${r.id}` === key) };
 		return { pass: Object.values(checks).every(Boolean), evidence: { checks, round } };
 	});
 	await scenario('E-FILINGS-CONFIRM-CASES', 'filings_tab', "GRS-175: Cancel and Escape keep the row and return focus to its Delete; a second row's Delete moves the question and deletes nothing; a reload drops the question and keeps both rows; a POST without the row's confirmation is refused; Confirm delete deletes exactly that row", async () => {

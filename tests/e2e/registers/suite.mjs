@@ -15,6 +15,7 @@ const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { launch, sleep } = await import('../pilot/lib/cdp.mjs');
 const { asking, cancelIfAsked, confirmPressed, describedBy, draftThroughDeleteWithoutJs, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { draftThroughDeleteWithHalfDate, halfTypeDate } = await import('../pilot/lib/half-date.mjs');
 const { INIT, openPage } = await import('../pilot/suite/browser.mjs');
 const { appServer, vpath } = await import('../pilot/suite/context.mjs');
 const { startServer } = await import('../pilot/lib/server.mjs');
@@ -761,6 +762,35 @@ try {
 		const checks = { askKeeps: round.askedBeforeCancel.value === 'Synthetic unsaved deadline' && round.askedBeforeCancel.row && round.askedBeforeCancel.asking,
 			cancelKeeps: round.cancelled.value === 'Synthetic unsaved deadline' && round.cancelled.row && !round.cancelled.asking,
 			confirmKeeps: round.askedBeforeConfirm.value === 'Synthetic unsaved deadline' && round.confirmed.value === 'Synthetic unsaved deadline' && !round.confirmed.row && !stored('deadlines').some((x) => x.id === r.id) };
+		return { evidence: { checks, round }, checks };
+	});
+	await scenario('SC26-halfdate-js', 'deadlines_tab', 'GRS-181: with JavaScript, a half-typed Add date does not stop Delete then Confirm delete: the row is deleted, nothing is saved and the Add draft stays', async () => {
+		await openView('deadlines_tab');
+		await add({ title: 'Synthetic half-date target', date: '2026-11-05', note: '' });
+		const r = (await rows()).find((x) => x.cells.some((c) => c.includes('Synthetic half-date target')));
+		const row = `#register-table tr[data-row-id=${J(r.id)}]`;
+		const before = stored('deadlines').length;
+		await p.type('#in-title', 'Synthetic unsaved deadline');
+		const half = await halfTypeDate(p, '#in-date');
+		await p.click(`${row} [data-delete]`);
+		await confirmPressed(p, row);
+		await p.waitFor(`!document.querySelector(${J(row)})`, 5000).catch(() => false);
+		await sleep(300);
+		const ev = { half, rowShown: (await rows()).some((x) => x.id === r.id), stored: stored('deadlines').length, before, draft: await p.evaluate(`document.getElementById('in-title').value`), error: await errorText() };
+		return { evidence: ev, checks: { rowGone: !ev.rowShown && !stored('deadlines').some((x) => x.id === r.id), onlyThatRow: ev.stored === before - 1, draftStays: ev.draft === 'Synthetic unsaved deadline', noError: ev.error === null } };
+	});
+	await scenario('SC26-halfdate-nojs', 'deadlines_tab', 'GRS-181: without JavaScript, a half-typed Add date does not stop Delete, Cancel or Confirm delete: Cancel keeps the row and the Add draft, Confirm deletes the row and keeps the draft', async () => {
+		await openView('deadlines_tab');
+		await add({ title: 'Synthetic no-JS half-date target', date: '2026-11-06', note: '' });
+		const r = (await rows()).find((x) => x.cells.some((c) => c.includes('Synthetic no-JS half-date target')));
+		const row = `#register-table tr[data-row-id=${J(r.id)}]`;
+		const before = stored('deadlines').length;
+		const fillDraft = async () => { await p.type('#in-title', 'Synthetic unsaved deadline'); await halfTypeDate(p, '#in-date'); };
+		const round = await draftThroughDeleteWithHalfDate(p, { url: `${base()}/registers/deadlines_tab`, ready: ready('deadlines_tab'), fill: fillDraft, draft: '#in-title', row, opener: `${row} [data-delete]` });
+		const checks = { askMoves: round.askedBeforeCancel.moved && round.askedBeforeCancel.asking && round.askedBeforeCancel.value === 'Synthetic unsaved deadline',
+			cancelMoves: round.cancelled.moved && round.cancelled.row && !round.cancelled.asking && round.cancelled.value === 'Synthetic unsaved deadline',
+			confirmMoves: round.askedBeforeConfirm.moved && round.confirmed.moved && !round.confirmed.row && round.confirmed.value === 'Synthetic unsaved deadline',
+			onlyThatRow: stored('deadlines').length === before - 1 && !stored('deadlines').some((x) => x.id === r.id) };
 		return { evidence: { checks, round }, checks };
 	});
 	await scenario('SC27-delete-confirm-cases', 'deadlines_tab', "GRS-175: Cancel and Escape keep the row and return focus to its Delete; a second row's Delete moves the question and deletes nothing; a reload drops the question and keeps both rows; a POST without the row's confirmation is refused; Confirm delete deletes exactly that row", async () => {

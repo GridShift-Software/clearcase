@@ -121,13 +121,13 @@
 | `S-prescription_tab-2` | medium | view-checklist.md | registered | IDR-224 (improvement), IDR-238 (improvement), IDR-225 (improvement), IDR-226 (improvement), IDR-237 (improvement), IDR-229 (improvement) |  |
 | `S-prescription_tab-3` | low | view-checklist.md | registered | IDR-228 (defect-fix) |  |
 | `S-prescription_tab-4` | low | view-checklist.md | registered | IDR-242 (known-gap) |  |
-| `S-interest_calc_tab-1` | medium | view-checklist.md | registered | IDR-212 (defect-fix), IDR-234 (defect-fix), IDR-235 (defect-fix), IDR-236 (defect-fix) |  |
+| `S-interest_calc_tab-1` | medium | view-checklist.md | registered | IDR-212 (defect-fix), IDR-234 (defect-fix), IDR-235 (defect-fix) |  |
 | `S-interest_calc_tab-2` | medium | view-checklist.md | registered | IDR-243 (defect-fix) |  |
 | `S-interest_calc_tab-3` | low | view-checklist.md | registered | IDR-213 (defect-fix), IDR-214 (defect-fix) |  |
 | `S-interest_calc_tab-4` | low | view-checklist.md | registered | IDR-244 (defect-fix) |  |
-| `S-interest_calc_tab-5` | low | view-checklist.md | registered | IDR-245 (known-gap) |  |
+| `S-interest_calc_tab-5` | low | view-checklist.md | registered | IDR-450 (defect-fix), IDR-245 (defect-fix) |  |
 | `S-payments_tab-2` | medium | view-checklist.md | registered | IDR-204 (defect-fix), IDR-205 (defect-fix) |  |
-| `S-payments_tab-3` | low | view-checklist.md | registered | IDR-246 (known-gap) |  |
+| `S-payments_tab-3` | low | view-checklist.md | registered | IDR-246 (defect-fix) |  |
 | `S-payments_tab-4` | low | view-checklist.md | registered | IDR-201 (improvement), IDR-202 (improvement) |  |
 | `S-payments_tab-5` | low | view-checklist.md | registered | IDR-247 (defect-fix) |  |
 | `S-elements_tab-1` | low | view-checklist.md | registered | IDR-340 (defect-fix) |  |

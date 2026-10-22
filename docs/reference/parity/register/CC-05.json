@@ -181,7 +181,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-timeline-2",
-      "reason": "v5 hard-codes case narrative, counts and a firm name in the renderer. ClearCase fills the synopsis, narrative, trajectory and notes from the imported view-content dataset, with counts derived from the register and package, so no case wording lives in code. Evidence: src/routes/v/[vid]/analysis/timeline/+page.server.ts:35.",
+      "reason": "v5 hard-codes case narrative, counts and a firm name in the renderer. ClearCase fills the synopsis, narrative, trajectory and notes from the imported view-content dataset, with counts derived from the register and package, so no case wording lives in code. Evidence: src/routes/v/[vid]/analysis/timeline/+page.server.ts:37.",
       "productVisible": false,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

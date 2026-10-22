@@ -152,6 +152,38 @@
       "approvedOn": "2026-10-21"
     },
     {
+      "id": "IDR-183",
+      "view": "risk_matrix_tab",
+      "field": "control.button:Export CSV",
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      },
+      "type": "improvement",
+      "source": "GRS-184",
+      "reason": "Risk Matrix offers a CSV of the rows and optional columns visible in the table; v5 has no export control.",
+      "productVisible": true,
+      "author": "GRS-184 build worker (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-184",
+      "view": "info_required_tab",
+      "field": "control.button:Export CSV",
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      },
+      "type": "improvement",
+      "source": "GRS-184",
+      "reason": "Info Required offers a CSV of the checklist rows with their saved done state; v5 has no export control.",
+      "productVisible": true,
+      "author": "GRS-184 build worker (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
       "id": "IDR-170",
       "view": "info_required_tab",
       "field": [],
@@ -256,11 +288,11 @@
       "type": "known-gap",
       "source": "S-risk_matrix_tab-1",
       "owner": "GRS-15",
-      "reason": "v5 has no export or edit for this register-like view and maps colour by exact, case-sensitive High or Medium. ClearCase reproduces both: the page is a read-only table with no export button and the tone mapping is case-sensitive. Adding export or edit needs an app change. Evidence: src/routes/v/[vid]/analysis/risk_matrix_tab/+page.svelte:23.",
+      "reason": "v5 has no export or edit and maps risk tone by exact-case High or Medium. ClearCase exports the displayed rows and maps High and Medium without case sensitivity (AN-06-EXPORT). Risk data stays read-only: an edit requires an audited candidate correction (GRS-130) or separate user-work overlay, so that part remains a known gap. Evidence: src/routes/v/[vid]/analysis/risk_matrix_tab/+page.svelte:36.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": "Vaperizer2",
-      "approvedOn": "2026-10-21"
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
       "id": "IDR-182",
@@ -303,14 +335,13 @@
       "id": "IDR-180",
       "view": "info_required_tab",
       "field": [],
-      "type": "known-gap",
+      "type": "defect-fix",
       "source": "S-info_required_tab-2",
-      "owner": "GRS-15",
-      "reason": "v5 has no export and the Status column ignores the done flag. ClearCase has no export on this view either, and its Status badge still shows only the imported status (a done item is struck through in the Item cell). An app change is needed to export or reflect done in Status. Evidence: src/routes/v/[vid]/analysis/info_required_tab/InfoChecklist.svelte:115.",
+      "reason": "v5 has no CSV export and its Status column ignores the done flag. ClearCase exports the displayed rows and shows a completed item as Done in Status (AN-08-EXPORT); its CSV uses the saved done flag. The imported results are unchanged. Evidence: src/routes/v/[vid]/analysis/info_required_tab/InfoChecklist.svelte:120.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": "Vaperizer2",
-      "approvedOn": "2026-10-21"
+      "approvedBy": null,
+      "approvedOn": null
     }
   ]
 }

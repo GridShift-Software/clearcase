@@ -1,4 +1,5 @@
 import { fail } from '@sveltejs/kit';
+import { deleteStep } from '$lib/components/confirm-delete';
 import { app } from '$lib/local-case/app.server';
 import { datasetOf, viewContentOf, viewText } from '$lib/local-case/results.server';
 import { HEADER_FIELDS, HEADER_KEYS, bundlesOf, headerRaw } from '$lib/views/bundles/court';
@@ -64,6 +65,8 @@ function headerWrite(vid: string, c: string, version: string, values: Record<str
 	}));
 }
 const versionOf = (f: FormData) => String(f.get('version') ?? '');
+// Restore and Clear replace the stored header, so each needs the page's confirmation (GRS-175)
+const UNCONFIRMED = { restore: 'Not restored: Restore matter defaults was not confirmed. Nothing was changed.', clear: 'Not cleared: Clear all was not confirmed. Nothing was changed.' };
 const MAX_ROWS = 5000, MAX_JSON = 2_000_000;
 
 export const actions: Actions = {
@@ -78,11 +81,15 @@ export const actions: Actions = {
 	},
 	restore: async ({ request, params }) => {
 		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
-		return headerWrite(params.vid, c, versionOf(await request.formData()), {}, () => deleteSingle(c, HEADER_STORE));
+		const f = await request.formData();
+		if (deleteStep(f, 'restore') !== 'confirm') return fail(400, { message: UNCONFIRMED.restore });
+		return headerWrite(params.vid, c, versionOf(f), {}, () => deleteSingle(c, HEADER_STORE));
 	},
 	clear: async ({ request, params }) => {
 		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
-		return headerWrite(params.vid, c, versionOf(await request.formData()), {}, () => putSingle(c, HEADER_STORE, Object.fromEntries(HEADER_KEYS.map((k) => [k, '']))));
+		const f = await request.formData();
+		if (deleteStep(f, 'clear') !== 'confirm') return fail(400, { message: UNCONFIRMED.clear });
+		return headerWrite(params.vid, c, versionOf(f), {}, () => putSingle(c, HEADER_STORE, Object.fromEntries(HEADER_KEYS.map((k) => [k, '']))));
 	},
 	save: async ({ request, params }) => {
 		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });

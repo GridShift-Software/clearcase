@@ -5,7 +5,7 @@ import { app } from '$lib/local-case/app.server';
 import { viewContentOf, viewText } from '$lib/local-case/results.server';
 import { CX_FIELDS, canAddCx, crossexamRows, type CxValues } from '$lib/views/litigation/crossexam';
 import { registers } from '$lib/local-case/registers.server';
-import { STORES, addAction, deleteAnswer, deleteTarget, deleteValue, field, formAddId, knownRefs, orderedRows, register, valuesOf } from '$lib/views/litigation/register.server';
+import { STORES, addAction, deleteAnswer, deleteTarget, deleteValue, field, formAddId, knownRefs, orderedRows, register, unconfirmed, valuesOf } from '$lib/views/litigation/register.server';
 import type { Actions, PageServerLoad } from './$types';
 
 const SEED = 'lit-crossexam-seed';
@@ -39,6 +39,8 @@ export const actions: Actions = {
 		const f = await request.formData();
 		const values = valuesOf(f, CX_FIELDS);
 		const row = field(f, 'rowId');
+		const refused = unconfirmed(f, row || field(f, 'seedId'), values);
+		if (refused) return refused;
 		if (row) {
 			const { id, version } = deleteTarget(row);
 			return deleteAnswer(id, values, () => register(caseId, STORES.crossexam).remove(id, version));

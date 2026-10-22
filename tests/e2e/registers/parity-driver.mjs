@@ -5,6 +5,7 @@
 // work for the whole run while v5 starts every sweep empty, so every app sweep deletes the rows it added and checks
 // that the register is empty again before it returns.
 import { sleep } from '../pilot/lib/cdp.mjs';
+import { confirmPressed } from '../pilot/lib/confirm.mjs';
 import { parseDownload } from '../../../scripts/parity/lib/exports.mjs';
 import { slug } from '../../../scripts/parity/lib/normalize.mjs';
 import { syntheticInput } from '../../../scripts/parity/lib/sweeps.mjs';
@@ -94,6 +95,7 @@ export async function deleteRow(p, rowId = null) {
 	const n = await rowCount(p);
 	const sel = rowId ? `#register-table tr[data-row-id="${rowId}"] [data-delete]` : '#register-table tbody tr[data-row-id] [data-delete]';
 	if (!(await p.click(sel))) throw new Error('register: no Delete control');
+	await confirmPressed(p, '#register-table');
 	await waitRows(p, n - 1, 'delete');
 }
 

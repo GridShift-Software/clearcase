@@ -6,6 +6,8 @@
 	import type { SubmitFunction } from '$app/forms';
 	import { askFocus } from '$lib/components/ask-focus.svelte';
 	import CitationLink from '$lib/components/CitationLink.svelte';
+	import ConfirmDelete from '$lib/components/ConfirmDelete.svelte';
+	import { deleteStep } from '$lib/components/confirm-delete';
 	import Narrative from '$lib/components/Narrative.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { download, toCSV } from '$lib/components/csv';
@@ -14,7 +16,7 @@
 	import { INPUTS, SAVE_FAILURES, entryNote, filingsCsvRows, registerCsvRows, rowVersion, saveFailure, type RegisterEntry, type SaveFailure } from '$lib/views/evidence/filings';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	type Values = Record<string, string>;
-	type Result = { op?: 'add' | 'save' | 'delete'; code?: string; values?: Values; editing?: string | null; version?: string | null; message?: string; target?: string; draft?: { values: Values; editing: string | null; version: string | null; failed: string | null } } | null;
+	type Result = { op?: 'add' | 'save' | 'delete'; code?: string; values?: Values; editing?: string | null; version?: string | null; message?: string; target?: string; confirm?: string | null; draft?: { values: Values; editing: string | null; version: string | null; failed: string | null } } | null;
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
 	const files = $derived(new Map(data.files));
@@ -29,15 +31,15 @@
 	function initial(f: Result) {
 		if (f?.op === 'save' && f.message) {
 			const e = entryOf(f.editing);
-			return { values: { ...blank(), ...f.values }, editing: e?.key ?? null, version: f.version ?? versionOf(e), saveError: failure(saveFailure(f.code) ?? 'busy'), deleteError: null };
+			return { values: { ...blank(), ...f.values }, editing: e?.key ?? null, version: f.version ?? versionOf(e), saveError: failure(saveFailure(f.code) ?? 'busy'), deleteError: null, confirm: null };
 		}
 		if (f?.op === 'delete' && f.draft) {
 			const e = entryOf(f.draft.editing);
 			const code = f.draft.editing && !e ? 'gone' : saveFailure(f.draft.failed);
-			return { values: { ...blank(), ...f.draft.values }, editing: e?.key ?? null, version: f.draft.version ?? versionOf(e), saveError: code ? failure(code) : null, deleteError: f.message ? { key: f.target ?? '', message: f.message } : null };
+			return { values: { ...blank(), ...f.draft.values }, editing: e?.key ?? null, version: f.draft.version ?? versionOf(e), saveError: code ? failure(code) : null, deleteError: f.message ? { key: f.target ?? '', message: f.message } : null, confirm: f.confirm ?? null };
 		}
 		const e = entryOf(data.editing);
-		return { values: fieldsOf(e), editing: e?.key ?? null, version: versionOf(e), saveError: null, deleteError: null };
+		return { values: fieldsOf(e), editing: e?.key ?? null, version: versionOf(e), saveError: null, deleteError: null, confirm: null };
 	}
 	const init = untrack(() => initial(form as Result));
 	let values = $state<Values>(init.values);
@@ -47,6 +49,8 @@
 	let saveError = $state<SaveError | null>(init.saveError);
 	let deleteError = $state<{ key: string; message: string } | null>(init.deleteError);
 	let busy = $state<{ op: 'add' | 'save' | 'delete'; key: string | null } | null>(null);
+	// the row whose Delete awaits Confirm; without JavaScript the server's refusal names it
+	let confirming = $state<string | null>(init.confirm);
 	let ask = $state<{ what: string; go: () => void } | null>(null);
 	const dirty = $derived(!same(values, base));
 	const unsaved = $derived(dirty || saveError !== null);
@@ -64,6 +68,7 @@
 	let alive = true;
 	afterNavigate((nav) => {
 		navs++;
+		if (nav.type !== 'enter') confirming = null;
 		if (nav.type !== 'enter' && !(landing && editing === data.editing)) load(data.editing);
 		landing = false;
 	});
@@ -98,9 +103,15 @@
 		if (page.url.search) go(page.url.pathname);
 	}
 
-	const submit: SubmitFunction = ({ submitter, cancel }) => {
+	const submit: SubmitFunction = ({ action, formData, cancel }) => {
 		if (busy) { cancel(); return; }
-		if (submitter?.getAttribute('name') === 'delete') return remove(submitter.getAttribute('value') ?? '');
+		if (action.search === '?/delete') {
+			const target = String(formData.get('delete') ?? '');
+			const step = deleteStep(formData, target);
+			confirming = step === 'ask' ? target : null;
+			if (step !== 'confirm') { cancel(); return; }
+			return remove(target);
+		}
 		const sent = { key: editing, version, values: { ...values }, at: mark() };
 		busy = { op: editing ? 'save' : 'add', key: editing };
 		saveError = null;
@@ -206,7 +217,7 @@
 		</form>
 		{#if deleteError}
 			<div class="error" role="alert" id="register-delete-error" data-key={deleteError.key}>
-				<p>{deleteError.message}</p>
+				<p id="register-delete-message">{deleteError.message}</p>
 				{#if ready}<button type="button" id="register-delete-dismiss" onclick={() => (deleteError = null)}>Dismiss</button>{/if}
 			</div>
 		{/if}
@@ -231,7 +242,7 @@
 						<td>{#if e.fields.status}<span class="badge info">{e.fields.status}</span>{/if}</td>
 						<td class="actions">
 							<form method="GET"><input type="hidden" name="edit" value={e.key} /><button class="ghost" data-edit disabled={busy !== null || held}>Edit</button></form>
-							<button class="ghost" data-delete form="register-form" formaction="?/delete" name="delete" value={e.key} disabled={busy !== null || e.key === editing} title={e.key === editing ? 'Cancel the edit to delete this row' : undefined}>Delete</button>
+							<ConfirmDelete bind:pending={confirming} target={e.key} question="Delete this entry?" form="register-form" formaction="?/delete" name="delete" class="ghost" data-delete aria-describedby={deleteError?.key === e.key ? 'register-delete-message' : undefined} disabled={busy !== null || e.key === editing} title={e.key === editing ? 'Cancel the edit to delete this row' : undefined} />
 						</td>
 					</tr>
 				{/each}

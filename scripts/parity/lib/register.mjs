@@ -12,10 +12,14 @@ export const REGISTER = join(REPO, 'docs', 'reference', 'parity', 'intentional-d
 export const SCHEMA = join(REPO, 'docs', 'reference', 'parity', 'intentional-differences.schema.json');
 
 /**
- * Each M2 owner's fragment (register/<planning key>.json) and the ids it may allocate for new entries. The main file
- * may use none of them. A fragment also keeps the legacy ids moved into it from the main file (LEGACY).
+ * Each M2 owner's fragment (register/<planning key>.json) and the id ranges it may allocate new entries from (CC-06 has
+ * a second one, added when its first ran short of numbers never used). The main file may use none of them. A fragment also keeps the legacy ids moved into it from the main file (LEGACY).
  */
-export const RANGES = Object.freeze({ 'CC-04': [100, 149], 'CC-05': [150, 199], 'CC-06': [200, 249], 'CC-07': [250, 299], 'CC-08': [300, 349], 'CC-09': [350, 399], 'CC-10': [400, 449] });
+export const RANGES = Object.freeze({ 'CC-04': [[100, 149]], 'CC-05': [[150, 199]], 'CC-06': [[200, 249], [450, 474]], 'CC-07': [[250, 299]], 'CC-08': [[300, 349]], 'CC-09': [[350, 399]], 'CC-10': [[400, 449]] });
+/** Removed ids remain unavailable so prior reports and approvals cannot acquire a new meaning. */
+export const RETIRED = new Set([100, 106, 116, 124, 134, 150, 155, 157, 158, 159, 160, 162, 163, 165, 166, 169, 206, 208, 216, 218, 222, 236, 267, 302, 311, 314, 317, 320, 323, 324, 350, 358, 359, 360, 362, 363, 364].map((n) => `IDR-${n}`));
+/** An owner's ranges in words: `IDR-200–IDR-249, IDR-450–IDR-474`. */
+export const rangeText = (key) => RANGES[key].map(([lo, hi]) => `IDR-${lo}–IDR-${hi}`).join(', ');
 export const LEGACY = Object.freeze({
 	'CC-04': ['IDR-004', 'IDR-005', 'IDR-006', 'IDR-007', 'IDR-008', 'IDR-009', 'IDR-010'],
 	'CC-05': ['IDR-001', 'IDR-002', 'IDR-018', 'IDR-019', 'IDR-020', 'IDR-021', 'IDR-022'],
@@ -26,7 +30,7 @@ export const LEGACY = Object.freeze({
 	'CC-10': ['IDR-038', 'IDR-039', 'IDR-040', 'IDR-051', 'IDR-068'],
 });
 const idNumber = (id) => Number(/^IDR-([0-9]+)$/.exec(String(id))?.[1] ?? NaN);
-const rangeOwner = (id) => Object.keys(RANGES).find((k) => idNumber(id) >= RANGES[k][0] && idNumber(id) <= RANGES[k][1]);
+const rangeOwner = (id) => Object.keys(RANGES).find((k) => RANGES[k].some(([lo, hi]) => idNumber(id) >= lo && idNumber(id) <= hi));
 
 /** The 42 v5 navigation ids, from GRS-9's committed summary. */
 export const viewIds = () => JSON.parse(readFileSync(join(REPO, 'docs', 'reference', 'v5-summary.json'), 'utf8')).nav.items.map((i) => i.id);
@@ -65,9 +69,10 @@ export function validateRegister(doc, { views = viewIds(), owners = null, keys =
 	if (fragment !== null && !RANGES[fragment]) return [...problems, `fragment ${fragment} is not an M2 owner's (${Object.keys(RANGES).join(', ')})`];
 	for (const e of doc.entries) {
 		const at = `${e.id ?? '?'}`;
+		if (RETIRED.has(e.id)) problems.push(`${at}: retired id`);
 		if (ids.has(e.id)) problems.push(`${at}: duplicate id`);
 		ids.add(e.id);
-		if (fragment && !LEGACY[fragment].includes(e.id) && rangeOwner(e.id) !== fragment) problems.push(`${at}: outside ${fragment}'s id range IDR-${RANGES[fragment][0]}–IDR-${RANGES[fragment][1]}`);
+		if (fragment && !LEGACY[fragment].includes(e.id) && rangeOwner(e.id) !== fragment) problems.push(`${at}: outside ${fragment}'s id range ${rangeText(fragment)}`);
 		if (!fragment && rangeOwner(e.id)) problems.push(`${at}: in ${rangeOwner(e.id)}'s id range; it belongs in register/${rangeOwner(e.id)}.json`);
 		if (fragment && keys && e.field === '*' && keys[e.view] && keys[e.view] !== fragment) problems.push(`${at}: whole view ${e.view} belongs to ${keys[e.view]}, not ${fragment}`);
 		if (!views.includes(e.view)) problems.push(`${at}: unknown view ${JSON.stringify(e.view)}`);

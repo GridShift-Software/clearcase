@@ -1,4 +1,5 @@
 import { fail, isHttpError, redirect, type RequestEvent } from '@sveltejs/kit';
+import { deleteStep } from '../../components/confirm-delete.ts';
 import { app } from '../../local-case/app.server.ts';
 import { datasetOf, exportFileName, viewContentOf, viewText } from '../../local-case/results.server.ts';
 import { inTurn } from '../../local-case/registers.server.ts';
@@ -106,6 +107,9 @@ export const filingsActions = {
 		const target = String(fd.get('delete') ?? '');
 		const v = a.store.getVersion(params.vid ?? '');
 		if (!v) return fail(404, { op: 'delete' as const, target, message: 'Unknown results version: nothing was deleted.', draft });
+		// a Delete that is not confirmed deletes nothing: the page asks (or, after Cancel, shows the draft again)
+		const step = deleteStep(fd, target);
+		if (step !== 'confirm') return fail(400, { op: 'delete' as const, target, confirm: step === 'ask' ? target : null, draft });
 		const outcome = await queued(v.case_id, async () => {
 			const { seeds, entries } = register(v.case_id, v.id);
 			const e = entries.find((x) => x.key === target);

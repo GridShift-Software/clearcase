@@ -43,11 +43,11 @@ describe('headsText (v5 exportHeads)', () => {
 });
 
 describe('authoritiesCsv (v5 exportAuth)', () => {
-	it('writes the header, imported rows unchanged, then user rows with formulas neutralised', () => {
+	it('writes the header, imported rows, then user rows, with formulas neutralised in both (GRS-172)', () => {
 		const csv = authoritiesCsv([{ topic: 'T1', authority: '=imported', proposition: 'P, with comma' }], [{ topic: 'T2', authority: '=SUM(A1)', proposition: 'mine' }]);
 		const lines = csv.split('\r\n');
 		expect(lines[0]).toBe('topic,authority,proposition');
-		expect(lines[1]).toBe('T1,=imported,"P, with comma"');
+		expect(lines[1]).toBe('T1,\'=imported,"P, with comma"');
 		expect(lines[2]).not.toContain(',=SUM');
 		expect(lines[2]).toMatch(/^T2,.+SUM\(A1\),mine$/);
 		expect(lines).toHaveLength(3);
@@ -90,8 +90,8 @@ describe('authoritiesCsv (v5 exportAuth)', () => {
 		expect(fields.length).toBeGreaterThan(user.length);
 		expect(fields.filter((f) => /^[=+\-@\t\r]/.test(f))).toEqual([]);
 	});
-	// L05 (GRS-18 r3): an imported row skips userCell and keeps its first character (v5 parity), but the base now neutralises
-	// every segment after `;`, tab, CR or LF, so the same `;` reader finds no formula in an imported row either.
+	// L05 (GRS-18 r3): an imported row skips userCell, but csvCell neutralises its start (GRS-172) and every segment after
+	// `;`, tab, CR or LF, so the same `;` reader finds no formula in an imported row either.
 	it('D17 (b): the same holds for imported rows (`x;=1`, a tab and a CR LF case) in any column', () => {
 		const imported = ['x;=1', 'x;=1+1', 'x\t=1', 'x\r\n=1', 'x\r\n+1', 'x; @SUM(A1)'].flatMap((v) => [{ topic: v, authority: 'A', proposition: 'P' }, { topic: 'T', authority: v, proposition: 'P' }, { topic: 'T', authority: 'A', proposition: v }]);
 		const csv = authoritiesCsv(imported, []);

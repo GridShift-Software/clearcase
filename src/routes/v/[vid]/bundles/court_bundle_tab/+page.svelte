@@ -8,7 +8,7 @@
 	import { NOT_SERVED, hrefOf, type Resolved } from '$lib/views/bundles/links';
 	import { download } from '$lib/components/download';
 	import { postAction } from '$lib/views/bundles/post';
-	import { RELOAD_LOST, reloader } from '$lib/views/bundles/reload.svelte';
+	import { RELOAD_LOST, reloader } from '$lib/components/reload.svelte';
 	import { printIndex } from '$lib/views/bundles/print';
 	import { DOCX_TYPE, indexDocx } from '$lib/views/bundles/docx';
 	import { HEADER_FIELDS, HEADER_KEYS, TO_COMPLETE, cleanName, desc, header, indexFileName, pad, partRange, range, totals, type Bundle, type Header } from '$lib/views/bundles/court';

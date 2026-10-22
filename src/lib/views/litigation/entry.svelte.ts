@@ -1,7 +1,7 @@
 import { applyAction } from '$app/forms';
-import { invalidateAll } from '$app/navigation';
 import type { SubmitFunction } from '$app/forms';
 import { deleteStep } from '$lib/components/confirm-delete';
+import { reloader } from '$lib/components/reload.svelte';
 import { lostMessage, refused, type Failure } from './submit.ts';
 
 export const UNSAVED = 'Not saved yet: this entry is still only in the form. Press Add to save it, or Discard it.';
@@ -9,6 +9,7 @@ export const UNSAVED = 'Not saved yet: this entry is still only in the form. Pre
 export type Answer = { op?: 'add' | 'delete'; values?: Record<string, string>; message?: string | null; retry?: boolean; target?: string; gone?: boolean; deleted?: string; confirm?: string | null } | null | undefined;
 
 export class EntryForm {
+	readonly #reload = reloader();
 	values = $state<Record<string, string>>({});
 	adding = $state(false);
 	addError = $state<Failure | null>(null);
@@ -36,6 +37,7 @@ export class EntryForm {
 	}
 
 	get unsaved() { return this.adding || this.addError !== null || this.#fields.some((k) => this.values[k]); }
+	get reloadLost() { return this.#reload.lost; }
 
 	discard = () => {
 		if (this.adding) return;
@@ -56,7 +58,7 @@ export class EntryForm {
 		return async ({ result }) => {
 			try {
 				if (result.type === 'success') {
-					await invalidateAll();
+					await this.#reload.reload();
 					for (const k of this.#fields) if (this.values[k] === sent[k]) this.values[k] = '';
 				} else if (result.type === 'failure') {
 					if (result.data?.message) this.addError = refused(result.data, 'Not saved.');
@@ -83,10 +85,10 @@ export class EntryForm {
 			try {
 				if (result.type === 'success') {
 					if (result.data?.gone && typeof result.data.message === 'string') this.notice = result.data.message;
-					await invalidateAll();
+					await this.#reload.reload();
 				} else if (result.type === 'failure') {
 					this.deleteErrors[id] = refused(result.data, 'Not deleted.').message;
-					if (result.status === 409 || result.status === 404) await invalidateAll();
+					if (result.status === 409 || result.status === 404) await this.#reload.reload();
 				} else if (result.type === 'redirect') await applyAction(result);
 				else this.deleteErrors[id] = lostMessage('delete', result.status).message;
 			} finally {

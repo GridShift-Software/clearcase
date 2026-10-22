@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import { applyAction, enhance } from '$app/forms';
-	import { invalidateAll } from '$app/navigation';
 	import type { SubmitFunction } from '$app/forms';
 	import Narrative from '$lib/components/Narrative.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
@@ -11,6 +10,7 @@
 	import { ANALYSIS_NOTE } from '$lib/views/litigation/notes';
 	import { lostMessage, refused, type Failure } from '$lib/views/litigation/submit';
 	import TableScroll from '$lib/components/TableScroll.svelte';
+	import { RELOAD_UNAVAILABLE, reloader } from '$lib/components/reload.svelte';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
 	type Row = (typeof data.rows)[number];
@@ -26,6 +26,7 @@
 		}
 		return out;
 	}));
+	const rl = reloader();
 	const stepOf = (key: string) => (steps[key] ??= blank());
 	const valueOf = (r: Row) => (r.key && steps[r.key]?.value) ?? shownStatus(r);
 	const savedOf = (r: Row) => !!r.key && !!steps[r.key]?.saved && steps[r.key]!.value === null && shownStatus(r) === steps[r.key]!.sent;
@@ -58,11 +59,11 @@
 		return async ({ result }) => {
 			try {
 				if (result.type === 'success') {
-					await invalidateAll();
+					await rl.reload();
 					if (s.value === value) Object.assign(s, { value: null, saved: true });
 				} else if (result.type === 'failure') {
 					s.error = refused(result.data, 'Not saved.');
-					if (result.status === 409) await invalidateAll();
+					if (result.status === 409) await rl.reload();
 				} else if (result.type === 'redirect') await applyAction(result);
 				else s.error = lostMessage('status', result.status);
 			} finally {
@@ -77,6 +78,7 @@
 
 <main id="main" tabindex="-1" data-ready="enforcement_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Enforcement Roadmap" section="Enforcement Roadmap" caseName={data.version.titleName} subtitle={data.content.subtitle} />
+	{#if rl.lost}<p class="error" role="alert" id="reload-error">{RELOAD_UNAVAILABLE}</p>{/if}
 	{#if data.content.why}
 		<div class="card narr"><h3>Why this matters</h3><Narrative text={data.content.why} resultsVersion={vid} known={data.known} /></div>
 	{/if}

@@ -95,7 +95,7 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	corruption: [11, 12],
 	restore: [8, 8],
 	'restore-guards': [13, 28],
-	'snapshot-consistency': [5, 5],
+	'snapshot-consistency': [7, 8],
 };
 
 type Spec = null | boolean | number | string | RegExp | ((v: unknown) => boolean) | Spec[] | { [key: string]: Spec };
@@ -157,7 +157,7 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 	corruption: { casesRefused: 8 },
 	restore: { entries: POSITIVE, steps: POSITIVE, wallMs: MS, objects: POSITIVE },
 	'restore-guards': { refusals: 17 },
-	'snapshot-consistency': { savesDuringSnapshot: 1, savesLost: 0, snapshotRows: 4 },
+	'snapshot-consistency': { savesDuringSnapshot: 1, savesLost: 0, snapshotRows: 4, unreleasedHoldMs: MS, independentHolds: 2 },
 };
 
 /** The one expected shape of a PASS summary for `sha`: every field, its type and its value. */
@@ -1377,7 +1377,7 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 
 		// ----- a snapshot read while another save commits (the snapshot's rows and its revision are one read) -----
 		await serve('client-a');
-		await leg('snapshot-consistency', ['POST /cases/<case>/registers/notes/add (3 rows)', 'GET /cases/<case>/work with x-probe-hold (held inside the snapshot), GET /probe/hold', 'POST /cases/<case>/registers/notes/add while the snapshot is held, POST /probe/hold/release', 'POST /cases/<case>/work/restore with that snapshot at the current revision', 'GET /cases/<case>/work'], async (check, m) => {
+		await leg('snapshot-consistency', ['POST /cases/<case>/registers/notes/add (3 rows)', 'GET /cases/<case>/work with x-probe-hold (held inside the snapshot), GET /probe/hold', 'POST /cases/<case>/registers/notes/add while the snapshot is held, POST /probe/hold/release', 'POST /cases/<case>/work/restore with that snapshot at the current revision', 'GET /cases/<case>/work', 'GET /cases/<case>/work with x-probe-hold, never released (held up to the 30 s bound)', 'GET /cases/<case>/work with x-probe-hold: hold-a and hold-b, GET /probe/hold/{hold-a,hold-b}, POST /probe/hold/hold-a/release, POST /probe/hold/hold-b/release'], async (check, m) => {
 			const snapCase = 'case-snapshot-race';
 			const note = (i: number) => post(`/cases/${snapCase}/registers/notes/add`, { fields: { label: `synthetic note ${i}` }, operationId: `op-snapshot-${i}` });
 			const first = await Promise.all([0, 1, 2].map((i) => note(i)));
@@ -1399,7 +1399,30 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			const lost = (after.tables.uw_register_row.rows as { operation_id: string }[]).some((r) => r.operation_id === 'op-snapshot-3') ? 0 : 1;
 			check(lost === 0, `the save acknowledged while the snapshot was read survives a restore of that snapshot at the current revision (the snapshot named revision ${snap.rev} and held ${rows} rows; the restore answered ${restore.status} ${restore.json().kind ?? ''})`);
 			check(snap.rev === rows, `the snapshot's revision names exactly the rows it holds (revision ${snap.rev}, ${rows} rows): one read, not two`);
-			Object.assign(m, { savesDuringSnapshot: 1, savesLost: lost, snapshotRows: rows });
+			// A hold nobody releases ends by itself: the probe-only hook is bounded, so it cannot wedge a request until the client gives up.
+			const t0 = performance.now();
+			const unreleased = await http(`/cases/${snapCase}/work`, { headers: { 'x-probe-hold': '1' }, timeout: 45_000 }).catch(() => null);
+			const unreleasedMs = ms(t0);
+			check(unreleased !== null && code(unreleased, 504, 'hold-timeout') && unreleasedMs < 45_000, `a hold that is never released answers 504 hold-timeout by itself within 45 s (${unreleased === null ? 'no answer' : unreleased.status} after ${Math.round(unreleasedMs)} ms)`);
+			// Two holds are independent: releasing one leaves the other held.
+			const held = (token: string) => http(`/cases/${snapCase}/work`, { headers: { 'x-probe-hold': token }, timeout: 60_000 });
+			const waitingOn = async (token: string) => {
+				for (let i = 0; i < 200; i++) {
+					if ((await http(`/probe/hold/${token}`)).json().waiting === true) return true;
+					await new Promise((r) => setTimeout(r, 50));
+				}
+				return false;
+			};
+			const readA = held('hold-a');
+			const readB = held('hold-b');
+			const bothWaiting = (await waitingOn('hold-a')) && (await waitingOn('hold-b'));
+			await post('/probe/hold/hold-a/release', {});
+			const answeredA = await readA;
+			const stillB = (await http('/probe/hold/hold-b')).json().waiting === true;
+			check(bothWaiting && answeredA.status === 200 && stillB, "two snapshot reads are held at once, each by its own token; releasing hold-a lets that read answer 200 and leaves hold-b held");
+			await post('/probe/hold/hold-b/release', {});
+			check((await readB).status === 200 && (await http('/probe/hold/hold-b')).json().waiting === false, 'releasing hold-b then answers its read 200, and no hold is left');
+			Object.assign(m, { savesDuringSnapshot: 1, savesLost: lost, snapshotRows: rows, unreleasedHoldMs: unreleasedMs, independentHolds: bothWaiting && stillB ? 2 : 0 });
 		});
 
 	} catch (e) {

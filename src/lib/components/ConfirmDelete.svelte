@@ -8,7 +8,7 @@
 	import type { HTMLButtonAttributes } from 'svelte/elements';
 	import { CANCEL, CONFIRM } from './confirm-delete';
 
-	type Props = Omit<HTMLButtonAttributes, 'value' | 'onclick' | 'type' | 'hidden'> & {
+	type Props = Omit<HTMLButtonAttributes, 'value' | 'onclick' | 'onkeydown' | 'type' | 'hidden'> & {
 		pending: string | null;
 		target: string;
 		question: string;
@@ -53,16 +53,20 @@
 	onMount(() => () => {
 		if (confirmed) setTimeout(() => { if (lost()) document.querySelector<HTMLElement>('[data-page-heading]')?.focus(); });
 	});
-	// a held key repeats keydown: the repeats must not press Confirm (or Cancel, which would land on Delete and ask again)
+	// a held key repeats keydown while focus moves from Delete to Confirm, or from Cancel back to Delete: no repeat
+	// presses any of the three, so one key press asks, confirms or cancels once
+	function held(e: KeyboardEvent) {
+		if (e.repeat) e.preventDefault();
+		return e.repeat;
+	}
 	function keys(e: KeyboardEvent) {
-		if (e.repeat) { e.preventDefault(); return; }
-		if (e.key !== 'Escape') return;
+		if (held(e) || e.key !== 'Escape') return;
 		e.preventDefault();
 		void cancel();
 	}
 </script>
 
-<button bind:this={opener} class={['opener', cls]} hidden={asking} {type} {form} {formaction} {name} {value} {disabled} {...rest} onclick={ask}>{label}</button>
+<button bind:this={opener} class={['opener', cls]} hidden={asking} {type} {form} {formaction} {name} {value} {disabled} {...rest} onclick={ask} onkeydown={held}>{label}</button>
 {#if asking}
 	<!-- Without JavaScript the server's answer renders the question, and the browser's autofocus focuses the question, not
 	     Confirm: the repeats of the key that pressed Delete still arrive once that page loads, and nothing can tell them

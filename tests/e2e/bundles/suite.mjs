@@ -680,6 +680,7 @@ try {
 		await holdEnter(p);
 		await sleep(500);
 		const heldClear = await step();
+		if (!heldClear.kept) throw new Error(`a held Enter on Confirm deleted without a second press: ${J(heldClear)}`);
 		await p.click('#cb-header [data-delete-cancel]');
 		await sleep(300);
 		const cancelled = await step();

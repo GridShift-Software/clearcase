@@ -1072,6 +1072,10 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			const repaired = await http('/recovery/copies');
 			const staleErrors = errorOf(a6) === null ? 0 : 1;
 			check(repaired.status === 200 && (await held('copies', `deletion/${a6.caseId}.json`)) && row(a6).erased_at === erasedAt6 && staleErrors === 0 && code(await http(`/cases/${a6.caseId}/documents/S-0001`), 410, 'case-deleted'), "the next new isolate copies the record back: RECOVERY holds it again, A6 is still erased since the same time and refused, and its row carries no stale erasure failure");
+			// A repeat removal of the erased A6 whose erasure fails must leave A6 as it was: erase_error is only for an erasure that is unfinished.
+			const repeatFailing = await http(`/cases/${a6.caseId}/deletion/remove`, { method: 'POST', headers: { 'content-type': 'application/json', ...failing(a6) }, body: JSON.stringify({ actor: GA }) });
+			const staleAfterRepeat = errorOf(a6) === null ? 0 : 1;
+			check(repeatFailing.status === 500 && row(a6).erased_at === erasedAt6 && staleAfterRepeat === 0 && code(await http(`/cases/${a6.caseId}/documents/S-0001`), 410, 'case-deleted'), "a repeated removal of the erased A6 whose erasure fails answers 500, yet A6 keeps its erased_at, its row records no erasure failure, and it is still refused");
 			Object.assign(m, { interruptedRemovals: 2, finishedByRoute: left5.length === 0 ? 1 : 0, finishedByNewIsolate: left6.length === 0 ? 1 : 0, objectsLeftAfterFinish: left5.length + left6.length, residueRows: res[0]!.left.length + res[1]!.left.length, failedErasuresIsolated: other.status === 200 && left7.length === 0 ? 1 : 0, otherCasesServed: other.status === 200 ? 1 : 0, staleErrorsAfterCopyBack: staleErrors });
 		});
 	} catch (e) {

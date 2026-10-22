@@ -267,24 +267,20 @@
     {
       "id": "IDR-236",
       "view": "interest_calc_tab",
-      "field": [
-        "sweep.compute.separated.k3.sub",
-        "sweep.compute.simple.k3.sub",
-        "sweep.compute.compound.k3.sub"
-      ],
+      "field": "sweep.compute.separated.k3.sub",
       "when": {
         "v5": {
           "re": "^[-+]?R[\\d .]+ vs your calc$"
         },
         "app": {
-          "re": "^(?:[-+]?R[\\d .]+ vs your calc|as at \\d{4}-\\d{2}-\\d{2}: not comparable with your total)$"
+          "re": "^[-+]?R[\\d .]+ vs your calc$"
         }
       },
       "type": "defect-fix",
-      "source": "S-interest_calc_tab-5",
-      "reason": "The line under the amount due, for the sweep's computed cases. ClearCase compares the total with the imported amount due only as at the same date with no recorded payment in the period (S-interest_calc_tab-5, IDR-245); the sweep's To date is not the amount due's, so the app shows the amount due as not comparable where v5 shows a difference. On one basis the line differs only where the total does (the separated capital, IDR-212); the imported amount is case data, so only its shape is registered.",
+      "source": "S-interest_calc_tab-1",
+      "reason": "The comparison of the separated total with the imported amount due (IDR-212) differs because the total does; the imported amount is case data, so only the line's shape is registered (CC-06 r2, D14). The total itself is pinned by IDR-235.",
       "productVisible": true,
-      "author": "CC-06 worker (GRS-173)",
+      "author": "CC-06 worker (GRS-16)",
       "approvedBy": null,
       "approvedOn": null
     },

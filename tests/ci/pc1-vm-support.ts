@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 export const app = fileURLToPath(new URL('../..', import.meta.url));
 export const fake = path.join(app, 'tests/ci/fake-guest.sh');
+// The line verify and verdict print under every PASS or FAIL.
 export const scope = 'scope: check and test of this SHA in the CI VM only; not a GitHub check status, branch protection or approval by the external reviewer';
 export const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 

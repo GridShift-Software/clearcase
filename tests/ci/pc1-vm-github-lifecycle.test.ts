@@ -4,6 +4,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { app, createHarness, scope } from './pc1-vm-support';
 
+// The ticket requires `bun test tests/ci`; the same cases must also appear in the job's Vitest report.
 const testRunner = process.env.VITEST ? 'vitest' : 'bun:test';
 const { afterEach, test }: Pick<typeof import('vitest'), 'afterEach' | 'test'> = await import(testRunner);
 const { fixture, verdicts, cleanup } = createHarness();

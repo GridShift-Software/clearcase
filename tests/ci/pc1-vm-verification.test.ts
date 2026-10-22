@@ -4,6 +4,7 @@ import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'no
 import path from 'node:path';
 import { createHarness, git, scope } from './pc1-vm-support';
 
+// The ticket requires `bun test tests/ci`; the same cases must also appear in the job's Vitest report.
 const testRunner = process.env.VITEST ? 'vitest' : 'bun:test';
 const { afterEach, test }: Pick<typeof import('vitest'), 'afterEach' | 'test'> = await import(testRunner);
 const { fixture, verdicts, cleanup } = createHarness();
@@ -110,6 +111,8 @@ for (const scenario of ['check-fail', 'test-fail', 'chrome-fail', 'install-fail'
   });
 }
 
+// The checks never ran to completion, so these exits are not verdicts: no entry is published and nothing is printed that
+// reads like one. A verdict from an earlier verify of the same SHA stays the answer.
 for (const [scenario, status] of [['stop-fail', 1], ['busy-after-stop', 3], ['job-during-stop', 3], ['transient-during-stop', 3], ['guest-term', 143]] satisfies [string, number][]) {
   for (const earlier of [false, true]) {
     test(`verify publishes no verdict and no scope line when ${scenario}${earlier ? ' after an earlier PASS' : ''}`, () => {

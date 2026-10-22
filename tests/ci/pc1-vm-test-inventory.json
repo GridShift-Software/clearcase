@@ -1,6 +1,5 @@
 {
   "schema": "clearcase-pc1-vm-test-inventory/1",
-  "baseline": "225b7e00578319d16383678a8d1ae6efb362a0ba",
   "scenarioCount": 115,
   "files": [
     {

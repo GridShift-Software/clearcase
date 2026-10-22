@@ -4,7 +4,7 @@ import { app } from '../../local-case/app.server.ts';
 import { datasetOf, exportFileName, viewContentOf, viewText } from '../../local-case/results.server.ts';
 import { inTurn } from '../../local-case/registers.server.ts';
 import { evidenceRows } from './rows.server.ts';
-import { REGISTER_STORE, SAVE_FAILURES, SEED_DATASET, asFields, formFields, nextSeq, registerEntries, rowVersion, saveFailure, type FilingsData, type SaveFailure, type SeedViewLike } from './filings.ts';
+import { REGISTER_STORE, SAVE_FAILURES, SEED_DATASET, asFields, formEntryFields, nextSeq, registerEntries, rowVersion, saveFailure, type FilingsData, type SaveFailure, type SeedViewLike } from './filings.ts';
 
 function register(caseId: string, rv: string) {
 	const a = app();
@@ -39,7 +39,7 @@ export const filingsLoad = async ({ parent, url }: { parent: () => Promise<{ ver
 type Draft = { values: Record<string, string>; editing: string | null; version: string | null; failed: SaveFailure | null };
 const draftOf = (fd: FormData): Draft => {
 	const key = fd.get('key'), version = fd.get('version');
-	return { values: formFields((k) => fd.get(k)).values, editing: typeof key === 'string' && key ? key : null, version: typeof version === 'string' && version ? version : null, failed: saveFailure(fd.get('failed')) };
+	return { values: formEntryFields((k) => fd.get(k)).values, editing: typeof key === 'string' && key ? key : null, version: typeof version === 'string' && version ? version : null, failed: saveFailure(fd.get('failed')) };
 };
 const refuse = (status: number, code: SaveFailure, values: Record<string, string>, editing: string | null, version: string | null = null) =>
 	fail(status, { op: 'save' as const, code, values, editing, version, message: SAVE_FAILURES[code].message, retry: SAVE_FAILURES[code].retry });
@@ -61,11 +61,11 @@ export const filingsActions = {
 	add: async ({ params, request }: RequestEvent) => {
 		const a = app();
 		const fd = await request.formData();
-		const typed = formFields((k) => fd.get(k));
+		const typed = formEntryFields((k) => fd.get(k));
 		const v = a.store.getVersion(params.vid ?? '');
 		if (!v) return refuse(404, 'version', typed.values, null);
 		if (!typed.ok) return refuse(400, 'empty-add', typed.values, null);
-		const status = await queued(v.case_id, () => write(() => a.userWork.putRow(v.case_id, REGISTER_STORE, null, { seq: nextSeq(a.userWork.listRows(v.case_id, REGISTER_STORE)), ...typed.values, status: '' })));
+		const status = await queued(v.case_id, () => write(() => a.userWork.putRow(v.case_id, REGISTER_STORE, null, { seq: nextSeq(a.userWork.listRows(v.case_id, REGISTER_STORE)), ...typed.values })));
 		return status ? refuse(status, 'busy', typed.values, null) : { op: 'add' as const, saved: true };
 	},
 	save: async ({ params, request, url }: RequestEvent) => {
@@ -73,7 +73,7 @@ export const filingsActions = {
 		const fd = await request.formData();
 		const key = String(fd.get('key') ?? '');
 		const seen = typeof fd.get('version') === 'string' ? String(fd.get('version')) : null;
-		const typed = formFields((k) => fd.get(k));
+		const typed = formEntryFields((k) => fd.get(k));
 		const v = a.store.getVersion(params.vid ?? '');
 		if (!v) return refuse(404, 'version', typed.values, key || null, seen);
 		if (!typed.ok) return refuse(400, 'empty-edit', typed.values, key, seen);
@@ -82,7 +82,7 @@ export const filingsActions = {
 			const e = entries.find((x) => x.key === key);
 			if (!e) return 'gone' as const;
 			if (seen !== rowVersion(e.fields)) return 'stale' as const;
-			const kept = { ...typed.values, status: e.fields.status };
+			const kept = { ...typed.values, status: typed.statusProvided ? typed.values.status : e.fields.status };
 			return write(async () => {
 				if (key.startsWith('row:')) {
 					const row = rows.find((r) => `row:${r.rowId}` === key)!;

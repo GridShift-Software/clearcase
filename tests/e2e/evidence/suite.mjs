@@ -1007,6 +1007,17 @@ try {
 		};
 		return { pass: Object.values(checks).every(Boolean), evidence: { checks, nav: nav.got, pair, reloaded, pick, general, optionsN: options.length } };
 	});
+	await scenario('GRS-183-FILING-STATUS', 'filings_tab', 'IDR-141: an added filing keeps its chosen status after reload', async () => {
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		await p.type('#fl_filing', 'Synthetic GRS-183 status filing');
+		await p.type('#fl_status', 'Filed');
+		await p.click('#register-add');
+		await p.waitFor(`[...document.querySelectorAll('#filing-register tbody tr[data-key]')].some((r) => r.textContent.includes('Synthetic GRS-183 status filing') && r.cells[6]?.textContent.trim() === 'Filed')`, 15000);
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		const status = await p.evaluate(`[...document.querySelectorAll('#filing-register tbody tr[data-key]')].find((r) => r.textContent.includes('Synthetic GRS-183 status filing'))?.cells[6]?.textContent.trim() ?? null`);
+		return { pass: status === 'Filed', evidence: { status } };
+	});
+
 	await scenario('GRS-183-CHRONO-EXCERPT', 'chronology', 'IDR-088: a short chronology excerpt has no truncation mark', async () => {
 		await p.goto(`${V}/chronology`, R('chronology'));
 		const excerpt = await p.evaluate(`document.querySelector('[data-ref="OD-269"] .excerpt')?.textContent ?? null`);

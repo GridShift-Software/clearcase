@@ -36,12 +36,19 @@ export const optionsOf = (rows: readonly ChronologyListRow[], f: 'bundle' | 'doc
 export const TEXT_STATUSES: readonly string[] = ['extracted', 'ocr', 'none', 'pending'];
 /** The text-status filter options: the whole vocabulary, as v5 offers it, then any other status a row carries. */
 export const statusOptions = (rows: readonly ChronologyListRow[]) => [...TEXT_STATUSES, ...optionsOf(rows, 'textStatus').filter((s) => !TEXT_STATUSES.includes(s))];
+/** The app omits OCR when selecting it would return no documents. */
+export const availableStatusOptions = (rows: readonly ChronologyListRow[]) => {
+	const present = optionsOf(rows, 'textStatus');
+	return statusOptions(rows).filter((s) => s !== 'ocr' || present.includes(s));
+};
 
 /** v5's text-status wording (statusBadge): a row without text reads 'scan · none'; an empty status reads '—'. */
 export const statusLabel = (s: string) => (s === 'none' ? 'scan · none' : s || '—');
 
 /** v5's excerpt preview (drawChron): the first 140 UTF-16 code units, always followed by an ellipsis. */
 export const excerptPreview = (s: string) => (s ? `${s.slice(0, 140)}…` : '');
+/** Mark an excerpt only when the displayed text is actually shorter than the indexed excerpt. */
+export const visibleExcerpt = (s: string, limit: number) => s.length > limit ? `${s.slice(0, limit)}…` : s;
 
 export function queryFromParams(p: URLSearchParams): ChronologyQuery {
 	const sort = p.get('sort') as SortKey | null;

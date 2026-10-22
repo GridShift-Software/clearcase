@@ -7,7 +7,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { download, toCSV } from '$lib/components/csv';
 	import { dateBasis, money } from '$lib/components/format';
-	import { excerptPreview, optionsOf, paramsFromQuery, queryFromParams, queryRows, statusLabel, statusOptions, type ChronologyQuery, type SortKey } from '$lib/local-case/chronology';
+	import { availableStatusOptions, optionsOf, paramsFromQuery, queryFromParams, queryRows, statusLabel, visibleExcerpt, type ChronologyQuery, type SortKey } from '$lib/local-case/chronology';
 	import { docPath, type ChronologyListRow } from '$lib/local-case/model';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
@@ -17,7 +17,7 @@
 	const rows = $derived(queryRows(data.rows, query));
 	const bundles = $derived(optionsOf(data.rows, 'bundle'));
 	const types = $derived(optionsOf(data.rows, 'docType'));
-	const statuses = $derived(statusOptions(data.rows));
+	const statuses = $derived(availableStatusOptions(data.rows));
 	const sync = () => {
 		const p = paramsFromQuery(query).toString();
 		if (p !== new URLSearchParams(location.search).toString()) replaceState(`${page.url.pathname}${p ? `?${p}` : ''}`, { chronology: p });
@@ -47,7 +47,7 @@
 </script>
 
 <main id="main" tabindex="-1" data-ready={ready ? 'chronology' : null}>
-	<PageHeader heading="Chronology" section="Chronology" caseName={data.version.titleName} subtitle="{data.rows.length.toLocaleString('en')} items · sorted by date">
+	<PageHeader heading="Chronology" section="Chronology" caseName={data.version.titleName} subtitle="{data.rows.length.toLocaleString('en')} items · sorted by {query.sort === 'docType' ? 'type' : query.sort}">
 		{#snippet actions()}<button type="button" onclick={exportCsv} id="export-csv">Export CSV ({rows.length.toLocaleString('en')} rows)</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}{/snippet}
 	</PageHeader>
 	<DegradedRows failed={data.failed} />
@@ -64,7 +64,7 @@
 				{#if c.key === 'date'}{r.date || 'undated'}
 				{:else if c.key === 'basis'}<span title={dateBasis(r)} data-date-basis={r.dateType || r.dateSource ? 'supplied' : r.date ? 'unknown' : 'undated'}>{basisLabel(r)}</span>
 				{:else if c.key === 'ref'}<a class="cite" href={docPath(vid, r.ref)}>{r.ref}</a>{#if r.parentRef}<small> in {r.parentRef}</small>{/if}
-				{:else if c.key === 'title'}<span class="clip" title={r.subject || r.filename}>{r.subject || cleanName(r.filename)}{#if r.sender}<small class="sender"> — {r.sender}</small>{/if}</span>{#if r.excerpt}<span class="clip excerpt" title={r.excerpt}>{excerptPreview(r.excerpt)}</span>{/if}{#if r.alsoIn.length}<small class="also-in">also in: {r.alsoIn.join(', ')}</small>{/if}
+				{:else if c.key === 'title'}<span class="clip" title={r.subject || r.filename}>{r.subject || cleanName(r.filename)}{#if r.sender}<small class="sender"> — {r.sender}</small>{/if}</span>{#if r.excerpt}<span class="clip excerpt" title={r.excerpt}>{visibleExcerpt(r.excerpt, 140)}</span>{/if}{#if r.alsoIn.length}<small class="also-in">also in: {r.alsoIn.join(', ')}</small>{/if}
 				{:else if c.key === 'docType'}{r.docType}
 				{:else if c.key === 'bundle'}{r.bundle}
 				{:else if c.key === 'amount'}{money(r.amount)}

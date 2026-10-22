@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { statusOptions } from '../../src/lib/local-case/chronology.ts';
+import { availableStatusOptions } from '../../src/lib/local-case/chronology.ts';
 import { runSearch, EMPTY, type SearchRow } from '../../src/lib/views/evidence/search.ts';
 import { listRow } from './rows.ts';
 
 describe('GRS-183 evidence list corrections', () => {
 	it('IDR-090 omits OCR when no document has that text status', () => {
 		const rows = [listRow('OD-1', { textStatus: 'extracted' }), listRow('OD-2', { textStatus: 'none' })];
-		expect(statusOptions(rows)).toEqual(['extracted', 'none', 'pending']);
+		expect(availableStatusOptions(rows)).toEqual(['extracted', 'none', 'pending']);
 	});
 
 	it('IDR-145 shows a short search excerpt without a truncation mark', () => {

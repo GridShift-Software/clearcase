@@ -2,7 +2,7 @@ import type { ChronologyListRow } from '../../local-case/model.ts';
 import type { Cell } from '../../components/csv.ts';
 import { MAX_TEXT, bundleLabel, bundleParam, cleanName, echo, paginate, type Page } from './common.ts';
 import { bundlesOf } from './documents.ts';
-import { optionsOf, statusOptions } from '../../local-case/chronology.ts';
+import { availableStatusOptions, optionsOf, visibleExcerpt } from '../../local-case/chronology.ts';
 import { money } from '../../components/format.ts';
 
 export const PAGE_SIZE = 50;
@@ -33,7 +33,7 @@ export interface SearchOptions { bundles: { value: string; label: string }[]; ty
 export const searchOptions = (rows: readonly ChronologyListRow[]): SearchOptions => ({
 	bundles: bundlesOf(rows).map((b) => ({ value: bundleParam(b.name), label: bundleLabel(b.name) })),
 	types: optionsOf(rows, 'docType'),
-	statuses: statusOptions(rows),
+	statuses: availableStatusOptions(rows),
 });
 
 export function invalidReason(q: SearchQuery, opts?: SearchOptions): string | null {
@@ -69,7 +69,7 @@ export function searchRows(rows: readonly SearchRow[], S: SearchQuery): SearchRo
 }
 
 export interface ResultLine { ref: string; date: string; title: string; excerpt: string; type: string; bundle: string; amount: string; file: string }
-const line = (r: SearchRow): ResultLine => ({ ref: r.ref, date: r.date, title: r.subject || cleanName(r.filename), excerpt: r.excerpt ? `${r.excerpt.slice(0, 120)}…` : '', type: r.docType, bundle: r.bundle, amount: money(r.amount), file: r.file });
+const line = (r: SearchRow): ResultLine => ({ ref: r.ref, date: r.date, title: r.subject || cleanName(r.filename), excerpt: visibleExcerpt(r.excerpt, 120), type: r.docType, bundle: r.bundle, amount: money(r.amount), file: r.file });
 
 export type SearchResult =
 	| { kind: 'idle' }

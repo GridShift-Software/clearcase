@@ -19,7 +19,7 @@ type SendEmail = { send(message: Message): Promise<{ messageId?: unknown }> };
 /** The source revision Bun stamps into the build (probe.ts); /health reports it. */
 declare const PROBE_SOURCE_REVISION: string;
 
-type Env = { DB: D1; BUCKET: R2; EMAIL?: SendEmail; CLIENT_ID: string; APP_ORIGIN: string; SENDER: string; SEND_TIMEOUT_MS?: string; FAULT_PLAN?: string };
+type Env = { DB: D1; BUCKET: R2; EMAIL?: SendEmail; CLIENT_ID: string; APP_ORIGIN: string; SENDER: string; SEND_TIMEOUT_MS?: string; FAULT_PLAN?: string; PROBE_HOOKS?: string };
 
 /** An attempt still `sending` this long after its claim was cut off mid-send (the Worker died or timed out): acceptance unknown. */
 const STALE_SENDING_MS = 10 * 60_000;
@@ -33,6 +33,35 @@ const unrecorded = (where: string, noticeId: string) => (e: unknown) => console.
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 const refuse = (status: number, error: string) => json({ error }, status);
+
+/**
+ * PROBE_HOOKS exists only in the probe's `retry-hold` environment: a publish or input-needed request that sends
+ * `x-probe-hold: <token>` stops after its D1 commit and before its inline first attempt, until the runner posts
+ * /probe/hold/<token>/release, so the runner can run a scheduled sweep at that point. Each token is its own hold; a
+ * second hold on a token that is held is refused, and a hold nobody releases answers 504 after HOLD_BOUND_MS. Never
+ * bind it in production.
+ */
+const HOLD_BOUND_MS = 30_000;
+const HOLD_TOKEN = /^[a-z0-9-]{1,40}$/;
+const probeHolds = new Map<string, boolean>(); // token -> still waiting
+/** The request's hold token, or null; waits on a timer, not on a promise another request resolves (workerd cancels a request whose only wait is on another request). */
+async function holdHere(env: Env, req: Request): Promise<Response | null> {
+	const token = env.PROBE_HOOKS === '1' ? req.headers.get('x-probe-hold') : null;
+	if (token === null) return null;
+	if (!HOLD_TOKEN.test(token)) return refuse(400, 'invalid x-probe-hold');
+	if (probeHolds.has(token)) return refuse(409, 'hold-taken');
+	probeHolds.set(token, true);
+	const until = Date.now() + HOLD_BOUND_MS;
+	try {
+		while (probeHolds.get(token)) {
+			if (Date.now() >= until) return refuse(504, 'hold-timeout');
+			await new Promise<void>((resolve) => setTimeout(resolve, 20));
+		}
+	} finally {
+		probeHolds.delete(token);
+	}
+	return null;
+}
 
 async function sha256(text: string): Promise<string> {
 	const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
@@ -82,10 +111,12 @@ async function attempt(env: Env, noticeId: string, now: number): Promise<void> {
 		.first<{ attempts: number; state: string; kind: NoticeKind; case_id: string; round: number; email: string | null; title: string; ref: string }>();
 	if (!row || !['pending', 'retrying'].includes(row.state)) return;
 	const n = row.attempts + 1;
-	const claim = await env.DB.prepare("UPDATE outbox SET state = 'sending', attempts = ?, claimed_at = ?, updated_at = ? WHERE notice_id = ? AND attempts = ? AND state = ?")
-		.bind(n, now, now, noticeId, row.attempts, row.state)
+	// Due is part of the claim, so it is atomic with it: a row read as pending that a sweep has since failed is retrying
+	// with its next_at in the future, and neither the inline first attempt nor a sweep holding an old list may take it.
+	const claim = await env.DB.prepare("UPDATE outbox SET state = 'sending', attempts = ?, claimed_at = ?, updated_at = ? WHERE notice_id = ? AND attempts = ? AND state = ? AND (next_at IS NULL OR next_at <= ?)")
+		.bind(n, now, now, noticeId, row.attempts, row.state, now)
 		.run();
-	if (claim.meta.changes !== 1) return; // another invocation took this attempt
+	if (claim.meta.changes !== 1) return; // another invocation took this attempt, or the row is not due yet
 
 	let code: string | null = null;
 	let messageId: string | null = null;
@@ -117,8 +148,10 @@ async function attempt(env: Env, noticeId: string, now: number): Promise<void> {
 }
 
 /**
- * The first attempt, inline, so the response can report it; bounded by SEND_TIMEOUT_MS. If it throws (a D1 error), the
- * committed publication and notice still answer 200: the row stays pending or sending, and the sweep takes it.
+ * The first attempt, inline, so the response can report it; bounded by SEND_TIMEOUT_MS. If a sweep has already taken
+ * the row and set its wait, the claim finds it not due and this leaves it alone: the response reports the row as it is.
+ * If it throws (a D1 error), the committed publication and notice still answer 200: the row stays pending or sending,
+ * and the sweep takes it.
  */
 async function firstAttempt(env: Env, noticeId: string, now: number): Promise<void> {
 	await attempt(env, noticeId, now).catch(unrecorded('first-attempt', noticeId));
@@ -212,6 +245,12 @@ async function handle(req: Request, env: Env): Promise<Response> {
 	const url = new URL(req.url);
 	const now = Date.now();
 	if (req.method === 'GET' && url.pathname === '/health') return json({ revision: PROBE_SOURCE_REVISION, client: env.CLIENT_ID, DB: typeof env.DB?.prepare === 'function', BUCKET: typeof env.BUCKET?.put === 'function', EMAIL: typeof env.EMAIL?.send === 'function' });
+	const hold = env.PROBE_HOOKS === '1' ? url.pathname.match(/^\/probe\/hold\/([a-z0-9-]{1,40})(\/release)?$/) : null;
+	if (hold && req.method === 'GET' && !hold[2]) return json({ waiting: probeHolds.get(hold[1]!) === true });
+	if (hold && req.method === 'POST' && hold[2]) {
+		if (probeHolds.has(hold[1]!)) probeHolds.set(hold[1]!, false);
+		return json({ released: true });
+	}
 	const who = await identity(req, env);
 	if (!who) return refuse(401, 'sign in');
 
@@ -225,7 +264,11 @@ async function handle(req: Request, env: Env): Promise<Response> {
 		if (!Number.isInteger(round) || (round as number) < 1) return refuse(400, 'round must be a positive integer');
 		if (m[2] === 'input-needed') {
 			const { noticeId, created } = await notify(env, c.id, 'input-needed', round as number, c.uploader, [], now);
-			if (created) await firstAttempt(env, noticeId, now);
+			if (created) {
+				const held = await holdHere(env, req);
+				if (held) return held;
+				await firstAttempt(env, noticeId, now);
+			}
 			return json({ inputNeeded: true, round, noticeId, created, notice: await outboxView(env, noticeId) });
 		}
 		const file = b?.file;
@@ -245,7 +288,11 @@ async function handle(req: Request, env: Env): Promise<Response> {
 			if (won?.file_sha256 !== digest) return refuse(409, `version ${round} is already published with other content`);
 		}
 		// The publication is committed above; the email below can only add to the outbox row.
-		if (created) await firstAttempt(env, noticeId, now);
+		if (created) {
+			const held = await holdHere(env, req);
+			if (held) return held;
+			await firstAttempt(env, noticeId, now);
+		}
 		return json({ published: true, version: round, fileSha256: digest, noticeId, created, notice: await outboxView(env, noticeId) });
 	}
 

@@ -1,5 +1,7 @@
 // Settlement / BATNA form model (GRS-16): defaults only from the package (S-settlement_tab-1), the claim prefill net
 // of recorded payments in whole rand (S-settlement_tab-2, -3), URL query inputs (BA-03), visible refusal.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { claimPrefill, defaultInputs, settleInputs, settleOutcome, submitted } from '../../src/lib/views/quantum/settlement';
 
@@ -51,5 +53,28 @@ describe('outcome', () => {
 		const o = settleOutcome({ claim: 'lots', p: '-5', y: '', d: '1,5', c: '' });
 		expect(o.kpis).toBeNull();
 		expect(Object.keys(o.errors).sort()).toEqual(['c', 'claim', 'd', 'p', 'y']);
+	});
+});
+
+describe('cost basis wording and the S-settlement_tab-4 disposition (GRS-185 fix round)', () => {
+	const repo = join(import.meta.dirname, '..', '..');
+	it('names the cost as undiscounted in its error prefix', () => {
+		const o = settleOutcome({ claim: '1000000', p: '70', y: '2', d: '10', c: 'abc' });
+		expect(o.errors.c).toMatch(/^Enforcement cost \(undiscounted\): /);
+	});
+	it('names the cost as undiscounted in the missing-default note', () => {
+		const page = readFileSync(join(repo, 'src/routes/v/[vid]/quantum/settlement_tab/+page.svelte'), 'utf8');
+		expect(page).toContain("['cost', 'Enforcement cost (undiscounted)']");
+		expect(page).not.toContain("'Enforcement cost']");
+	});
+	it('registers the defect as a known gap with an owner: the undiscounted cost remains', () => {
+		const doc = JSON.parse(readFileSync(join(repo, 'docs/reference/parity/register/CC-06.json'), 'utf8')) as { entries: Array<Record<string, unknown>> };
+		const e = doc.entries.find((x) => x.source === 'S-settlement_tab-4' && Array.isArray(x.field) && x.field.length === 0)!;
+		expect(e).toMatchObject({ type: 'known-gap', approvedBy: null, approvedOn: null });
+		expect(e.owner).toBeTruthy();
+		expect(String(e.reason)).toMatch(/undiscounted/);
+		expect(String(e.reason)).toMatch(/model decision/);
+		expect(String(e.reason)).toContain('IDR-453');
+		expect(String(e.reason)).not.toMatch(/shows each actual recovery probability/);
 	});
 });

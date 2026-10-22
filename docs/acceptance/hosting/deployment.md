@@ -2,7 +2,7 @@
 
 [GRS-107](https://linear.app/vaper/issue/GRS-107) asks for proof of the cf and Void deployment, migration and credential boundaries. Under the local-first plan on GRS-26, this unit runs GRS-102's P1 to P9 offline under `unshare -rn`, with a placeholder account (`00000000000000000000000000000107`) and synthetic data. There is no account, token, login or deploy. Cloudflare stays pinned. P10 and the janitor's real sweep wait for the account owner at moment M1.
 
-**Verdict: PASS for the local legs at `45e736f9d6ccf9c87f50872eb2e6963f43a5581f`; HOLD for the cloud legs.** All 13 probe legs pass, and so do the 188 tests of the trusted parent, the resource kit, the secrets reader, the scan and the summary check; `gate:hosted` and `gate` pass at the commit that records this page. The committed run is [evidence/deployment-summary.json](evidence/deployment-summary.json), which names the SHA it ran at. What stays HOLD is listed [at the end](#what-stays-hold).
+**Verdict: PASS for the local legs at `e4c0971ca46e49cd4dd49e23cb59b3e060d9d844`; HOLD for the cloud legs.** All 13 probe legs pass. The committed run is [evidence/deployment-summary.json](evidence/deployment-summary.json), which names the SHA it ran at. What stays HOLD is listed [at the end](#what-stays-hold).
 
 ## Run it
 
@@ -10,16 +10,16 @@ From `tests/hosting-probe/deployment/`, a workspace with its own pins and `bun.l
 
 ```sh
 bun install --frozen-lockfile   # once, online
-bun run --bun test              # 188 tests of deploy/probes/, about 3 s
+bun run --bun test              # tests of deploy/probes/
 bun run --bun probe             # about 60 s; writes .local/hosting-probe/deployment/summary.json at the repo root
 bun run --bun probe --check     # does the committed summary vouch for this checkout?
 ```
 
-`--check` reads [`evidence/deployment-summary.json`](evidence/deployment-summary.json) and exits 0 only when the summary says every leg passed with a clean tree, its `sourceSha` is an ancestor of `HEAD` (it is the run's own commit and is never overwritten with `HEAD`), the git object ids it records for the probe's own inputs (`deploy/probes`, `tests/hosting-probe/deployment`, `tests/e2e/pilot/offline.sh`) are what `sourceSha` and `HEAD` both hold, and this page names `sourceSha`. A merge of other tickets' work that touches none of those inputs leaves it passing; a change to one makes it refuse until the probe runs again. [`summary-check.ts`](../../../deploy/probes/summary-check.ts) holds the check.
+`--check` reads [`evidence/deployment-summary.json`](evidence/deployment-summary.json) and exits 0 only when the summary holds all 13 expected PASS legs with their steps and assertions, has a clean tree, its `sourceSha` is an ancestor of `HEAD` (it is the run's own commit and is never overwritten with `HEAD`), the git object ids it records for the probe's own inputs (`deploy/probes`, `tests/hosting-probe/deployment`, `tests/e2e/pilot/offline.sh`) are what `sourceSha` and `HEAD` both hold, and this page names `sourceSha`. A merge of other tickets' work that touches none of those inputs leaves it passing; a change to one makes it refuse until the probe runs again. [`summary-check.ts`](../../../deploy/probes/summary-check.ts) holds the check.
 
 [`probe.ts`](../../../tests/hosting-probe/deployment/probe.ts) refuses to run (exit 2) on a dirty tree, on a Bun other than 1.4.2, when an installed package differs from its pin, or when no real Node is on `PATH`. It re-runs itself inside [`tests/e2e/pilot/offline.sh`](../../../tests/e2e/pilot/offline.sh), which gives it a network namespace with only loopback and hides the host resolver. Every child gets an allowlisted environment: a fresh `HOME`, `CI=1`, and telemetry, error reports, the update banner, the `cf.json` fetch and dotenv loading turned off. A Node preload ([`net-recorder.mjs`](../../../tests/hosting-probe/deployment/net-recorder.mjs)) records every connect and DNS lookup that a Node tool attempts, so a leg can assert "no network" from evidence rather than from the sandbox. The runner exits 0 only when every leg passes, the tree and HEAD are unchanged, and its own summary holds no canary.
 
-Checks at `45e736f9` (the product head; the commits after it change only this page, the summary and, in PRFIX-114b, the storage and recovery probes, which the deployment probe does not read): the 188 tests (exit 0), the probe (exit 0, 13/13 legs), `bun run --bun check` (exit 0); `gate:hosted` and `gate` (build, check, test, test:e2e, parity, verify:pilot:v5) pass at the commit that records this page. `bun run --bun probe --check` passes on the commit that records this page.
+Checks at `e4c0971c` (the product head): the deployment probe exited 0 with 13/13 legs and `bun run --bun check` exited 0. The summary's `sourceSha` stays at this product head in the later docs-only commit; gate results at that commit are recorded in the PRFIX-114g report.
 
 ## What runs where
 
@@ -130,10 +130,10 @@ A token able to upload one client's Worker can upload any client's Worker in the
 
 [`cloud-run.ts`](../../../deploy/probes/cloud-run.ts):
 
-- Names are `cc-<ticket>-<worker>-<sha7>` (`cc-107-w1-45e736f` for this run), lowercase, validated.
-- `openRun` writes `<dir>/<name>.json` before anything is created, and refuses a name that already has a manifest. Each creation is recorded after the provider returns, so a run that dies in between leaves the resource unrecorded; the teardown does not depend on the record.
-- An exit trap tears down the (kind, name) pairs the run itself opened, held in memory and each checked against the run's own name and the `cc-` prefix, Worker first so nothing writes to the database or bucket while they go, then D1, then R2, on normal exit, a throw, SIGINT, SIGTERM and SIGHUP. The run reads only the manifest's status back from the file, so a file rewritten during the run deletes nothing the run did not create. Each result, a failed delete included, is recorded, and the manifest ends `finished`.
-- The janitor deletes only resources that have a run name and a run kind, are older than 24 hours, and whose manifest is finished or absent. It keeps unprefixed names, malformed `cc-` names, unreadable times, younger resources and open or unreadable manifests, and it refuses to plan without its manifests directory, which has no default: one checkout's default would read another checkout's open runs as orphaned. The probe's dry run against a fake listing planned 2 deletions, kept 4 and deleted nothing.
+- Names are `cc-<ticket>-<worker>-<sha7>` (`cc-107-w1-e4c0971` for this run), lowercase, validated.
+- `openRun` claims `<dir>/<name>.json` exclusively with a unique run id before any create. A successful provider create and manifest update record ownership; a failed create records none. A second checkout with the same resource name cannot delete the first checkout's Worker when its create fails.
+- An exit trap deletes only recorded owned (kind, name) pairs, Worker first so nothing writes to its database or bucket while they go, then D1, then R2, on normal exit, a throw, SIGINT, SIGTERM and SIGHUP. An unrecorded resource is preserved for operator recovery. The run reads the manifest's status and run id back from the file, so a rewritten manifest cannot add ownership. Each attempted delete, a failed one included, is recorded, and the manifest ends `finished`.
+- The janitor is a dry-run plan, with no provider delete. It selects only resources with a run name and kind, older than 24 hours, whose manifest is finished or absent. It keeps unprefixed names, malformed `cc-` names, unreadable times, younger resources and open or unreadable manifests, and refuses to plan without its manifests directory. The probe's dry run against a fake listing planned 2 deletions, kept 4 and deleted nothing. The real sweep remains HOLD.
 
 ## Secrets reader
 

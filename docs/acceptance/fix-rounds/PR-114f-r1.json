@@ -29,5 +29,66 @@
       "tests": []
     }
   ],
-  "tests": []
+  "tests": [],
+  "protection": {
+    "kind": "files",
+    "files": [
+      {
+        "file": "tests/hosting-probe/storage/probe.ts",
+        "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+      },
+      {
+        "file": "tests/hosting-probe/storage/generate.ts",
+        "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+      },
+      {
+        "file": "tests/hosting-probe/storage/src/zip.ts",
+        "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+      },
+      {
+        "file": "tests/hosting-probe/storage/schema.sql",
+        "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+      },
+      {
+        "file": "tests/hosting-probe/storage/package.json",
+        "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+      },
+      {
+        "file": "tests/hosting-probe/storage/bun.lock",
+        "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+      },
+      {
+        "file": "tests/hosting-probe/storage/wrangler.toml",
+        "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+      },
+      {
+        "file": "tests/hosting-probe/recovery/probe.ts",
+        "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+      },
+      {
+        "file": "tests/hosting-probe/recovery/schema.sql",
+        "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+      },
+      {
+        "file": "tests/hosting-probe/recovery/package.json",
+        "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+      },
+      {
+        "file": "tests/hosting-probe/recovery/wrangler.toml",
+        "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+      },
+      {
+        "file": "tests/e2e/pilot/offline.sh",
+        "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+      },
+      {
+        "file": "tsconfig.json",
+        "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+      }
+    ],
+    "review": {
+      "file": "docs/acceptance/file-protection-reviews/PR-114f-r1.json",
+      "sha256": "d6ff8c534a6e6fb353a5fc51e152e2e3c6f6cd7ef710a3f3c41cd59b85421f3f"
+    }
+  }
 }

@@ -1,0 +1,65 @@
+{
+  "schema": "clearcase-file-protection-review/1",
+  "unit": "GRS-26/implementation",
+  "fixBase": "a3f80d1305294a8c685a87351281eef7928c7d9c",
+  "reviewFindingsSha256": "a5f41c21265a14784636db4b2bb6c2c63df46f466c9aac392d37ce4623da6fad",
+  "reviewedHead": "2003a6b3c7f418b2c6c3e44094492fe3cbabe07b",
+  "verdict": "PASS",
+  "fresh": true,
+  "reviewer": "Codex GPT-6.1-Sol independent mapping review resume-20261022-review114f-file-mapping",
+  "implementer": "GPT-6-Sol (initial PRFIX-114f runtime); Claude Opus 5.5 (restore-lease escalation)",
+  "files": [
+    {
+      "file": "tests/hosting-probe/storage/probe.ts",
+      "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+    },
+    {
+      "file": "tests/hosting-probe/storage/generate.ts",
+      "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+    },
+    {
+      "file": "tests/hosting-probe/storage/src/zip.ts",
+      "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+    },
+    {
+      "file": "tests/hosting-probe/storage/schema.sql",
+      "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+    },
+    {
+      "file": "tests/hosting-probe/storage/package.json",
+      "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+    },
+    {
+      "file": "tests/hosting-probe/storage/bun.lock",
+      "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+    },
+    {
+      "file": "tests/hosting-probe/storage/wrangler.toml",
+      "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+    },
+    {
+      "file": "tests/hosting-probe/recovery/probe.ts",
+      "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+    },
+    {
+      "file": "tests/hosting-probe/recovery/schema.sql",
+      "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+    },
+    {
+      "file": "tests/hosting-probe/recovery/package.json",
+      "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+    },
+    {
+      "file": "tests/hosting-probe/recovery/wrangler.toml",
+      "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+    },
+    {
+      "file": "tests/e2e/pilot/offline.sh",
+      "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+    },
+    {
+      "file": "tsconfig.json",
+      "revision": "16589bdd02c2172359e49db34dc26b5e22f5530c"
+    }
+  ]
+}

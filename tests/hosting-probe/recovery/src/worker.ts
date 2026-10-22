@@ -112,7 +112,7 @@ async function open(env: RecoveryEnv): Promise<Ctx | Response> {
 
 // ----- deletion -----
 
-type Deletion = { case_id: string; state: 'requested' | 'approved' | 'offered' | 'removed'; requested_by: string; requested_at: string; approved_by: string | null; approved_at: string | null; export_id: string | null; export_sha256: string | null; export_size: number | null; offered_at: string | null; removed_by: string | null; removed_at: string | null; erase_plan: string | null };
+type Deletion = { case_id: string; state: 'requested' | 'approved' | 'offered' | 'removed'; requested_by: string; requested_at: string; approved_by: string | null; approved_at: string | null; export_id: string | null; export_sha256: string | null; export_size: number | null; offered_at: string | null; removed_by: string | null; removed_at: string | null; erase_plan: string | null; erased_at: string | null };
 const deletionOf = (ctx: Ctx, caseId: string) => first<Deletion>(ctx.db, 'SELECT * FROM case_deletion WHERE case_id = ?', caseId);
 
 function actor(b: Row, step: Step): string {
@@ -136,7 +136,7 @@ async function catalog(ctx: Ctx) {
 	return { versionT, exportT, caseT: [...caseT].filter((t) => !parents.includes(t)), parents };
 }
 
-type Plan = { versions: string[]; exports: string[]; originals: string[]; leftovers?: string[] };
+type Plan = { versions: string[]; exports: string[]; originals: string[]; leftovers?: string[]; uploads?: { key: string; id: string }[] };
 const union = (a: string[], b: string[]) => [...new Set([...a, ...b])].sort();
 
 /** Whether a row (after the case's own are gone) still names the object a restore step wrote: an original by its digest, a package file or list by its version. */
@@ -147,7 +147,11 @@ async function named(ctx: Ctx, key: string): Promise<boolean> {
 	return !version || !!(await first(ctx.db, 'SELECT 1 AS x FROM results_version WHERE version_id = ?', version[1]!));
 }
 
-/** Removes every live row and object of the case, keeping its case_deletion row as `removed`. Safe to repeat. */
+/**
+ * Removes every live row and object of the case, keeping its case_deletion row as `removed`. Safe to repeat. `erased_at` is set
+ * last, once the R2 deletes and the upload aborts are done: a case that is `removed` without it was interrupted, and reconcile and
+ * removedCase finish it before treating the case as erased.
+ */
 async function erase(ctx: Ctx, caseId: string, set: [string, D1Value[]], condition: [string, D1Value[]]) {
 	const prior = (await deletionOf(ctx, caseId))?.erase_plan;
 	const found: Plan = {
@@ -158,9 +162,10 @@ async function erase(ctx: Ctx, caseId: string, set: [string, D1Value[]], conditi
 	};
 	// What a restore step wrote for this case before any row named it (storage's restore_object): found before the rows go.
 	found.leftovers = (await all<{ k: string }>(ctx.db, 'SELECT object_key AS k FROM restore_object WHERE case_id = ?', caseId)).map((r) => r.k);
-	const before: Plan = prior ? (JSON.parse(prior) as Plan) : { versions: [], exports: [], originals: [], leftovers: [] };
-	const plan: Plan = { versions: union(before.versions, found.versions), exports: union(before.exports, found.exports), originals: union(before.originals, found.originals), leftovers: union(before.leftovers ?? [], found.leftovers) };
-	const building = await all<{ object_key: string; upload_id: string }>(ctx.db, "SELECT object_key, upload_id FROM export_job WHERE case_id = ? AND state = 'building'", caseId);
+	// An unsealed export's multipart upload is named only by its export_job row, which the batch below deletes: the plan keeps it, so a repeat can still abort it.
+	found.uploads = (await all<{ object_key: string; upload_id: string }>(ctx.db, "SELECT object_key, upload_id FROM export_job WHERE case_id = ? AND state = 'building'", caseId)).map((r) => ({ key: r.object_key, id: r.upload_id }));
+	const before: Plan = prior ? (JSON.parse(prior) as Plan) : { versions: [], exports: [], originals: [], leftovers: [], uploads: [] };
+	const plan: Plan = { versions: union(before.versions, found.versions), exports: union(before.exports, found.exports), originals: union(before.originals, found.originals), leftovers: union(before.leftovers ?? [], found.leftovers), uploads: [...new Map([...(before.uploads ?? []), ...found.uploads].map((u) => [`${u.key} ${u.id}`, u] as const)).values()] };
 	const t = await catalog(ctx);
 	const statements: [string, D1Value[]][] = [
 		set,
@@ -188,7 +193,8 @@ async function erase(ctx: Ctx, caseId: string, set: [string, D1Value[]], conditi
 	for (const sha of plan.originals) if (!(await first(ctx.db, 'SELECT 1 AS x FROM case_original WHERE sha256 = ?', sha))) keys.push(`orig/${sha}`);
 	for (const key of plan.leftovers ?? []) if (!keys.includes(key) && !(await named(ctx, key))) keys.push(key);
 	for (let i = 0; i < keys.length; i += 1000) await ctx.bucket.delete(keys.slice(i, i + 1000));
-	for (const b of building) await ctx.bucket.resumeMultipartUpload(b.object_key, b.upload_id).abort().catch(() => undefined); // an unsealed export's parts
+	for (const u of plan.uploads ?? []) await ctx.bucket.resumeMultipartUpload(u.key, u.id).abort().catch(() => undefined); // an unsealed export's parts
+	await ctx.db.prepare("UPDATE case_deletion SET erased_at = coalesce(erased_at, ?) WHERE case_id = ? AND state = 'removed'").bind(new Date().toISOString(), caseId).run();
 	return { plan, objects: keys.length };
 }
 
@@ -275,7 +281,8 @@ async function reconcile(ctx: Ctx) {
 		await writeRecord(ctx, record);
 		ledger.set(d.case_id, record);
 	}
-	const applied = new Set(removed.map((d) => d.case_id));
+	// A removed case whose erasure never finished is not applied: it is erased again, from its plan.
+	const applied = new Set(removed.filter((d) => d.erased_at !== null).map((d) => d.case_id));
 	for (const r of ledger.values()) {
 		if (applied.has(r.caseId)) continue;
 		const e = r.offeredExport;
@@ -285,9 +292,13 @@ async function reconcile(ctx: Ctx) {
 
 const recordHeld = async (ctx: Ctx, caseId: string) => !!(await ctx.bucket.head(recordKey(caseId))) || !!(await ctx.copies.head(recordKey(caseId)));
 
-/** Whether the case is removed: D1 says so, or either bucket holds its record, in which case D1 is brought in line first. */
+/** Whether the case is removed: D1 says so (an erasure it left unfinished is finished first), or either bucket holds its record, in which case D1 is brought in line first. */
 async function removedCase(ctx: Ctx, caseId: string): Promise<boolean> {
-	if ((await deletionOf(ctx, caseId))?.state === 'removed') return true;
+	const d = await deletionOf(ctx, caseId);
+	if (d?.state === 'removed') {
+		if (d.erased_at === null) await reconcile(ctx); // an erasure that stopped part-way: finish it before the case is treated as erased
+		return true;
+	}
 	if (!(await recordHeld(ctx, caseId))) return false;
 	await reconcile(ctx);
 	return true;
@@ -329,7 +340,7 @@ async function deletionStep(ctx: Ctx, request: Request, caseId: string, step: St
 				return json({ caseId, state: 'removed', repeated: true, adopted: true });
 			}
 			// The record is durable in both buckets before anything is erased: if the erasure stops part-way, the next
-			// request for the case finds the record, and reconcile finishes the erasure.
+			// request for the case finds it removed with no erased_at (or a new isolate reads the ledger), and reconcile finishes the erasure.
 			await writeRecord(ctx, recordOf({ ...d!, state: 'removed', removed_by: who, removed_at: now }, ctx.client));
 			const out = await erase(ctx, caseId, ["UPDATE case_deletion SET state = 'removed', removed_by = ?, removed_at = ? WHERE case_id = ?", [who, now, caseId]], ["EXISTS (SELECT 1 FROM case_deletion WHERE case_id = ? AND state = 'offered')", [caseId]]);
 			return json({ caseId, state: 'removed', repeated: false, ...out });

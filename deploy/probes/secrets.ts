@@ -6,17 +6,19 @@
 //
 //   bun deploy/probes/secrets.ts run <name> [--keys K1,K2] [--to fd|env] -- <command> [args...]
 //
-// The command must be a real Node (its resolved file is named node; Bun's `node` stand-in is not), in both modes, and
-// anything else is refused before it starts. So is a command with a preload or loader flag (-r, --require, --import,
-// --loader, --experimental-loader, bare or with =) anywhere in its arguments: Node would run that module beside the
-// reader's own, and the reader does not read the program's own arguments to tell which flag is Node's. So is any other
-// Node option before the entry (the first argument that is not an option) unless it is on NODE_OPTIONS_ALLOWED, a short
-// list of options that load nothing, and --env-file, --env-file-if-exists and --experimental-config-file (bare or with
-// =) anywhere before a `--`, because Node reads those three from the whole command line, after the entry too, and each
-// can set NODE_OPTIONS=--require or nodeOptions.require. Arguments after a `--` are the program's own. The reader adds
-// `--import <preload>`, and the preload takes the values off fd 3, closes fd 3 and deletes CLEARCASE_SECRETS_FD before
-// the child's own code runs, so no process the child starts can inherit the pipe or the variable, whether or not the
-// child ever asks for the values.
+// The command must be a real Node (its resolved file is named node; Bun's `node` stand-in is not), in both modes, in
+// the shape `<node> <entry> [args...]`, and anything else is refused before it starts:
+//   - nothing before the entry. The entry is the first argument; it must not start with `-` and must hold a `/`
+//     (`./tool.mjs`, not `tool.mjs`), so Node reads none of the caller's options before it and takes it as a file: a
+//     bare `inspect` starts Node's debugger, which never runs the reader's preload.
+//   - no argument, wherever it stands, that starts with one of WHOLE_LINE_OPTIONS: --env-file, --env-file-if-exists,
+//     --experimental-config-file and --experimental-default-config-file. Node stops reading its options at the entry
+//     but for these four, which it also reads after the entry (the two config-file options after a `--` as well), and
+//     each can load NODE_OPTIONS=--require or nodeOptions.require from a file beside the reader's preload.
+// Every other argument after the entry is the program's own. The child's environment is the caller's, less NODE_OPTIONS
+// and any variable named like a secret. The reader adds `--import <preload>` before the entry, and the preload takes
+// the values off fd 3, closes fd 3 and deletes CLEARCASE_SECRETS_FD before the child's own code runs, so no process the
+// child starts can inherit the pipe or the variable, whether or not the child ever asks for the values.
 //   --to fd (the default): the preload keeps the values in memory for the child's one call to takeSecrets()
 //     in secrets-child.mjs.
 //   --to env: for a Node tool that reads its credential from process.env (cf, Wrangler, Void). The preload serves the
@@ -25,8 +27,11 @@
 //     by hand still can, and so can a child that reads takeSecrets() and hands the values on.
 // What holds: no value reaches argv, an inherited environment, a log, an error or a receipt, and no descendant inherits fd 3.
 // What does not: the check that the command is Node reads its resolved file name and does not run it, so a program that
-// is not Node but is named node gets fd 3 open (it is the caller's own command); a process of the same uid can read the
-// file itself, ptrace the child, or swap a directory above the secrets directory between the check and the open.
+// is not Node but is named node gets fd 3 open (it is the caller's own command); WHOLE_LINE_OPTIONS is what Node 26.10
+// and 24.22 read from the whole command line, and the tests find it again on the Node they run, through what an option
+// changes (Node's option values, environment, title, exit status, output, the files in its cwd), so a Node that reads
+// another one with no such effect would pass; a process of the same uid can read the file itself, ptrace the child, or
+// swap a directory above the secrets directory between the check and the open.
 //
 // Exit codes: the child's, or 2 when the reader refuses (the message names the path, mode, key or line, never a value).
 import { spawn } from 'node:child_process';
@@ -37,14 +42,12 @@ import { fileURLToPath } from 'node:url';
 
 export const SECRET_NAME = /^[a-z0-9][a-z0-9-]{0,40}$/;
 const KEY = /^[A-Z_][A-Z0-9_]{0,127}$/;
-/** Node options that load a module of the caller's choosing before the entry. */
-const LOADERS = /^(-r|--require|--import|--loader|--experimental-loader)(=|$)/;
-/** Node options that read a file of options, wherever they stand before a `--`: Node scans the whole command line for them. */
-const OPTION_FILES = /^--(env-file|env-file-if-exists|experimental-config-file)(=|$)/;
-/** The only Node options allowed before the entry: none loads a module or a file. The first four take the next argument as their code. */
-const CODE_OPTIONS = new Set(['-e', '-p', '--eval', '--print']);
-const NODE_OPTIONS_ALLOWED = [...CODE_OPTIONS, '--no-warnings', '--no-deprecation', '--trace-warnings', '--enable-source-maps', '--experimental-strip-types'];
-const NODE_OPTIONS_ALLOWED_WITH_VALUE = /^(--eval=|--print=|--max-old-space-size=\d+$)/;
+/**
+ * The Node options Node reads from its whole command line, not only before the entry: each can load Node options from a
+ * file. secrets.test.ts runs every option in Node's own table after the entry and after a `--`, and fails if one that is
+ * not on this list acts there, or one on it that this Node has does not.
+ */
+export const WHOLE_LINE_OPTIONS = ['--env-file', '--env-file-if-exists', '--experimental-config-file', '--experimental-default-config-file'];
 export const ENV_PRELOAD = path.join(import.meta.dirname, 'secrets-env.mjs');
 export const FD_PRELOAD = path.join(import.meta.dirname, 'secrets-fd.mjs');
 
@@ -131,20 +134,14 @@ function resolveCommand(command: string, searchPath: string | undefined): string
 /** True when the file really is Node, judged by its resolved name and never by running it: Bun's `node` stand-in resolves to bun. */
 const isRealNode = (file: string) => /^node(js)?\d*(\.\d+)*$/.test(path.basename(realpathSync(file)));
 
-/** Throws unless every Node option in `args` is one that loads nothing: see the header for what is refused and why. */
-function refuseNodeOptions(args: string[]): void {
-	const dash = args.indexOf('--');
-	let entry = false;
-	for (let i = 0; i < (dash < 0 ? args.length : dash); i++) {
-		const arg = args[i]!;
-		if (OPTION_FILES.test(arg)) throw new Refusal(`${arg.split('=')[0]} in the command's arguments would load Node options from a file beside the reader's preload`);
-		if (entry || !arg.startsWith('-') || arg === '-') {
-			entry = true;
-			continue;
-		}
-		if (CODE_OPTIONS.has(arg)) i++; // its value is code, not an option
-		else if (!NODE_OPTIONS_ALLOWED.includes(arg) && !NODE_OPTIONS_ALLOWED_WITH_VALUE.test(arg)) throw new Refusal(`${arg.split('=')[0]} before the entry is not a Node option the reader allows (${NODE_OPTIONS_ALLOWED.join(' ')} --max-old-space-size=N)`);
-	}
+/** Throws unless `args`, Node's arguments, are `<entry> [args...]` with no whole-command-line option: see the header. */
+function refuseNodeArgs(args: string[]): void {
+	const whole = args.find((arg) => WHOLE_LINE_OPTIONS.some((option) => arg.startsWith(option)));
+	if (whole) throw new Refusal(`${whole.split('=')[0]} in the command's arguments is read by Node wherever it stands and would load Node options from a file beside the reader's preload`);
+	const [entry] = args;
+	if (entry === undefined) throw new Refusal('the command has no entry: the reader runs <node> <entry> [args...]');
+	if (entry.startsWith('-')) throw new Refusal(`${entry.split('=')[0]} in the command's arguments stands before the entry: the reader runs <node> <entry> [args...], with nothing before the entry but its own --import`);
+	if (!entry.includes('/')) throw new Refusal(`the entry ${JSON.stringify(entry)} has no /: Node can take a bare word as a command (inspect starts its debugger, without the reader's preload), so name the file as ./${entry}`);
 }
 
 /**
@@ -159,9 +156,7 @@ export function runWithSecrets(a: { secrets: Map<string, string>; to: 'fd' | 'en
 	const file = resolveCommand(cmd, env.PATH);
 	if (!file) throw new Refusal(`${cmd} cannot be started: not found, not executable, or not a file`);
 	if (!isRealNode(file)) throw new Refusal(`--to ${a.to} runs a Node tool, and ${cmd} is not a real Node`);
-	const loader = args.find((x) => LOADERS.test(x));
-	if (loader) throw new Refusal(`${loader.split('=')[0]} in the command's arguments would load a module beside the reader's preload`);
-	refuseNodeOptions(args);
+	refuseNodeArgs(args);
 	env.CLEARCASE_SECRETS_FD = '3'; // read and deleted by the preload before the child's own code runs
 	const child = spawn(file, [`--import=${a.to === 'env' ? ENV_PRELOAD : FD_PRELOAD}`, ...args], { env, stdio: ['inherit', 'inherit', 'inherit', 'pipe'] });
 	const forward = (signal: NodeJS.Signals) => child.kill(signal);

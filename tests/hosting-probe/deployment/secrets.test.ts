@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { accessSync, chmodSync, constants, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeEach, describe, expect, test } from 'vitest';
+import { WHOLE_LINE_OPTIONS } from '../../../deploy/probes/secrets.ts';
 
 const REPO = path.join(import.meta.dirname, '../../..');
 const READER = path.join(REPO, 'deploy/probes/secrets.ts');
@@ -61,7 +62,8 @@ describe('one child gets the values; its children and environment do not', () =>
 	});
 
 	test("the child's exit code is the reader's", () => {
-		expect(reader(['run', 'synthetic', '--', NODE, '-e', 'process.exit(7)']).status).toBe(7);
+		writeFileSync(path.join(SCRATCH, 'exit.cjs'), 'process.exit(7);\n');
+		expect(reader(['run', 'synthetic', '--', NODE, path.join(SCRATCH, 'exit.cjs')]).status).toBe(7);
 	});
 });
 
@@ -72,7 +74,8 @@ describe('a grandchild gets neither the pipe nor its variable, whether or not th
 			"const viaSh = execFileSync('sh', ['-c', 'sh -c \"cat <&3\" 2>/dev/null; echo end'], { encoding: 'utf8' });",
 			"console.log(JSON.stringify({ variable: 'CLEARCASE_SECRETS_FD' in process.env, shellEnv: execFileSync('sh', ['-c', 'env'], { encoding: 'utf8' }).includes('CLEARCASE_SECRETS_FD'), viaSh }));",
 		].join('\n');
-		const r = reader(['run', 'synthetic', '--keys', 'SYNTHETIC_TOKEN', '--to', to, '--', NODE, '-e', code]);
+		writeFileSync(path.join(SCRATCH, 'grandchild.cjs'), `${code}\n`);
+		const r = reader(['run', 'synthetic', '--keys', 'SYNTHETIC_TOKEN', '--to', to, '--', NODE, path.join(SCRATCH, 'grandchild.cjs')]);
 		expect(r.status).toBe(0);
 		expect(`${r.stdout}${r.stderr}`).not.toContain(VALUE);
 		expect(JSON.parse(r.stdout.trim().split('\n').at(-1)!)).toEqual({ variable: false, shellEnv: false, viaSh: 'end\n' });
@@ -181,7 +184,8 @@ describe("a preload or loader in the child's arguments is refused before the chi
 	});
 
 	test('an argument that only contains one of the flags is passed on', () => {
-		const r = reader(['run', 'synthetic', '--', NODE, '-e', 'console.log(process.argv.slice(1).join(" "))', '--', 'import', '--required', '--important']);
+		writeFileSync(path.join(SCRATCH, 'argv.cjs'), 'console.log(process.argv.slice(2).join(" "));\n');
+		const r = reader(['run', 'synthetic', '--', NODE, path.join(SCRATCH, 'argv.cjs'), 'import', '--required', '--important']);
 		expect(r.status).toBe(0);
 		expect(r.stdout.trim()).toBe('import --required --important');
 	});
@@ -224,15 +228,18 @@ describe('every Node option before the entry is refused unless it is on the allo
 		expect(existsSync(marker())).toBe(false);
 	});
 
-	test('the allow-listed options, and a script with arguments of its own (after `--` too), still run', () => {
+	test('the options the allow-list accepted are refused now (escalation), and a script with arguments of its own (after `--` too) still runs', () => {
 		files();
 		const script = path.join(SCRATCH, 'args.cjs');
 		writeFileSync(script, 'console.log(process.argv.slice(2).join(" "));\n');
 		const run = (...args: string[]) => reader(['run', 'synthetic', '--', NODE, ...args]);
-		expect(run('--no-warnings', '--max-old-space-size=256', '-p', '1 + 1').stdout.trim()).toBe('2');
-		expect(run('--no-warnings', script, 'a', '-x', '--y=1').stdout.trim()).toBe('a -x --y=1');
-		expect(run(script, '--', '--env-file=pre.env').stdout.trim()).toBe('-- --env-file=pre.env');
-		expect(run('--eval=console.log(7)').stdout.trim()).toBe('7');
+		for (const args of [['--no-warnings', '--max-old-space-size=256', '-p', '1 + 1'], ['--no-warnings', script, 'a'], [script, '--', '--env-file=pre.env'], ['--eval=console.log(7)']]) {
+			const r = run(...args);
+			expect(r.status, args.join(' ')).toBe(2);
+			expect(r.stdout).toBe('');
+		}
+		expect(run(script, 'a', '-x', '--y=1').stdout.trim()).toBe('a -x --y=1');
+		expect(run(script, 'a', '--', '-x').stdout.trim()).toBe('a -- -x');
 		expect(existsSync(marker())).toBe(false);
 	});
 });
@@ -268,5 +275,114 @@ describe('forms that passed the reader and ran another preload, or none, with fd
 		}
 		expect(existsSync(option()), 'a --require preload ran').toBe(false);
 		expect(existsSync(entry()), 'the entry ran').toBe(false);
+	});
+});
+
+describe('the command is <node> <entry> [args...], and no argument starts with a whole-command-line option (escalation)', () => {
+	const entry = () => path.join(SCRATCH, 'ran-entry');
+	const run = (...args: string[]) => reader(['run', 'synthetic', '--', NODE, ...args]);
+	const files = () => {
+		writeFileSync(path.join(SCRATCH, 'y.cjs'), `require('node:fs').writeFileSync(${JSON.stringify(entry())}, process.argv.slice(2).join(' '));\n`);
+		writeFileSync(path.join(SCRATCH, 'pre.env'), 'NODE_OPTIONS=--title=cc-pre\n');
+	};
+
+	test.each([
+		['no entry', []],
+		['- (the program on stdin)', ['-']],
+		['an empty entry', ['']],
+		['a bare file name, with no /', ['y.cjs']],
+		['a bare file name after an option the allow-list accepted', ['--no-warnings', 'y.cjs']],
+	])('refused: %s', (_name, args) => {
+		files();
+		const r = run(...(args as string[]));
+		expect(r.status).toBe(2);
+		expect(r.stderr).toMatch(/^secrets: refused: .*(no entry|before the entry|has no \/)/m);
+		expect(existsSync(entry())).toBe(false);
+	});
+
+	test.each([
+		['an option-file name with a suffix', ['./y.cjs', '--env-filex=pre.env']],
+		['--env-file-if-exists after the entry, in its own argument', ['./y.cjs', '--env-file-if-exists', 'pre.env']],
+		['--experimental-default-config-file= after the entry', ['./y.cjs', '--experimental-default-config-file=x']],
+		['--experimental-config-file after a program argument and a --', ['./y.cjs', 'a', '--', '--experimental-config-file', 'pre.json']],
+	])('refused wherever it stands: %s', (_name, args) => {
+		files();
+		const r = run(...args);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toMatch(/^secrets: refused: --[a-z-]+ in the command's arguments is read by Node wherever it stands/m);
+		expect(existsSync(entry())).toBe(false);
+	});
+
+	test('a path entry runs, with its arguments as the program gave them', () => {
+		files();
+		for (const [args, seen] of [[['./y.cjs'], ''], [[path.join(SCRATCH, 'y.cjs'), '-r', 'x.cjs', '--import=x.mjs', '--', '--env'], '-r x.cjs --import=x.mjs -- --env'], [['./y.cjs', 'inspect'], 'inspect']] as const) {
+			rmSync(entry(), { force: true });
+			expect(run(...args).status, args.join(' ')).toBe(0);
+			expect(readFileSync(entry(), 'utf8')).toBe(seen);
+		}
+	});
+});
+
+describe("WHOLE_LINE_OPTIONS is the set of options the Node these tests run reads from its whole command line (escalation)", () => {
+	// Every name in Node's own option table (internal/options, behind --expose-internals) and every alias, after the
+	// entry and after a `--`: bare, =<file>, <file> as the next argument, and with a suffix, so that a scan by prefix
+	// shows too. <file> is a dotenv file that sets NODE_OPTIONS, and the cwd holds a node.config.json that is not JSON.
+	// A form acts when Node's option values, environment, title, exit status, stdout or stderr, or the files in the cwd,
+	// differ from a run without it. The forms the reader does not refuse go in one run, split until it names any that act.
+	const SCAN = path.join(SCRATCH, 'node-scan');
+	const DUMP = path.join(REPO, '.local/hosting-probe/deployment', `node-dump-${process.pid}.cjs`);
+	afterAll(() => rmSync(DUMP, { force: true }));
+	const dump = () => {
+		mkdirSync(path.dirname(DUMP), { recursive: true });
+		writeFileSync(DUMP, "const o = require('internal/options');\nconst opts = {};\nfor (const k of o.getCLIOptionsInfo().options.keys()) opts[k] = o.getOptionValue(k);\nconsole.log(JSON.stringify({ opts, env: Object.fromEntries(Object.entries(process.env).sort()), execArgv: process.execArgv, title: process.title }));\n");
+	};
+	let runs = 0;
+	const observe = (args: string[]) => {
+		const cwd = path.join(SCAN, `run-${runs++}`);
+		mkdirSync(cwd, { recursive: true });
+		const file = path.join(cwd, 'options.env');
+		writeFileSync(file, 'NODE_OPTIONS=--title=cc-scan\nCC_SCAN=1\n');
+		writeFileSync(path.join(cwd, 'node.config.json'), '{ not json');
+		const r = spawnSync(NODE, ['--expose-internals', DUMP, ...args.map((a) => a.replaceAll('<file>', file))], { cwd, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: cwd }, maxBuffer: 16 << 20 });
+		const seen = JSON.stringify({ status: r.status, signal: r.signal, stdout: r.stdout, stderr: r.stderr, files: readdirSync(cwd).sort(), file: readFileSync(file, 'utf8') }).replaceAll(cwd, '<cwd>');
+		rmSync(cwd, { recursive: true, force: true });
+		return seen;
+	};
+	const table = (): string[] => {
+		const r = spawnSync(NODE, ['--expose-internals', '-p', "const i = require('internal/options').getCLIOptionsInfo(); JSON.stringify([...i.options.keys(), ...i.aliases.keys()])"], { encoding: 'utf8' });
+		if (r.status !== 0) throw new Error(`${NODE} gave no option table through --expose-internals and internal/options, so the scan cannot run: ${r.stderr.slice(0, 300)}`);
+		return JSON.parse(r.stdout);
+	};
+	const forms = (name: string) => {
+		const base = name.replace(/=$/, '');
+		return [[base], [`${base}=<file>`], [base, '<file>'], [`${base}x=<file>`], [`${base}-x`]];
+	};
+	const refusedByReader = (form: string[]) => form.some((arg) => WHOLE_LINE_OPTIONS.some((option) => arg.startsWith(option)));
+	const placements = { 'after the entry': (args: string[]) => args, "after the entry's --": (args: string[]) => ['--', ...args] };
+
+	test('no option the reader lets through acts after the entry or after a --', () => {
+		dump();
+		const names = table();
+		expect(names.length).toBeGreaterThan(200);
+		const group = [...new Set(names)].flatMap(forms).filter((f) => !refusedByReader(f));
+		const acting: string[] = [];
+		for (const [where, place] of Object.entries(placements)) {
+			const control = observe(place([]));
+			const split = (g: string[][]): string[][] => (!g.length || observe(place(g.flat())) === control ? [] : g.length === 1 ? g : [...split(g.slice(0, g.length >> 1)), ...split(g.slice(g.length >> 1))]);
+			acting.push(...split(group).map((f) => `${f.join(' ')} (${where})`));
+		}
+		expect(acting, `Node ${NODE} acts on options the reader does not refuse; add them to WHOLE_LINE_OPTIONS`).toEqual([]);
+	});
+
+	test('every one of them that this Node has acts there, so the list is not stale and the scan can see one', () => {
+		dump();
+		const names = new Set(table());
+		const known = WHOLE_LINE_OPTIONS.filter((option) => names.has(option));
+		expect(known).toContain('--env-file');
+		const acts = (option: string) => Object.values(placements).some((place) => {
+			const control = observe(place([]));
+			return forms(option).some((f) => observe(place(f)) !== control);
+		});
+		expect(known.filter((option) => !acts(option)), 'in WHOLE_LINE_OPTIONS, but this Node does not act on it after the entry').toEqual([]);
 	});
 });

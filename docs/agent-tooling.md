@@ -306,7 +306,8 @@ A branch with no new or changed manifest exits 0, prints `nothing to protect` an
 receipt whose `guard.nothingToProtect` is true: the receipt says no guard ran, and approval never accepts it as a guard
 receipt. That exit is refused, with exit 1, when the pull request is a fix round: `--require-manifest` (CI passes it
 for a pull request labelled `fix-round`, which the coordinator applies when it dispatches the fix), or `--ledger DIR
---branch feature/<id>-<slug>` when the coordinator's ledger records a `fix` dispatch for that branch's unit. With
+--branch feature/<id>-<slug>` when the coordinator's ledger records a `fix` dispatch for that branch's unit. A
+manifest that came in through a merge from `dev` (below) is not the fix round's own and does not satisfy either. With
 `--ledger`, the ledger and not the manifest names what the guard compares against: a manifest whose `fixBase` is not
 the commit of the review the ledger recorded before the unit's first `fix` dispatch, or whose `reviewFindingsSha256`
 names other findings, refuses, and so does a `fix` dispatch with no review recorded before it. CI has no copy of the
@@ -427,6 +428,41 @@ branch's assertions. Counting a union of the conflicting lines instead would cou
 not parse. At a wave PR into `dev`, another wave ticket's recorded weakening of a test `dev` added now refuses an earlier
 ticket's manifest, which used to pass against 0 (consistent with the conservatism for fix-base paths in `afd48fc4`, PR
 #84); the remedy is the reviewed `fixBase` advance.
+
+A manifest that came in from `dev` is judged from the branch's last merge from `dev`, not from its `fixBase` (GRS-179).
+A wave cut before a fix round's manifest reached `dev` receives it when it merges `dev`, and in a pull request into that
+wave the manifest counts as added. Its range from a `fixBase` on the `dev` line then spans the wave's own reviewed
+changes, and the guard refused them: in PR #114's polish of `wave/proofs`, the `vitest.config.ts` the wave changed (the
+wave had moved on after the polish was cut, so its base was not merged) and the `tests/hosting-probe/deployment/vitest.config.ts`
+it added. As a pull request into `dev` the same head has nothing to protect: `dev` holds the manifest, and judged it when
+it landed there. With an explicit `--base` and no `--ledger`, `fix-round-guard` gives the guard that merge as the fix
+base when all of these hold, prints `came in through a merge from dev` and records the merge in `guard.arrivedThrough`:
+
+- The manifest is added in the range and names tests. A no-test declaration is judged whole.
+- A merge from `dev` is a commit with two parents whose second holds HEAD's copy of the manifest and is an ancestor of
+  `refs/remotes/origin/dev`, which holds the same copy.
+- The manifest came in through one: the oldest commit of HEAD's first-parent line from which HEAD's copy is unchanged
+  is a merge from `dev`, and its first parent holds no copy.
+- Every merge from `dev` on that stretch of the line must hold each named test file exactly as that merge's `dev` parent
+  does, mode and blob alike. If any merge differs, arrival is not trusted and the whole range from `fixBase` is judged;
+  a later clean merge cannot hide an earlier weakened test.
+
+Otherwise the whole range from the `fixBase` is judged, as before. `refs/remotes/origin/dev` is a second trust anchor
+beside `--base`, and nothing the pull request passes names it: CI's checkout fetches it from GitHub, and `base-guard`
+reads the coordinator's repository. So a manifest the branch commits, copies to another path or edits after the merge,
+and one merged from a history that rewrote `dev`, is the branch's and judged whole, and an arrived manifest satisfies
+neither `--require-manifest` nor the ledger's requirement (`other than N that came in through a merge from dev`).
+From the merge on, the guard judges every change as for any manifest: the named tests, the helpers, the runner
+configuration and the fixtures, with the base's later changes trusted as above. What the line holds at that merge is not
+the fix round's change: the wave's commits, the pull request's own earlier commits, an earlier merge from `dev`, and what
+a merge resolved outside the named test files. A pull request into the wave that does not merge `dev` carries the same
+changes with nothing to protect, so its review owns them, as for any pull request that is not a fix round. A named test
+change at any merge or on that line makes arrival fail closed. When arrival is trusted, the original manifest `fixBase` remains an additional reference for every
+named test, alongside the arrival merge and applicable GRS-169 base-change references. Narrowing the other comparisons
+therefore cannot replace the named-test baseline: a `dev` change to a named test after the manifest was reviewed still
+refuses until a reviewed `fixBase` advance. The receipt records this baseline as `guard.namedTestReference`. A pull request
+that merges `dev` last has an empty range. The rule reaches a pull request only once it is on that pull request's base,
+because CI and `base-guard` run the base's guard.
 
 Findings JSON has `tests: [{"file": "tests/example.test.ts", "name": "rejects stale evidence"}]`.
 The list must be nonempty, unless the manifest declares that the review names no test

@@ -78,15 +78,14 @@ describe('the newer export\'s code-embedded analysis (GRS-149)', () => {
     expect(data(c, 'lit-prescription')).toEqual(X.prescription);
     expect(data(c, 'lit-presc-summary')).toEqual(X.prescSummary);
     expect(data(c, 'lit-interest-basis')).toMatchObject({ ...X.interestBasis, source: 'builder' });
-    // the date-bounded phases do not fit the v5 year-range phases: kept residual, with the demotion note
-    expect(data(c, 'v5-residual-timeline-phases')).toEqual(X.timeline.phases);
-    expect(notes(c, 'V5_DATASET_SHAPE_UNMAPPED').map((d) => d.subject)).toEqual(['timeline-phases']);
-    // the module's anchors and organogram fill DATA keys no view reads: residual, each named with its count
-    expect(data(c, 'v5-residual-anchors')).toEqual(X.anchors);
-    expect(data(c, 'v5-residual-organogram')).toEqual(X.organogram);
+    // GRS-194 recognizes these shapes without coercing dates or losing source values.
+    expect(data(c, 'timeline-phases')).toEqual(X.timeline.phases);
+    expect(notes(c, 'V5_DATASET_SHAPE_UNMAPPED')).toEqual([]);
+    expect(data(c, 'anchors')).toEqual(X.anchors);
+    expect(data(c, 'organogram')).toEqual(X.organogram);
     const unmapped = new Map(notes(c, 'V5_UNMAPPED_KEY').map((d) => [d.subject, d.message]));
-    expect(unmapped.get('DATA.anchors')).toContain('(1 entry)');
-    expect(unmapped.get('DATA.organogram')).toContain('(2 keys)');
+    expect(unmapped.has('DATA.anchors')).toBe(false);
+    expect(unmapped.has('DATA.organogram')).toBe(false);
     const pkgDir = path.join(c.root, 'pkg');
     await writePackageDir(pkgDir, c.result.files!);
     const v = await importCandidate(pkgDir, c.caseDir);

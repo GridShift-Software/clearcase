@@ -21,8 +21,8 @@
 	const type = $derived(onconfirm ? 'button' : 'submit');
 	const value = $derived(name ? target : undefined);
 	let opener = $state<HTMLButtonElement>();
+	// Confirm was pressed and its action has not settled: focus follows the action
 	let settling = $state(false);
-	let confirmed = false;
 	const lost = () => !document.activeElement || document.activeElement === document.body;
 
 	// without JavaScript these buttons submit: the server asks, or returns the draft on Cancel
@@ -37,7 +37,7 @@
 		opener?.focus();
 	}
 	function pressed() {
-		settling = confirmed = true;
+		settling = true;
 	}
 	function confirm() {
 		pressed();
@@ -50,8 +50,9 @@
 		settling = false;
 		void tick().then(() => { if (lost()) opener?.focus(); });
 	});
+	// the control went before its action settled: its row was deleted
 	onMount(() => () => {
-		if (confirmed) setTimeout(() => { if (lost()) document.querySelector<HTMLElement>('[data-page-heading]')?.focus(); });
+		if (settling) setTimeout(() => { if (lost()) document.querySelector<HTMLElement>('[data-page-heading]')?.focus(); });
 	});
 	// a held key repeats keydown while focus moves from Delete to Confirm, or from Cancel back to Delete: no repeat
 	// presses any of the three, so one key press asks, confirms or cancels once

@@ -35,6 +35,19 @@ const edit = (file: string, f: (doc: { entries: Entry[] }) => void) => {
 const FILE = 'register/CC-07.json';
 
 describe('register-dispositions --check', () => {
+	it('allocates from CC-06\'s second range after every id in its first range is taken', () => {
+		edit('register/CC-06.json', (d) => {
+			d.entries = d.entries.filter((e) => e.id !== 'IDR-245');
+			const used = new Set(d.entries.map((e) => e.id));
+			for (let n = 200; n <= 249; n++) {
+				const id = `IDR-${n}`;
+				if (!used.has(id)) d.entries.push({ id, view: 'interest_calc_tab', field: 'synthetic', type: 'improvement', reason: 'Synthetic occupied id.', productVisible: false, author: 'synthetic test', approvedBy: null, approvedOn: null });
+			}
+		});
+		const result = run();
+		expect(result.status, result.out).toBe(0);
+		expect(mine('register/CC-06.json').find((e) => e.source === 'S-interest_calc_tab-5')?.id).toBe('IDR-451');
+	});
 	it('passes on the committed register', () => {
 		expect(run('--check')).toMatchObject({ status: 0 });
 	});

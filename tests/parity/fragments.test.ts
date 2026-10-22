@@ -85,6 +85,12 @@ describe('rules across files', () => {
 		expect(load(register([entry('IDR-475'), entry('IDR-073')])).problems).toEqual([]);
 		expect(load(register([entry('IDR-450')])).problems).toEqual(["IDR-450: in CC-06's id range; it belongs in register/CC-06.json"]);
 	});
+	test.each([
+		['IDR-236', 'CC-06'],
+		['IDR-100', 'CC-04'],
+	])('retired %s cannot be reissued in %s', (id, owner) => {
+		expect(load(register([], { [owner]: [entry(id)] })).problems).toContain(`register/${owner}.json: ${id}: retired id`);
+	});
 	test('a fragment must be named after an M2 owner', () => {
 		expect(load(register([], { 'CC-11': [entry('IDR-100')] })).problems.join()).toMatch(/fragment CC-11 is not an M2 owner's/);
 		expect(load(register([], { notes: [] })).problems.join()).toMatch(/fragment notes is not an M2 owner's/);

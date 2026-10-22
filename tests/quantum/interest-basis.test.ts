@@ -97,3 +97,19 @@ describe('no figures, no comparison', () => {
 		}
 	});
 });
+
+describe('no capital on every comparison basis', () => {
+	it.each([
+		['same date', due(), null],
+		['unlike date', due({ date: '2094-02-10' }), 'your total is as at 2094-01-10 and the amount due as at 2094-02-10'],
+		['payment before To', due({ paymentDates: ['2093-05-01'] }), '1 recorded payment is dated on or before 2094-01-10 or undated'],
+		['undated payment', due({ paymentDates: [''] }), '1 recorded payment is dated on or before 2094-01-10 or undated'],
+		['unlike date and payment', due({ date: '2094-02-10', paymentDates: ['2093-05-01'] }), 'your total is as at 2094-01-10 and the amount due as at 2094-02-10; 1 recorded payment is dated on or before 2094-01-10 or undated'],
+	])('%s: asks for capital, shows the dated amount due alone, and leaves only the applicable basis note', (_basis, d, reason) => {
+		const o = shownOutcome(I({ p: '' }), d);
+		expect(o.kpis![3]).toEqual({ label: 'vs extracted Amount Due', value: 'R 1 150.00', sub: `as at ${d.date} · enter a capital figure` });
+		expect(o.comparison).toBeNull();
+		expect(o.basisNote).toBe(reason ? expect.stringContaining(reason) : null);
+		expect(o.basisNote ?? '').not.toContain('not comparable with your total');
+	});
+});

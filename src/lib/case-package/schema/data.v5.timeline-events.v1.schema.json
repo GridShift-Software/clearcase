@@ -13,8 +13,17 @@
       "note": {
         "type": "string"
       },
+      "phase": {
+        "type": "string"
+      },
       "ref": {
         "type": "string"
+      },
+      "refs": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
       },
       "title": {
         "type": "string"

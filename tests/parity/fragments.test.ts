@@ -115,7 +115,7 @@ describe('strict register over fragments', () => {
 });
 
 /** The ids a fragment may hold that break the subset-plus-range rule. */
-const foreignIds = (key: string, ids: string[]) => ids.filter((id) => !LEGACY[key].includes(id) && !(Number(id.slice(4)) >= RANGES[key][0] && Number(id.slice(4)) <= RANGES[key][1]));
+const foreignIds = (key: string, ids: string[]) => ids.filter((id) => !LEGACY[key].includes(id) && !RANGES[key].some(([lo, hi]) => Number(id.slice(4)) >= lo && Number(id.slice(4)) <= hi));
 /** Each slot owner's unfilled-state entries and the slots they stand for. */
 const UNFILLED_ENTRIES: Record<string, { ids: string[]; slots: string[] }> = { 'CC-07': { ids: ['IDR-050', 'IDR-067'], slots: ['deadlines', 'unbilled-time'] }, 'CC-10': { ids: ['IDR-051', 'IDR-068'], slots: ['rescan-freshness'] } };
 /**
@@ -141,6 +141,8 @@ describe('fragment rules that follow the tree (synthetic)', () => {
 		expect(foreignIds('CC-07', ['IDR-012', 'IDR-250', 'IDR-299'])).toEqual([]);
 		expect(foreignIds('CC-07', [])).toEqual([]);
 		expect(foreignIds('CC-07', ['IDR-004', 'IDR-300', 'IDR-249', 'IDR-051'])).toEqual(['IDR-004', 'IDR-300', 'IDR-249', 'IDR-051']);
+		expect(foreignIds('CC-06', ['IDR-003', 'IDR-200', 'IDR-249', 'IDR-450', 'IDR-474'])).toEqual([]);
+		expect(foreignIds('CC-06', ['IDR-250', 'IDR-449', 'IDR-475'])).toEqual(['IDR-250', 'IDR-449', 'IDR-475']);
 	});
 	test('unfilled-state entries: required while the slot is unfilled, refused once a synthetic tree fills it', () => {
 		const tree = mkdtempSync(join(root, 'tree-'));

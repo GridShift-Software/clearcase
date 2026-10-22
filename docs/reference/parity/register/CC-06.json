@@ -265,22 +265,26 @@
       "approvedOn": "2026-10-21"
     },
     {
-      "id": "IDR-236",
+      "id": "IDR-450",
       "view": "interest_calc_tab",
-      "field": "sweep.compute.separated.k3.sub",
+      "field": [
+        "sweep.compute.separated.k3.sub",
+        "sweep.compute.simple.k3.sub",
+        "sweep.compute.compound.k3.sub"
+      ],
       "when": {
         "v5": {
           "re": "^[-+]?R[\\d .]+ vs your calc$"
         },
         "app": {
-          "re": "^[-+]?R[\\d .]+ vs your calc$"
+          "re": "^as at \\d{4}-\\d{2}-\\d{2}: not comparable with your total$"
         }
       },
       "type": "defect-fix",
-      "source": "S-interest_calc_tab-1",
-      "reason": "The comparison of the separated total with the imported amount due (IDR-212) differs because the total does; the imported amount is case data, so only the line's shape is registered (CC-06 r2, D14). The total itself is pinned by IDR-235.",
+      "source": "S-interest_calc_tab-5",
+      "reason": "The line under the amount due, for the sweep's computed cases. ClearCase compares the total with the imported amount due only as at the same date with no recorded payment on or before it (S-interest_calc_tab-5, IDR-245); the sweep's To date is not the amount due's, so the app shows the amount due as not comparable where v5 shows a difference. Only that refusal is registered: the old \"vs your calc\" shape is not, so a return to always comparing fails parity. Replaces IDR-236, retired because its difference no longer reaches parity.",
       "productVisible": true,
-      "author": "CC-06 worker (GRS-16)",
+      "author": "CC-06 worker (GRS-173)",
       "approvedBy": null,
       "approvedOn": null
     },
@@ -707,7 +711,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-interest_calc_tab-5",
-      "reason": "v5 compares the computed total on one typed capital with the headline amount due, which may be on a different basis. ClearCase compares them only when both are as at the same date and no recorded payment is dated on or before it or undated. Otherwise it shows the amount due alone as not comparable, with no difference, says why, and names each figure's basis and how it treats payments. Parity sees the change: IDR-236. Evidence: tests/quantum/interest-basis.test.ts:35.",
+      "reason": "v5 compares the computed total on one typed capital with the headline amount due, which may be on a different basis. ClearCase compares them only as at the same date with no recorded payment on or before it or undated, and then calls the difference arithmetic, not a reconciliation: it does not know the statement's capital, rates or dates. Otherwise it shows the amount due alone, not comparable, and says why. That disclosure is how this closes the defect; the user approves or rejects it. Parity sees the change: IDR-450. Evidence: tests/quantum/interest-basis.test.ts:55.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,
@@ -719,7 +723,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-payments_tab-3",
-      "reason": "v5's Settlement and Interest views use gross figures and ignore recorded payments. ClearCase's Settlement claim prefill is net of payments. Interest does not net them, which would need a rule on whether a payment pays interest or capital first: when a recorded payment is dated on or before the To date or undated, it does not compare its total with the amount due and says why, and it states that neither figure deducts payments. Evidence: tests/quantum/interest-basis.test.ts:40.",
+      "reason": "v5's Settlement and Interest views use gross figures and ignore recorded payments. ClearCase's Settlement claim prefill is net of payments. Interest does not net them, which would need a rule on whether a payment pays interest or capital first. When a recorded payment is dated on or before the To date or undated, it does not compare its total with the amount due, says why, and states that neither figure deducts payments. That disclosure, not netting, is how this closes the defect; the user approves or rejects it. Evidence: tests/quantum/interest-basis.test.ts:60.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

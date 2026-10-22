@@ -29,8 +29,12 @@ const REF = referenceAt > 0 ? resolve(process.argv[referenceAt + 1]) : join(ROOT
 const AUTHOR = 'GRS-67 dispositions (scripts/verify/register-dispositions.mjs)';
 /** Ids the main file may give a disposition of a pilot view: above its legacy entries, below every owner's range. */
 const MAIN_RANGE = [74, 99];
-/** Ids an owner used and removed (from the register's git history): never issued again, so old reports stay unambiguous. */
-const RETIRED = new Set([100, 106, 116, 124, 134, 150, 155, 157, 158, 159, 160, 162, 163, 165, 166, 169, 206, 208, 216, 218, 222, 267, 302, 311, 314, 317, 320, 323, 324, 350, 358, 359, 360, 362, 363, 364].map((n) => `IDR-${n}`));
+/**
+ * Ids an owner used and removed (from the register's git history): never issued again, so old reports stay unambiguous.
+ * IDR-236 (GRS-173) is retired, not reused: the difference it registered no longer reaches parity (the sweep's To is not
+ * the as-at date and its defaults case types no capital); the refusal that does is IDR-450.
+ */
+const RETIRED = new Set([100, 106, 116, 124, 134, 150, 155, 157, 158, 159, 160, 162, 163, 165, 166, 169, 206, 208, 216, 218, 222, 236, 267, 302, 311, 314, 317, 320, 323, 324, 350, 358, 359, 360, 362, 363, 364].map((n) => `IDR-${n}`));
 const FIX = 'defect-fix', GAP = 'known-gap', DATA = 'data-correction-deferred-to-pipeline';
 
 // [defect, view, type, productVisible, evidence file, evidence pattern (a literal substring), covering entry or null, reason]
@@ -165,10 +169,10 @@ const DISPOSITIONS = [
 		"v5 hard-codes the default rate in the renderer. ClearCase takes it from the imported view-content dataset and leaves the field empty when the package has none, so no rate literal stands in."],
 	["S-interest_calc_tab-4", "interest_calc_tab", FIX, true, "tests/calculations/interest.test.ts", "counts days on the calendar, independent of time zone", null,
 		"v5 subtracts local-time dates, so a clock change gives a fractional day count. ClearCase counts whole days on the calendar from year, month and day, independent of the time zone."],
-	["S-interest_calc_tab-5", "interest_calc_tab", FIX, true, "tests/quantum/interest-basis.test.ts", "it('a total as at another date'", "IDR-236",
-		"v5 compares the computed total on one typed capital with the headline amount due, which may be on a different basis. ClearCase compares them only when both are as at the same date and no recorded payment is dated on or before it or undated. Otherwise it shows the amount due alone as not comparable, with no difference, says why, and names each figure's basis and how it treats payments."],
+	["S-interest_calc_tab-5", "interest_calc_tab", FIX, true, "tests/quantum/interest-basis.test.ts", "it('a total as at another date'", "IDR-450",
+		"v5 compares the computed total on one typed capital with the headline amount due, which may be on a different basis. ClearCase compares them only as at the same date with no recorded payment on or before it or undated, and then calls the difference arithmetic, not a reconciliation: it does not know the statement's capital, rates or dates. Otherwise it shows the amount due alone, not comparable, and says why. That disclosure is how this closes the defect; the user approves or rejects it."],
 	["S-payments_tab-3", "payments_tab", FIX, true, "tests/quantum/interest-basis.test.ts", "it('a recorded payment on or before the date, on it, or undated'", null,
-		"v5's Settlement and Interest views use gross figures and ignore recorded payments. ClearCase's Settlement claim prefill is net of payments. Interest does not net them, which would need a rule on whether a payment pays interest or capital first: when a recorded payment is dated on or before the To date or undated, it does not compare its total with the amount due and says why, and it states that neither figure deducts payments."],
+		"v5's Settlement and Interest views use gross figures and ignore recorded payments. ClearCase's Settlement claim prefill is net of payments. Interest does not net them, which would need a rule on whether a payment pays interest or capital first. When a recorded payment is dated on or before the To date or undated, it does not compare its total with the amount due, says why, and states that neither figure deducts payments. That disclosure, not netting, is how this closes the defect; the user approves or rejects it."],
 	["S-payments_tab-5", "payments_tab", FIX, false, "src/routes/v/[vid]/quantum/payments_tab/+page.server.ts", "subtitle: viewText(content(version.id), 'payments_tab', 'subtitle')", null,
 		"v5 hard-codes the respondent abbreviation in the subtitle. ClearCase reads the subtitle from the imported view-content dataset, so the party naming comes from the package and not from code."],
 	["S-elements_tab-1", "elements_tab", FIX, true, "tests/litigation/readonly.test.ts", "is null for an unknown, empty or non-text id", null,
@@ -272,7 +276,7 @@ const fileOf = (view) => {
 	if (!owner) throw new Error(`unknown view ${view}`);
 	return RANGES[owner] ? files.find((f) => f.endsWith(`${owner}.json`)) : files[0];
 };
-const rangeOf = (file) => (file === files[0] ? MAIN_RANGE : RANGES[file.match(/(CC-\d+)\.json$/)[1]]);
+const rangeOf = (file) => (file === files[0] ? MAIN_RANGE : RANGES[file.match(/(CC-\d+)\.json$/)[1]][0]);
 
 const all = [...docs.values()].flatMap((d) => d.entries);
 const own = new Map(all.filter((e) => e.author === AUTHOR).map((e) => [e.source, e]));

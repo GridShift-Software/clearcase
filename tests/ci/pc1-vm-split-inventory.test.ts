@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,9 +11,21 @@ const ci = fileURLToPath(new URL('.', import.meta.url));
 
 type Recorded = { path: string; names: string[] };
 
-/** The names a Vitest run collects from `files` under `root`, per file basename, in source order. */
-function collectNames(_root: string, _files: string[]): Map<string, string[]> {
-  return new Map(); // stub: the red commit
+/**
+ * The names `vitest list` collects from `files` under `root` by loading each file (not parsing it), per file basename,
+ * in source order. Loading runs the top level but none of the tests, and a skipped or todo case is left out, so it reads as missing.
+ */
+function collectNames(root: string, files: string[]): Map<string, string[]> {
+  const vitest = path.join(ci, '..', '..', 'node_modules', 'vitest', 'vitest.mjs');
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('VITEST')));
+  const run = spawnSync(process.execPath, [vitest, 'list', ...files, '--root', root, '--staticParse=false', '--json'], { env, encoding: 'utf8', timeout: 60_000 });
+  assert.equal(run.status, 0, `vitest list failed: ${run.stderr}${run.stdout}`);
+  const collected = new Map<string, string[]>();
+  for (const entry of JSON.parse(run.stdout) as { name: string; file: string }[]) {
+    const base = path.basename(entry.file);
+    collected.set(base, [...(collected.get(base) ?? []), entry.name]);
+  }
+  return collected;
 }
 
 /** What differs between the collected names and the recorded ones, file by file, in order. */

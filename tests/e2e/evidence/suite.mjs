@@ -1019,14 +1019,15 @@ try {
 	});
 
 	await scenario('GRS-183-CHRONO-EXCERPT', 'chronology', 'IDR-088: a short chronology excerpt has no truncation mark', async () => {
-		await p.goto(`${V}/chronology`, R('chronology'));
+		await p.goto(`${V}/chronology`, `document.querySelector('main#main')?.dataset.ready === 'chronology'`);
 		const excerpt = await p.evaluate(`document.querySelector('[data-ref="OD-269"] .excerpt')?.textContent ?? null`);
 		return { pass: excerpt === 'Bulk excerpt 69.', evidence: { excerpt } };
 	});
 
 	await scenario('GRS-183-CHRONO-SORT', 'chronology', 'IDR-089: the subtitle names the active amount sort', async () => {
-		await p.goto(`${V}/chronology`, R('chronology'));
+		await p.goto(`${V}/chronology`, `document.querySelector('main#main')?.dataset.ready === 'chronology'`);
 		await p.click('#sort-amount');
+		await p.waitFor(`document.querySelector('main .page-head .subtitle')?.textContent.trim().endsWith('sorted by amount') === true`, 5000);
 		const subtitle = await p.evaluate(`document.querySelector('main .page-head .subtitle')?.textContent.trim() ?? null`);
 		return { pass: subtitle?.endsWith('sorted by amount') === true, evidence: { subtitle } };
 	});

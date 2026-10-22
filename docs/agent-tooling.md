@@ -537,8 +537,12 @@ and handlers, with a component that does not parse or compile failing closed) re
   A `constructor` key or a dunder key such as `__proto__` in any object binding or assignment pattern refuses,
   whatever the pattern reads: a variable, a call result, a string, a function, a parameter, a `catch` binding, a
   `for-of` or `for-in` head, a shorthand `{ constructor }`, a nested pattern, or a default. `x.constructor` and `x[k]`
-  with a folded `k` root at a constructor under the same rule. The key is folded when it spells one before the module runs: a literal, a
-  template whose parts are constant, a literal `+`, or a `const` that holds one (`{ ['constr' + 'uctor']: C }`). A
+  with a fixed `k` root at a constructor under the same rule. A computed key is resolved from a literal, a template
+  with constant parts, a `+` tree of these, or any chain of `const` aliases, including an alias imported from an
+  unchanged tracked module through named, default or bare-star exports. There is no configured expression-depth cap.
+  A computed pattern key or element-read key whose static resolution cannot finish (an alias cycle, an unavailable
+  import or an export the resolver cannot establish) fails closed. A `const` initialized by a runtime call is a
+  runtime key, not a fixed alias. For example, `{ ['constr' + 'uctor']: C }` refuses, as does a longer concatenation. A
   `getPrototypeOf` result remains rooted. A pattern that reads a plain string, `{ constructor: label } = { constructor:
   'x' }`, refuses too, as conservative.
   The global object may appear only as the object of a property read with a literal, non-framework name
@@ -581,7 +585,8 @@ module cannot name a framework, move or write a rooted capability (the global ob
 Bun builtin module, a constructor or prototype) through the shapes listed above, followed through `const`/`let`/`var`,
 destructuring, `await`, conditionals, a literal `require`/`import()` and import bindings across modules. It also refuses:
 
-- a `constructor` or dunder key in any object binding or assignment pattern, from any source, with constant keys folded;
+- a `constructor` or dunder key in any object binding or assignment pattern, from any source, with pure keys resolved
+  through local or imported constants; an unresolved static key in a pattern or element read fails closed;
 - a bare `export *`, or an `export * as N`, whose local target exports a capability, directly or under an `export *`
   chain;
 - any reference to an unbound `module` or `exports` (an assignment, `Object.assign(module.exports, ...)`,
@@ -590,9 +595,10 @@ destructuring, `await`, conditionals, a literal `require`/`import()` and import 
 The guard does not follow exports from an unchanged CommonJS module, so an import of one still needs review. It is a
 best-effort net, not a sandbox. The cases below remain reviewer-owned; GRS-150 does not record their acceptance:
 
-- a `constructor` or `__proto__` key the guard cannot fold: `({})[k]` or `{ [k]: C }` with a runtime `k` (a parameter, a
-  `let`, a call result), `['constr', 'uctor'].join('')`, `String.fromCharCode(...)`. Look for a computed key beside a
-  member write.
+- a `constructor` or `__proto__` key built at runtime: `({})[k]` or `{ [k]: C }` with a parameter, loop variable,
+  `let`, call result or `const` initialized by a call; `['constr', 'uctor'].join('')` and
+  `String.fromCharCode(...)` also stay reviewer-owned. Look for a computed key beside a member write. A call result
+  such as `Reflect.get(o, 'constructor')` stays under the function-return review rule below.
 - code generation: `eval`, indirect eval (`(0, eval)(...)`), `Function`, a constructor chain. Search the diff for
   the words.
 - an unchanged CommonJS module's `module.exports`/`exports.x` or `export { default as P } from './c.cjs'` is not

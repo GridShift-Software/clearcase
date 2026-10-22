@@ -38,13 +38,13 @@ const load = (file: string) => loadRegister(file, { owners, keys });
 
 describe('loading', () => {
 	test('the main file first, then fragments by file name, each entry with its file', () => {
-		const file = register([entry('IDR-090')], { 'CC-05': [entry('IDR-150')], 'CC-04': [entry('IDR-100'), whole('IDR-101', 'people')] });
+		const file = register([entry('IDR-090')], { 'CC-05': [entry('IDR-151')], 'CC-04': [entry('IDR-101'), whole('IDR-102', 'people')] });
 		const r = load(file);
 		expect(r.problems).toEqual([]);
-		expect(r.entries.map((e) => e.id)).toEqual(['IDR-090', 'IDR-100', 'IDR-101', 'IDR-150']);
+		expect(r.entries.map((e) => e.id)).toEqual(['IDR-090', 'IDR-101', 'IDR-102', 'IDR-151']);
 		expect(r.files['IDR-090']).toMatch(/main\.json$/);
-		expect(r.files['IDR-101']).toMatch(/register\/CC-04\.json$/);
-		expect(r.files['IDR-150']).toMatch(/register\/CC-05\.json$/);
+		expect(r.files['IDR-102']).toMatch(/register\/CC-04\.json$/);
+		expect(r.files['IDR-151']).toMatch(/register\/CC-05\.json$/);
 	});
 	test('a main file without a register folder loads alone', () => {
 		const dir = join(root, 'alone');
@@ -63,12 +63,12 @@ describe('loading', () => {
 
 describe('rules across files', () => {
 	test('an id is unique across the main file and every fragment', () => {
-		expect(load(register([entry('IDR-090')], { 'CC-04': [entry('IDR-100')], 'CC-05': [entry('IDR-100')] })).problems).toContain('register/CC-05.json: IDR-100: duplicate id');
-		expect(load(register([entry('IDR-090')], { 'CC-04': [entry('IDR-100'), entry('IDR-100')] })).problems).toEqual(['register/CC-04.json: IDR-100: duplicate id']);
+		expect(load(register([entry('IDR-090')], { 'CC-04': [entry('IDR-101')], 'CC-05': [entry('IDR-101')] })).problems).toContain('register/CC-05.json: IDR-101: duplicate id');
+		expect(load(register([entry('IDR-090')], { 'CC-04': [entry('IDR-101'), entry('IDR-101')] })).problems).toEqual(['register/CC-04.json: IDR-101: duplicate id']);
 		expect(load(register([entry('IDR-004')], { 'CC-04': [whole('IDR-004', 'people')] })).problems).toEqual(['register/CC-04.json: IDR-004: duplicate id']);
 	});
 	test("an id outside the fragment owner's range is refused; its moved legacy ids are kept", () => {
-		expect(load(register([], { 'CC-04': [entry('IDR-150')] })).problems).toEqual(["register/CC-04.json: IDR-150: outside CC-04's id range IDR-100–IDR-149"]);
+		expect(load(register([], { 'CC-04': [entry('IDR-151')] })).problems).toEqual(["register/CC-04.json: IDR-151: outside CC-04's id range IDR-100–IDR-149"]);
 		expect(load(register([], { 'CC-04': [entry('IDR-099')] })).problems.join()).toMatch(/outside CC-04's id range/);
 		expect(load(register([], { 'CC-04': [entry('IDR-450')] })).problems.join()).toMatch(/outside CC-04's id range/);
 		expect(load(register([], { 'CC-05': [whole('IDR-004', 'people')] })).problems.join()).toMatch(/IDR-004: outside CC-05's id range/);
@@ -92,28 +92,28 @@ describe('rules across files', () => {
 		expect(load(register([], { [owner]: [entry(id)] })).problems).toContain(`register/${owner}.json: ${id}: retired id`);
 	});
 	test('a fragment must be named after an M2 owner', () => {
-		expect(load(register([], { 'CC-11': [entry('IDR-100')] })).problems.join()).toMatch(/fragment CC-11 is not an M2 owner's/);
+		expect(load(register([], { 'CC-11': [entry('IDR-101')] })).problems.join()).toMatch(/fragment CC-11 is not an M2 owner's/);
 		expect(load(register([], { notes: [] })).problems.join()).toMatch(/fragment notes is not an M2 owner's/);
 	});
 	test("the whole-view owner check holds in a fragment, and a whole view must be the fragment owner's", () => {
-		expect(load(register([], { 'CC-04': [whole('IDR-100', 'people', 'GRS-999')] })).problems).toEqual(["register/CC-04.json: IDR-100: owner GRS-999 is not the view's owner GRS-14"]);
-		expect(load(register([], { 'CC-04': [whole('IDR-100', 'timeline')] })).problems).toEqual(['register/CC-04.json: IDR-100: whole view timeline belongs to CC-05, not CC-04']);
-		expect(load(register([], { 'CC-05': [whole('IDR-150', 'timeline')] })).problems).toEqual([]);
+		expect(load(register([], { 'CC-04': [whole('IDR-101', 'people', 'GRS-999')] })).problems).toEqual(["register/CC-04.json: IDR-101: owner GRS-999 is not the view's owner GRS-14"]);
+		expect(load(register([], { 'CC-04': [whole('IDR-101', 'timeline')] })).problems).toEqual(['register/CC-04.json: IDR-101: whole view timeline belongs to CC-05, not CC-04']);
+		expect(load(register([], { 'CC-05': [whole('IDR-151', 'timeline')] })).problems).toEqual([]);
 	});
 	test('every single-file rule still applies inside a fragment', () => {
-		const p = load(register([], { 'CC-04': [entry('IDR-100', { approvedBy: 'Worker', approvedOn: '2026-10-09' }), entry('IDR-101', { field: 'table.t.row.SY-12345.date' }), entry('IDR-102', { field: '**' }), entry('IDR-103', { view: 'nope' })] })).problems.join('\n');
-		for (const re of [/IDR-100: approver must not be the author/, /IDR-101: .*case value/, /IDR-102: .*would match the whole view/, /IDR-103: unknown view/]) expect(p).toMatch(re);
+		const p = load(register([], { 'CC-04': [entry('IDR-101', { approvedBy: 'Worker', approvedOn: '2026-10-09' }), entry('IDR-102', { field: 'table.t.row.SY-12345.date' }), entry('IDR-103', { field: '**' }), entry('IDR-104', { view: 'nope' })] })).problems.join('\n');
+		for (const re of [/IDR-101: approver must not be the author/, /IDR-102: .*case value/, /IDR-103: .*would match the whole view/, /IDR-104: unknown view/]) expect(p).toMatch(re);
 	});
 });
 
 describe('strict register over fragments', () => {
 	test('a whole-view entry in a fragment covers the view, and an unused fragment entry fails a strict run', () => {
-		const { entries, problems } = load(register([entry('IDR-090')], { 'CC-04': [whole('IDR-100', 'people'), entry('IDR-101', { view: 'people', field: 'text.subtitle' })] }));
+		const { entries, problems } = load(register([entry('IDR-090')], { 'CC-04': [whole('IDR-101', 'people'), entry('IDR-102', { view: 'people', field: 'text.subtitle' })] }));
 		expect(problems).toEqual([]);
 		const r = classify('people', diff({ ...base('v5'), view: 'people' }, snap.appWithoutAdapter('people', { ...registry, people: { ...registry.people!, status: `unavailable-until:${registry.people!.linear}` } })), entries, {});
-		expect(r.registered).toMatchObject([{ register: 'IDR-100' }]);
+		expect(r.registered).toMatchObject([{ register: 'IDR-101' }]);
 		const unused = unusedEntries(entries, ['people'], new Set(r.registered.map((d: any) => d.register)));
-		expect(unused).toEqual(['IDR-101']);
+		expect(unused).toEqual(['IDR-102']);
 		const sc = { ...scorecard({ people: { ...r, v5Status: 'ok', appStatus: 'not-implemented' } }), isolation: { offline: true, v5NonFileRequests: 0, v5BrowserInternalRequests: 0, appNonLoopbackRequests: 0, canaryHits: 0, canaryBrowserServiceHits: 0, fixtureUnchanged: true } };
 		expect(runFailures(sc, { views: 1, unused: unused.length, strict: true }).join()).toMatch(/1 unused register entry \(--strict-register\)/);
 		expect(runFailures(sc, { views: 1, unused: unused.length, strict: false })).toEqual([]);

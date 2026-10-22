@@ -16,6 +16,8 @@ export const SCHEMA = join(REPO, 'docs', 'reference', 'parity', 'intentional-dif
  * a second one, added when its first ran short of numbers never used). The main file may use none of them. A fragment also keeps the legacy ids moved into it from the main file (LEGACY).
  */
 export const RANGES = Object.freeze({ 'CC-04': [[100, 149]], 'CC-05': [[150, 199]], 'CC-06': [[200, 249], [450, 474]], 'CC-07': [[250, 299]], 'CC-08': [[300, 349]], 'CC-09': [[350, 399]], 'CC-10': [[400, 449]] });
+/** Removed ids remain unavailable so prior reports and approvals cannot acquire a new meaning. */
+export const RETIRED = new Set([100, 106, 116, 124, 134, 150, 155, 157, 158, 159, 160, 162, 163, 165, 166, 169, 206, 208, 216, 218, 222, 236, 267, 302, 311, 314, 317, 320, 323, 324, 350, 358, 359, 360, 362, 363, 364].map((n) => `IDR-${n}`));
 /** An owner's ranges in words: `IDR-200–IDR-249, IDR-450–IDR-474`. */
 export const rangeText = (key) => RANGES[key].map(([lo, hi]) => `IDR-${lo}–IDR-${hi}`).join(', ');
 export const LEGACY = Object.freeze({
@@ -67,6 +69,7 @@ export function validateRegister(doc, { views = viewIds(), owners = null, keys =
 	if (fragment !== null && !RANGES[fragment]) return [...problems, `fragment ${fragment} is not an M2 owner's (${Object.keys(RANGES).join(', ')})`];
 	for (const e of doc.entries) {
 		const at = `${e.id ?? '?'}`;
+		if (RETIRED.has(e.id)) problems.push(`${at}: retired id`);
 		if (ids.has(e.id)) problems.push(`${at}: duplicate id`);
 		ids.add(e.id);
 		if (fragment && !LEGACY[fragment].includes(e.id) && rangeOwner(e.id) !== fragment) problems.push(`${at}: outside ${fragment}'s id range ${rangeText(fragment)}`);

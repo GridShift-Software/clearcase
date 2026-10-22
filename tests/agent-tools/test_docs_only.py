@@ -517,6 +517,28 @@ class WaveChangeReverted(DocsOnlyFixRound):
                 self.assertIn('docs-only', out)
                 self.assertIn(name, out)
 
+    def test_a_round_merging_the_wave_s_changes_unchanged_passes(self):
+        # the wave changes, deletes and adds a test and a runtime file and the round holds each as the wave does
+        stronger = self.test + "test('more', () => { expect(2).toEqual(2); });\n"
+        self.fix_round()
+        self.git('switch', '-q', WAVE)
+        self.write('tests/app.test.ts', stronger)
+        self.write('src/lib.ts', 'export const lib = 2;\n')
+        self.write('src/new.ts', 'export const added = 1;\n')
+        self.commit('the wave changes a test and a runtime file and adds one')
+        self.git('rm', '-q', 'src/lib.ts')
+        self.commit('the wave deletes the runtime file')
+        self.git('switch', '-q', BRANCH)
+        self.merge(WAVE)
+        self.assertIn('test-guard: PASS (docs-only', self.guard())
+        with self.subTest(control='the wave undid its own change after the round merged it'):
+            self.git('switch', '-q', WAVE)
+            self.write('tests/app.test.ts', self.test)
+            self.commit('the wave reverts its test change')
+            self.git('switch', '-q', BRANCH)
+            self.merge(WAVE)
+            self.assertIn('test-guard: PASS (docs-only', self.guard())
+
     def test_restoring_a_document_the_wave_changed_is_documentation(self):
         self.fix_round()
         self.wave_changes({'docs/other.md': '# Other, as the wave edited it\n'})

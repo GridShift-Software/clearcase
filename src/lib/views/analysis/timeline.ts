@@ -1,8 +1,21 @@
 import { fmtR } from '../../components/format.ts';
 import type { ViewValue } from '../../case-package/view-content.ts';
 
-export interface TimelineEvent { date: string; kind: string; ref: string; title: string; note: string }
+export interface TimelineEvent { date: string; kind: string; ref: string; title: string; note: string; phase?: string; refs?: string[] }
 export interface Phase { label: string; title: string; note: string; events: TimelineEvent[] }
+export interface DatePhase { key: string; title: string; from: string; to: string; summary: string; oneLine?: string }
+
+export function datePhaseGroups(phases: readonly DatePhase[], events: readonly TimelineEvent[]) {
+	const keys = new Map<string, number>();
+	for (const p of phases) keys.set(p.key, (keys.get(p.key) ?? 0) + 1);
+	const known = (e: TimelineEvent) => e.phase !== undefined && keys.get(e.phase) === 1;
+	return {
+		phases: phases.map((p) => ({ label: `${p.from || 'Date not supplied'} → ${p.to || 'Date not supplied'}`, title: p.title,
+			note: [p.summary, p.oneLine && p.oneLine !== p.summary ? p.oneLine : '', keys.get(p.key)! > 1 ? 'Duplicate phase key: its events are listed outside the phases for review.' : '', p.from && p.to && p.from > p.to ? 'The supplied end date precedes the start date.' : ''].filter(Boolean).join('\n'),
+			events: keys.get(p.key) === 1 ? events.filter((e) => e.phase === p.key) : [] })),
+		unplaced: events.filter((e) => !known(e)),
+	};
+}
 
 export const cleanName = (f: string) => String(f || '').replace(/^\(\d+\)\s*/, '').replace(/\.(pdf|eml|msg)$/i, '');
 

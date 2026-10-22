@@ -64,7 +64,7 @@
 				{#if data.unplaced.length}
 					<div class="ph" data-phase="unplaced">
 						<h3>Outside every phase</h3>
-						<p class="phnote">These events have no date, or a year no phase covers.</p>
+						<p class="phnote">{data.dated ? 'These events have a missing, unknown or duplicate phase key. Their membership needs review.' : 'These events have no date, or a year no phase covers.'}</p>
 						<div role="list">{#each data.unplaced as e, j (j)}{@render event(e)}{/each}</div>
 					</div>
 				{/if}

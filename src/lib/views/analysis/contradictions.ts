@@ -4,7 +4,9 @@ import { money } from '../../components/format.ts';
 export interface ContradictionRef { ref: string; amount: string | number; filename: string }
 export interface ContradictionItem { label: string; detail: string; rates?: Record<string, string>; spread?: string; refs: readonly ContradictionRef[] }
 export interface ContradictionCategory { key: string; title: string; severity: string; explain: string; items: readonly ContradictionItem[] }
-export interface Contradictions { total: number; highCount: number; byCat: Record<string, number>; checks: readonly { check: string; result: string }[]; categories: readonly ContradictionCategory[] }
+export interface Contradictions { total: number; highCount: number; byCat: Record<string, number>; checks: readonly { check: string; result: string }[]; source_checks?: readonly { check: string; result: string }[]; categories: readonly ContradictionCategory[] }
+
+export const consistencyChecks = (c: Contradictions) => [...c.checks, ...(c.source_checks ?? [])].map((x) => ({ check: x.check, result: x.result }));
 
 const rate = (r: Record<string, string> | undefined, k: string) => (r && Object.hasOwn(r, k) ? r[k] : undefined);
 

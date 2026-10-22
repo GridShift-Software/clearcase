@@ -6,7 +6,7 @@ import { viewById } from '$lib/components/views';
 import type { OverviewModel } from '$lib/local-case/model';
 import { viewContentOf, viewText } from '$lib/local-case/results.server';
 import { viewHeading } from '$lib/views/analysis/headings';
-import { phaseGroups, quantumBars, templateParts, yearBars, type SeriesPoint, type TimelineEvent } from '$lib/views/analysis/timeline';
+import { datePhaseGroups, phaseGroups, quantumBars, templateParts, yearBars, type DatePhase, type SeriesPoint, type TimelineEvent } from '$lib/views/analysis/timeline';
 import type { PageServerLoad } from './$types';
 
 interface Quantum { headline_due: string | number; headline_date: string; headline_ref: string; invoiceCount: number; amountDueSeries: SeriesPoint[] }
@@ -17,8 +17,10 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const { version } = await parent();
 	const a = app();
 	const rv = version.id;
-	const events = (analysisDataset<TimelineEvent[]>(rv, 'timeline-events') ?? []).map((e) => ({ date: e.date, kind: e.kind, ref: e.ref, title: e.title, note: e.note }));
-	const grouped = phaseGroups(analysisDataset<string[][]>(rv, 'timeline-phases') ?? [], events);
+	const events = (analysisDataset<TimelineEvent[]>(rv, 'timeline-events') ?? []).map((e) => ({ date: e.date, kind: e.kind, ref: e.ref, title: e.title, note: e.note, phase: e.phase, refs: e.refs }));
+	const phases = analysisDataset<string[][] | DatePhase[]>(rv, 'timeline-phases') ?? [];
+	const dated = phases.length > 0 && !Array.isArray(phases[0]);
+	const grouped = dated ? datePhaseGroups(phases as DatePhase[], events) : phaseGroups(phases as string[][], events);
 	const years = yearBars(Object.entries(analysisDataset<Record<string, number>>(rv, 'timeline-year-counts') ?? {}));
 	const q = analysisDataset<Quantum>(rv, 'quantum');
 	const people = (analysisDataset<Person[]>(rv, 'people') ?? []).slice(0, 8).map((p) => ({ name: p.name, email: p.email, org: p.org, total: p.total }));
@@ -44,11 +46,12 @@ export const load: PageServerLoad = async ({ parent }) => {
 		heading: viewHeading(viewById('timeline')!, analysisAdditionsEnabled()),
 		phases: grouped.phases,
 		unplaced: grouped.unplaced,
+		dated,
 		years,
 		chart: q ? quantumBars(q.amountDueSeries.map((s) => ({ date: s.date, amount: s.amount }))) : null,
 		headlineRef: q?.headline_ref ?? null,
 		people,
 		content,
-		known: existingOf(rv, [...events.map((e) => e.ref), ...(q?.headline_ref ? [q.headline_ref] : [])]),
+		known: existingOf(rv, [...events.flatMap((e) => [e.ref, ...(e.refs ?? [])]), ...(q?.headline_ref ? [q.headline_ref] : [])]),
 	};
 };

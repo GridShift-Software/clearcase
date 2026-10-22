@@ -12,14 +12,16 @@
 // approves them. The script owns only entries whose author is AUTHOR; it keeps their ids and any approvedBy and
 // approvedOn the user set while type, productVisible and the reason (apart from its evidence file:line) are unchanged, so
 // a rerun changes nothing unless the table, the evidence lines or the register changed; an entry that changed in any
-// other way loses its approval, and the script names it. --check exits 1 when the committed register differs, and (also without --check) when a
+// other way loses its approval, and the script names it. --check also compares the generated CC-11 defects table with its
+// committed copy; --table FILE overrides that copy for a synthetic test. --check exits 1 when the register or table differs, and (also without --check) when a
 // defect of defects.md or view-checklist.md has no entry naming it, a disposition names a defect that is no longer
 // listed, a defects.md row does not parse, or an evidence pattern is empty. --reference DIR reads docs/reference from DIR instead (the tests'
 // synthetic copy); evidence files are always read from the repository.
 // scripts/verify/dispositions.mjs then reports every defect as registered.
 import { readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
-import { RANGES, registerFiles } from '../parity/lib/register.mjs';
+import { RANGES, RETIRED, registerFiles } from '../parity/lib/register.mjs';
 import { citing, isListed, readDefects } from './lib/defects.mjs';
 import { VIEWS } from '../../src/lib/components/view-registry.ts';
 
@@ -29,8 +31,6 @@ const REF = referenceAt > 0 ? resolve(process.argv[referenceAt + 1]) : join(ROOT
 const AUTHOR = 'GRS-67 dispositions (scripts/verify/register-dispositions.mjs)';
 /** Ids the main file may give a disposition of a pilot view: above its legacy entries, below every owner's range. */
 const MAIN_RANGE = [74, 99];
-/** Ids an owner used and removed (from the register's git history): never issued again, so old reports stay unambiguous. */
-const RETIRED = new Set([100, 106, 116, 124, 134, 150, 155, 157, 158, 159, 160, 162, 163, 165, 166, 169, 206, 208, 216, 218, 222, 267, 302, 311, 314, 317, 320, 323, 324, 350, 358, 359, 360, 362, 363, 364].map((n) => `IDR-${n}`));
 const FIX = 'defect-fix', GAP = 'known-gap', DATA = 'data-correction-deferred-to-pipeline';
 
 // [defect, view, type, productVisible, evidence file, evidence pattern (a literal substring), covering entry or null, reason]
@@ -165,10 +165,10 @@ const DISPOSITIONS = [
 		"v5 hard-codes the default rate in the renderer. ClearCase takes it from the imported view-content dataset and leaves the field empty when the package has none, so no rate literal stands in."],
 	["S-interest_calc_tab-4", "interest_calc_tab", FIX, true, "tests/calculations/interest.test.ts", "counts days on the calendar, independent of time zone", null,
 		"v5 subtracts local-time dates, so a clock change gives a fractional day count. ClearCase counts whole days on the calendar from year, month and day, independent of the time zone."],
-	["S-interest_calc_tab-5", "interest_calc_tab", GAP, true, "src/lib/views/quantum/interest.ts", "label: 'vs extracted Amount Due'", null,
-		"v5 compares the computed total on one typed capital with the headline amount due, which may be on a different basis. ClearCase keeps the same comparison against the imported headline figure and does not check that the bases match. A same-basis check needs an app change."],
-	["S-payments_tab-3", "payments_tab", GAP, true, "src/routes/v/[vid]/quantum/interest_calc_tab/+page.server.ts", "headlineDue: basis?.headline_due ?? ''", null,
-		"v5's Settlement and Interest views use gross figures and ignore recorded payments. ClearCase fixes Settlement (its claim prefill is net of payments), but Interest still compares with the gross imported headline amount. Making Interest net of payments needs an app change."],
+	["S-interest_calc_tab-5", "interest_calc_tab", FIX, true, "tests/quantum/interest-basis.test.ts", "it('a total as at another date'", "IDR-450",
+		"v5 compares a computed total on one typed capital with the headline due on unlike bases. ClearCase compares only with capital, matching dates and no payment on or before To or undated. Even then the difference is arithmetic, not a reconciliation: the statement's capital, rates and dates are unknown. With no capital, the dated due asks for one and any basis conflict appears without a verdict (IDR-451). With capital on unlike bases, due stands alone with the reason. This disclosure closes the defect."],
+	["S-payments_tab-3", "payments_tab", FIX, true, "tests/quantum/interest-basis.test.ts", "it('a recorded payment on or before the date, on it, or undated'", null,
+		"v5's Settlement and Interest views use gross figures and ignore recorded payments. ClearCase's Settlement claim prefill is net of payments. Interest does not net them, which would need a rule on whether a payment pays interest or capital first. A payment on or before To, or undated, prevents comparison with capital and is explained in a conditional note without capital. That disclosure, not netting, is how this closes the defect; the user approves or rejects it."],
 	["S-payments_tab-5", "payments_tab", FIX, false, "src/routes/v/[vid]/quantum/payments_tab/+page.server.ts", "subtitle: viewText(content(version.id), 'payments_tab', 'subtitle')", null,
 		"v5 hard-codes the respondent abbreviation in the subtitle. ClearCase reads the subtitle from the imported view-content dataset, so the party naming comes from the package and not from code."],
 	["S-elements_tab-1", "elements_tab", FIX, true, "tests/litigation/readonly.test.ts", "is null for an unknown, empty or non-text id", null,
@@ -272,7 +272,7 @@ const fileOf = (view) => {
 	if (!owner) throw new Error(`unknown view ${view}`);
 	return RANGES[owner] ? files.find((f) => f.endsWith(`${owner}.json`)) : files[0];
 };
-const rangeOf = (file) => (file === files[0] ? MAIN_RANGE : RANGES[file.match(/(CC-\d+)\.json$/)[1]]);
+const rangesOf = (file) => (file === files[0] ? [MAIN_RANGE] : RANGES[file.match(/(CC-\d+)\.json$/)[1]]);
 
 const all = [...docs.values()].flatMap((d) => d.entries);
 const own = new Map(all.filter((e) => e.author === AUTHOR).map((e) => [e.source, e]));
@@ -289,14 +289,16 @@ const seen = new Set();
 const out = new Map(files.map((f) => [f, []]));
 const idOf = (file, defect) => {
 	const keep = previous.get(defect);
-	const [lo, hi] = rangeOf(file);
+	const ranges = rangesOf(file);
 	const n = keep ? Number(keep.slice(4)) : null;
-	if (n !== null && n >= lo && n <= hi && !taken.has(keep)) return keep;
-	for (let i = lo; i <= hi; i++) {
-		const id = `IDR-${String(i).padStart(3, '0')}`;
-		if (!taken.has(id) && !RETIRED.has(id) && ![...previous.values()].includes(id)) return id;
+	if (n !== null && ranges.some(([lo, hi]) => n >= lo && n <= hi) && !taken.has(keep) && !RETIRED.has(keep)) return keep;
+	for (const [lo, hi] of ranges) {
+		for (let i = lo; i <= hi; i++) {
+			const id = `IDR-${String(i).padStart(3, '0')}`;
+			if (!taken.has(id) && !RETIRED.has(id) && ![...previous.values()].includes(id)) return id;
+		}
 	}
-	throw new Error(`${defect}: no free id in IDR-${lo}–IDR-${hi}`);
+	throw new Error(`${defect}: no free id in ${ranges.map(([lo, hi]) => `IDR-${lo}–IDR-${hi}`).join(', ')}`);
 };
 for (const [named, view, type, productVisible, file, patterns, cover, why] of DISPOSITIONS) {
 	const defects = [named].flat();
@@ -343,6 +345,14 @@ for (const [file, doc] of docs) {
 	if (process.argv.includes('--check')) console.error(`register-dispositions: ${file} differs; rerun without --check`);
 	else writeFileSync(file, body);
 }
+let tableDrift = 0;
+if (process.argv.includes('--check')) {
+	const tableAt = process.argv.indexOf('--table');
+	const table = tableAt > 0 ? resolve(process.argv[tableAt + 1]) : join(ROOT, 'docs', 'acceptance', 'CC-11', 'defects-table.md');
+	const generated = spawnSync(process.execPath, [join(ROOT, 'scripts', 'verify', 'dispositions.mjs')], { encoding: 'utf8' });
+	if (generated.status !== 0) { console.error(generated.stderr); tableDrift = 1; }
+	else if (generated.stdout !== readFileSync(table, 'utf8')) { console.error(`register-dispositions: ${table} differs from generated defects table`); tableDrift = 1; }
+}
 const count = (k) => Object.entries(DISPOSITIONS.reduce((a, r) => ((a[k(r)] = (a[k(r)] ?? 0) + 1), a), {})).map(([t, n]) => `${t} ${n}`).join(', ');
 console.log(`register-dispositions: ${seen.size} defects in ${DISPOSITIONS.length} dispositions (${count((r) => r[2])}; by owner ${count((r) => owners[r[1]])}); ${drift} file(s) ${process.argv.includes('--check') ? 'differ' : 'written'}`);
-process.exit(process.argv.includes('--check') && drift ? 1 : 0);
+process.exit(process.argv.includes('--check') && (drift || tableDrift) ? 1 : 0);

@@ -41,10 +41,21 @@ export const fits = (kind: Kind, v: JsonValue | undefined): boolean => FITS[kind
 export const sourceName = (k: string): string => `source_${k}`;
 
 /** Keeps a source value under its `source_` name; a name the record already holds is never overwritten, the prefix is added again. */
-const keepAside = (into: JsonObject, k: string, v: JsonValue | undefined): void => {
+export const keepAside = (into: JsonObject, k: string, v: JsonValue | undefined): void => {
   let name = sourceName(k);
   while (Object.hasOwn(into, name)) name = sourceName(name);
   own(into, name, v);
+};
+
+/** Writes a source value under its own name, or aside when the record already holds that name. */
+export const ownOrAside = (into: JsonObject, k: string, v: JsonValue | undefined): void => {
+  if (Object.hasOwn(into, k)) keepAside(into, k, v); else own(into, k, v);
+};
+
+/** Writes a value the mapping derives; a source value already under that name moves aside first, so the derived one never overwrites it. */
+export const putDerived = (into: JsonObject, k: string, v: JsonValue): void => {
+  if (Object.hasOwn(into, k)) { const held = into[k]; delete into[k]; keepAside(into, k, held); }
+  own(into, k, v);
 };
 
 /**
@@ -53,7 +64,7 @@ const keepAside = (into: JsonObject, k: string, v: JsonValue | undefined): void 
  * A field whose name the record already uses is kept as `source_<name>`. A `handled` key was written by the caller already.
  */
 export const keepRest = <T extends JsonObject>(into: T, from: JsonObject, read: readonly string[], kinds: Kinds = {}, handled: readonly string[] = []): T => {
-  for (const [k, v] of Object.entries(from)) if (!handled.includes(k) && (!read.includes(k) || !FITS[kinds[k] ?? 'str'](v))) { if (Object.hasOwn(into, k)) keepAside(into, k, v); else own(into, k, v); }
+  for (const [k, v] of Object.entries(from)) if (!handled.includes(k) && (!read.includes(k) || !FITS[kinds[k] ?? 'str'](v))) ownOrAside(into, k, v);
   return into;
 };
 

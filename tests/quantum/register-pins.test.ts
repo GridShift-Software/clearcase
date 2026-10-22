@@ -30,7 +30,23 @@ describe('interest_calc_tab: the separated capital', () => {
 		expect(cover('interest_calc_tab', 'sweep.compute.separated.k0.value', 'R100.00', 'R100000.00')).toBe('IDR-212');
 		expect(cover('interest_calc_tab', 'sweep.compute.separated.k1.value', 'R10.02', 'R10020.53')).toBe('IDR-234');
 		expect(cover('interest_calc_tab', 'sweep.compute.separated.k2.value', 'R110.02', 'R110020.53')).toBe('IDR-235');
-		expect(cover('interest_calc_tab', 'sweep.compute.separated.k3.sub', '-R 1 000.00 vs your calc', '+R 2 000.00 vs your calc')).toBe('IDR-236');
+	});
+	it('registers the refused comparison line as IDR-450, narrowly, and leaves the old "vs your calc" shape unregistered on all three paths (GRS-173)', () => {
+		for (const path of ['separated', 'simple', 'compound']) {
+			const k3 = `sweep.compute.${path}.k3.sub`;
+			expect(cover('interest_calc_tab', k3, '-R 1 000.00 vs your calc', 'as at 2094-01-10: not comparable with your total'), path).toBe('IDR-450');
+			expect(cover('interest_calc_tab', k3, '-R 1 000.00 vs your calc', '+R 2 000.00 vs your calc'), path).toBeNull();
+			expect(cover('interest_calc_tab', k3, '-R 1 000.00 vs your calc', 'as at 2094-01-10: not comparable with your total. Extra'), path).toBeNull();
+		}
+		expect(entries.find((e) => e.id === 'IDR-236')).toBeUndefined();
+		expect(entries.find((e) => e.id === 'IDR-450')?.approvedBy).toBeNull();
+	});
+	it('registers only the dated capital prompt on the no-capital defaults path', () => {
+		const path = 'sweep.compute.defaults.k3.sub';
+		expect(cover('interest_calc_tab', path, 'enter a capital figure', 'as at 2094-01-10 · enter a capital figure')).toBe('IDR-451');
+		expect(cover('interest_calc_tab', path, 'enter a capital figure', 'as at 2094-01-10 · enter a capital figure. Extra')).toBeNull();
+		expect(cover('interest_calc_tab', 'sweep.compute.simple.k3.sub', 'enter a capital figure', 'as at 2094-01-10 · enter a capital figure')).toBeNull();
+		expect(entries.find((e) => e.id === 'IDR-451')?.approvedBy).toBeNull();
 	});
 	it('leaves a wrong interest, total or capital unregistered', () => {
 		expect(cover('interest_calc_tab', 'sweep.compute.separated.k1.value', 'R10.02', 'R10020.54')).toBeNull();

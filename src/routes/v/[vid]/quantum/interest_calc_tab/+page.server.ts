@@ -1,5 +1,5 @@
 import { citedRefs } from '$lib/components/cite';
-import { content, dataset, resolvableRefs, type InterestBasis } from '$lib/views/quantum/data.server';
+import { content, dataset, payments, resolvableRefs, type InterestBasis } from '$lib/views/quantum/data.server';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ parent }) => {
@@ -9,6 +9,8 @@ export const load: PageServerLoad = async ({ parent }) => {
 	return {
 		defaults: { rate: content(version.id).number('interest_calc_tab', 'defaultRate'), from: basis ? basis.first_invoice_date || basis.award_date : '', to: basis?.headline_date ?? '' },
 		headlineDue: basis?.headline_due ?? '',
+		headlineDate: basis?.headline_date ?? '',
+		paymentDates: payments(version.caseId).map((p) => p.date),
 		note,
 		known: note ? [...resolvableRefs(version.id, citedRefs([note]))] : [],
 	};

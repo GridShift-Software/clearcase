@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
-	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { NOT_SERVED, hrefOf, type Resolved } from '$lib/views/bundles/links';
 	import { download } from '$lib/components/download';
 	import { postAction } from '$lib/views/bundles/post';
+	import { RELOAD_LOST, reloader } from '$lib/views/bundles/reload.svelte';
 	import { printIndex } from '$lib/views/bundles/print';
 	import { DOCX_TYPE, indexDocx } from '$lib/views/bundles/docx';
 	import { HEADER_FIELDS, HEADER_KEYS, TO_COMPLETE, cleanName, desc, header, indexFileName, pad, partRange, range, totals, type Bundle, type Header } from '$lib/views/bundles/court';
@@ -19,7 +20,9 @@
 	const ti = $derived(bs.reduce((n, b) => n + b.rows.length, 0));
 	const tp = $derived(bs.reduce((n, b) => n + (b.pages || 0), 0));
 	const extracts = $derived(c.kpiExtractsValue ?? bs.reduce((n, b) => n + b.rows.filter((r) => r.sliceUrl).length, 0));
-	const hd = $derived(header(data.header));
+	// the stored header: the save's answer sets it until the next load does (GRS-160)
+	let stored = $derived(data.header);
+	const hd = $derived(header(stored));
 
 	const view = $derived(page.url.searchParams.get('view') === 'build' ? 'build' : page.url.searchParams.has('b') ? 'bundle' : 'list');
 	const repeated = $derived.by(() => { const seen = new Set<string>(), dup = new Set<string>(); for (const x of bs) (seen.has(x.no) ? dup : seen).add(x.no); return dup; });
@@ -33,6 +36,7 @@
 	const go = (q: Record<string, string>) => goto(`?${new URLSearchParams(q)}`);
 	const href = (r: Resolved | null, page?: number) => hrefOf(vid, data.files, r, page);
 	const blob = (x: Bundle) => (x.id ? (blobs[x.id] ?? null) : null);
+	const rl = reloader();
 
 	let delErrors = $state<Record<string, string>>({});
 	let deleting = $state<Record<string, true>>({});
@@ -47,7 +51,7 @@
 			const u = blobs[id];
 			delete blobs[id];
 			if (u) URL.revokeObjectURL(u);
-			await invalidateAll();
+			await rl.reload();
 		} finally { delete deleting[id]; }
 	};
 
@@ -58,7 +62,7 @@
 	let conflict = $state<Header | null>(null);
 	let busy = $state<HAct | null>(null);
 	let message = $state<string | null>(null);
-	const changed = $derived(HEADER_KEYS.filter((k) => hv[k] !== data.header[k]));
+	const changed = $derived(HEADER_KEYS.filter((k) => hv[k] !== stored[k]));
 	const act = async (action: HAct) => {
 		if (action !== 'header' && changed.length && !confirm('Discard the header fields you changed and have not saved?')) return;
 		const sent = { ...hv };
@@ -70,17 +74,23 @@
 				if (r.status === 409 && r.data?.stored) { conflict = r.data.stored as Header; version = String(r.data.version ?? version); }
 				return;
 			}
+			// every stored answer of headerWrite (+page.server.ts) carries the header; without it no field can be told from the old data
+			const answer = r.data?.stored as Header | undefined;
+			if (!answer) throw new Error('The header action was saved without the stored header in its answer.');
 			errors[action] = null;
 			if (action !== 'header') errors.header = null;
 			conflict = null;
-			await invalidateAll();
+			stored = answer;
+			version = String(r.data?.version ?? version);
+			for (const k of HEADER_KEYS) if (hv[k] === sent[k]) hv[k] = answer[k];
+			if (!(await rl.reload())) return;
 			version = data.headerHash;
-			for (const k of HEADER_KEYS) if (hv[k] === sent[k]) hv[k] = data.header[k];
+			for (const k of HEADER_KEYS) if (hv[k] === answer[k]) hv[k] = data.header[k];
 		} finally { busy = null; }
 	};
 	const saveHeader = () => act('header');
 	const useStored = async () => {
-		await invalidateAll();
+		if (!(await rl.reload())) return;
 		hv = { ...data.header };
 		version = data.headerHash;
 		conflict = null;
@@ -111,9 +121,10 @@
 	</PageHeader>
 	{#if off}<p class="notice" id="cb-nojs">The header, the Word and print exports and the bundle tabs need JavaScript, which is off or still loading; nothing on this page can be saved without it.</p>{/if}
 	{#if message}<p class="notice" role="status" id="cb-message">{message}</p>{/if}
+	{#if rl.lost}<p class="error" role="alert" id="cb-reload-error">{RELOAD_LOST}</p>{/if}
 
 	{#if view === 'build'}
-		<Builder bundles={bs} h={hd.h} creator={creator()} {off} onback={() => go({})} />
+		<Builder bundles={bs} h={hd.h} creator={creator()} {off} reload={rl.reload} onback={() => go({})} />
 	{:else if view === 'bundle' && b}
 		{@const t = totals(b)}
 		{@const l = data.links[cur]!}

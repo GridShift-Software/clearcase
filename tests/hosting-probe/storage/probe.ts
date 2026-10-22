@@ -1403,7 +1403,7 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			const t0 = performance.now();
 			const unreleased = await http(`/cases/${snapCase}/work`, { headers: { 'x-probe-hold': '1' }, timeout: 45_000 }).catch(() => null);
 			const unreleasedMs = ms(t0);
-			check(unreleased !== null && code(unreleased, 504, 'hold-timeout') && unreleasedMs < 45_000, `a hold that is never released answers 504 hold-timeout by itself within 45 s (${unreleased === null ? 'no answer' : unreleased.status} after ${Math.round(unreleasedMs)} ms)`);
+			check(unreleased !== null && unreleased.status === 504 && unreleased.json().code === 'hold-timeout' && unreleasedMs < 45_000, `a hold that is never released answers 504 hold-timeout by itself within 45 s (${unreleased === null ? 'no answer' : unreleased.status} after ${Math.round(unreleasedMs)} ms)`);
 			// Two holds are independent: releasing one leaves the other held.
 			const held = (token: string) => http(`/cases/${snapCase}/work`, { headers: { 'x-probe-hold': token }, timeout: 60_000 });
 			const waitingOn = async (token: string) => {

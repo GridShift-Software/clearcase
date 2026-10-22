@@ -28,7 +28,7 @@ import { type OriginalPlan, type Plan, type Scale, V5, aggregates, listText, ori
 
 const HERE = import.meta.dirname;
 const SCHEMA = 'clearcase.storage-probe/1';
-const LEGS = ['build', 'provision', 'crossed-bindings', 'upload', 'import', 'layout', 'range', 'write-once', 'two-pass', 'user-work', 'export', 'corruption', 'restore', 'restore-guards', 'snapshot-consistency'] as const;
+const LEGS = ['build', 'provision', 'crossed-bindings', 'upload', 'import', 'layout', 'range', 'write-once', 'multipart-race', 'two-pass', 'user-work', 'export', 'corruption', 'restore', 'restore-guards', 'snapshot-consistency'] as const;
 type LegName = (typeof LEGS)[number];
 type Measure = Record<string, number | string | boolean>;
 type Leg = { status: 'PASS' | 'FAIL' | 'NOT RUN'; commands: string[]; asserted: string[]; measured: Measure; failure?: string };
@@ -89,6 +89,7 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	layout: [5, 9],
 	range: [10, 11],
 	'write-once': [5, 8],
+	'multipart-race': [5, 4],
 	'two-pass': [5, 6],
 	'user-work': [13, 19],
 	export: [6, 8],
@@ -151,6 +152,7 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 	},
 	range: { largestOriginalBytes: poc.originals.max, rangeOnLargestMs: MS, wholeLargestMs: MS, workerdPeakRssBytes: POSITIVE },
 	'write-once': { refusedWrites: 4 },
+	'multipart-race': { winningBytesKept: true, loserRefused: true },
 	'two-pass': { originalBytes: 40 * MiB, changedReadsRefused: 3 },
 	'user-work': { concurrentAdds: 100, duplicateSeqs: 0, naiveDuplicateSeqs: POSITIVE, racedReplaces: 20, staleReplaces: 19, restoreRace: /^(restore-first|adds-first|interleaved)$/ },
 	export: { entries: POSITIVE, packetBytes: POSITIVE, parts: POSITIVE, steps: POSITIVE, maxR2OpsPerStep: POSITIVE, maxD1StatementsPerStep: POSITIVE, wallMs: MS, offlineCheckMs: MS, workerdPeakRssBytes: POSITIVE },
@@ -866,6 +868,34 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			if (rebind.status === 409 && rebind.json().code === 'asset-bound-to-another-original') refused++;
 			check(rebind.status === 409 && rebind.json().code === 'asset-bound-to-another-original' && (await served('case-wo-1', 'wo-letter', A)), 'binding a recorded asset to another original answers 409 and the asset still serves the first');
 			m.refusedWrites = refused;
+		});
+		await leg('multipart-race', ['POST /originals/<sha>/uploads twice', 'PUT a verified part in the first upload and different bytes in the second', 'POST second …/complete with x-probe-hold: multipart-loser, GET /probe/hold/multipart-loser', 'POST first …/complete, POST /probe/hold/multipart-loser/release', 'POST /cases/<case>/originals and GET /cases/<case>/originals/<asset>'], async (check, m) => {
+			const good = new TextEncoder().encode('SYNTHETIC ONLY: multipart winner'.repeat(100));
+			const bad = new TextEncoder().encode('SYNTHETIC ONLY: multipart loser!'.repeat(100));
+			const sha = sha256(good);
+			const upload = async (bytes: Uint8Array) => {
+				const start = await post(`/originals/${sha}/uploads`, {});
+				const part = await http(`/originals/${sha}/uploads/${start.json().uploadId}/1`, { method: 'PUT', body: bytes });
+				return { id: start.json().uploadId as string, part: part.json() };
+			};
+			const winner = await upload(good);
+			const loser = await upload(bad);
+			check(winner.part.partNumber === 1 && loser.part.partNumber === 1, 'both multipart uploads for the same content address have a stored part');
+			const late = http(`/originals/${sha}/uploads/${loser.id}/complete`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-probe-hold': 'multipart-loser' }, body: JSON.stringify({ parts: [loser.part] }), timeout: 60_000 });
+			let waiting = false;
+			for (let i = 0; i < 200 && !waiting; i++) {
+				waiting = (await http('/probe/hold/multipart-loser')).json().waiting === true;
+				if (!waiting) await new Promise((r) => setTimeout(r, 50));
+			}
+			check(waiting, 'the second completion has passed its canonical-key check and is held before publication');
+			const first = await post(`/originals/${sha}/uploads/${winner.id}/complete`, { parts: [winner.part] });
+			await post('/probe/hold/multipart-loser/release', {});
+			const second = await late;
+			check(first.status === 200 && second.status === 409 && second.json().code === 'conflicting-object', `the first completion wins and the held completion is refused (first ${first.status}, second ${second.status})`);
+			const finalized = await post('/cases/case-multipart-race/originals', { assetId: 'winner', sha256: sha, size: good.length, filename: 'winner.pdf', mediaType: 'application/pdf' });
+			const served = await http('/cases/case-multipart-race/originals/winner');
+			check(finalized.status === 200 && served.status === 200 && equal(served.bytes, good), 'the canonical key still contains the first verified bytes and serves them after finalize');
+			Object.assign(m, { winningBytesKept: served.status === 200 && equal(served.bytes, good), loserRefused: second.status === 409 });
 		});
 
 		// ----- two-pass: the bytes a client receives are the bytes that were hashed, or the response ends in an error -----

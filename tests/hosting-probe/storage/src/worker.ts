@@ -1142,6 +1142,11 @@ async function route(request: Request, env: Env): Promise<Response> {
 				await upload.abort().catch(() => undefined);
 				refuse(409, 'conflicting-object');
 			}
+			const token = env.PROBE_HOOKS === '1' ? request.headers.get('x-probe-hold') : null;
+			if (token !== null) {
+				if (!HOLD_TOKEN.test(token)) refuse(400, 'invalid-field', { field: 'x-probe-hold' });
+				await holdHere(token)();
+			}
 			const o = await upload.complete(field(b, 'parts', (x): x is R2UploadedPart[] => Array.isArray(x)));
 			return json(ctx, { size: o.size });
 		}

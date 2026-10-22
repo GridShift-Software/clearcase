@@ -1,10 +1,10 @@
 # Interest Recalculator
 
-Reproduces the interest on a capital figure: simple (exact) or compound monthly (v5's formula), Actual/365.25 on calendar dates (years 1000 to 9999, counted by calendar arithmetic, so no time zone enters), compared with the imported amount due. The rate default comes from the package's view-content; the From and To defaults from the imported interest basis. The inputs live in the URL query, so a reload gives the same result, and `Reset to defaults` returns to the package defaults. Invalid and reversed inputs are refused visibly with the typed text kept.
+Reproduces the interest on a capital figure: simple (exact) or compound monthly (v5's formula), Actual/365.25 on calendar dates (years 1000 to 9999, counted by calendar arithmetic, so no time zone enters), compared with the imported amount due only as at the same date with no recorded payment on or before it (then the note calls the difference arithmetic, not a reconciliation; with no capital typed there is no verdict); otherwise the amount due is shown alone, not comparable, with the reason (`#ic-compare-verdict`). The rate default comes from the package's view-content; the From and To defaults from the imported interest basis. The inputs live in the URL query, so a reload gives the same result, and `Reset to defaults` returns to the package defaults. Invalid and reversed inputs are refused visibly with the typed text kept.
 
 ## Sub-features
 
-- `interest-compute` submits `#ic-form` (GET: `p`, `r`, `m`, `from`, `to`) with `#ic-compute`; `#ic_out` shows Capital, Interest (n yrs), Total and the comparison line.
+- `interest-compute` submits `#ic-form` (GET: `p`, `r`, `m`, `from`, `to`) with `#ic-compute`; `#ic_out` shows Capital, Interest (n yrs), Total and the comparison line, and `#ic-compare` the verdict with each figure's basis and payment treatment.
 - `interest-validate` shows `#ic-error` for an amount outside the grammar, a missing rate or an invalid or reversed period.
 - `interest-reset` (`#ic-reset`) returns to the defaults.
 - `interest-narrative` labels the imported basis note (`#note-imported`).
@@ -18,7 +18,7 @@ Reproduces the interest on a capital figure: simple (exact) or compound monthly 
 
 Preconditions: `activate` passed on the synthetic case of `lib/inner.mjs` (`buildCase`, 7 rows); step `every-view` has opened this view once.
 
-- *Not yet driven by verify-clearcase.* *Proven instead by `tests/e2e/quantum/suite.mjs`*: the dated R1,000 year (`Q2-R100`: R 99.93 for 365 days, R 100.21 for 366), change, reload and reset (`Q3-DEFAULTS-INTEREST`), a two-day leap period (`Q4-LEAP-MONTH-END`), refusals (`Q5-INVALID-INTEREST`), identical output under the fixed clock (`Q10-FIXED-CLOCK`).
+- *Not yet driven by verify-clearcase.* *Proven instead by `tests/e2e/quantum/suite.mjs`*: the dated R1,000 year (`Q2-R100`: R 99.93 for 365 days, R 100.21 for 366), change, reload and reset (`Q3-DEFAULTS-INTEREST`), a two-day leap period (`Q4-LEAP-MONTH-END`), refusals (`Q5-INVALID-INTEREST`), identical output under the fixed clock (`Q10-FIXED-CLOCK`), the same-date comparison and its arithmetic-only verdict (`Q-INTEREST-LIKE-BASIS`), and the refusal on another date or with a payment in reach (`Q-INTEREST-UNLIKE-BASIS`).
 
 ## Gotchas
 

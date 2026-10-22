@@ -543,14 +543,26 @@ async function snapshot(ctx: Ctx, caseId: string, between?: () => Promise<void>)
 	return { format: 'clearcase.user-work/1', caseId, rev, tables };
 }
 
-async function backup(ctx: Ctx, caseId: string, label: string, snap: Awaited<ReturnType<typeof snapshot>>) {
+async function backup(ctx: Ctx, caseId: string, label: string, snap: Awaited<ReturnType<typeof snapshot>>, restoreIntent = false) {
 	const text = JSON.stringify(snap);
 	const sha = await sha256Hex(text);
 	const key = `backup/${caseId}/${label}-${snap.rev}-${sha}.json`;
-	const stored = await ctx.bucket.put(key, text, { sha256: sha, customMetadata: { client: ctx.client }, onlyIf: { etagDoesNotMatch: '*' } });
-	if (!stored) {
-		const existing = await ctx.bucket.head(key);
-		if (!existing || !(await isStored(ctx, key, existing, sha, new TextEncoder().encode(text).length))) refuse(409, 'conflicting-object');
+	if (restoreIntent) await restoreBatch(ctx, caseId, [['INSERT INTO restore_object (case_id, object_key, written_at, in_progress) VALUES (?, ?, ?, 1) ON CONFLICT (case_id, object_key) DO UPDATE SET written_at = excluded.written_at, in_progress = 1', [caseId, key, new Date().toISOString()]]]);
+	let published = false;
+	try {
+		const stored = await ctx.bucket.put(key, text, { sha256: sha, customMetadata: { client: ctx.client }, onlyIf: { etagDoesNotMatch: '*' } });
+		published = !!stored;
+		if (!stored) {
+			const existing = await ctx.bucket.head(key);
+			if (!existing || !(await isStored(ctx, key, existing, sha, new TextEncoder().encode(text).length))) refuse(409, 'conflicting-object');
+		}
+		if (restoreIntent) await restoreBatch(ctx, caseId, [['UPDATE restore_object SET in_progress = 0 WHERE case_id = ? AND object_key = ?', [caseId, key]]]);
+	} catch (err) {
+		if (restoreIntent) {
+			if (ctx.deletionGuard && err instanceof Refused && err.code === 'case-deleted' && published) await ctx.bucket.delete(key);
+			await ctx.db.batch([['UPDATE restore_object SET in_progress = 0 WHERE case_id = ? AND object_key = ?', [caseId, key]]]);
+		}
+		throw err;
 	}
 	return { key, sha256: sha, size: new TextEncoder().encode(text).length };
 }
@@ -1082,7 +1094,7 @@ async function restoreFinish(ctx: Ctx, request: Request, packetId: string): Prom
 	const rev = (await ctx.db.first<{ rev: number }>('SELECT rev FROM case_rev WHERE case_id = ?', caseId))?.rev ?? 0;
 	const userWork = await restoreStatements(ctx, caseId, await readObject('user-work.json'), rev, false, 'invalid-packet');
 
-	const pre = await backup(ctx, caseId, 'pre-restore', await snapshot(ctx, caseId)); // durable before any D1 write
+	const pre = await backup(ctx, caseId, 'pre-restore', await snapshot(ctx, caseId), true); // durable before the results writes
 	const finishHold = ctx.probeHooks ? request.headers.get('x-probe-finish-hold') : null;
 	if (finishHold !== null) {
 		if (!HOLD_TOKEN.test(finishHold)) refuse(400, 'invalid-field', { field: 'x-probe-finish-hold' });

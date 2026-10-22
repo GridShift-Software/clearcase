@@ -69,7 +69,7 @@ describe('filings register actions', () => {
 		const [one, two] = (await entries()).filter((e) => e.state === 'user');
 		const release = hold(), wait = withoutBusyWait(lc.storage);
 		let r: Out;
-		try { r = await post('delete', { key: one!.key, ...typed, delete: two!.key }); } finally { release(); wait(); }
+		try { r = await post('delete', { key: one!.key, ...typed, delete: two!.key, confirm: two!.key }); } finally { release(); wait(); }
 		expect(r).toMatchObject({ failed: 503, op: 'delete', target: two!.key, draft: { values: typed, editing: one!.key, failed: null } });
 		expect(r).not.toHaveProperty('values');
 		expect(String(r.message)).toMatch(/^The entry could not be deleted: the local store is busy or unavailable\. Nothing was changed and the entry is still in the register/);
@@ -91,16 +91,29 @@ describe('filings register actions', () => {
 
 	it('a Delete that is done returns the draft and a failed save code it carried, and refuses an unknown row apart (D2)', async () => {
 		const [one, two] = (await entries()).filter((e) => e.state === 'user');
-		const r = await post('delete', { key: one!.key, ...typed, failed: 'busy', delete: two!.key });
+		const r = await post('delete', { key: one!.key, ...typed, failed: 'busy', delete: two!.key, confirm: two!.key });
 		expect(r).toMatchObject({ ok: true, op: 'delete', deleted: true, target: two!.key, draft: { values: typed, editing: one!.key, failed: 'busy' } });
 		expect((await entries()).map((e) => e.key)).not.toContain(two!.key);
 		// an unknown code is not carried
-		expect(await post('delete', { ...typed, failed: '<b>x</b>', delete: 'row:none' })).toMatchObject({ failed: 404, op: 'delete', draft: { failed: null, editing: null } });
+		expect(await post('delete', { ...typed, failed: '<b>x</b>', delete: 'row:none', confirm: 'row:none' })).toMatchObject({ failed: 404, op: 'delete', draft: { failed: null, editing: null } });
+	});
+
+	it('a Delete without its confirmation deletes nothing: it asks for the row, a Cancel or a confirmation of another row asks nothing, and each returns the draft (GRS-175)', async () => {
+		expect(await post('add', { ...blank, filing: 'Synthetic confirm row' })).toMatchObject({ ok: true });
+		const [one, two] = (await entries()).filter((e) => e.state === 'user');
+		const draft = { values: typed, editing: one!.key, failed: 'busy' };
+		const asked = await post('delete', { key: one!.key, ...typed, failed: 'busy', delete: two!.key });
+		expect(asked).toMatchObject({ failed: 400, op: 'delete', target: two!.key, confirm: two!.key, draft });
+		expect(asked).not.toHaveProperty('message');
+		expect(await post('delete', { key: one!.key, ...typed, failed: 'busy', delete: two!.key, confirm: one!.key })).toMatchObject({ failed: 400, confirm: two!.key, draft });
+		expect(await post('delete', { key: one!.key, ...typed, failed: 'busy', delete: two!.key, confirm: two!.key, cancel: two!.key })).toMatchObject({ failed: 400, confirm: null, draft });
+		expect(await post('delete', { delete: two!.key, confirm: '' })).toMatchObject({ failed: 400, confirm: two!.key });
+		expect((await entries()).map((e) => e.key)).toEqual(expect.arrayContaining([one!.key, two!.key]));
 	});
 
 	it('a save of a row deleted elsewhere is refused with its values kept, and never re-creates the row', async () => {
 		const one = (await entries()).find((e) => e.fields.filing === 'Synthetic row one')!;
-		expect(await post('delete', { delete: one.key })).toMatchObject({ ok: true });
+		expect(await post('delete', { delete: one.key, confirm: one.key })).toMatchObject({ ok: true });
 		expect(await post('save', { key: one.key, ...typed })).toMatchObject({ failed: 404, op: 'save', code: 'gone', values: typed, editing: one.key });
 		expect((await entries()).some((e) => e.key === one.key)).toBe(false);
 	});

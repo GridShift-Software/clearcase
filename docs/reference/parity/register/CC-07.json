@@ -666,7 +666,7 @@
       "type": "known-gap",
       "source": "S-deadlines_tab-3",
       "owner": "GRS-17",
-      "reason": "v5 has no edit, keeps the category after Add and deletes without asking. ClearCase adds a per-row Edit and deletes by stable row id. Two of the three parts remain: the category still stays after Add, and Delete of an ordinary row still has no confirmation. Closing them would need an app change. Evidence: src/lib/views/registers/RegisterPage.svelte:265.",
+      "reason": "v5 has no edit, keeps the category after Add and deletes without asking. ClearCase adds a per-row Edit and deletes by stable row id only once confirmed: Delete shows Confirm delete and Cancel inline, and the server deletes nothing unless the request names the confirmed row. The same question also appears on Cross-examination and the other six generic registers. One of the three parts remains: the category still stays after Add. Closing it would need an app change. Evidence: src/lib/views/registers/page.server.ts:130.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

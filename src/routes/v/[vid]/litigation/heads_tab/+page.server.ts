@@ -5,7 +5,7 @@ import { app } from '$lib/local-case/app.server';
 import { resolveRefs } from '$lib/local-case/documents.server';
 import { exportFileName, viewContentOf, viewText } from '$lib/local-case/results.server';
 import { HEADS_FIELDS, HEADS_FILE, canAddHead, evidenceTokens, splitRefs, type HeadsValues } from '$lib/views/litigation/heads';
-import { STORES, addAction, deleteAnswer, deleteTarget, deleteValue, field, formAddId, orderedRows, register, text, valuesOf } from '$lib/views/litigation/register.server';
+import { STORES, addAction, deleteAnswer, deleteTarget, deleteValue, field, formAddId, orderedRows, register, text, unconfirmed, valuesOf } from '$lib/views/litigation/register.server';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ parent }) => {
@@ -36,7 +36,10 @@ export const actions: Actions = {
 	delete: async ({ params, request }) => {
 		const { caseId } = actionCase(params);
 		const f = await request.formData();
-		const { id, version } = deleteTarget(field(f, 'rowId'));
-		return deleteAnswer(id, valuesOf(f, HEADS_FIELDS), () => register(caseId, STORES.heads).remove(id, version));
+		const raw = field(f, 'rowId'), values = valuesOf(f, HEADS_FIELDS);
+		const refused = unconfirmed(f, raw, values);
+		if (refused) return refused;
+		const { id, version } = deleteTarget(raw);
+		return deleteAnswer(id, values, () => register(caseId, STORES.heads).remove(id, version));
 	},
 };

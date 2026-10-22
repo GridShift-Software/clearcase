@@ -14,6 +14,7 @@ const { join, resolve } = await import('node:path');
 const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { launch, sleep } = await import('../pilot/lib/cdp.mjs');
+const { asking, cancelIfAsked, confirmPressed, describedBy, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
 const { INIT, openPage } = await import('../pilot/suite/browser.mjs');
 const { appServer, vpath } = await import('../pilot/suite/context.mjs');
 const { startServer } = await import('../pilot/lib/server.mjs');
@@ -88,7 +89,9 @@ async function save(n) {
 	await sleep(50);
 }
 async function add(entry) { const n = await count(); await fill(entry); await save(n + 1); return rows(); }
-async function del(rowId) { const n = await count(); await p.click(`#register-table tr[data-row-id="${rowId}"] [data-delete]`); await p.waitFor(`document.querySelectorAll('#register-table tbody tr[data-row-id]').length === ${n - 1} || !!document.getElementById('register-error')`, 30000); }
+/** Press a row's Delete, then its Confirm delete. */
+async function pressDelete(rowId) { const row = `#register-table tr[data-row-id="${rowId}"]`; await p.click(`${row} [data-delete]`); await confirmPressed(p, row); }
+async function del(rowId) { const n = await count(); await pressDelete(rowId); await p.waitFor(`document.querySelectorAll('#register-table tbody tr[data-row-id]').length === ${n - 1} || !!document.getElementById('register-error')`, 30000); }
 async function exportNow() {
 	await p.evaluate('window.__downloads.length = 0');
 	await p.click('#register-export');
@@ -495,14 +498,14 @@ try {
 
 	await scenario('SC14-delete-errors', 'disbursements_tab', "a failed save stays visible with its unsaved edit when another row's Delete succeeds; a failed delete is shown apart and clears neither; Retry then saves the edit and leaves the delete error (D4)", async () => {
 		const [r1, r2, r3] = await rows();
-		const delOk = async (id) => { const n = await count(); await p.click(`#register-table tr[data-row-id="${id}"] [data-delete]`); await p.waitFor(`document.querySelectorAll('#register-table tbody tr[data-row-id]').length === ${n - 1} || !!document.getElementById('register-delete-error')`, 30000); await sleep(50); };
+		const delOk = async (id) => { const n = await count(); await pressDelete(id); await p.waitFor(`document.querySelectorAll('#register-table tbody tr[data-row-id]').length === ${n - 1} || !!document.getElementById('register-delete-error')`, 30000); await sleep(50); };
 		await editRow(r1.id);
 		await fill({ desc: 'Synthetic row 1 UNSAVED' });
 		await failSave();
 		await delOk(r2.id);
 		const afterDelete = { ...(await formState()), values: await fieldValues(), db: dbField('disbursements', r1.id, 'desc'), shown: (await rows()).find((r) => r.id === r1.id)?.cells[1], gone: !stored('disbursements').some((r) => r.id === r2.id) };
 		const release = hold();
-		try { await p.click(`#register-table tr[data-row-id="${r3.id}"] [data-delete]`); await p.waitFor(`!!document.getElementById('register-delete-error')`, 30000); } finally { release(); }
+		try { await pressDelete(r3.id); await p.waitFor(`!!document.getElementById('register-delete-error')`, 30000); } finally { release(); }
 		const afterFailedDelete = { ...(await formState()), values: await fieldValues(), kept: stored('disbursements').some((r) => r.id === r3.id) };
 		await p.click('#register-retry');
 		await p.waitFor(`!document.getElementById('register-error') && !document.querySelector('#register-form[data-editing]') && !document.getElementById('register-status')`, 30000);
@@ -612,7 +615,7 @@ try {
 		const [r1] = await rows();
 		await editRow(r1.id);
 		await fill({ desc: 'Synthetic discarded TYPED' });
-		await p.click(`#register-table tr[data-row-id="${r1.id}"] [data-delete]`);
+		await pressDelete(r1.id);
 		await p.waitFor(`!!document.getElementById('register-ask')`, 5000);
 		const release = hold();
 		try { await p.click('#register-ask-discard'); await p.waitFor(`!!document.getElementById('register-delete-error')`, 30000); } finally { release(); }
@@ -649,7 +652,7 @@ try {
 		const release = hold();
 		let during, typed, saveDuring;
 		try {
-			await p.click(`#register-table tr[data-row-id="${x.id}"] [data-delete]`);
+			await pressDelete(x.id);
 			await p.waitFor(`/Deleting/.test(document.getElementById('register-status')?.textContent ?? '')`, 5000);
 			during = await formState();
 			await p.type('#in-desc', 'Synthetic TYPED during delete');
@@ -739,6 +742,92 @@ try {
 			checks: { marked: marked.altered && /altered on disk/.test(marked.note ?? '') && marked.others === 1, largeSaved: err === null && big?.fields.body === body } };
 	});
 
+	await scenario('SC26-delete-confirm', 'deadlines_tab', 'GRS-175: one press of Delete deletes nothing: the row stays on the page and in the store, and the inline confirmation takes focus (Confirm delete, Cancel)', async () => {
+		await clearView('deadlines_tab');
+		await add({ title: 'Synthetic kept deadline', date: '2026-11-02', note: '' });
+		const [r] = await rows();
+		const row = `#register-table tr[data-row-id="${r.id}"]`;
+		await p.click(`${row} [data-delete]`);
+		await sleep(1500);
+		const ev = { id: r.id, shown: (await rows()).some((x) => x.id === r.id), stored: stored('deadlines').some((x) => x.id === r.id), focus: await p.evaluate(`document.activeElement?.hasAttribute('data-delete-confirm') ?? false`), cancel: await p.evaluate(`!!document.querySelector(${J(`${row} [data-delete-cancel]`)})`) };
+		return { evidence: ev, checks: { shown: ev.shown, stored: ev.stored, focus: ev.focus, cancel: ev.cancel } };
+	});
+	await scenario('SC27-delete-confirm-cases', 'deadlines_tab', "GRS-175: Cancel and Escape keep the row and return focus to its Delete; a second row's Delete moves the question and deletes nothing; a reload drops the question and keeps both rows; a POST without the row's confirmation is refused; Confirm delete deletes exactly that row", async () => {
+		await openView('deadlines_tab');
+		const [r] = await rows();
+		await add({ title: 'Synthetic second deadline', date: '2026-11-03', note: '' });
+		const o = (await rows()).find((x) => x.id !== r.id);
+		const row = (x) => `#register-table tr[data-row-id="${x.id}"]`;
+		const both = async () => { const ids = (await rows()).map((x) => x.id), db = stored('deadlines').map((x) => x.id); return [r, o].every((x) => ids.includes(x.id) && db.includes(x.id)); };
+		const step = async () => ({ asking: await asking(p), focus: await focusOf(p, `${row(r)} [data-delete]`), both: await both() });
+		await p.click(`${row(r)} [data-delete]`);
+		const asked = await step();
+		await holdEnter(p);
+		await sleep(500);
+		const heldConfirm = await step();
+		if (!heldConfirm.both) throw new Error(`a held Enter on Confirm deleted without a second press: ${J(heldConfirm)}`);
+		await p.click(`${row(r)} [data-delete-cancel]`);
+		await sleep(300);
+		const cancelled = await step();
+		await p.click(`${row(r)} [data-delete]`);
+		await p.evaluate(`document.querySelector(${J(`${row(r)} [data-delete-cancel]`)}).focus()`);
+		await holdEnter(p, { first: true });
+		await sleep(500);
+		const heldCancel = await step();
+		await cancelIfAsked(p, row(r));
+		await sleep(300);
+		await p.click(`${row(r)} [data-delete]`);
+		await pressEscape(p);
+		await sleep(300);
+		const escaped = await step();
+		await p.click(`${row(r)} [data-delete]`);
+		await p.click(`${row(o)} [data-delete]`);
+		await sleep(1000);
+		const second = await step();
+		await openView('deadlines_tab');
+		const reloaded = await step();
+		const bare = await postAction(p, '?/delete', { rowId: r.id });
+		const other = await postAction(p, '?/delete', { rowId: r.id, confirm: o.id });
+		const refused = await both();
+		// without JavaScript the server's answer asks: a held Enter on Delete must not reach the Confirm of that page
+		const nojs = await holdEnterWithoutJs(p, `${base()}/registers/deadlines_tab`, ready('deadlines_tab'), `${row(r)} [data-delete]`);
+		nojs.both = await both();
+		if (!nojs.both) throw new Error(`without JavaScript a held Enter on Delete deleted without a second press: ${J(nojs)}`);
+		await openView('deadlines_tab');
+		await del(r.id);
+		const settled = await p.waitFor(`document.activeElement && document.activeElement !== document.body ? document.activeElement.tagName : false`, 3000).catch(() => null);
+		const ids = { page: (await rows()).map((x) => x.id), db: stored('deadlines').map((x) => x.id) };
+		const ev = { settled, asked, heldConfirm, heldCancel, nojs, cancelled, escaped, second, reloaded, bare, other, refused, ids };
+		return { evidence: ev, checks: {
+			asked: J(asked.asking) === J([r.id]) && asked.focus === 'confirm' && asked.both,
+			heldEnterOnConfirm: J(heldConfirm.asking) === J([r.id]) && heldConfirm.focus === 'confirm' && heldConfirm.both,
+			heldEnterOnCancel: heldCancel.both,
+			heldEnterOnCancelStaysClosed: heldCancel.asking.length === 0 && heldCancel.focus === 'opener',
+			noJsHeldEnterOnDelete: !nojs.hydrated && J(nojs.asked.asking) === J([r.id]) && !nojs.held.submitted && J(nojs.held.asking) === J([r.id]) && nojs.both,
+			noJsAskFocus: nojs.asked.focus === 'question' && nojs.tab === 'confirm',
+			cancelKeeps: cancelled.asking.length === 0 && cancelled.focus === 'opener' && cancelled.both,
+			escapeKeeps: escaped.asking.length === 0 && escaped.focus === 'opener' && escaped.both,
+			secondMoves: J(second.asking) === J([o.id]) && second.both,
+			reloadDrops: reloaded.asking.length === 0 && reloaded.both,
+			serverRefuses: bare.type === 'failure' && bare.status === 400 && other.type === 'failure' && other.status === 400 && refused,
+			confirmDeletesThatRow: J(ids.page) === J([o.id]) && J(ids.db) === J([o.id]),
+			focusSettles: settled === 'H1' } };
+	});
+	await scenario('SC28-delete-failed-focus', 'deadlines_tab', "GRS-175 L1: a Confirm delete that fails leaves focus on that row's Delete, with the error shown, the row kept and the error as the Delete's description", async () => {
+		await openView('deadlines_tab');
+		const [r] = await rows();
+		const row = `#register-table tr[data-row-id="${r.id}"]`;
+		let focus = null;
+		const release = hold();
+		try {
+			await p.click(`${row} [data-delete]`);
+			await confirmPressed(p, row);
+			await p.waitFor(`!!document.getElementById('register-delete-error')`, 30000);
+			focus = await p.waitFor(`document.activeElement === document.querySelector(${J(`${row} [data-delete]`)})`, 5000).catch(() => false);
+		} finally { release(); }
+		const ev = { focus, now: await focusOf(p, `${row} [data-delete]`), kept: stored('deadlines').some((x) => x.id === r.id), error: await p.evaluate(`document.getElementById('register-delete-error')?.textContent.trim() ?? null`), message: await p.evaluate(`document.querySelector('#register-delete-error p')?.textContent.trim() ?? null`), described: await describedBy(p) };
+		return { evidence: ev, checks: { errorShown: !!ev.error, rowKept: ev.kept, focusOnDelete: focus === true, errorDescribesDelete: !!ev.message && ev.described === ev.message } };
+	});
 	await scenario('SC18-prodid', 'deadlines_tab', "the exported calendar's PRODID carries the case part from the package's view-content (read from the built synthetic package, raw text) (D18)", async () => {
 		const field = vc ? JSON.parse(new TextDecoder().decode(vc)).data?.deadlines_tab?.icsProductId : undefined;
 		const part = typeof field === 'string' ? field : null;

@@ -52,7 +52,7 @@
 | `S-contracts_tab-1` | medium | view-checklist.md | registered | IDR-136 (defect-fix) |  |
 | `S-contracts_tab-2` | medium | view-checklist.md | registered | IDR-137 (defect-fix) |  |
 | `S-filings_tab-1` | medium | view-checklist.md | registered | IDR-138 (defect-fix) |  |
-| `S-filings_tab-2` | low | view-checklist.md | registered | IDR-139 (known-gap) |  |
+| `S-filings_tab-2` | low | view-checklist.md | registered | IDR-139 (defect-fix) |  |
 | `S-filings_tab-3` | medium | view-checklist.md | registered | IDR-140 (defect-fix) |  |
 | `S-filings_tab-4` | low | view-checklist.md | registered | IDR-141 (known-gap) |  |
 | `S-search-1` | low | view-checklist.md | registered | IDR-142 (known-gap) |  |
@@ -91,7 +91,7 @@
 | `S-court_bundle_tab-10` | low | view-checklist.md | registered | IDR-389 (defect-fix) |  |
 | `S-court_bundle_tab-11` | low | view-checklist.md | registered | IDR-390 (defect-fix) |  |
 | `S-court_bundle_tab-12` | low | view-checklist.md | registered | IDR-374 (defect-fix), IDR-375 (defect-fix), IDR-376 (defect-fix) |  |
-| `S-court_bundle_tab-13` | low | view-checklist.md | registered | IDR-391 (known-gap) |  |
+| `S-court_bundle_tab-13` | low | view-checklist.md | registered | IDR-391 (defect-fix) |  |
 | `S-court_bundle_tab-14` | low | view-checklist.md | registered | IDR-377 (defect-fix) |  |
 | `S-court_bundle_tab-15` | low | view-checklist.md | registered | IDR-378 (defect-fix) |  |
 | `S-caselines_tab-1` | medium | view-checklist.md | registered | IDR-392 (defect-fix) |  |

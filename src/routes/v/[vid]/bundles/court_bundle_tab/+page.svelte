@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
-	import { beforeNavigate, goto } from '$app/navigation';
+	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import ConfirmDelete from '$lib/components/ConfirmDelete.svelte';
+	import { CONFIRM } from '$lib/components/confirm-delete';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { NOT_SERVED, hrefOf, type Resolved } from '$lib/views/bundles/links';
 	import { download } from '$lib/components/download';
@@ -63,12 +65,17 @@
 	let busy = $state<HAct | null>(null);
 	let message = $state<string | null>(null);
 	const changed = $derived(HEADER_KEYS.filter((k) => hv[k] !== stored[k]));
-	const act = async (action: HAct) => {
-		if (action !== 'header' && changed.length && !confirm('Discard the header fields you changed and have not saved?')) return;
+	// Restore and Clear replace the stored header: each runs once confirmed inline, and a Retry that would also discard
+	// typed fields asks again (GRS-175)
+	let confirming = $state<string | null>(null);
+	afterNavigate((nav) => { if (nav.type !== 'enter') confirming = null; });
+	const discards = $derived(changed.length ? ` Your ${changed.length} unsaved change${changed.length === 1 ? ' is' : 's are'} discarded too.` : '');
+	const act = async (action: HAct, confirmed = false) => {
+		if (action !== 'header' && changed.length && !confirmed) { confirming = action; return; }
 		const sent = { ...hv };
 		busy = action;
 		try {
-			const r = await postAction(action, [['version', version], ...(action === 'header' ? HEADER_KEYS.map((k): [string, string] => [k, sent[k]]) : [])]);
+			const r = await postAction(action, [['version', version], ...(action === 'header' ? HEADER_KEYS.map((k): [string, string] => [k, sent[k]]) : [[CONFIRM, action] as [string, string]])]);
 			if (!r.ok) {
 				errors[action] = r.message;
 				if (r.status === 409 && r.data?.stored) { conflict = r.data.stored as Header; version = String(r.data.version ?? version); }
@@ -195,8 +202,8 @@
 						{:else}<input class="in" id="cbh_{f.key}" name={f.key} disabled={off} class:changed={changed.includes(f.key)} placeholder={f.example ? (c.examples[f.key] ?? '') : f.placeholder} bind:value={hv[f.key]} />{/if}</div>
 				{/each}
 			</div>
-			<div class="toolbar"><button type="button" class="btn primary" id="cb-save" disabled={off || busy !== null} onclick={saveHeader}>Save header</button><button type="button" class="btn sec" id="cb-restore" disabled={off || busy !== null} onclick={() => act('restore')}>Restore matter defaults</button><button type="button" class="btn ghost" id="cb-clear" disabled={off || busy !== null} onclick={() => act('clear')}>Clear all (use placeholders)</button>{#if busy}<span class="saving" id="cb-saving" role="status">Saving…</span>{:else if changed.length && !headerFailed}<span class="tag" id="cb-unsaved">{changed.length} field{changed.length === 1 ? '' : 's'} changed, not saved</span>{/if}</div>
-			{#each ['header', 'restore', 'clear'] as const as k (k)}{#if errors[k]}<p class="error" role="alert" id={k === 'header' ? 'cb-error' : `cb-error-${k}`}>{errors[k]} <button type="button" class="btn sm" id="cb-retry-{k}" disabled={off || busy !== null} onclick={() => act(k)}>Retry</button></p>{/if}{/each}
+			<div class="toolbar"><button type="button" class="btn primary" id="cb-save" disabled={off || busy !== null} onclick={saveHeader}>Save header</button><ConfirmDelete bind:pending={confirming} target="restore" question="Restore the matter defaults in every header field?{discards}" label="Restore matter defaults" confirmLabel="Confirm restore" onconfirm={() => act('restore', true)} id="cb-restore" aria-describedby={errors.restore ? 'cb-error-text-restore' : undefined} class="btn sec" disabled={off || busy !== null} /><ConfirmDelete bind:pending={confirming} target="clear" question="Clear every header field, so the index prints placeholders?{discards}" label="Clear all (use placeholders)" confirmLabel="Confirm clear" onconfirm={() => act('clear', true)} id="cb-clear" aria-describedby={errors.clear ? 'cb-error-text-clear' : undefined} class="btn ghost" disabled={off || busy !== null} />{#if busy}<span class="saving" id="cb-saving" role="status">Saving…</span>{:else if changed.length && !headerFailed}<span class="tag" id="cb-unsaved">{changed.length} field{changed.length === 1 ? '' : 's'} changed, not saved</span>{/if}</div>
+			{#each ['header', 'restore', 'clear'] as const as k (k)}{#if errors[k]}<p class="error" role="alert" id={k === 'header' ? 'cb-error' : `cb-error-${k}`}><span id="cb-error-text-{k}">{errors[k]}</span> <button type="button" class="btn sm" id="cb-retry-{k}" disabled={off || busy !== null} onclick={() => act(k)}>Retry</button></p>{/if}{/each}
 			{#if headerFailed || conflict}<div class="toolbar"><button type="button" class="btn sm" id="cb-discard" disabled={off || busy !== null} onclick={useStored}>{conflict ? 'Use the stored header' : 'Discard my header changes'}</button></div>{/if}
 			{#if conflict}<div class="conflict" id="cb-conflict"><b>Stored now (saved in another tab):</b> {#each HEADER_FIELDS.filter((f) => conflict![f.key] !== hv[f.key]) as f (f.key)}<div><span class="tag">{f.label}:</span> <span class="v" data-field={f.key}>{conflict[f.key] || '(blank)'}</span></div>{/each}</div>{/if}
 		</div>

@@ -52,6 +52,8 @@ const PAYLOAD = ' Syn;=CCX(1)\t+CCX(2)\r-CCX(3)\n@CCX(4)';
 /** The cell-start payload: a formula start behind two spaces, as the first thing in an imported free-text cell (a "Trim spaces" import runs it). */
 const START_PAYLOAD = '  =CCX(0) ';
 const CELL_START = /(?:^|[,\r\n]) *"?[=+\-@]CCX\(0\)/g;
+/** CSV files that carried the start payload at a cell start (neutralised): a page that exports only typed work has none, so the suite as a whole must have some. */
+let startReached = 0;
 /** A URL in two documents' excerpts: the unbroken text a diff of them shows (hoa_diff, class narrow). */
 const LONG_URL = 'https://synthetic.invalid/' + 'a1b2c3d4e5'.repeat(12);
 /** A newer-generation export: risks that carry category, owner and documents, and one document text at the builder's cap (V5_TEXT_CAPPED) and one source key with no mapping (V5_UNMAPPED_KEY). */
@@ -523,10 +525,11 @@ async function csv(route, url, viewId, forms) {
 		const undeclared = other.filter((d) => !Object.keys(D.NON_CSV_DOWNLOADS).some((x) => d.name.toLowerCase().endsWith(x))).map((d) => d.name);
 		const files = downloads.filter(isCsv);
 		const checked = files.map(csvFileEvidence);
-		// the cell start: no cell may begin with the start payload's formula, and some file must have carried the payload at a cell start
+		// the cell start: no cell may begin with the start payload's formula
 		const starts = files.map((d) => ({ name: d.name, bad: [...d.text.matchAll(CELL_START)].length, reached: /(?:^|[,\r\n]) *"?'? *[=+\-@]CCX\(0\)/.test(d.text) }));
+		startReached += starts.filter((x) => x.reached).length;
 		return { evidence: { url, nonCsvReason: nonCsvReason ?? null, typed, controls, files: checked, starts, nonCsv: other.map((d) => d.name), undeclared },
-			checks: { ...(nonCsvReason ? { declaredNotCsv: files.length === 0, downloaded: downloads.length > 0 } : { ...csvChecks(checked), noFormulaAtCellStart: starts.every((x) => x.bad === 0), cellStartReached: starts.some((x) => x.reached) }), typedSaved: typed.every((x) => x.errors.length === 0 && x.saved), onlyDeclaredNonCsv: undeclared.length === 0 } };
+			checks: { ...(nonCsvReason ? { declaredNotCsv: files.length === 0, downloaded: downloads.length > 0 } : { ...csvChecks(checked), noFormulaAtCellStart: starts.every((x) => x.bad === 0) }), typedSaved: typed.every((x) => x.errors.length === 0 && x.saved), onlyDeclaredNonCsv: undeclared.length === 0 } };
 	});
 }
 
@@ -773,6 +776,8 @@ try {
 	}
 	// a class that was run and has no PASS proves nothing: it fails the suite
 	if (!TARGET) for (const c of CLASSES.filter(runs)) if (!results.some((r) => r.pass && r.id.startsWith(c) && /^[-:]/.test(r.id.slice(c.length)))) results.push({ id: `${c}:NO-PASS`, view: '-', pass: false });
+	// the cell-start payload must have reached a CSV file somewhere, or the cell-start check saw nothing
+	if (!TARGET && runs('csv') && startReached === 0) results.push({ id: 'csv:NO-CELL-START', view: '-', pass: false });
 	ok = results.length > 0 && results.every((r) => r.pass);
 
 } catch (e) {

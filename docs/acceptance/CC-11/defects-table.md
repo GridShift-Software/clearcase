@@ -45,7 +45,7 @@
 | `S-chronology-6` | low | view-checklist.md | registered | IDR-091 (known-gap) |  |
 | `S-quantum_tab-1` | low | view-checklist.md | registered | IDR-240 (defect-fix) |  |
 | `S-quantum_tab-2` | low | view-checklist.md | registered | IDR-240 (defect-fix) |  |
-| `S-quantum_tab-3` | low | view-checklist.md | registered | IDR-241 (known-gap) |  |
+| `S-quantum_tab-3` | low | view-checklist.md | registered | IDR-241 (defect-fix) |  |
 | `S-documents-1` | medium | view-checklist.md | registered | IDR-110 (defect-fix), IDR-111 (defect-fix) |  |
 | `S-documents-2` | low | view-checklist.md | registered | IDR-135 (defect-fix) |  |
 | `S-documents-3` | low | view-checklist.md | registered | IDR-107 (improvement) |  |
@@ -141,7 +141,7 @@
 | `S-settlement_tab-1` | low | view-checklist.md | registered | IDR-248 (defect-fix) |  |
 | `S-settlement_tab-2` | medium | view-checklist.md | registered | IDR-248 (defect-fix) |  |
 | `S-settlement_tab-3` | low | view-checklist.md | registered | IDR-232 (defect-fix) |  |
-| `S-settlement_tab-4` | low | view-checklist.md | registered | IDR-249 (known-gap) |  |
+| `S-settlement_tab-4` | low | view-checklist.md | registered | IDR-452 (defect-fix), IDR-453 (defect-fix), IDR-454 (defect-fix), IDR-455 (defect-fix), IDR-456 (defect-fix), IDR-249 (defect-fix) |  |
 | `S-settlement_tab-5` | low | view-checklist.md | registered | IDR-248 (defect-fix) |  |
 | `S-privilege_tab-1` | low | view-checklist.md | registered | IDR-280 (defect-fix) |  |
 | `S-annotations_tab-1` | low | view-checklist.md | registered | IDR-281 (defect-fix) |  |

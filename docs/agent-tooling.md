@@ -374,12 +374,25 @@ protected file the guard's line names. A `fixBase` advance like `e7681a6` (PR #7
 to a path the branch had not touched; it still is for a hand-resolved union and for a later ticket in the same wave
 (`afd48fc4`, PR #84, where the change came from the wave, not the base). Existing manifests stay as they are.
 
+A path that the fix base lacks, and that every merge base of the fix base and the base lacks too, is one the base added
+after the review, a rename's new path included (GRS-169). The fix base's absence is no reference for it. The reference is
+the base's copy that HEAD received: the trusted base's own once HEAD has merged it, otherwise the copy at each base
+commit HEAD holds (`merge-base --all` of the base and HEAD), so the base moving on after the merge does not free the path.
+A changed test file there counts its assertions from that copy, not from 0. So a weakening that a base rename carries to
+the new path refuses with `assertion count fell`, and so does a branch edit that drops assertions from a test the base
+added. Deleting such a test refuses the same way, though a deleted base addition shows no difference from the fix base.
+A fixture the base added must keep that copy, or the guard refuses with `protected fixture changed or deleted`. In a
+docs-only range a deleted base addition counts as a changed path, so only a document may go. Four kinds of path are
+unaffected: the branch's own new test or fixture, a path the reviewed commit had deleted (a merge base still holds it),
+a path the base added after HEAD's last merge, and a later base change to a path HEAD already holds. Without a trusted
+base nothing changes. A weakening under a base rename then refuses at the old path, which counts as the branch's.
+
 Findings JSON has `tests: [{"file": "tests/example.test.ts", "name": "rejects stale evidence"}]`.
 The list must be nonempty, unless the manifest declares that the review names no test
 ([Docs-only fix rounds](#docs-only-fix-rounds)). Paths are relative to the repository; literal names must be unique
 and active in both revisions. JS/TS syntax is parsed by the project's TypeScript dependency,
 without executing the tests. Deletion, rename, skip/todo/only and inactive parent groups fail.
-The guard compares changed paths with rename detection off, so a renamed test counts as deleted at its old path and added at its new one, and its old assertion count is checked.
+The guard compares changed paths with rename detection off, so a renamed test counts as deleted at its old path and added at its new one, and its old assertion count is checked. When the base made the rename, the new path counts from the base's copy (above).
 Protection is deliberately conservative: every executable token of the top-level statement containing a named test must stay
 unchanged (including its enclosing suite/control flow), so assertion changes (including strengthening) and callback rewrites also fail.
 Comments and whitespace may change. The protected closure, resolved from both Git snapshots, is test code only:
@@ -406,7 +419,7 @@ Comments and whitespace may change. The protected closure, resolved from both Gi
 - fixtures: every file in a fixture directory (`fixtures`, `__fixtures__`, `__mocks__`, `__snapshots__`) under a
   protected test's top-level directory, and every file a protected test or helper reads by literal path
   (`readFileSync('p')`, `readFile`, `Bun.file`, `join(__dirname, 'p')`, `new URL('p', import.meta.url)`), must keep its
-  Git blob. A new fixture may be added. A read by a computed path (a variable, a loop) is not bound and does not fail
+  Git blob. A new fixture may be added, and one the base added after the review keeps the base's copy (above). A read by a computed path (a variable, a loop) is not bound and does not fail
   closed, since real tests read fixtures that way; the fixture directories are protected whole instead.
 - resolver inputs read from Git (tsconfig, tracked extended configurations). Missing or unsupported extended
   configurations fail closed, with one exemption: SvelteKit's generated `.svelte-kit/tsconfig.json`, which Git ignores,
@@ -584,7 +597,8 @@ declares none, never both, and takes no `assertionCountReasons`. A manifest with
 `tests` list, and a missing manifest on a fix round, a malformed one and a deleted one still refuse as above.
 
 What the guard bounds. A declaration holds for a docs-only range only. Every path that differs between the fix base and
-HEAD, other than the base's changes as above, must be the manifest itself or a documentation file: a regular,
+HEAD, other than the base's changes as above, must be the manifest itself or a documentation file (a base addition the
+round deleted counts as such a path, as above): a regular,
 non-executable file (mode `100644`, or absent on one side) whose name ends in `.md` and none of whose directories is
 `src`, `scripts`, `static`, `build`, `node_modules`, `.svelte-kit`, `RAWS`, `.local` or a test-support directory listed
 above. Anything else fails closed and is named: a runtime module, a test, helper or fixture, a shell or Python test

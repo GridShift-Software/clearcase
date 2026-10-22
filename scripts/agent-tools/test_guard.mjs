@@ -950,6 +950,9 @@ function main() {
   // each base commit HEAD holds. None without a trusted base.
   const baseCopies = file => (treeEntry(base, file) !== undefined || forks.some(fork => treeEntry(fork, file) !== undefined) ? []
     : received.filter(revision => treeEntry(revision, file) !== undefined));
+  // the base's additions that HEAD received and no longer holds: the branch deleted them, in a merge or after it
+  const dropped = [...new Set(received.flatMap(revision => [...tracked(revision).keys()]))]
+    .filter(file => treeEntry(tip, file) === undefined && baseCopies(file).length);
   const inherited = [];
   const proceed = () => {
     if (!command.length) return 0;
@@ -985,6 +988,11 @@ function main() {
       if (fromBase(file)) inherited.push(file);
       else if (file === own) documents.push(file);
       else if (isDocument(file) && [oldMode, newMode].every(mode => mode === '000000' || mode === '100644')) documents.push(file);
+      else offending.push(file);
+    }
+    // a deleted base addition leaves no difference from the fix base, but it is this round's change
+    for (const file of dropped) {
+      if (isDocument(file) && baseCopies(file).every(revision => tracked(revision).get(file).mode === '100644')) documents.push(file);
       else offending.push(file);
     }
     if (offending.length) {
@@ -1268,11 +1276,12 @@ function main() {
     }
     // Fixtures: files in a fixture directory under a protected test's top-level directory, and files read by literal path.
     const tops = new Set(starts.filter(file => file.includes('/')).map(file => file.split('/')[0]));
-    const data = new Set(reads);
-    for (const file of files) {
+    const fixture = file => {
       const parts = file.split('/');
-      if (tops.has(parts[0]) && parts.slice(1, -1).some(part => FIXTURE_DIR.test(part))) data.add(file);
-    }
+      return tops.has(parts[0]) && parts.slice(1, -1).some(part => FIXTURE_DIR.test(part));
+    };
+    const data = new Set(reads);
+    for (const file of files) if (fixture(file)) data.add(file);
     const loadedBy = start => {
       const seen = new Set();
       const walk = file => {
@@ -1283,7 +1292,7 @@ function main() {
       [start, ...shared].forEach(walk);
       return seen;
     };
-    return { found, ids, modes, data, runner, resolve, loadedBy, declared, origin: key => origins.get(key) ?? key };
+    return { found, ids, modes, data, fixture, runner, resolve, loadedBy, declared, origin: key => origins.get(key) ?? key };
   };
   const controlFlow = (file, text) => {
     if (!supported(file)) return [];
@@ -1640,6 +1649,12 @@ function main() {
     if (!currentClosure.ids.has(file) || !fromBase(file)) throw Error(`protected fixture changed or deleted: ${file}`);
     inherited.push(file);
   }
+  // A fixture the base added after the review keeps the base's copy that HEAD received; the branch may add its own.
+  for (const file of new Set([...currentClosure.data, ...dropped.filter(currentClosure.fixture)])) {
+    if (baseCopies(file).some(revision => treeEntry(revision, file) !== treeEntry(head, file))) {
+      throw Error(`protected fixture changed or deleted: ${file} (the base added it after the review; HEAD does not hold the base's copy)`);
+    }
+  }
   // A file the base changed and HEAD holds as the base does is not part of this branch's fix diff. Renames are off, so
   // a renamed file is deleted at its old path and added at its new one, and the old path keeps its assertion count.
   const diff = git('diff', '--no-renames', '--name-only', '-z', base, head).split('\0').filter(Boolean);
@@ -1727,7 +1742,8 @@ function main() {
     const reviewed = loads(base, oldClosure, file);
     for (const target of loads(head, currentClosure, file)) if (!reviewed.has(target)) loadsSupport(file, target);
   }
-  for (const file of changed) {
+  // a deleted base addition is no difference from the fix base, but it loses the base's assertions
+  for (const file of [...changed, ...dropped]) {
     if (!(/(?:^|\/)(?:tests?|__tests__)\/|\.(?:test|spec)\./.test(file))) continue;
     if (!supported(file)) {
       if (/\.(?:py|sh)$/.test(file)) throw Error(`unsupported changed test syntax: ${file}; guard refuses to infer assertion counts`);

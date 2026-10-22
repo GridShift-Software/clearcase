@@ -14,6 +14,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 const REPO_ROOT = join(import.meta.dirname, '..', '..');
 let ws: string, target: string;
 const clean = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+const nestedCallers = [
+	['deployment', 'summary-check.test.ts', 'a docs-only commit after the run passes'],
+	['identity', 'check.test.ts', 'a later commit outside the inputs'],
+] as const;
+const nestedTest = (name: (typeof nestedCallers)[number][0], file: string, title: string, env: NodeJS.ProcessEnv) =>
+	spawnSync('bun', ['run', '--bun', 'test', file, '-t', title], { cwd: join(REPO_ROOT, 'tests', 'hosting-probe', name), encoding: 'utf8', env });
 const git = (cwd: string, ...a: string[]) => {
 	const r = spawnSync('git', ['-C', cwd, '-c', 'user.name=gate-test', '-c', 'user.email=gate-test@example.invalid', '-c', 'commit.gpgsign=false', ...a], { encoding: 'utf8', env: clean() });
 	if (r.status !== 0) throw new Error(`git ${a.join(' ')}: ${r.stderr}`);
@@ -61,19 +67,42 @@ describe('a test run with an inherited GIT_DIR leaves that repository alone', ()
 		expect(git(target, 'log', '-1', '--format=%s')).toBe('target');
 	});
 
-	// Every Vitest config the repository tracks wires the stripping setup file, however a suite is started. The
-	// suites of CC-23 call no `git` today; the entry keeps the next one that does from writing into the hook's repository.
-	it.each(['vitest.config.ts', 'tests/parity/vitest.config.ts', 'tests/acceptance/CC-23/vitest.config.ts'])('%s runs tests/setup/strip-git-env.ts first', async (config) => {
+	// Each direct TypeScript Vitest entry wires the strip. The separately inventoried Workers config runs only through
+	// deployment P5, whose caller supplies an allowlisted environment.
+	it.each(['vitest.config.ts', 'tests/parity/vitest.config.ts', 'tests/acceptance/CC-23/vitest.config.ts', 'tests/hosting-probe/deployment/vitest.config.ts', 'tests/hosting-probe/identity/vitest.config.ts'])('%s runs tests/setup/strip-git-env.ts first', async (config) => {
 		const { default: cfg } = await import(pathToFileURL(join(REPO_ROOT, config)).href);
 		const entries: string[] = cfg.test?.setupFiles ?? [];
-		// like `include`, a relative entry resolves against the root of the run: the repository root, where every documented command runs
+		// Root-run configs resolve relative entries against the repository root; nested configs use absolute, config-relative entries.
 		const resolved = entries.map((e) => resolve(REPO_ROOT, e));
 		expect(resolved[0], `${config} test.setupFiles`).toBe(join(REPO_ROOT, 'tests', 'setup', 'strip-git-env.ts'));
 	});
 
 	it('the list above is every tracked Vitest config', () => {
-		const tracked = spawnSync('git', ['ls-files', '*vitest.config.*', '*vitest.workspace.*'], { cwd: REPO_ROOT, encoding: 'utf8', env: clean() }).stdout.split('\n').filter(Boolean).sort();
-		expect(tracked).toEqual(['tests/acceptance/CC-23/vitest.config.ts', 'tests/parity/vitest.config.ts', 'vitest.config.ts']);
+		const tracked = spawnSync('git', ['ls-files', '*vitest.config.*', '*vitest.workspace.*', '*vitest.*.config.*'], { cwd: REPO_ROOT, encoding: 'utf8', env: clean() }).stdout.split('\n').filter(Boolean).sort();
+		expect(tracked).toEqual([
+			'tests/acceptance/CC-23/vitest.config.ts',
+			'tests/hosting-probe/deployment/app/vitest.workers.config.mjs',
+			'tests/hosting-probe/deployment/vitest.config.ts',
+			'tests/hosting-probe/identity/vitest.config.ts',
+			'tests/parity/vitest.config.ts',
+			'vitest.config.ts',
+		]);
+	});
+
+	it.each(nestedCallers)('%s direct package test preserves Git isolation with a clean environment', (name, file, title) => {
+		const before = commits();
+		const r = nestedTest(name, file, title, clean());
+		expect(r.status, `${r.stdout}${r.stderr}`).toBe(0);
+		expect(commits()).toBe(before);
+		expect(git(target, 'log', '-1', '--format=%s')).toBe('target');
+	});
+
+	it.each(nestedCallers)('%s direct package test strips inherited Git redirection', (name, file, title) => {
+		const before = commits();
+		const r = nestedTest(name, file, title, { ...clean(), GIT_DIR: join(target, '.git'), GIT_WORK_TREE: target });
+		expect(r.status, `${r.stdout}${r.stderr}`).toBe(0);
+		expect(commits(), 'the direct nested run changed the synthetic repository named by inherited GIT_*').toBe(before);
+		expect(git(target, 'log', '-1', '--format=%s')).toBe('target');
 	});
 });
 

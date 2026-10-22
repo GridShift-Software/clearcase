@@ -122,6 +122,8 @@ export async function generateCorpus({ out, seed, documents: count, profile }: C
       defenceMatrix: docs.slice(0, 24).map(d => ({ point: d.subject, dcs: 'Synthetic response', rebuttal: narrative(d), evidence: 'Invented evidence', refs: d.ref, docs: [docLink(d)] })),
       infoRequired: docs.slice(0, 20).map(d => ({ item: narrative(d), owner: d.sender, status: 'Outstanding' })),
       witnesses: people.slice(0, 12).map(p => ({ name: p.name, role: p.role, willsay: 'SYNTHETIC invented testimony' })),
+      anchors: docs.slice(0, 12).map(d => ({ ref: d.ref, issue: d.subject, why: narrative(d) })),
+      organogram: { nodes: [{ id: 'synthetic-party', label: 'SYNTHETIC invented party' }], edges: [] },
       buildReport: { generatedFrom: 'SYNTHETIC seeded generator', pending: [], textNone: docs.filter(d => d.text_status === 'none').map(d => ({ bundle: d.bundle, filename: d.filename, ref: d.ref })) },
       linkSample: docs.slice(0, 24).map(d => ({ bundle: d.bundle, filename: d.filename, ref: d.ref, url: d.url })),
       timeline: { events: docs.slice(0, 96).map(d => ({ date: d.date, kind: d.doc_type, note: narrative(d), ref: d.ref, title: d.subject, url: d.url })), phases: [['Synthetic phase one', 'Invented phase'], ['Synthetic phase two', 'Invented phase']], yearCounts: years, typeByYear },

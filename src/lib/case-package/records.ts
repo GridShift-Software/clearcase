@@ -71,7 +71,7 @@ const BuildRow = Obj({ bundle: Str, filename: Str, ref: Str });
 export const V5BuildReport = Obj({ generatedFrom: Str, pending: Type.Array(BuildRow), textNone: Type.Array(BuildRow) });
 export const V5LinkSample = Type.Array(Obj({ bundle: Str, filename: Str, ref: Str, url: Str }));
 export const V5TimelineEvents = Type.Array(Obj({ date: IsoDateOrEmpty, kind: Str, note: Str, ref: Str, title: Str, url: Str, phase: Type.Optional(Str), refs: Type.Optional(StrArr) }));
-export const DatePhase = Obj({ key: Type.String({ minLength: 1 }), title: Str, from: IsoDateOrEmpty, to: IsoDateOrEmpty, summary: Str, oneLine: Type.Optional(Str) });
+export const DatePhase = Type.Object({ key: Type.String({ minLength: 1 }), title: Str, from: IsoDateOrEmpty, to: IsoDateOrEmpty, summary: Str, oneLine: Type.Optional(Str) });
 // Keep the two generations distinct: date-phase membership comes from event.phase, never its year.
 export const V5TimelinePhases = Type.Union([Type.Array(StrArr), Type.Array(DatePhase)]);
 export const AnalysisAnchor = Type.Object({ ref: Str, issue: Str, why: Str, rank: Type.Optional(Count), page: Type.Optional(Type.Integer({ minimum: 1 })), quote: Type.Optional(Str), title: Type.Optional(Str), date: Type.Optional(IsoDateOrEmpty) });

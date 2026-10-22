@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { datePhaseGroups, phaseGroups, type TimelineEvent } from './timeline';
+import { datePhaseGroups, eventReferences, phaseGroups, type TimelineEvent } from './timeline';
 import { consistencyChecks, type Contradictions } from './contradictions';
 import { relationshipLayout } from './supplemental';
 
 const event = (phase: string): TimelineEvent => ({ date: '2001-02-28', kind: 'note', title: phase, note: '', ref: '', phase });
 const phase = (key: string) => ({ key, from: '2001-01-01', to: '2001-12-31', title: key, summary: 'Supplied summary' });
 describe('GRS-194 visible source semantics', () => {
+	it('keeps the primary ref and every additional ref, including unresolved targets', () => {
+		expect(eventReferences({ ...event('a'), ref: 'OD-001', refs: ['OD-002', 'OD-001', 'ZZ-404'] })).toEqual(['OD-001', 'OD-002', 'ZZ-404']);
+	});
 	it('assigns overlapping date ranges only by explicit key and leaves unknown membership visible', () => {
 		const events = [event('a'), event('b'), event('unknown'), event('')];
 		const grouped = datePhaseGroups([phase('a'), phase('b')], events);

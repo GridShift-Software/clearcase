@@ -4,7 +4,8 @@
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { viewById, viewHref } from '$lib/components/views';
-	import { cleanName, type TimelineEvent } from '$lib/views/analysis/timeline';
+	import { cleanName, eventReferences, type TimelineEvent } from '$lib/views/analysis/timeline';
+	import { revealInvisible } from '$lib/case-package/render';
 	import '$lib/views/analysis/analysis.css';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
@@ -17,7 +18,14 @@
 </script>
 
 {#snippet event(e: TimelineEvent)}
+	{#if e.refs !== undefined}
+		<div class="ev" role="listitem"><span class="d">{e.date}</span> · <span class="badge b-mut">{revealInvisible(e.kind)}</span> {revealInvisible(e.title)}
+			{#each eventReferences(e) as ref, i (i)}{' '}<CitationLink resultsVersion={vid} {ref} label={revealInvisible(ref)} exists={known.has(ref)} />{/each}
+			{#if e.note}<div class="ex">{revealInvisible(e.note)}</div>{/if}
+		</div>
+	{:else}
 	<div class="ev" role="listitem"><span class="d">{e.date}</span> · <span class="badge b-mut">{e.kind}</span> <span class="mono">{e.ref}</span> <CitationLink resultsVersion={vid} ref={e.ref} exists={known.has(e.ref)} label="{cleanName(e.title)} ↗" />{#if e.note}<div class="ex">{e.note}</div>{/if}</div>
+	{/if}
 {/snippet}
 
 <main id="main" tabindex="-1" data-analysis data-ready="timeline" data-hydrated={hydrated ? '' : null}>

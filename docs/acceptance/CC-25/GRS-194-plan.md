@@ -12,6 +12,7 @@ Base: `e05d9a8175afd12aacbf580ce29bbb50829ecf15`. Ticket branch `feature/grs-194
 - `src/routes/v/[vid]/analysis/timeline/+page.server.ts` and `+page.svelte`: date phases without year-based assignment.
 - `src/lib/views/analysis/contradictions.ts` and `src/routes/v/[vid]/analysis/contradictions_tab/+page.server.ts`: expose validated count-free checks alongside counted checks.
 - Corresponding synthetic tests under `tests/case-package/`, `tests/e2e/analysis/` and `tests/acceptance/CC-25/`; package contract and compatibility documentation.
+- `scripts/case-package/schema-check.ts` and `tests/case-package/fixtures/{presentation,malform}.ts`: extend independent schema exhaustiveness checks for the newly recognized datasets and phase union without altering the baseline v5 fixture.
 
 No hosted route/configuration edits. No new navigation destination: retain 42 views. A local view does not establish hosted coverage.
 

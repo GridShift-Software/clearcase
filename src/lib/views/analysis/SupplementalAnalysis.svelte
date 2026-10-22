@@ -1,6 +1,7 @@
 <script lang="ts">
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import TableScroll from '$lib/components/TableScroll.svelte';
+	import { revealInvisible as visible } from '$lib/case-package/render';
 	import { relationshipLayout, type Anchor, type RelationshipGraph } from './supplemental';
 	let { anchors, graph, resultsVersion, known }: { anchors: Anchor[] | null; graph: RelationshipGraph | null; resultsVersion: string; known: string[] } = $props();
 	const refs = $derived(new Set(known));
@@ -13,10 +14,10 @@
 		<p>Documents and passages selected in the supplied analysis.</p>
 		{#each anchors as a, i (i)}
 			<article class="anchor" data-anchor={i}>
-				<h3>{a.issue}</h3>
-				<p><CitationLink {resultsVersion} ref={a.ref} page={a.page ?? null} exists={refs.has(a.ref)} />{#if a.title} · {a.title}{/if}{#if a.date} · {a.date}{/if}{#if a.rank !== undefined} · Rank {a.rank}{/if}</p>
-				<p class="wrap">{a.why}</p>
-				{#if a.quote}<blockquote>{a.quote}</blockquote>{/if}
+				<h3>{visible(a.issue)}</h3>
+				<p><CitationLink {resultsVersion} ref={a.ref} label={visible(a.ref)} page={a.page ?? null} exists={refs.has(a.ref)} />{#if a.title} · {visible(a.title)}{/if}{#if a.date} · {a.date}{/if}{#if a.rank !== undefined} · Rank {a.rank}{/if}</p>
+				<p class="wrap">{visible(a.why)}</p>
+				{#if a.quote}<blockquote>{visible(a.quote)}</blockquote>{/if}
 			</article>
 		{:else}<p class="an-empty">No evidence anchors were supplied.</p>{/each}
 	</section>
@@ -30,25 +31,25 @@
 			<div class="diagram">
 				<svg viewBox="0 0 {layout.width} {layout.height}" role="img" aria-label="Organogram; full node and connection details follow">
 					<defs><marker id="organogram-arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" /></marker></defs>
-					{#each layout.edges as e, i (i)}{#if e.source && e.target}<path class="connection" d={e.path} marker-end="url(#organogram-arrow)"><title>{e.source.label} → {e.target.label}: {e.label ?? e.type ?? ''}</title></path>{/if}{/each}
-					{#each layout.nodes as n, i (i)}<g><rect x={n.x - 90} y={n.y - 25} width="180" height="50" rx="6" /><text x={n.x} y={n.y + 5} text-anchor="middle">{i + 1}. {n.label.length > 18 ? n.label.slice(0, 18) + '…' : n.label}</text><title>{n.label}</title></g>{/each}
+					{#each layout.edges as e, i (i)}{#if e.source && e.target}<path class="connection" d={e.path} marker-end="url(#organogram-arrow)"><title>{visible(e.source.label)} → {visible(e.target.label)}: {visible(e.label ?? e.type ?? '')}</title></path>{/if}{/each}
+					{#each layout.nodes as n, i (i)}{@const label = visible(n.label)}<g><rect x={n.x - 90} y={n.y - 25} width="180" height="50" rx="6" /><text x={n.x} y={n.y + 5} text-anchor="middle">{i + 1}. {label.length > 18 ? label.slice(0, 18) + '…' : label}</text><title>{label}</title></g>{/each}
 				</svg>
 			</div>
 		{/if}
 		<ol class="nodes">
-			{#each layout.nodes as n, i (i)}<li data-node={i}><strong>{n.label}</strong> <span class="an-tag">({n.id})</span>{#if n.role} — {n.role}{/if}{#if n.kind} · {n.kind}{/if}{#if n.side} · {n.side}{/if}
+			{#each layout.nodes as n, i (i)}<li data-node={i}><strong>{visible(n.label)}</strong> <span class="an-tag">({visible(n.id)})</span>{#if n.role} — {visible(n.role)}{/if}{#if n.kind} · {visible(n.kind)}{/if}{#if n.side} · {visible(n.side)}{/if}
 				{#if n.ambiguous}<p>Duplicate node ID: connections to this ID need review.</p>{/if}
-				{#each n.refs ?? [] as ref, j (j)}{' '}<CitationLink {resultsVersion} {ref} exists={refs.has(ref)} />{/each}
+				{#each n.refs ?? [] as ref, j (j)}{' '}<CitationLink {resultsVersion} {ref} label={visible(ref)} exists={refs.has(ref)} />{/each}
 			</li>{/each}
 		</ol>
 		{#if layout.edges.length}
 			<TableScroll label="Organogram connections" class="an-scroll"><table class="an-table an-stack" id="organogram-connections">
 				<thead><tr><th>From</th><th>To</th><th>Relationship</th><th>Sources</th></tr></thead>
 				<tbody>{#each layout.edges as e, i (i)}<tr data-edge={i}>
-					<td data-label="From">{e.source?.label ?? e.from}{#if !e.source} (missing or duplicate node){/if}</td>
-					<td data-label="To">{e.target?.label ?? e.to}{#if !e.target} (missing or duplicate node){/if}</td>
-					<td data-label="Relationship">{e.label ?? e.type ?? 'Not supplied'}{#if e.label && e.type && e.label !== e.type} · {e.type}{/if}</td>
-					<td data-label="Sources">{#each e.refs ?? [] as ref, j (j)}{' '}<CitationLink {resultsVersion} {ref} exists={refs.has(ref)} />{/each}</td>
+					<td data-label="From">{visible(e.source?.label ?? e.from)}{#if !e.source} (missing or duplicate node){/if}</td>
+					<td data-label="To">{visible(e.target?.label ?? e.to)}{#if !e.target} (missing or duplicate node){/if}</td>
+					<td data-label="Relationship">{visible(e.label ?? e.type ?? 'Not supplied')}{#if e.label && e.type && e.label !== e.type} · {visible(e.type)}{/if}</td>
+					<td data-label="Sources">{#each e.refs ?? [] as ref, j (j)}{' '}<CitationLink {resultsVersion} {ref} label={visible(ref)} exists={refs.has(ref)} />{/each}</td>
 				</tr>{/each}</tbody>
 			</table></TableScroll>
 		{:else}<p class="an-empty">No connections were supplied.</p>{/if}

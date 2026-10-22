@@ -1,4 +1,4 @@
-// The recovery probe's Worker (GRS-110): GRS-109's storage Worker, imported whole and unchanged, behind the recovery and
+// The recovery probe's Worker (GRS-110): GRS-109's storage Worker, imported whole with its deletion guard enabled, behind the recovery and
 // deletion contracts. Every request first passes the storage Worker's own identity gate (GET /identity) and a check that
 // the RECOVERY bucket belongs to the same client; whatever this module does not route goes to the storage Worker as is.
 //
@@ -137,7 +137,7 @@ async function catalog(ctx: Ctx) {
 	const exportT = [...by('export_id')].filter((t) => !caseT.has(t));
 	// Children before their parents: results_version and export_job are referenced by rows in the other tables.
 	const parents = ['export_job', 'results_version'].filter((t) => caseT.has(t));
-	return { versionT, exportT, caseT: [...caseT].filter((t) => !parents.includes(t)), parents };
+	return { versionT, exportT, caseT: [...caseT].filter((t) => !parents.includes(t) && t !== 'restore_object'), parents };
 }
 
 type Plan = { versions: string[]; exports: string[]; originals: string[]; leftovers?: string[]; uploads?: { key: string; id: string }[] };
@@ -190,6 +190,16 @@ async function eraseNow(ctx: Ctx, caseId: string, set: [string, D1Value[]], cond
 	];
 	await guarded(ctx.db, condition[0], condition[1], statements);
 	if (ctx.fault || ctx.failErase === caseId) throw new Error('probe fault: the Worker stopped after the D1 commit and before the R2 deletes');
+	// A restore that entered before the removal may have recorded an intent after the first scan. Keep the intents until
+	// their R2 writes finish, then include every key they name in the final sweep.
+	const until = Date.now() + 30_000;
+	while (await first(ctx.db, 'SELECT 1 AS x FROM restore_object WHERE case_id = ? AND in_progress = 1', caseId)) {
+		if (Date.now() >= until) throw new Error('restore write still in progress');
+		await new Promise<void>((resolve) => setTimeout(resolve, 20));
+	}
+	const late = (await all<{ k: string }>(ctx.db, 'SELECT object_key AS k FROM restore_object WHERE case_id = ?', caseId)).map((r) => r.k);
+	plan.leftovers = union(plan.leftovers ?? [], late);
+	await ctx.db.prepare('UPDATE case_deletion SET erase_plan = ? WHERE case_id = ?').bind(JSON.stringify(plan), caseId).run();
 	// R2 after D1: once the rows are gone nothing serves these objects, and a repeat of this call deletes what is left.
 	const keys: string[] = [];
 	for (const prefix of [...plan.versions.flatMap((v) => [`pkg/${v}/`, `rm/${v}/`]), `export/${caseId}/`, `backup/${caseId}/`, `bundle/${caseId}/`]) {
@@ -206,7 +216,10 @@ async function eraseNow(ctx: Ctx, caseId: string, set: [string, D1Value[]], cond
 	for (const key of plan.leftovers ?? []) if (!keys.includes(key) && !(await named(ctx, key))) keys.push(key);
 	for (let i = 0; i < keys.length; i += 1000) await ctx.bucket.delete(keys.slice(i, i + 1000));
 	for (const u of plan.uploads ?? []) await ctx.bucket.resumeMultipartUpload(u.key, u.id).abort().catch(() => undefined); // an unsealed export's parts
-	await ctx.db.prepare("UPDATE case_deletion SET erased_at = coalesce(erased_at, ?), erase_error = NULL WHERE case_id = ? AND state = 'removed'").bind(new Date().toISOString(), caseId).run();
+	await guarded(ctx.db, "NOT EXISTS (SELECT 1 FROM restore_object WHERE case_id = ? AND in_progress = 1)", [caseId], [
+		['DELETE FROM restore_object WHERE case_id = ?', [caseId]],
+		["UPDATE case_deletion SET erased_at = coalesce(erased_at, ?), erase_error = NULL WHERE case_id = ? AND state = 'removed'", [new Date().toISOString(), caseId]],
+	]);
 	return { plan, objects: keys.length };
 }
 
@@ -492,7 +505,7 @@ async function putBundle(ctx: Ctx, request: Request, caseId: string, bundleId: s
 	const key = `bundle/${caseId}/${bundleId}.pdf`;
 	if (await ctx.bucket.head(key)) refuse(409, 'bundle-version-exists'); // a bundle version is never overwritten
 	try {
-		await ctx.bucket.put(key, request.body!, { sha256: sha, customMetadata: { client: ctx.client } });
+		if (!(await ctx.bucket.put(key, request.body!, { sha256: sha, customMetadata: { client: ctx.client }, onlyIf: { etagDoesNotMatch: '*' } }))) refuse(409, 'bundle-version-exists');
 	} catch (e) {
 		if (/SHA-256/i.test(String(e))) refuse(422, 'digest-mismatch');
 		throw e;
@@ -533,6 +546,10 @@ async function route(request: Request, env: RecoveryEnv): Promise<Response> {
 			if (probeHolds.has(seg[2]!)) probeHolds.set(seg[2]!, false);
 			return json({ released: true });
 		}
+	}
+	if (env.PROBE_HOOKS === '1' && seg[0] === 'probe' && seg[1] === 'storage-hold' && HOLD_TOKEN.test(seg[2] ?? '')) {
+		if (m === 'GET' && seg.length === 3) return inner(env, `/probe/hold/${seg[2]}`);
+		if (m === 'POST' && seg.length === 4 && seg[3] === 'release') return inner(env, `/probe/hold/${seg[2]}/release`, { method: 'POST' });
 	}
 	if (seg[0] === 'recovery') {
 		if (m === 'POST' && seg.length === 2 && seg[1] === 'copies') return makeCopy(ctx, request);

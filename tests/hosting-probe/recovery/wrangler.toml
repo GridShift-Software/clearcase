@@ -11,24 +11,26 @@ send_metrics = false
 # PROBE_CLOCK lets POST /recovery/rotate take its time from the request, so the probe never waits 30 days. It is bound only
 # here, never in client B or a product deployment: there rotation runs from scheduled() with controller.scheduledTime.
 # PROBE_FAULT lets a request stop an erasure right after its D1 commit (x-probe-fault: stop-after-d1). Bound only here, like PROBE_CLOCK.
+# CASE_DELETION_GUARD enables the storage Worker's same-transaction deletion check on delegated restore writes in every
+# recovery deployment. PROBE_HOOKS is a token-keyed hold bound only in client A for the race legs.
 [env.client-a]
-vars = { CLEARCASE_CLIENT_ID = "client-a", PROBE_CLOCK = "1", PROBE_FAULT = "1", PROBE_HOOKS = "1" }
+vars = { CLEARCASE_CLIENT_ID = "client-a", CASE_DELETION_GUARD = "1", PROBE_CLOCK = "1", PROBE_FAULT = "1", PROBE_HOOKS = "1" }
 d1_databases = [{ binding = "DB", database_name = "recovery-a", database_id = "00000000-0000-4000-8000-0000000110a1", remote = false }]
 r2_buckets = [{ binding = "BUCKET", bucket_name = "recovery-a", remote = false }, { binding = "RECOVERY", bucket_name = "recovery-copies-a", remote = false }]
 
 [env.client-b]
-vars = { CLEARCASE_CLIENT_ID = "client-b" }
+vars = { CLEARCASE_CLIENT_ID = "client-b", CASE_DELETION_GUARD = "1" }
 d1_databases = [{ binding = "DB", database_name = "recovery-b", database_id = "00000000-0000-4000-8000-0000000110b1", remote = false }]
 r2_buckets = [{ binding = "BUCKET", bucket_name = "recovery-b", remote = false }, { binding = "RECOVERY", bucket_name = "recovery-copies-b", remote = false }]
 
 # Client A's Worker bound to client B's recovery bucket.
 [env.crossed-recovery]
-vars = { CLEARCASE_CLIENT_ID = "client-a" }
+vars = { CLEARCASE_CLIENT_ID = "client-a", CASE_DELETION_GUARD = "1" }
 d1_databases = [{ binding = "DB", database_name = "recovery-a", database_id = "00000000-0000-4000-8000-0000000110a1", remote = false }]
 r2_buckets = [{ binding = "BUCKET", bucket_name = "recovery-a", remote = false }, { binding = "RECOVERY", bucket_name = "recovery-copies-b", remote = false }]
 
 # A fresh deployment for client A after its live database and bucket are lost: new DB and BUCKET, the same RECOVERY.
 [env.recovered-a]
-vars = { CLEARCASE_CLIENT_ID = "client-a" }
+vars = { CLEARCASE_CLIENT_ID = "client-a", CASE_DELETION_GUARD = "1" }
 d1_databases = [{ binding = "DB", database_name = "recovered-a", database_id = "00000000-0000-4000-8000-0000000110a2", remote = false }]
 r2_buckets = [{ binding = "BUCKET", bucket_name = "recovered-a", remote = false }, { binding = "RECOVERY", bucket_name = "recovery-copies-a", remote = false }]

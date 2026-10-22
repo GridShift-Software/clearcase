@@ -49,7 +49,8 @@ CREATE TABLE export_entry (export_id TEXT NOT NULL, idx INTEGER NOT NULL, path T
 
 -- What a restore step wrote under orig/, pkg/ and rm/ before any row names it (finish writes those rows). A case's removal
 -- and the 30-day rotation find the objects of a restore that never finished here; written_at is the step's time.
-CREATE TABLE restore_object (case_id TEXT NOT NULL, object_key TEXT NOT NULL, written_at TEXT NOT NULL, PRIMARY KEY (case_id, object_key));
+-- in_progress stays 1 across the R2 write. Removal keeps this row and waits for it before marking erased_at.
+CREATE TABLE restore_object (case_id TEXT NOT NULL, object_key TEXT NOT NULL, written_at TEXT NOT NULL, in_progress INTEGER NOT NULL DEFAULT 0 CHECK (in_progress IN (0, 1)), PRIMARY KEY (case_id, object_key));
 
 -- The probe's control: the same register add as read-then-write, two statements, no UNIQUE (P4's sensitivity check).
 CREATE TABLE probe_naive_seq (case_id TEXT NOT NULL, store TEXT NOT NULL, seq INTEGER NOT NULL);

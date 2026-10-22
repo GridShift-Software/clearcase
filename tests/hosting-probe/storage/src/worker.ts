@@ -93,8 +93,19 @@ function counted(bucket: R2, c: Counts): R2 {
 	});
 }
 
-type Ctx = { client: string; db: Sql; bucket: R2; counts: Counts };
+type Ctx = { client: string; db: Sql; bucket: R2; counts: Counts; deletionGuard: boolean; probeHooks: boolean };
 let verifiedClient: string | null = null; // per isolate: bindings cannot change under a running isolate
+
+/** On a recovery deployment, every restore batch checks deletion in the transaction that writes its rows. */
+async function restoreBatch(ctx: Ctx, caseId: string, statements: [string, D1Value[]][]) {
+	if (!ctx.deletionGuard) return statements.length ? ctx.db.batch(statements) : [];
+	try {
+		return await ctx.db.batch([guard("NOT EXISTS (SELECT 1 FROM case_deletion WHERE case_id = ? AND state = 'removed')", caseId), ...statements, CLEAR]);
+	} catch (e) {
+		if (e instanceof GuardFailed && (await ctx.db.first("SELECT 1 FROM case_deletion WHERE case_id = ? AND state = 'removed'", caseId))) refuse(409, 'case-deleted', { caseId });
+		throw e;
+	}
+}
 
 const isBinding = (v: unknown, ...methods: string[]) => typeof v === 'object' && v !== null && methods.every((m) => typeof (v as Row)[m] === 'function');
 
@@ -103,7 +114,7 @@ async function open(env: Env): Promise<Ctx> {
 	if (!isBinding(env.DB, 'prepare', 'batch')) refuse(503, 'missing-binding', { binding: 'DB' });
 	if (!isBinding(env.BUCKET, 'get', 'put', 'head')) refuse(503, 'missing-binding', { binding: 'BUCKET' });
 	const counts: Counts = { statements: 0, batches: 0, r2: 0, rowsRead: 0, rowsWritten: 0 };
-	const ctx: Ctx = { client, db: sql(env.DB as D1, counts), bucket: counted(env.BUCKET as R2, counts), counts };
+	const ctx: Ctx = { client, db: sql(env.DB as D1, counts), bucket: counted(env.BUCKET as R2, counts), counts, deletionGuard: env.CASE_DELETION_GUARD === '1', probeHooks: env.PROBE_HOOKS === '1' };
 	if (verifiedClient !== client) {
 		// The other client's identifier is never echoed: a crossed deployment learns only that its binding is wrong.
 		const row = await ctx.db.first<{ client_id: unknown }>('SELECT client_id FROM storage_identity WHERE singleton = 1').catch(() => null);
@@ -892,9 +903,9 @@ const restoreTarget = (m: Omit<PlanEntry, 'source'>, resultsVersion: string) =>
 	m.kind === 'original' ? `orig/${m.sha256}` : m.kind === 'package' ? `pkg/${resultsVersion}/${m.path.slice('package/'.length)}` : m.kind === 'list' ? `rm/${resultsVersion}/chronology.json` : null;
 
 /**
- * Whether the object stored under a restore target is the one the manifest names. R2 keeps a SHA-256 for a single PUT and
- * none for a multipart object, so for an `orig/` key without one an `original` row with this SHA-256 and size stands in:
- * finalize hashes the whole object before it writes that row. An unrecorded object, or one of another size, is not it.
+ * Whether the object stored under a restore target is the one the manifest names. Current multipart originals are verified
+ * in staging and published with a SHA-256 PUT. For an older multipart `orig/` object without an R2 checksum, a verified
+ * `original` row with this SHA-256 and size stands in. An unrecorded object, or one of another size, is not it.
  */
 async function isStored(ctx: Ctx, target: string, o: R2Object, sha: string, size: number): Promise<boolean> {
 	if (o.size !== size) return false;
@@ -946,22 +957,45 @@ async function restoreStep(ctx: Ctx, request: Request, packetId: string): Promis
 		}
 		i++;
 	}
-	// The record comes first: a step that stops after it leaves a row for an object that is not there, never an object no row names.
-	if (toWrite.length) await ctx.db.batch(toWrite.map(({ target }): [string, D1Value[]] => ['INSERT INTO restore_object (case_id, object_key, written_at) VALUES (?, ?, ?) ON CONFLICT (case_id, object_key) DO UPDATE SET written_at = excluded.written_at', [caseId, target, new Date().toISOString()]]));
+	// The intent comes first and remains pending until the R2 PUT finishes. Erasure keeps pending intents and cannot mark
+	// erased_at while one may still publish an object; on a recovery deployment the intent also checks deletion atomically.
 	for (const { e, m, target } of toWrite) {
+		await restoreBatch(ctx, caseId, [['INSERT INTO restore_object (case_id, object_key, written_at, in_progress) VALUES (?, ?, ?, 1) ON CONFLICT (case_id, object_key) DO UPDATE SET written_at = excluded.written_at, in_progress = 1', [caseId, target, new Date().toISOString()]]]);
 		const n = new TextEncoder().encode(e.path).length;
-		const data = await ctx.bucket.get(key, { range: { offset: e.offset + 30 + n, length: e.size } });
-		if (!hasBody(data)) refuse(410, 'integrity');
-		const fls = fixedLength(e.size);
-		const piped = (data as R2ObjectBody).body.pipeTo(fls.writable);
+		let published = false;
 		try {
-			// R2 refuses the PUT, and stores nothing, unless the bytes match the manifest's SHA-256
-			await Promise.all([ctx.bucket.put(target, fls.readable, { sha256: m.sha256, customMetadata: { client: ctx.client } }), piped]);
+			const writeHold = ctx.probeHooks ? request.headers.get('x-probe-write-hold') : null;
+			if (writeHold !== null) {
+				if (!HOLD_TOKEN.test(writeHold)) refuse(400, 'invalid-field', { field: 'x-probe-write-hold' });
+				await holdHere(writeHold)();
+			}
+			const data = await ctx.bucket.get(key, { range: { offset: e.offset + 30 + n, length: e.size } });
+			if (!hasBody(data)) refuse(410, 'integrity');
+			const fls = fixedLength(e.size);
+			const piped = (data as R2ObjectBody).body.pipeTo(fls.writable);
+			try {
+				// R2 refuses the PUT, and stores nothing, unless the bytes match the manifest's SHA-256.
+				const [stored] = await Promise.all([ctx.bucket.put(target, fls.readable, { sha256: m.sha256, customMetadata: { client: ctx.client }, onlyIf: { etagDoesNotMatch: '*' } }), piped]);
+				published = !!stored;
+				if (!stored) {
+					const existing = await ctx.bucket.head(target);
+					if (!existing || !(await isStored(ctx, target, existing, m.sha256, m.size))) refuse(409, 'conflicting-object', { entry: e.path });
+				}
+			} catch (err) {
+				if (/SHA-256/i.test(String(err))) refuse(422, 'digest-mismatch', { entry: e.path });
+				throw err;
+			}
+			await restoreBatch(ctx, caseId, [['UPDATE restore_object SET in_progress = 0 WHERE case_id = ? AND object_key = ?', [caseId, target]]]);
 		} catch (err) {
-			if (/SHA-256/i.test(String(err))) refuse(422, 'digest-mismatch', { entry: e.path });
+			if (ctx.deletionGuard && err instanceof Refused && err.code === 'case-deleted' && published) {
+				const shared = target.startsWith('orig/') && (await ctx.db.first('SELECT 1 FROM original WHERE sha256 = ? UNION ALL SELECT 1 FROM case_original WHERE sha256 = ?', target.slice(5), target.slice(5)));
+				if (!shared) await ctx.bucket.delete(target);
+			}
+			await ctx.db.batch([['UPDATE restore_object SET in_progress = 0 WHERE case_id = ? AND object_key = ?', [caseId, target]]]);
 			throw err;
 		}
 	}
+	if (!toWrite.length) await restoreBatch(ctx, caseId, []);
 	return json(ctx, { next: i, of: entries.length });
 }
 
@@ -1049,6 +1083,11 @@ async function restoreFinish(ctx: Ctx, request: Request, packetId: string): Prom
 	const userWork = await restoreStatements(ctx, caseId, await readObject('user-work.json'), rev, false, 'invalid-packet');
 
 	const pre = await backup(ctx, caseId, 'pre-restore', await snapshot(ctx, caseId)); // durable before any D1 write
+	const finishHold = ctx.probeHooks ? request.headers.get('x-probe-finish-hold') : null;
+	if (finishHold !== null) {
+		if (!HOLD_TOKEN.test(finishHold)) refuse(400, 'invalid-field', { field: 'x-probe-finish-hold' });
+		await holdHere(finishHold)();
+	}
 	// The same staged path as an import. The version flips to stored, and the case to active, last and in one batch: a
 	// refusal or a crash before it leaves a staging version that a retry of this call rebuilds. The first batch holds the
 	// user work's revision, and the user-work batch holds it and that no version is live, so a concurrent change is refused
@@ -1056,14 +1095,15 @@ async function restoreFinish(ctx: Ctx, request: Request, packetId: string): Prom
 	// are bound: the flip then answers 409 case-live, the user work stays replaced (the pre-restore backup keeps the old),
 	// the originals stay bound, and a retry answers 409 case-live too.
 	try {
-		await ctx.db.batch([guard('coalesce((SELECT rev FROM case_rev WHERE case_id = ?), 0) = ?', caseId, rev), ["INSERT INTO results_version (version_id, case_id, state, attempt, expected_documents, expected_assets, expected_seeds, expected_files, list_sha256, list_size) VALUES (?, ?, 'staging', 1, ?, ?, ?, ?, ?, ?) ON CONFLICT (version_id) DO UPDATE SET expected_documents = excluded.expected_documents, expected_assets = excluded.expected_assets, expected_seeds = excluded.expected_seeds, expected_files = excluded.expected_files, list_sha256 = excluded.list_sha256, list_size = excluded.list_size WHERE results_version.state = 'staging' AND results_version.case_id = excluded.case_id", [v, caseId, stage.documents, stage.assets, stage.seeds, stage.files, stage.list.sha256, stage.list.size]], CLEAR]);
+		await restoreBatch(ctx, caseId, [guard('coalesce((SELECT rev FROM case_rev WHERE case_id = ?), 0) = ?', caseId, rev), ["INSERT INTO results_version (version_id, case_id, state, attempt, expected_documents, expected_assets, expected_seeds, expected_files, list_sha256, list_size) VALUES (?, ?, 'staging', 1, ?, ?, ?, ?, ?, ?) ON CONFLICT (version_id) DO UPDATE SET expected_documents = excluded.expected_documents, expected_assets = excluded.expected_assets, expected_seeds = excluded.expected_seeds, expected_files = excluded.expected_files, list_sha256 = excluded.list_sha256, list_size = excluded.list_size WHERE results_version.state = 'staging' AND results_version.case_id = excluded.case_id", [v, caseId, stage.documents, stage.assets, stage.seeds, stage.files, stage.list.sha256, stage.list.size]], CLEAR]);
 	} catch (e) {
+		if (e instanceof Refused && e.code === 'case-deleted') await ctx.bucket.delete(pre.key);
 		if (e instanceof GuardFailed) refuse(409, 'stale');
 		throw e;
 	}
 	try {
-		for (const t of Object.keys(TABLES) as Table[]) await ctx.db.batch([staging(v, caseId), [`DELETE FROM ${t} WHERE version_id = ?`, [v]], ...inserts(t, TABLES[t], model[t], 'json', { column: 'version_id', value: v }), CLEAR]);
-		await ctx.db.batch([staging(v, caseId), ['DELETE FROM package_file WHERE version_id = ?', [v]], ...inserts('package_file', ['path', 'sha256', 'size'], files, 'json', { column: 'version_id', value: v }), CLEAR]);
+		for (const t of Object.keys(TABLES) as Table[]) await restoreBatch(ctx, caseId, [staging(v, caseId), [`DELETE FROM ${t} WHERE version_id = ?`, [v]], ...inserts(t, TABLES[t], model[t], 'json', { column: 'version_id', value: v }), CLEAR]);
+		await restoreBatch(ctx, caseId, [staging(v, caseId), ['DELETE FROM package_file WHERE version_id = ?', [v]], ...inserts('package_file', ['path', 'sha256', 'size'], files, 'json', { column: 'version_id', value: v }), CLEAR]);
 	} catch (e) {
 		if (e instanceof GuardFailed) refuse(409, 'not-staging');
 		throw e;
@@ -1072,15 +1112,15 @@ async function restoreFinish(ctx: Ctx, request: Request, packetId: string): Prom
 	const originalRows = [...ignoring(inserts('original', ['sha256', 'size'], originals, 'json', null)), ...ignoring(inserts('case_original', ['case_id', 'asset_id', 'sha256', 'filename', 'media_type'], originals.map((o) => ({ asset_id: o.asset_id, sha256: o.sha256, filename: o.filename, media_type: o.media_type, case_id: caseId })), 'json', null))];
 	try {
 		// The user work replaces the case's own only while no version is live: a case activated since the first batch is refused here, before it.
-		await ctx.db.batch([userWork[0]!, guard('NOT EXISTS (SELECT 1 FROM active WHERE case_id = ?)', caseId), ...userWork.slice(1)]);
+		await restoreBatch(ctx, caseId, [userWork[0]!, guard('NOT EXISTS (SELECT 1 FROM active WHERE case_id = ?)', caseId), ...userWork.slice(1)]);
 	} catch (e) {
 		if (!(e instanceof GuardFailed)) throw e;
 		return (await activeVersion(ctx, caseId)) ? json(ctx, { code: 'case-live' }, 409) : refuse(409, 'stale');
 	}
 	// The originals are bound after the user work: a stale revision refuses before it, and binds nothing.
-	if (originalRows.length) await ctx.db.batch(originalRows);
+	if (originalRows.length) await restoreBatch(ctx, caseId, originalRows);
 	try {
-		await ctx.db.batch([
+		await restoreBatch(ctx, caseId, [
 			hasEveryRow(v, caseId),
 			guard('NOT EXISTS (SELECT 1 FROM active WHERE case_id = ?)', caseId),
 			["UPDATE results_version SET state = 'stored' WHERE version_id = ?", [v]],

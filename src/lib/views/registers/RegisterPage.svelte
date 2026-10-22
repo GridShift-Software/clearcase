@@ -31,7 +31,7 @@
 
 	const blank = (): Entry => Object.fromEntries(reg.fields.map((f) => [f.k, f.type === 'select' && f.placeholder === undefined ? f.opts![0]! : '']));
 	const saved = untrack(() => (form?.op === 'save' && form.message ? form : null));
-	let values = $state<Entry>(untrack(() => ({ ...blank(), ...saved?.values })));
+	let values = $state<Entry>(untrack(() => ({ ...blank(), ...form?.values })));
 	let editing = $state<string | null>(saved?.rowId ?? null);
 	let version = $state<string | null>(saved?.version ?? null);
 	let base = $state<Entry>(untrack(() => blank()));
@@ -95,12 +95,12 @@
 			} finally { busy = false; }
 		};
 	};
-	const remove: SubmitFunction = ({ formData, cancel, formElement }) => {
-		const id = String(formData.get('rowId'));
+	const remove: SubmitFunction = ({ formData, cancel, formElement, submitter }) => {
+		const id = String(formData.get('delete'));
 		const step = deleteStep(formData, id);
 		if (step !== 'confirm') { cancel(); confirming = step === 'ask' ? id : null; return; }
 		const typed = reg.fields.some((f) => values[f.k] && !(f.type === 'select' && f.placeholder === undefined));
-		if (id === editing && unsaved && typed) { cancel(); ask = { what: question(), go: () => { reset(); formElement.requestSubmit(); } }; return; }
+		if (id === editing && unsaved && typed) { cancel(); ask = { what: question(), go: () => { reset(); if (submitter instanceof HTMLButtonElement) formElement.requestSubmit(submitter); } }; return; }
 		confirming = null;
 		deleting = id;
 		return async ({ result }) => {
@@ -115,6 +115,7 @@
 			} finally { deleting = null; }
 		};
 	};
+	const submit: SubmitFunction = (input) => input.action.search.includes('/delete') ? remove(input) : save(input);
 
 	function edit(r: ShownRow) {
 		guard(async () => {
@@ -209,7 +210,7 @@
 	</PageHeader>
 	{#if rl.lost}<p class="error" role="alert" id="reload-error">{RELOAD_UNAVAILABLE}</p>{/if}
 
-	<form id="register-form" class="entry" method="POST" action="?/save" enctype="multipart/form-data" use:enhance={save} data-editing={editing ?? undefined} aria-busy={locked}>
+	<form id="register-form" class="entry" method="POST" action="?/save" enctype="multipart/form-data" use:enhance={submit} data-editing={editing ?? undefined} aria-busy={locked}>
 		{#if editing}<input type="hidden" name="rowId" value={editing} /><input type="hidden" name="version" value={version ?? ''} />{/if}
 		<fieldset class="fields" disabled={locked}>
 			<legend class="visually-hidden">{editing ? 'Edit the entry' : 'New entry'}</legend>
@@ -273,7 +274,7 @@
 						<td class="row-actions">
 							{#if !r.intact}<span class="altered">this entry was altered on disk since it was saved</span>{/if}
 							<button type="button" data-edit onclick={() => edit(r)} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)}>Edit</button>
-							<form method="POST" action="?/delete" use:enhance={remove}><input type="hidden" name="rowId" value={r.rowId} /><ConfirmDelete bind:pending={confirming} target={r.rowId} question="Delete this entry?" data-delete aria-describedby={deleteError?.rowId === r.rowId ? 'register-delete-message' : undefined} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)} /></form>
+							<ConfirmDelete bind:pending={confirming} target={r.rowId} question="Delete this entry?" form="register-form" formaction="?/delete" name="delete" data-delete aria-describedby={deleteError?.rowId === r.rowId ? 'register-delete-message' : undefined} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)} />
 						</td>
 					</tr>
 				{/each}
@@ -296,5 +297,4 @@
 	td.end, th.end { text-align: end; }
 	tr.editing { outline: 2px solid currentColor; }
 	.row-actions { white-space: nowrap; }
-	.row-actions form { display: inline; }
 </style>

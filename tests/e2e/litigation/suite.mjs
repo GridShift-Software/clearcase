@@ -14,7 +14,7 @@ const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { outDir } = await import('../pilot/lib/record.mjs');
 const { CHROME, launch } = await import('../pilot/lib/cdp.mjs');
-const { asking, cancelIfAsked, confirmPressed, describedBy, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { asking, cancelIfAsked, confirmPressed, describedBy, draftThroughDeleteWithoutJs, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
 const { bunIdentity } = await import('../pilot/lib/server.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
 const { INIT, openPage, sleep } = await import('../pilot/suite/browser.mjs');
@@ -645,6 +645,24 @@ try {
 		await sleep(1500);
 		const shown = await p.evaluate(`[...document.querySelectorAll('#heads-table tbody tr[data-row]')].some((t) => t.cells[1].textContent.trim() === 'Confirm kept')`);
 		return all({ shown, stored: rowsWhere('heads', 'head', 'Confirm kept').length === 1, focus: await p.evaluate(`document.activeElement?.hasAttribute('data-delete-confirm') ?? false`), cancel: (await count(p, '#heads-table [data-delete-cancel]')) === 1 });
+	});
+	await scenario('CONFIRM-nojs-draft', 'heads_tab', 'without JavaScript, Delete then Cancel or Confirm keeps text typed into Add', async () => {
+		await A.c.form(`${at('heads_tab')}?/add`, { head: 'Synthetic no-JS target head', sub: 'x', auth: '', ref: '' });
+		const id = rowsWhere('heads', 'head', 'Synthetic no-JS target head')[0]?.row_id;
+		const row = `#heads-table tr[data-row=${J(id)}]`;
+		const round = await draftThroughDeleteWithoutJs(p, { url: `${V}${route('heads_tab')}`, ready: ready('heads_tab'), draft: '#hd_head', text: 'Synthetic unsaved head', row, opener: `${row} [data-delete]` });
+		return all({ askKeeps: round.askedBeforeCancel.value === 'Synthetic unsaved head' && round.askedBeforeCancel.row && round.askedBeforeCancel.asking,
+			cancelKeeps: round.cancelled.value === 'Synthetic unsaved head' && round.cancelled.row && !round.cancelled.asking,
+			confirmKeeps: round.askedBeforeConfirm.value === 'Synthetic unsaved head' && round.confirmed.value === 'Synthetic unsaved head' && !round.confirmed.row && !savedRows().some((r) => r.store === 'heads' && r.row_id === id), evidence: round });
+	});
+	await scenario('CONFIRM-nojs-draft-crossexam', 'crossexam_tab', 'GRS-181: without JavaScript, Delete then Cancel or Confirm keeps text typed into Add on Cross-Exam Prep', async () => {
+		await A.c.form(`${at('crossexam_tab')}?/add`, { witness: 'Synthetic no-JS target witness', topic: 'x', put: 'x', docs: '' });
+		const id = rowsWhere('crossexam', 'witness', 'Synthetic no-JS target witness')[0]?.row_id;
+		const row = `#cx-table tr[data-row=${J(`row:${id}`)}]`;
+		const round = await draftThroughDeleteWithoutJs(p, { url: `${V}${route('crossexam_tab')}`, ready: ready('crossexam_tab'), draft: '#cx_w', text: 'Synthetic unsaved witness', row, opener: `${row} [data-delete]` });
+		return all({ askKeeps: round.askedBeforeCancel.value === 'Synthetic unsaved witness' && round.askedBeforeCancel.row && round.askedBeforeCancel.asking,
+			cancelKeeps: round.cancelled.value === 'Synthetic unsaved witness' && round.cancelled.row && !round.cancelled.asking,
+			confirmKeeps: round.askedBeforeConfirm.value === 'Synthetic unsaved witness' && round.confirmed.value === 'Synthetic unsaved witness' && !round.confirmed.row && !savedRows().some((r) => r.store === 'crossexam' && r.row_id === id), evidence: round });
 	});
 	await scenario('CONFIRM-delete-cases', 'heads_tab', "GRS-175: Cancel and Escape keep the submission and return focus to its Delete; a second row's Delete moves the question and deletes nothing; a reload drops the question and keeps both; a POST without the row's confirmation is refused; Confirm delete deletes exactly that submission", async () => {
 		await A.c.form(`${at('heads_tab')}?/add`, { head: 'Confirm second', sub: 'x', auth: '', ref: '' });

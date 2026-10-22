@@ -8,6 +8,7 @@
 //     controls: {inventoryId: n}, sweeps: {id: {combo: s}}, exports: {id: {name, columns?, rows?, text?}},
 //     focus: {step: s} }
 import { value as norm } from './normalize.mjs';
+import { isDeepStrictEqual } from 'node:util';
 
 export const ABSENT = '<absent>';
 
@@ -97,6 +98,13 @@ export function covering(entries, view, d, { approvedOnly = false } = {}) {
 	return null;
 }
 
+/** Compare a rendered list or table with its independent synthetic source, including order and extra elements. */
+export function sourceMismatches(checks = []) {
+	return checks.filter(({ rendered, source }) => !isDeepStrictEqual(rendered, source)).map(({ path }) => ({
+		path, kind: 'source-mismatch', v5: 'synthetic source', app: 'rendered element',
+	}));
+}
+
 /** Classify every difference of one view against the register. */
 export function classify(view, result, entries, opts) {
 	const registered = [], unregistered = [];
@@ -105,6 +113,7 @@ export function classify(view, result, entries, opts) {
 		if (e) registered.push({ ...d, register: e.id, type: e.type, approved: !!e.approvedBy });
 		else unregistered.push(d);
 	}
+	unregistered.push(...sourceMismatches(opts?.sourceChecks));
 	return { ...result, registered, unregistered };
 }
 

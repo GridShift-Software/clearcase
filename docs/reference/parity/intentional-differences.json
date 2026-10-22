@@ -178,7 +178,7 @@
       ],
       "type": "defect-fix",
       "source": "S-meta-counts",
-      "reason": "v5 shows the build metadata count of documents without text, which disagrees with the rows (S-meta-counts); the app counts the register rows. The chronology text-status filter sweep checks the derived count independently, so the value has no condition.",
+      "reason": "v5 shows the build metadata count of documents without text, which disagrees with the rows (S-meta-counts); the app counts the register rows. The independent synthetic META disagreement in tests/case-package/package.test.ts ('keeps raw META and exposes derived counts next to it') pins the row count; parity checks the Overview tile and the seeded-work sweep. The case count cannot be a when value.",
       "productVisible": true,
       "author": "CC-29 worker (GRS-37)",
       "approvedBy": null,
@@ -189,21 +189,34 @@
       "view": "overview",
       "field": [
         "text.page.1",
-        "text.originals.*",
-        "text.my_notes.*",
-        "list.my_notes.*",
-        "list.go_to.*",
-        "table.originals.*",
-        "table.by_bundle.*",
-        "table.by_type.*",
-        "table.by_text_status.*"
+        "text.originals.1",
+        "text.my_notes.1",
+        "list.my_notes.count",
+        "list.my_notes.item.*",
+        "list.go_to.count",
+        "list.go_to.item.0",
+        "list.go_to.item.1",
+        "list.go_to.item.2",
+        "list.go_to.item.3",
+        "list.go_to.item.4",
+        "list.go_to.item.5",
+        "list.go_to.item.6",
+        "list.go_to.item.7",
+        "table.originals.columns",
+        "table.originals.rows",
+        "table.by_bundle.columns",
+        "table.by_bundle.rows",
+        "table.by_type.columns",
+        "table.by_type.rows",
+        "table.by_text_status.columns",
+        "table.by_text_status.rows"
       ],
       "when": {
         "v5": "<absent>"
       },
       "type": "improvement",
       "source": "GRS-12",
-      "reason": "Pilot overview additions without a v5 counterpart: the results version line, originals states and when they were checked, tallies by bundle, type and text status, the notes summary and the Go to list.",
+      "reason": "Pilot overview additions without a v5 counterpart: the results version line, originals states and when they were checked, tallies by bundle, type and text status, the notes summary and the eight Go to links. Only note items vary with saved work; tests/parity/pending-coverage.test.ts guards the register paths, and the synthetic browser check SY13-rendered-lists compares every rendered note item with saved note rows.",
       "productVisible": true,
       "author": "CC-29 worker (GRS-37)",
       "approvedBy": null,
@@ -212,10 +225,13 @@
     {
       "id": "IDR-055",
       "view": "chronology",
-      "field": "list.select.all_bundles.*",
+      "field": [
+        "list.select.all_bundles.count",
+        "list.select.all_bundles.item.*"
+      ],
       "type": "defect-fix",
       "source": "S-chronology-1",
-      "reason": "The bundle filter offers every imported bundle instead of v5's four hard-coded options, so the Additional bundle can be selected. The options stay sorted: no package dataset gives an order that keeps v5's four in place, and neither row order nor the metadata bundle order does.",
+      "reason": "The bundle filter offers every imported bundle instead of v5's four hard-coded options, so the Additional bundle can be selected. The options stay sorted; src/lib/local-case/chronology.test.ts checks a synthetic six-bundle case, and the synthetic browser check SY13-rendered-lists compares every rendered option with chronology source rows. Only the option count and items are covered.",
       "productVisible": true,
       "author": "CC-29 worker (GRS-37)",
       "approvedBy": null,
@@ -277,11 +293,19 @@
       ],
       "type": "improvement",
       "source": "GRS-12",
-      "reason": "The export button states how many filtered rows it exports (v5 exports every filtered row too, which its label did not say).",
+      "reason": "The export button states how many filtered rows it exports (v5 exports every filtered row too, which its label did not say). Only one old control and one new control can be covered.",
       "productVisible": true,
       "author": "CC-29 worker (GRS-37)",
       "approvedBy": null,
-      "approvedOn": null
+      "approvedOn": null,
+      "when": {
+        "v5": {
+          "re": "^(?:1|<absent>)$"
+        },
+        "app": {
+          "re": "^(?:1|<absent>)$"
+        }
+      }
     },
     {
       "id": "IDR-063",
@@ -292,11 +316,19 @@
       ],
       "type": "improvement",
       "source": "GRS-12",
-      "reason": "The text filter has a visible label in a labelled search form instead of a placeholder only; it searches the same fields.",
+      "reason": "The text filter has a visible label in a labelled search form instead of a placeholder only; it searches the same fields. Only one old control and one new control can be covered.",
       "productVisible": true,
       "author": "CC-29 worker (GRS-37)",
       "approvedBy": null,
-      "approvedOn": null
+      "approvedOn": null,
+      "when": {
+        "v5": {
+          "re": "^(?:1|<absent>)$"
+        },
+        "app": {
+          "re": "^(?:1|<absent>)$"
+        }
+      }
     },
     {
       "id": "IDR-065",

@@ -322,3 +322,24 @@ describe('legacy import hook (v5 browser backups)', () => {
 		} finally { undo(); }
 	});
 });
+
+it('replacement round trip restores the earlier saved work and its pre-restore copy', async () => {
+	const before = a.userWork.notesFor(CASE, rv, 'OD-001').map((n) => n.body).sort();
+	const other = a.userWork.notesFor(OTHER, otherRv, 'OD-001').map((n) => n.body).sort();
+	const fromStore = workOf(a, CASE);
+	const page = backupPage(a, rv);
+	for (const table of page.tables) expect(table.rows, table.name).toBe(fromStore.find((t) => t.name === table.name)?.rows.length);
+	expect(page.rows).toBe(fromStore.reduce((n, t) => n + t.rows.length, 0));
+	const exported = textOf(createBackup(a, rv));
+	await a.userWork.addNote(CASE, rv, 'OD-001', 'written after synthetic backup');
+	const restored = await restoreBackup(a, exported, { caseId: CASE, resultsVersion: rv });
+	expect(restored.kind).toBe('restored');
+	if (restored.kind !== 'restored') return;
+	expect(a.userWork.notesFor(CASE, rv, 'OD-001').map((n) => n.body).sort()).toEqual(before);
+	expect(a.userWork.notesFor(OTHER, otherRv, 'OD-001').map((n) => n.body).sort()).toEqual(other);
+	const prior = readFileSync(restored.preRestore, 'utf8');
+	expect(JSON.parse(prior).format).toBe(BACKUP_FORMAT);
+	const recovered = await restoreBackup(a, prior, { caseId: CASE, resultsVersion: rv });
+	expect(recovered.kind).toBe('restored');
+	expect(a.userWork.notesFor(CASE, rv, 'OD-001').map((n) => n.body).sort()).toEqual([...before, 'written after synthetic backup'].sort());
+});

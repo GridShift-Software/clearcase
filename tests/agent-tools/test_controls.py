@@ -3217,6 +3217,111 @@ class FixRoundArrival(ControlCase):
         receipt = self.last_receipt()
         self.assertEqual((receipt['name'], receipt['result'], receipt['revision']['head']), ('test-guard', 'PASS', head))
 
+    def arrive(self):
+        """The first case's history: the guard judges the manifest whole and refuses on vitest.config.ts unless the
+        manifest came in from dev."""
+        self.wave({'vitest.config.ts': self.wave_config})
+        self.pull_request()
+        self.wave({'docs/sync.md': 'the guard sync\n'}, 'the wave moves on after the pull request is cut')
+        return self.merge()
+
+    def refused_whole(self, path=None):
+        out = self.guard('--base', 'wave/proofs', code=1)
+        self.assertNotIn(f'{path or self.path} came in through a merge from dev', out)
+
+    def test_the_line_and_the_receipt_name_the_merge_it_is_judged_from(self):
+        head = self.arrive()
+        self.assertIn(f"judged from the branch's last merge from dev, {head[:12]}, not from its fixBase {self.base[:12]}",
+                      self.guard('--base', 'wave/proofs'))
+        guard = self.last_receipt()['guard']
+        self.assertEqual((guard['fixBase'], guard['arrivedThrough'], guard['trustedBase']), (head, head, self.git('rev-parse', 'wave/proofs')))
+
+    def test_a_weakening_after_the_merge_still_refuses(self):
+        head = self.arrive()
+        cases = {
+            'the named test weakened': ({'tests/protected.test.ts': self.test.replace('.toEqual(false)', '.toBeDefined()')},
+                                        'named test changed'),
+            'a protected helper changed': ({'support/helper.ts': self.helper.replace('false', 'true')},
+                                           'protected dependency changed: support/helper.ts'),
+            'the named test excluded': ({'vitest.config.ts': self.wave_config.replace('] } }', "], exclude: ['tests/protected.test.ts'] } }")},
+                                        'protected dependency changed: vitest.config.ts'),
+        }
+        for label, (files, message) in cases.items():
+            with self.subTest(bypass=label):
+                self.git('switch', '-q', '-C', 'feature/grs-105-polish', head)
+                self.change(files, label)
+                self.assertIn(message, self.guard('--base', 'wave/proofs', code=1))
+                self.assertEqual(self.last_receipt()['result'], 'FAIL')
+
+    def test_a_named_test_file_the_receiving_line_or_the_merge_changed_is_judged_whole(self):
+        weakened = {'tests/protected.test.ts': self.test.replace('.toEqual(false)', '.toBeDefined()')}
+        with self.subTest(bypass='the pull request weakens it before it merges dev'):
+            self.wave({'vitest.config.ts': self.wave_config})
+            self.pull_request()
+            self.change(weakened, 'weaken the named test before the merge')
+            self.merge()
+            self.refused_whole()
+        with self.subTest(bypass='an edit inside the merge commit'):
+            self.git('switch', '-q', '-C', 'feature/grs-105-polish', 'wave/proofs')
+            self.merge(commit=False)
+            self.change(weakened, 'Merge dev into the branch')
+            self.assertEqual(len(self.git('rev-list', '--parents', '-n', '1', 'HEAD').split()), 3)
+            self.refused_whole()
+
+    def test_a_manifest_the_branch_adds_changes_or_merges_from_elsewhere_is_judged_whole(self):
+        head = self.arrive()
+        with self.subTest(bypass='the arrived manifest changed after the merge'):
+            data = json.loads((self.repo / self.path).read_text())
+            self.change({self.path: json.dumps({**data, 'note': 'edited'})}, 'edit the manifest')
+            self.refused_whole()
+        with self.subTest(bypass='a copy of it committed at another path'):
+            self.git('switch', '-q', '-C', 'feature/grs-105-polish', head)
+            copy = self.path.replace('-1.json', '-2.json')
+            self.change({copy: (self.repo / self.path).read_text()}, 'copy the manifest')
+            self.refused_whole(copy)
+        with self.subTest(bypass='the same manifest merged from a history that rewrote dev'):
+            self.git('switch', '-q', '-c', 'rewritten-dev', self.base)
+            self.write('app.txt', 'fixed\n')
+            self.manifest()
+            self.write('tests/protected.test.ts', self.test.replace('.toEqual(false)', '.toBeDefined()'))
+            self.commit('fix round, replayed with a weakened test')
+            self.git('switch', '-q', '-C', 'feature/grs-105-polish', 'wave/proofs')
+            self.merge('rewritten-dev')
+            self.assertEqual(self.git('rev-parse', f'HEAD:{self.path}'), self.git('rev-parse', f'dev:{self.path}'))
+            self.refused_whole()
+        with self.subTest(bypass='a checkout whose dev is missing or does not hold it'):
+            self.git('switch', '-q', '-C', 'feature/grs-105-polish', self.landed)
+            data = json.loads((self.repo / self.path).read_text())
+            edited = self.change({self.path: json.dumps({**data, 'note': 'edited on dev'})}, 'dev edits the manifest')
+            self.git('switch', '-q', '-C', 'feature/grs-105-polish', head)
+            for dev in (edited, self.cut):
+                self.git('update-ref', 'refs/remotes/origin/dev', dev)
+                self.refused_whole()
+            self.git('update-ref', '-d', 'refs/remotes/origin/dev')
+            self.refused_whole()
+
+    def test_an_arrived_manifest_is_no_fix_round_s_own_and_needs_an_explicit_base(self):
+        self.arrive()
+        self.assertIn('other than 1 that came in through a merge from dev', self.guard('--base', 'wave/proofs', '--require-manifest', code=1))
+        self.env['CLEARCASE_BASE_REF'] = 'wave/proofs'
+        self.assertNotIn('came in through a merge from dev', self.guard(code=1))
+
+    def test_a_later_merge_from_dev_passes_and_the_named_test_file_must_be_dev_s_copy_at_it(self):
+        self.arrive()
+        self.git('switch', '-q', 'dev')
+        later = self.change({'support/helper.ts': self.helper + 'export const later = 1;\n'}, 'dev changes the helper later')
+        self.git('update-ref', 'refs/remotes/origin/dev', later)
+        self.git('switch', '-q', 'feature/grs-105-polish')
+        self.change({'docs/polish.md': 'more polish\n'}, 'polish after the first merge')
+        head = self.merge()
+        self.guard('--base', 'wave/proofs')
+        self.assertEqual(self.last_receipt()['guard']['fixBase'], head)
+        with self.subTest(bypass='the named test weakened between the two merges'):
+            self.git('switch', '-q', '-C', 'feature/grs-105-polish', f'{head}^1')
+            self.change({'tests/protected.test.ts': self.test.replace('.toEqual(false)', '.toBeDefined()')}, 'weaken it')
+            self.merge()
+            self.refused_whole()
+
 
 class RetainedPaths(ControlCase):
     """L1 and L2."""

@@ -361,7 +361,7 @@ try {
 		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
 		const afterKill = { db: dbRows(), shown: await reg() };
 
-		// the register export: imported values unchanged, a user-entered formula neutralised
+		// the register export: imported text neutralised at a formula start as typed text is (a plain number stays a number), a user-entered formula neutralised
 		await fill({ fl_filing: '=1+2' });
 		await p.click('#register-add');
 		await p.waitFor(`document.querySelectorAll('#filing-register tbody tr[data-key]').length === ${afterKill.shown.length + 1}`, 15000);

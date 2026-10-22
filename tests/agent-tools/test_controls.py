@@ -2037,6 +2037,13 @@ class GuardResidual(GuardCase):
             self.route(label, {'src/api.ts': code + '\n' + self.weakened}, base=base,
                        why='reaches the test framework')
 
+    def test_other_pure_computed_key_trees_cannot_hide_a_constructor(self):
+        for label, code in (
+                ('array literal coerces to constructor', "(({}) as any)[['constructor']].is = () => true;"),
+                ('constant conditional key', "const k = true ? 'constructor' : 'other'; const { [k]: C } = {} as any; C.is = () => true;"),
+                ('comma expression key', "(({}) as any)[(0, 'constructor')].is = () => true;")):
+            self.route(label, {'src/api.ts': code + '\n' + self.weakened}, why='reaches the test framework')
+
     def test_export_star_as_a_namespace_forwards_a_capability(self):
         # M1: `export * as N from` is a name, so a capability behind it refuses, directly or under an `export *` chain
         self.route('a star over a module that namespaces a builtin module',

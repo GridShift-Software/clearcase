@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
-import { checkSummary, PROBE_INPUTS } from '../../../deploy/probes/summary-check.ts';
+import { checkSummary, DEPLOYMENT_LEGS, PROBE_INPUTS } from '../../../deploy/probes/summary-check.ts';
 
 const SCRATCH = path.join(import.meta.dirname, '../../../.local/hosting-probe/deployment', `summary-check-${process.pid}`);
 afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
@@ -27,7 +27,12 @@ function repo() {
 	git('commit', '-q', '-m', 'the probe');
 	const source = git('rev-parse', 'HEAD');
 	const inputs = Object.fromEntries(PROBE_INPUTS.map((p) => [p, git('rev-parse', `HEAD:${p}`)]));
-	const summary = { schema: 'clearcase.deployment-probe/1', sourceSha: source, treeClean: true, evidence: true, inputs, legs: { P1: { status: 'PASS' }, P2: { status: 'PASS' } } };
+	const legs = Object.fromEntries(Object.entries(DEPLOYMENT_LEGS).map(([name, [steps, assertions]]) => [name, {
+		title: `Synthetic ${name}`, status: 'PASS', observed: {},
+		steps: Array.from({ length: steps }, () => ({ cmd: 'synthetic command', host: 'Bun', exit: 0, ms: 1, network: [] })),
+		asserted: Array.from({ length: assertions }, () => 'synthetic assertion'),
+	}]));
+	const summary = { schema: 'clearcase.deployment-probe/1', sourceSha: source, treeClean: true, evidence: true, inputs, legs };
 	const record = (edit: (s: Record<string, unknown>) => void = () => {}, page = `PASS at ${source}\n`) => {
 		const s = structuredClone(summary) as Record<string, unknown>;
 		edit(s);

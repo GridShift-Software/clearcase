@@ -1,6 +1,6 @@
 // Checks the committed deployment summary against the checkout (GRS-107). The summary is the probe's own output, written
 // at the commit it ran at; a later docs-only commit adds the summary and the page that cites it. The check passes when:
-//   - the summary has this schema, evidence true, a clean tree, and at least one leg, every one PASS;
+//   - the summary has this schema, evidence true, a clean tree, and all 13 expected PASS legs with their assertions;
 //   - its sourceSha is an ancestor of HEAD, never rewritten to HEAD;
 //   - it records the git object id of each of the probe's own inputs (PROBE_INPUTS), and those ids are the same at
 //     sourceSha and at HEAD, so a merge of other tickets' work changes nothing the summary vouches for;
@@ -17,6 +17,27 @@ import { fileURLToPath } from 'node:url';
 export const SUMMARY_SCHEMA = 'clearcase.deployment-probe/1';
 /** What the probe reads from the repository: nothing outside these decides its result. */
 export const PROBE_INPUTS = ['deploy/probes', 'tests/hosting-probe/deployment', 'tests/e2e/pilot/offline.sh'] as const;
+/** The run's fixed leg set and the number of steps and explicit assertions each leg records. */
+export const DEPLOYMENT_LEGS = {
+	'P1-discovery': [6, 6],
+	'P2a-kit-no-config': [3, 4],
+	'P2b-kit-cf-config': [2, 3],
+	'P3-build-workerd': [5, 8],
+	'P4-local-migrations': [7, 7],
+	'migration-failure-rollback': [9, 6],
+	'P5-vitest-pool': [2, 2],
+	'P6-void-native-d1': [3, 10],
+	'P7-cf-dry-run-offline': [1, 4],
+	'P8-unforced-destructive': [6, 6],
+	'P9-wrong-client': [21, 29],
+	'janitor-dry-run': [3, 6],
+	'credential-scan': [0, 3],
+} as const;
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+const hasKeys = (value: Record<string, unknown>, keys: readonly string[]) =>
+	Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+const nonempty = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
 
 /** Every reason the summary at `summary` does not vouch for the checkout at `repo`; empty means it does. */
 export function checkSummary(a: { repo: string; summary: string; doc: string }): string[] {
@@ -29,19 +50,38 @@ export function checkSummary(a: { repo: string; summary: string; doc: string }):
 			return false;
 		}
 	};
-	let s: Record<string, unknown>;
+	let s: unknown;
 	try {
 		s = JSON.parse(readFileSync(a.summary, 'utf8'));
 	} catch (e) {
 		return [`${a.summary} cannot be read: ${(e as Error).message}`];
 	}
 	const problems: string[] = [];
+	if (!isRecord(s)) return ['the summary is not an object'];
 	if (s.schema !== SUMMARY_SCHEMA) problems.push(`schema is ${JSON.stringify(s.schema)}, not ${SUMMARY_SCHEMA}`);
 	if (s.evidence !== true) problems.push('evidence is false: the run did not pass');
 	if (s.treeClean !== true) problems.push('treeClean is false: the run did not describe one commit');
-	const legs = typeof s.legs === 'object' && s.legs !== null ? Object.entries(s.legs as Record<string, { status?: unknown }>) : [];
-	if (!legs.length) problems.push('the summary holds no legs');
-	for (const [id, leg] of legs) if (leg?.status !== 'PASS') problems.push(`leg ${id} is ${String(leg?.status)}, not PASS`);
+	const legs = isRecord(s.legs) ? s.legs : {};
+	if (!Object.keys(legs).length) problems.push('the summary holds no legs');
+	if (!hasKeys(legs, Object.keys(DEPLOYMENT_LEGS))) problems.push('the summary does not hold exactly the 13 deployment legs');
+	for (const [id, shape] of Object.entries(DEPLOYMENT_LEGS)) {
+		const leg = legs[id];
+		if (!isRecord(leg)) {
+			problems.push(`leg ${id} is missing or malformed`);
+			continue;
+		}
+		if (!hasKeys(leg, ['title', 'status', 'steps', 'observed', 'asserted'])) problems.push(`leg ${id} has the wrong fields`);
+		if (!nonempty(leg.title)) problems.push(`leg ${id} has no title`);
+		if (leg.status !== 'PASS') problems.push(`leg ${id} is ${String(leg.status)}, not PASS`);
+		if (!isRecord(leg.observed)) problems.push(`leg ${id} has no observed record`);
+		if (!Array.isArray(leg.asserted) || leg.asserted.length !== shape[1] || !leg.asserted.every(nonempty)) problems.push(`leg ${id} must hold ${shape[1]} nonempty assertions`);
+		if (!Array.isArray(leg.steps) || leg.steps.length !== shape[0] || !leg.steps.every((step: unknown) =>
+			isRecord(step) && hasKeys(step, ['cmd', 'host', 'exit', 'ms', 'network']) && nonempty(step.cmd) && nonempty(step.host)
+			&& (step.exit === null || Number.isInteger(step.exit)) && typeof step.ms === 'number' && Number.isFinite(step.ms) && step.ms >= 0
+			&& (step.network === 'not recorded (Bun host)' || Array.isArray(step.network) && step.network.every((entry: unknown) => typeof entry === 'string'))
+		)) problems.push(`leg ${id} must hold ${shape[0]} well-formed steps`);
+	}
+	for (const [id, leg] of Object.entries(legs)) if (!Object.hasOwn(DEPLOYMENT_LEGS, id) && isRecord(leg) && leg.status !== 'PASS') problems.push(`leg ${id} is ${String(leg.status)}, not PASS`);
 	const sha = s.sourceSha;
 	if (typeof sha !== 'string' || !/^[0-9a-f]{40}$/.test(sha)) return [...problems, `sourceSha is ${sha === undefined ? 'missing' : JSON.stringify(sha)}, not a full commit id`];
 	if (!ok('merge-base', '--is-ancestor', sha, 'HEAD')) return [...problems, `sourceSha ${sha} is not an ancestor of HEAD`];

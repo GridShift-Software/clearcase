@@ -2068,6 +2068,11 @@ class GuardResidual(GuardCase):
                  ', '.join(str(ord(char)) for char in 'constructor') + ")];")):
             self.route(label, {'src/api.ts': code + '\n' + self.weakened})
 
+    def test_for_of_const_without_an_initializer_is_a_runtime_key(self):
+        self.route('for-of const key',
+                   {'src/api.ts': "const values: any = {}; for (const item of [{ key: 'name' }]) { "
+                                  "values[item.key] = 1; }\n" + self.weakened})
+
     def test_fixed_branch_alternatives_refuse_only_when_they_can_name_a_special_key(self):
         self.route('safe conditional keys',
                    {'src/api.ts': "export function pick(flag: boolean) { return ({} as any)[flag ? 'runs' : 'jobs']; }\n" + self.weakened})

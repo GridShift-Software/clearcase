@@ -19,7 +19,7 @@
 // scripts/verify/dispositions.mjs then reports every defect as registered.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { RANGES, registerFiles } from '../parity/lib/register.mjs';
+import { RANGES, RETIRED, registerFiles } from '../parity/lib/register.mjs';
 import { citing, isListed, readDefects } from './lib/defects.mjs';
 import { VIEWS } from '../../src/lib/components/view-registry.ts';
 
@@ -29,12 +29,6 @@ const REF = referenceAt > 0 ? resolve(process.argv[referenceAt + 1]) : join(ROOT
 const AUTHOR = 'GRS-67 dispositions (scripts/verify/register-dispositions.mjs)';
 /** Ids the main file may give a disposition of a pilot view: above its legacy entries, below every owner's range. */
 const MAIN_RANGE = [74, 99];
-/**
- * Ids an owner used and removed (from the register's git history): never issued again, so old reports stay unambiguous.
- * IDR-236 (GRS-173) is retired, not reused: the difference it registered no longer reaches parity (the sweep's To is not
- * the as-at date and its defaults case types no capital); the refusal that does is IDR-450.
- */
-const RETIRED = new Set([100, 106, 116, 124, 134, 150, 155, 157, 158, 159, 160, 162, 163, 165, 166, 169, 206, 208, 216, 218, 222, 236, 267, 302, 311, 314, 317, 320, 323, 324, 350, 358, 359, 360, 362, 363, 364].map((n) => `IDR-${n}`));
 const FIX = 'defect-fix', GAP = 'known-gap', DATA = 'data-correction-deferred-to-pipeline';
 
 // [defect, view, type, productVisible, evidence file, evidence pattern (a literal substring), covering entry or null, reason]
@@ -276,7 +270,7 @@ const fileOf = (view) => {
 	if (!owner) throw new Error(`unknown view ${view}`);
 	return RANGES[owner] ? files.find((f) => f.endsWith(`${owner}.json`)) : files[0];
 };
-const rangeOf = (file) => (file === files[0] ? MAIN_RANGE : RANGES[file.match(/(CC-\d+)\.json$/)[1]][0]);
+const rangesOf = (file) => (file === files[0] ? [MAIN_RANGE] : RANGES[file.match(/(CC-\d+)\.json$/)[1]]);
 
 const all = [...docs.values()].flatMap((d) => d.entries);
 const own = new Map(all.filter((e) => e.author === AUTHOR).map((e) => [e.source, e]));
@@ -293,14 +287,16 @@ const seen = new Set();
 const out = new Map(files.map((f) => [f, []]));
 const idOf = (file, defect) => {
 	const keep = previous.get(defect);
-	const [lo, hi] = rangeOf(file);
+	const ranges = rangesOf(file);
 	const n = keep ? Number(keep.slice(4)) : null;
-	if (n !== null && n >= lo && n <= hi && !taken.has(keep)) return keep;
-	for (let i = lo; i <= hi; i++) {
-		const id = `IDR-${String(i).padStart(3, '0')}`;
-		if (!taken.has(id) && !RETIRED.has(id) && ![...previous.values()].includes(id)) return id;
+	if (n !== null && ranges.some(([lo, hi]) => n >= lo && n <= hi) && !taken.has(keep) && !RETIRED.has(keep)) return keep;
+	for (const [lo, hi] of ranges) {
+		for (let i = lo; i <= hi; i++) {
+			const id = `IDR-${String(i).padStart(3, '0')}`;
+			if (!taken.has(id) && !RETIRED.has(id) && ![...previous.values()].includes(id)) return id;
+		}
 	}
-	throw new Error(`${defect}: no free id in IDR-${lo}–IDR-${hi}`);
+	throw new Error(`${defect}: no free id in ${ranges.map(([lo, hi]) => `IDR-${lo}–IDR-${hi}`).join(', ')}`);
 };
 for (const [named, view, type, productVisible, file, patterns, cover, why] of DISPOSITIONS) {
 	const defects = [named].flat();

@@ -31,6 +31,7 @@ export async function draftThroughDeleteWithHalfDate(p, { url, ready, fill, draf
 			await fill();
 		};
 		const post = async (selector) => {
+			if (!(await p.evaluate(`!!document.querySelector(${J(selector)})`))) return { moved: false, missing: selector, value: null, row: !!(await p.evaluate(`!!document.querySelector(${J(row)})`)), asking: false };
 			await p.evaluate('window.__draftRound = true');
 			await p.click(selector);
 			const moved = await p.waitFor(`window.__draftRound !== true && (${ready})`, wait).then(() => true, () => false);

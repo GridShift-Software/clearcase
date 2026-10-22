@@ -9,6 +9,8 @@ The hosted surface is the Worker that `bun run --bun build:hosted` builds into `
 
 Synthetic data only. The fixture is `tests/hosted-foundation/runtime/gate-fixture.ts` (two clients, three cases, four identities, four invented originals). The identity, store, assets and audit services are named test doubles of the `hosted-gate` profile; D1 and R2 are Miniflare's local implementations. A pass is not evidence for Clerk, Cloudflare D1 or R2, email or a deployment.
 
+When reporting acceptance, name the profile, revision, driven actions and real versus doubled service boundaries. The current sign-in/case/original/denial drive does not prove submission, private candidate editing, fresh sign-off or publication. Those actions need their own executable steps and evidence as GRS-137 extends the workflow. A historical probe's input or ancestry check validates that recorded probe; it does not turn it into a fresh provider run at the current app revision. Follow the provider disposition in `docs/plan/verification-and-review.md`; a pinned or unavailable provider leg stays HOLD or NOT RUN.
+
 ## Launch
 
 One command runs the whole lifecycle: preflight, then in one offline namespace build, start, live doctor, drive and stop, then cleanup.

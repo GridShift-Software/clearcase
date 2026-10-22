@@ -13,4 +13,4 @@ Each file has an H1, one paragraph, then `Sub-features`, `How to get to it (user
 
 ## Extending
 
-An owner who replaces a double (GRS-113 identity, GRS-115 storage and assets, GRS-120 viewer) updates that feature's file and its step in `../lib/steps.mjs` in the same change, keeps the selectors the stable handles listed here, and makes the gate summary's boundary entry say `real` only for a boundary a real provider answered. A new feature gets a file here and a step there; run `bin/verify-clearcase-hosted run` and `bun run --bun gate:hosted` before handing in.
+An owner who replaces a double (GRS-113 identity, GRS-115 storage and assets, GRS-120 viewer) updates that feature's file and its step in `../lib/steps.mjs` in the same change, keeps the selectors the stable handles listed here, and makes the gate summary's boundary entry say `real` only for a boundary a real provider answered. A new feature gets a file here and a step there. Run `bun run --bun gate:hosted` at the final SHA before handoff. The standalone skill run is available for focused debugging; a passing gate already includes its lifecycle and feature drive.

@@ -30,6 +30,14 @@ const refuse = (status: number, code: string, detail: Record<string, unknown> = 
 	throw new Refused(status, code, detail);
 };
 class GuardFailed extends Error {}
+/** An erasure that a restore write's lease holds unfinished: the case is removed, and a reconcile after `until` finishes it. */
+class LeaseHeld extends Error {
+	readonly until: string;
+	constructor(until: string) {
+		super(`a restore write holds its lease until ${until}`);
+		this.until = until;
+	}
+}
 
 type Row = Record<string, unknown>;
 /**
@@ -198,7 +206,7 @@ async function eraseNow(ctx: Ctx, caseId: string, set: [string, D1Value[]], cond
 	// One whose lease has run out is dead: its writer aborted its PUT by then, so its object is in R2 or never will be, and the
 	// sweep below takes every key the intents name.
 	const leased = await first<{ expires_at: string }>(ctx.db, `SELECT max(expires_at) AS expires_at FROM restore_object WHERE case_id = ? AND ${LEASED}`, caseId);
-	if (leased?.expires_at) throw new Error(`a restore write holds its lease until ${leased.expires_at}`);
+	if (leased?.expires_at) throw new LeaseHeld(leased.expires_at);
 	const late = (await all<{ k: string }>(ctx.db, 'SELECT object_key AS k FROM restore_object WHERE case_id = ?', caseId)).map((r) => r.k);
 	plan.leftovers = union(plan.leftovers ?? [], late);
 	await ctx.db.prepare('UPDATE case_deletion SET erase_plan = ? WHERE case_id = ?').bind(JSON.stringify(plan), caseId).run();
@@ -408,6 +416,8 @@ async function deletionStep(ctx: Ctx, request: Request, caseId: string, step: St
 		}
 	} catch (e) {
 		if (e instanceof GuardFailed) refuse(409, 'wrong-state', { step });
+		// Removed, its erasure left to the first reconcile after the lease (erase has written erase_error): never a wait.
+		if (e instanceof LeaseHeld) return json({ caseId, state: 'removed', erasure: 'pending', leaseUntil: e.until }, 202);
 		throw e;
 	}
 	return json({ caseId, ...(await deletionOf(ctx, caseId)) });

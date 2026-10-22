@@ -76,7 +76,7 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	'warm-isolate': [5, 6],
 	'interrupted-erasure': [9, 16],
 	'restore-removal-race': [10, 12],
-	'dead-intent': [7, 8],
+	'dead-intent': [7, 9],
 };
 type Spec = null | boolean | number | string | RegExp | ((v: unknown) => boolean) | Spec[] | { [key: string]: Spec };
 const NONEMPTY = (v: unknown) => typeof v === 'string' && v.length > 0;
@@ -1204,7 +1204,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			check(code(pendingAnswer, 409, 'case-deleted') && code(removedAnswer, 410, 'case-deleted') && code(settledAnswer, 410, 'case-deleted') && !!pendingAfter.erased_at && pendingAfter.erase_error === null && pendingResidue.left.length === 0 && !(await held('live', `orig/${pendingSha}`)), `the late R2 write is cleaned before erased_at is set (step ${pendingAnswer.status}, removal ${removedAnswer.status}, rows ${pendingResidue.left.join(', ')})`);
 			Object.assign(m, { lateWrites: object ? 1 : 0, residueRows: res.left.length, lateFinishRows: finishResidue.left.length, pendingHeld: pendingBefore });
 		});
-		await leg('dead-intent', ['POST /restore/packets, PUT …/1, POST …/complete, POST …/open for a synthetic backup', 'POST …/step with x-probe-published-hold: dead-write, GET /probe/storage-hold/dead-write, GET /probe/erasure/<case>, GET /recovery/head/live/orig/<sha>', wcmd('r2 object put {recovery-a,recovery-copies-a}/deletion/<case>.json --local'), `SIGKILL to workerd while the step is held, then ${serveCmd('client-a')} (a new isolate)`, 'GET /cases/<case>/documents/<ref> (x-probe-d1-statements), GET /probe/erasure/<case>, ' + wcmd('d1 execute DB --local --env client-a --command "SELECT erased_at, erase_error FROM case_deletion"'), wcmd('d1 execute DB --local --env client-a --command "UPDATE restore_object SET expires_at = <past>"') + ' (the lease runs out)', 'GET /cases/<case>/documents/<ref> (x-probe-d1-statements), GET /probe/erasure/<case>, GET /recovery/head/live/orig/<sha>, the residue through Wrangler'], async (check, m) => {
+		await leg('dead-intent', ['POST /restore/packets, PUT …/1, POST …/complete, POST …/open for a synthetic backup', 'POST …/step with x-probe-published-hold: dead-write, GET /probe/storage-hold/dead-write, GET /probe/erasure/<case>, GET /recovery/head/live/orig/<sha>', wcmd('r2 object put {recovery-a,recovery-copies-a}/deletion/<case>.json --local'), `SIGKILL to workerd while the step is held, then ${serveCmd('client-a')} (a new isolate)`, 'GET /cases/<case>/documents/<ref> (x-probe-d1-statements), GET /probe/erasure/<case>, ' + wcmd('d1 execute DB --local --env client-a --command "SELECT erased_at, erase_error FROM case_deletion"') + ', POST /cases/<case>/deletion/remove (a repeat)', wcmd('d1 execute DB --local --env client-a --command "UPDATE restore_object SET expires_at = <past>"') + ' (the lease runs out)', 'GET /cases/<case>/documents/<ref> (x-probe-d1-statements), GET /probe/erasure/<case>, GET /recovery/head/live/orig/<sha>, the residue through Wrangler'], async (check, m) => {
 			const caseId = 'case-recovery-dead-intent';
 			const bytes = synthetic('recovery probe dead restore original', 60);
 			const sha = sha256(bytes);
@@ -1236,6 +1236,8 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			const duringRow = d1('client-a', `SELECT erased_at, erase_error FROM case_deletion WHERE case_id = '${caseId}'`)[0] as { erased_at: string | null; erase_error: string | null } | undefined;
 			check(code(liveLease, 410, 'case-deleted') && WITHIN_D1(statements(liveLease)), `a new isolate reconciles the removal within D1's per-invocation limit while the dead intent's lease runs (${statements(liveLease)} statements, limit ${D1_QUERY_LIMIT}, answer ${liveLease.status})`);
 			check(during.state === 'removed' && during.erasedAt === null && during.pending === 1 && typeof duringRow?.erase_error === 'string', `erasure stays unfinished, with erase_error set, while the lease runs (erase_error ${duringRow?.erase_error ?? null})`);
+			const repeat = await post(`/cases/${caseId}/deletion/remove`, { actor: { role: 'global-admin', id: 'ga-1' } });
+			check(repeat.status === 202 && repeat.json().state === 'removed' && repeat.json().erasure === 'pending' && ISO.test(String(repeat.json().leaseUntil)) && WITHIN_D1(statements(repeat)), `a repeated removal answers 202 with the erasure pending until the lease runs out, without waiting (${repeat.status}, ${statements(repeat)} statements)`);
 			d1('client-a', `UPDATE restore_object SET expires_at = '2000-01-01T00:00:00.000Z' WHERE case_id = '${caseId}' AND in_progress = 1`);
 			const expiredLease = await http(`/cases/${caseId}/documents/S-0001`);
 			check(code(expiredLease, 410, 'case-deleted') && WITHIN_D1(statements(expiredLease)), `once the lease has run out the next reconcile stays within D1's per-invocation limit (${statements(expiredLease)} statements)`);

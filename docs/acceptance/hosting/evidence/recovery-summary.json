@@ -1,8 +1,8 @@
 {
   "schema": "clearcase.recovery-probe/1",
-  "sourceSha": "4e885ebadbe04847258270e54e04f1d999a1b825",
+  "sourceSha": "e3d1cacf1641eecc991ac2df799870db68fb431a",
   "inputs": {
-    "tests/hosting-probe/recovery": "b9bbf8a29c94f16425ea0d4d17e5e3e1e8b50a16",
+    "tests/hosting-probe/recovery": "d7216a0903ea721d99b51aa6cd62f63c6bf25a18",
     "tests/hosting-probe/storage/src": "d252989d4feb722a9f32883b8d236499b17d8c1f",
     "tests/hosting-probe/storage/schema.sql": "d3e1b6993acbfefe4645b4956b7de4b1c2f6861a",
     "tests/hosting-probe/storage/package.json": "68ce3647be995e5402a2992970b7d20409c08950",
@@ -10,9 +10,9 @@
     "tests/e2e/pilot/offline.sh": "f10ef9f0b803bb058b17fe456b0b27788b32dad6"
   },
   "treeClean": true,
-  "startedAt": "2026-10-22T05:42:14.779Z",
-  "finishedAt": "2026-10-22T05:43:34.665Z",
-  "runDir": ".local/hosting-probe/recovery/2026-10-22T05-42-14-779Z",
+  "startedAt": "2026-10-22T06:23:41.610Z",
+  "finishedAt": "2026-10-22T06:25:03.166Z",
+  "runDir": ".local/hosting-probe/recovery/2026-10-22T06-23-41-610Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -27,7 +27,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:628555b4c8d368b9f74e5f5aef2fc18f9defac522d6317286e1719208dd191dd",
+  "artifact": "sha256:29224786f575d66061a7cab738a51d8e271d13899872d3c9de470a69f8370285",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [
@@ -57,7 +57,7 @@
         "the bundle imports no node:, bun: or CommonJS module"
       ],
       "measured": {
-        "workerBytes": 108628
+        "workerBytes": 108722
       }
     },
     "provision": {
@@ -268,10 +268,10 @@
       "measured": {
         "restoredOriginals": 2,
         "lostRowsAfterCopy": 2,
-        "stageMs": 7.2,
-        "restoreMs": 96.2,
-        "checksMs": 70.7,
-        "totalMs": 1790.4
+        "stageMs": 7.5,
+        "restoreMs": 100.4,
+        "checksMs": 75.5,
+        "totalMs": 1731.5
       }
     },
     "retention": {
@@ -386,7 +386,7 @@
         "node ../storage/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-a --command \"SELECT state, erased_at, erase_plan FROM case_deletion\" --persist-to <run>/persist; POST /cases/<A6>/deletion/remove (a repeat)",
         "cases A7 and A8 as above, POST /cases/<A7>/deletion/remove with x-probe-fault: stop-after-d1, node ../storage/node_modules/wrangler/bin/wrangler.js dev --local --env client-a --ip 127.0.0.1 --port 18810 --inspector-port 0 --persist-to <run>/persist (a new isolate), GET /cases/<A8>/deletion and GET /cases/<A7>/documents/<ref> with x-probe-fault: fail-erase:<A7>, GET /recovery/head/live/<key>",
         "GET /cases/<A7>/documents/<ref> without the fault, GET /recovery/head/live/<key>, node ../storage/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-a --command \"SELECT state, erased_at, erase_error FROM case_deletion\" --persist-to <run>/persist",
-        "node ../storage/node_modules/wrangler/bin/wrangler.js r2 object delete recovery-copies-a/deletion/<A6>.json --local --persist-to <run>/persist, node ../storage/node_modules/wrangler/bin/wrangler.js dev --local --env client-a --ip 127.0.0.1 --port 18810 --inspector-port 0 --persist-to <run>/persist (a new isolate), GET /recovery/copies with x-probe-fault: fail-copyback:<A6>, GET /cases/<A6>/documents/<ref>, node ../storage/node_modules/wrangler/bin/wrangler.js dev --local --env client-a --ip 127.0.0.1 --port 18810 --inspector-port 0 --persist-to <run>/persist (a new isolate), GET /recovery/copies, GET /recovery/head/copies/<key>, node ../storage/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-a --command \"SELECT state, erased_at, erase_error FROM case_deletion\" --persist-to <run>/persist"
+        "node ../storage/node_modules/wrangler/bin/wrangler.js r2 object delete recovery-copies-a/deletion/<A6>.json --local --persist-to <run>/persist, node ../storage/node_modules/wrangler/bin/wrangler.js dev --local --env client-a --ip 127.0.0.1 --port 18810 --inspector-port 0 --persist-to <run>/persist (a new isolate), GET /recovery/copies with x-probe-fault: fail-copyback:<A6>, GET /cases/<A6>/documents/<ref>, node ../storage/node_modules/wrangler/bin/wrangler.js dev --local --env client-a --ip 127.0.0.1 --port 18810 --inspector-port 0 --persist-to <run>/persist (a new isolate), GET /recovery/copies, GET /recovery/head/copies/<key>, POST /cases/<A6>/deletion/remove (a repeat) with x-probe-fault: fail-erase:<A6>, node ../storage/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-a --command \"UPDATE case_deletion SET erase_error = ... WHERE case_id = <A6>\" (refused by the CHECK) --persist-to <run>/persist, node ../storage/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-a --command \"SELECT state, erased_at, erase_error FROM case_deletion\" --persist-to <run>/persist"
       ],
       "asserted": [
         "cases A5 and A6 each hold a package file, a list, an original, a sealed export and a bundle version, with an export left building, and their removal is offered",
@@ -402,7 +402,9 @@
         "A7 stays refused as removed on a second failing try: 410, no erased_at, the failure recorded in its row, and its objects kept for the next retry",
         "the next request without the fault finishes A7's erasure: no object is left (), erased_at is set and the recorded failure is cleared",
         "A6 is erased and its record is missing from RECOVERY: the copy back fails on a new isolate's first request, yet A6 stays erased and refused, and its row records no erasure failure (erase_error is only for an erasure that is unfinished)",
-        "the next new isolate copies the record back: RECOVERY holds it again, A6 is still erased since the same time and refused, and its row carries no stale erasure failure"
+        "the next new isolate copies the record back: RECOVERY holds it again, A6 is still erased since the same time and refused, and its row carries no stale erasure failure",
+        "a repeated removal of the erased A6 whose erasure fails answers 500, yet A6 keeps its erased_at, its row records no erasure failure, and it is still refused",
+        "the schema itself refuses an erase_error on an erased case: a direct write to A6's row fails and changes nothing"
       ],
       "measured": {
         "interruptedRemovals": 2,
@@ -428,7 +430,7 @@
   "failure": null,
   "evidence": true,
   "checker": {
-    "mutationsRefused": 1476,
+    "mutationsRefused": 1484,
     "accepted": null
   }
 }

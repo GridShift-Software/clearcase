@@ -1,16 +1,16 @@
 {
   "schema": "clearcase.storage-probe/1",
-  "sourceSha": "eb855c2e4092e5fdacf4367501a607089b094f6e",
+  "sourceSha": "63a4fcb9ff819ee40e4b466038ce9fcc64dc1082",
   "inputs": {
-    "tests/hosting-probe/storage": "dcd83b39719a191eadba3cb7ffd89544a311db51",
+    "tests/hosting-probe/storage": "cc1770d90d4024c28109631c91caafed6519bcdc",
     "tests/e2e/pilot/offline.sh": "f10ef9f0b803bb058b17fe456b0b27788b32dad6"
   },
   "treeClean": true,
   "scale": "poc",
   "seed": "grs-109",
-  "startedAt": "2026-10-22T04:51:49.994Z",
-  "finishedAt": "2026-10-22T05:00:47.287Z",
-  "runDir": ".local/hosting-probe/storage/2026-10-22T04-51-49-994Z",
+  "startedAt": "2026-10-22T09:22:18.230Z",
+  "finishedAt": "2026-10-22T09:32:42.235Z",
+  "runDir": ".local/hosting-probe/storage/2026-10-22T09-22-18-230Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -25,7 +25,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:9d5d5503a6e0c3094b9cdc7aef57ee3c63c91cc5801f903697d2bd8ae4069b90",
+  "artifact": "sha256:7809b92c33076a954c3a70a045e0c2914f1dbac1d12ae249c908e2ef6dc97230",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [
@@ -153,7 +153,7 @@
         "the bundle imports no node:, bun: or CommonJS module"
       ],
       "measured": {
-        "workerBytes": 81301
+        "workerBytes": 87458
       }
     },
     "provision": {
@@ -220,13 +220,13 @@
         "finalize without a size answers 400 naming the field, never a default (400 {\"code\":\"invalid-field\",\"field\":\"size\"})"
       ],
       "measured": {
-        "wallMs": 61569.5,
+        "wallMs": 89110.1,
         "originals": 1662,
         "bytes": 3211390882,
         "multipart": 9,
         "singlePuts": 1653,
         "failures": 0,
-        "retries": 0,
+        "retries": 2,
         "verifiedAtFinalizeBytes": 3211390882,
         "maxR2OpsPerFinalize": 2
       }
@@ -260,7 +260,7 @@
       ],
       "measured": {
         "recoveredRows": 3253,
-        "wallMs": 6076,
+        "wallMs": 6075.8,
         "documents": 1689,
         "assets": 3054,
         "seeds": 7,
@@ -305,10 +305,10 @@
         "chronologyR2Ops": 1,
         "originalRangeD1Statements": 1,
         "originalRangeR2Ops": 1,
-        "coldDocumentMs": 19.8,
-        "warmDocumentMs": 3.1,
-        "coldChronologyMs": 9.6,
-        "warmChronologyMs": 6.6
+        "coldDocumentMs": 21.8,
+        "warmDocumentMs": 3,
+        "coldChronologyMs": 8.5,
+        "warmChronologyMs": 6.4
       }
     },
     "range": {
@@ -339,10 +339,10 @@
         "client A's deployment knows no asset of client B's case (404, from A's own database)"
       ],
       "measured": {
-        "wholeLargestMs": 5793.8,
-        "rangeOnLargestMs": 2541.6,
+        "wholeLargestMs": 2793.7,
+        "rangeOnLargestMs": 1035.4,
         "largestOriginalBytes": 258590305,
-        "workerdPeakRssBytes": 473948160
+        "workerdPeakRssBytes": 283054080
       }
     },
     "write-once": {
@@ -360,12 +360,32 @@
         "case 1's original is still stored and served byte for byte after the refused finalize, and case 2 recorded nothing",
         "a second original is stored and recorded while a multipart upload for the same key is still open",
         "completing that multipart upload over the recorded key answers 409 conflicting-object, and the recorded original is served unchanged",
-        "a multipart upload whose bytes are not the ones its key names completes: R2 checks no SHA-256 for multipart",
-        "finalizing it answers 409 digest-mismatch (sha256), records nothing and deletes nothing: the unrecorded object stays for a reaper",
+        "a multipart upload whose bytes differ from its content address is refused before publication",
+        "the rejected multipart upload leaves no canonical object or original row to finalize",
         "binding a recorded asset to another original answers 409 and the asset still serves the first"
       ],
       "measured": {
         "refusedWrites": 4
+      }
+    },
+    "multipart-race": {
+      "status": "PASS",
+      "commands": [
+        "POST /originals/<sha>/uploads twice",
+        "PUT a verified part in the first upload and different bytes in the second",
+        "POST second …/complete with x-probe-hold: multipart-loser, GET /probe/hold/multipart-loser",
+        "POST first …/complete, POST /probe/hold/multipart-loser/release",
+        "POST /cases/<case>/originals and GET /cases/<case>/originals/<asset>"
+      ],
+      "asserted": [
+        "both multipart uploads for the same content address have a stored part",
+        "the second completion has passed its canonical-key check and is held before publication",
+        "the first completion wins and the held completion is refused (first 200, second 409)",
+        "the canonical key still contains the first verified bytes and serves them after finalize"
+      ],
+      "measured": {
+        "winningBytesKept": true,
+        "loserRefused": true
       }
     },
     "two-pass": {
@@ -458,9 +478,9 @@
         "the source deployment’s state digest covers the case’s rows and every object, none missing"
       ],
       "measured": {
-        "wallMs": 109070.4,
-        "workerdPeakRssBytes": 978583552,
-        "offlineCheckMs": 2579.8,
+        "wallMs": 109557.6,
+        "workerdPeakRssBytes": 936017920,
+        "offlineCheckMs": 2734.1,
         "entries": 1706,
         "packetBytes": 3222959051,
         "parts": 385,
@@ -525,7 +545,7 @@
         "finishing the same restore again answers 409 already-restored and changes nothing"
       ],
       "measured": {
-        "wallMs": 109767.2,
+        "wallMs": 135697.5,
         "entries": 1706,
         "steps": 32,
         "objects": 1700
@@ -552,7 +572,7 @@
         "an original is stored and verified through the upload path",
         "a backup with one entry whose central-directory CRC-32 is wrong still opens: its manifest is intact",
         "its step answers 422 crc-mismatch and the stored original is still there, with its SHA-256 (a mismatch deletes nothing)",
-        "an object other than its key names is in place under orig/<sha> (a multipart upload)",
+        "a credential holder puts other bytes under the restore target key through the local R2 CLI",
         "a step whose target key holds other bytes answers 409 conflicting-object and leaves those bytes",
         "open, step and finish naming another case answer 409 wrong-case, and neither case changes",
         "another case stages the same results version",
@@ -569,8 +589,8 @@
         "a backup whose results record expects 2 documents but carries 1 opens, and its objects are copied",
         "finishing it answers 422 invalid-packet and the case holds no version, original, revision or user work it did not hold before",
         "the corrected backup of the same case and version restores",
-        "an original is stored through multipart and recorded by another case: R2 holds no SHA-256 for it",
-        "a backup carrying that original steps and restores: the recorded multipart object is accepted and left as it was",
+        "an original is verified through multipart and recorded by another case under its SHA-256 key",
+        "a backup carrying that shared original steps and restores without replacing its verified bytes",
         "a backup whose user work holds one note key twice opens, and finishing it answers 422 invalid-packet naming uw_note; the case holds no version, row or revision it did not hold before",
         "a note whose NOT NULL body is null is refused the same way, and the case is as it was",
         "a backup whose register rows carry seq 1 and \"01\" (one INTEGER key) is refused 422 invalid-packet naming uw_register_row, before the first write; the case is as it was",
@@ -599,7 +619,7 @@
         "a save is acknowledged while the snapshot is held: revision 4",
         "the save acknowledged while the snapshot was read survives a restore of that snapshot at the current revision (the snapshot named revision 4 and held 4 rows; the restore answered 200 written)",
         "the snapshot's revision names exactly the rows it holds (revision 4, 4 rows): one read, not two",
-        "a hold that is never released answers 504 hold-timeout by itself within 45 s (504 after 30008 ms)",
+        "a hold that is never released answers 504 hold-timeout by itself within 45 s (504 after 30014 ms)",
         "two snapshot reads are held at once, each by its own token; releasing hold-a lets that read answer 200 and leaves hold-b held",
         "releasing hold-b then answers its read 200, and no hold is left"
       ],
@@ -607,7 +627,7 @@
         "savesDuringSnapshot": 1,
         "savesLost": 0,
         "snapshotRows": 4,
-        "unreleasedHoldMs": 30008.4,
+        "unreleasedHoldMs": 30013.8,
         "independentHolds": 2
       }
     }
@@ -622,13 +642,18 @@
     "P4 to P6 against the two-database layout arm (results and user work in separate D1 databases): not run, so the layout is chosen structurally, from statement and batch counts, until both layouts are compared (M2)"
   ],
   "devProxyRetries": {
-    "count": 0,
-    "requests": []
+    "count": 4,
+    "requests": [
+      "upload: POST /originals/<sha256>/uploads/WyIzNzE4YWRkZi0wNjY4LTQxOTktODA0OC0xZjhhNmNjNWI3ZjciLCJqbXU5a291OXo1Qmo2SmdwUlhQbUhZdGkwdlotOFdNTlUzVGo1TGlQVjF4ckczOFJuZDB4QUcta1EzbVg0TnhkWGlEZHRrSzlvVjlWX1p0emtIcDQ5TnRQQTRTeWVkcVpNS2xqWmh0Z0FKWUwzWEdpMEJRcGNISDk1RXVZUGFwWHhtRjBES2EzY1BKZ2lhSmVoV1RqaWhGQ19HaXBWbk1Yd0Q0ellWeDk2c28iXQ/complete (attempt 2)",
+      "upload: POST /cases/case-synthetic-1/originals (attempt 2)",
+      "restore: POST /restore/packets/<id>/step (attempt 2)",
+      "restore: POST /restore/packets/<id>/step (attempt 2)"
+    ]
   },
   "failure": null,
   "evidence": true,
   "checker": {
-    "mutationsRefused": 2241,
+    "mutationsRefused": 2321,
     "accepted": null
   }
 }

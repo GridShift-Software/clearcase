@@ -2021,6 +2021,22 @@ class GuardResidual(GuardCase):
                  'reaches the test framework')):
             self.route(label, {'src/api.ts': code + '\n' + self.weakened}, why=why)
 
+    def test_fixed_computed_keys_and_unresolvable_aliases_refuse(self):
+        long_key = "'c'+'o'+'n'+'s'+'t'+'r'+'u'+'c'+'t'+'o'+'r'"
+        aliases = "const k0 = 'constructor';\n" + ''.join(f'const k{i} = k{i-1};\n' for i in range(1, 10))
+        for label, code, base in (
+                ('long literal pattern', f'const {{ [{long_key}]: C }} = {{}} as any; C.is = () => true;', {}),
+                ('long literal element read', f'(({{}}) as any)[{long_key}].is = () => true;', {}),
+                ('nine const aliases', aliases + 'const { [k9]: C } = {} as any; C.is = () => true;', {}),
+                ('imported fixed key', "import { k } from './keys';\nconst { [k]: C } = {} as any; C.is = () => true;",
+                 {'src/keys.ts': "export const k = 'constructor';\n"}),
+                ('fixed key through two modules', "import { k } from './middle';\nconst { [k]: C } = {} as any; C.is = () => true;",
+                 {'src/keys.ts': "export const original = 'constructor';\n",
+                  'src/middle.ts': "export { original as k } from './keys';\n"}),
+                ('cyclic const aliases', 'const a = b; const b = a; const { [a]: C } = {} as any; C.is = () => true;', {})):
+            self.route(label, {'src/api.ts': code + '\n' + self.weakened}, base=base,
+                       why='reaches the test framework')
+
     def test_export_star_as_a_namespace_forwards_a_capability(self):
         # M1: `export * as N from` is a name, so a capability behind it refuses, directly or under an `export *` chain
         self.route('a star over a module that namespaces a builtin module',

@@ -799,7 +799,8 @@ built with `join`, `resolve` or `new URL`, resolved through the file's constants
 existence test and a copy are not reads: the code that reads a copy is scanned where it reads. Ambiguity fails closed:
 a path computed under a directory that holds documentation (`` join(ROOT, 'docs', 'plan', `${id}.md`) ``) reads that
 directory, and a read of a file name under an unknown directory (a copy in a temporary tree) reads every document of that
-name. A walk with no static directory, as `check-links` makes over every `.md` file, judges each document as its subject,
+name. A generic `commit('README.md', ...)` call is conservatively classified as a README read even when the helper writes
+to a temporary repository; the identity test's helper does not read the tracked root `README.md`. A walk with no static directory, as `check-links` makes over every `.md` file, judges each document as its subject,
 not as an expected value, and is not counted. `ReadDocuments` in `tests/agent-tools/test_docs_only.py` is the control:
 it fails when `test_guard.mjs --root . --read-documents HEAD` finds a read no entry covers, or an entry that covers no
 document, so a new reader adds its document to the list in the same change. A round that changes a read document names

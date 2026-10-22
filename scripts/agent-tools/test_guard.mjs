@@ -32,6 +32,7 @@ const READ_DOCUMENTS = [
   '.agents/skills/verify-clearcase-hosted/features/', // lib/features.mjs: each driven step's feature must name it
   'docs/acceptance/CC-11/defects-table.md', // scripts/verify/evidence.sh passes it to dispositions.mjs --md
   'docs/acceptance/CC-11/matrix.md', // scripts/verify/matrix.mjs builds it as its default output
+  'docs/acceptance/hosting/deployment.md', // deploy/probes/summary-check.ts and tests/hosting-probe/deployment/probe.ts
   'docs/ci-runner.md', // tests/ci/workflow-admission.test.ts, tests/ci/pc1-vm-verify.test.ts
   'docs/compatibility.md', // tests/case-package/compat/probe.ts reads its compat-inventory block
   'docs/delivery-plan.md', // scripts/planning/plan_format.py and generate.py, agent-tools verify plan-format
@@ -42,6 +43,7 @@ const READ_DOCUMENTS = [
   'docs/reference/parity/', // scripts/verify/dispositions.mjs and the register test read files there by computed name
   'docs/reference/view-checklist.md', // scripts/verify/matrix.mjs and lib/defects.mjs, scripts/fixtures/count_actions.py
   'docs/results-package.md', // tests/case-package/docs.test.ts and newer-analysis.test.ts
+  'README.md', // conservative generic-call classification of commit() in tests/hosting-probe/identity/check.test.ts
 ];
 const listed = file => READ_DOCUMENTS.some(entry => file === entry || entry.endsWith('/') && file.startsWith(entry));
 

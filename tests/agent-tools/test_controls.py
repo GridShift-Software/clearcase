@@ -2053,6 +2053,12 @@ class GuardResidual(GuardCase):
                    base={'src/keys.ts': "export const k = 'constructor';\n",
                          'src/middle.ts': "export * as Keys from './keys';\n"}, why='reaches the test framework')
 
+    def test_const_alias_of_an_imported_namespace_keeps_its_fixed_key(self):
+        self.route('const namespace alias',
+                   {'src/api.ts': "import * as keys from './keys';\nconst alias = keys; "
+                                  "const { [alias.k]: C } = {} as any; C.is = () => true;\n" + self.weakened},
+                   base={'src/keys.ts': "export const k = 'constructor';\n"}, why='reaches the test framework')
+
     def test_runtime_element_keys_stay_reviewer_owned(self):
         for label, code in (
                 ('parameter', 'export function read(k: string) { return ({} as any)[k]; }'),

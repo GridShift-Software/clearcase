@@ -111,10 +111,12 @@ async function attempt(env: Env, noticeId: string, now: number): Promise<void> {
 		.first<{ attempts: number; state: string; kind: NoticeKind; case_id: string; round: number; email: string | null; title: string; ref: string }>();
 	if (!row || !['pending', 'retrying'].includes(row.state)) return;
 	const n = row.attempts + 1;
-	const claim = await env.DB.prepare("UPDATE outbox SET state = 'sending', attempts = ?, claimed_at = ?, updated_at = ? WHERE notice_id = ? AND attempts = ? AND state = ?")
-		.bind(n, now, now, noticeId, row.attempts, row.state)
+	// Due is part of the claim, so it is atomic with it: a row read as pending that a sweep has since failed is retrying
+	// with its next_at in the future, and neither the inline first attempt nor a sweep holding an old list may take it.
+	const claim = await env.DB.prepare("UPDATE outbox SET state = 'sending', attempts = ?, claimed_at = ?, updated_at = ? WHERE notice_id = ? AND attempts = ? AND state = ? AND (next_at IS NULL OR next_at <= ?)")
+		.bind(n, now, now, noticeId, row.attempts, row.state, now)
 		.run();
-	if (claim.meta.changes !== 1) return; // another invocation took this attempt
+	if (claim.meta.changes !== 1) return; // another invocation took this attempt, or the row is not due yet
 
 	let code: string | null = null;
 	let messageId: string | null = null;
@@ -146,8 +148,10 @@ async function attempt(env: Env, noticeId: string, now: number): Promise<void> {
 }
 
 /**
- * The first attempt, inline, so the response can report it; bounded by SEND_TIMEOUT_MS. If it throws (a D1 error), the
- * committed publication and notice still answer 200: the row stays pending or sending, and the sweep takes it.
+ * The first attempt, inline, so the response can report it; bounded by SEND_TIMEOUT_MS. If a sweep has already taken
+ * the row and set its wait, the claim finds it not due and this leaves it alone: the response reports the row as it is.
+ * If it throws (a D1 error), the committed publication and notice still answer 200: the row stays pending or sending,
+ * and the sweep takes it.
  */
 async function firstAttempt(env: Env, noticeId: string, now: number): Promise<void> {
 	await attempt(env, noticeId, now).catch(unrecorded('first-attempt', noticeId));

@@ -21,6 +21,7 @@ const { appServer, vpath } = await import('../pilot/suite/context.mjs');
 const { startServer } = await import('../pilot/lib/server.mjs');
 const { buildCase, putOriginal } = await import('../pilot/lib/fixtures.ts');
 const { VIEWS } = await import('../../../src/lib/components/view-registry.ts');
+const { sourceMismatches } = await import('../../../scripts/parity/lib/compare.mjs');
 
 const ROOT = resolve(join(import.meta.dirname, '..', '..', '..'));
 const BUILD = join(ROOT, 'build');
@@ -181,10 +182,17 @@ try {
 	await scenario('SY4-backup-roundtrip', 'backup_tab', 'Export all state downloads one case file that says binaries are not included; after the additions are cleared, Import state restores them with the same refs', async () => {
 		await openView('backup_tab');
 		const shown = await tableRows('#backup-tables');
+		const heading = await text('#tables-h');
 		const binaries = await text('#backup-binaries');
 		const dl = await fetchText('#backup-export');
 		writeFileSync(backupPath, dl.text);
 		backup = JSON.parse(dl.text);
+		const sourceTables = backup.userWork.tables.map((t) => [t.name, t.owner, String(t.rows.length)]);
+		const sourceHeading = `What a backup holds now (${backup.userWork.tables.reduce((n, t) => n + t.rows.length, 0)} rows)`;
+		const inventory = sourceMismatches([
+			{ path: 'table.what_a_backup_holds_now.rows', rendered: shown, source: sourceTables },
+			{ path: 'table.what_a_backup_holds_now.heading', rendered: heading, source: sourceHeading },
+		]);
 		await openView('rescan_tab');
 		await p.evaluate(`document.getElementById('clear-confirm').checked = true`);
 		await p.click('#rescan-clear');
@@ -194,9 +202,9 @@ try {
 		const r = await restore({ file: backupPath });
 		await openView('rescan_tab');
 		const back = await addedRefs();
-		return { evidence: { shown, binaries, disposition: dl.disposition, counts: backup.counts, cleared, r, back },
+		return { evidence: { shown, heading, inventory, binaries, disposition: dl.disposition, counts: backup.counts, cleared, r, back },
 			checks: { file: backup.format === 'clearcase.backup/1' && backup.binaries === false && backup.case.caseId === CASE_ID && backup.case.resultsVersion === rv && typeof backup.sha256 === 'string',
-				name: /filename="clearcase-backup-e2e-system-\d{8}-\d{4}\.json"/.test(dl.disposition ?? ''), shown: shown.some((x) => x[0] === 'rescan_file' && x[2] === '3'), said: /^Binaries are not included\./.test(binaries ?? ''),
+				name: /filename="clearcase-backup-e2e-system-\d{8}-\d{4}\.json"/.test(dl.disposition ?? ''), inventory: inventory.length === 0, said: /^Binaries are not included\./.test(binaries ?? ''),
 				carried: backup.counts.rescan_file === 3 && backup.counts.rescan_run === 1 && !('trusted_warning' in backup.counts), cleared: cleared.length === 0, restored: /^Restored /.test(r.done ?? '') && J(back) === J(refs) } };
 	});
 
@@ -359,6 +367,27 @@ try {
 		const list = await fetch(`${A.origin}/api/v/${encodeURIComponent(rv)}/chronology`).then(async (r) => ({ status: r.status, text: await r.text() }));
 		const found = refs.filter((ref) => list.text.includes(J(ref)));
 		return { evidence: { status: list.status, refs, found }, checks: { ok: list.status === 200, additions: refs.length === 3 && found.length === 3 } };
+	});
+	await scenario('SY13-rendered-lists', 'overview', 'saved notes and bundle options rendered in the browser equal their synthetic source rows', async () => {
+		for (const [ref, body] of [['OD-001', 'Synthetic first note'], ['OD-001', 'Synthetic second note'], ['OD-002', 'Synthetic third note']]) {
+			await p.goto(`${A.origin}${vpath(rv)}/doc/${ref}`, `!!document.getElementById('note-body')`);
+			await p.type('#note-body', body);
+			await p.click('#note-add');
+			await p.waitFor(`[...document.querySelectorAll('#notes li[data-note] .wrap')].some((e) => e.textContent === ${J(body)})`, 10000);
+		}
+		const noteRows = A.work('SELECT ref_at_creation AS ref, count(*) AS n FROM note WHERE case_id = ? AND results_version = ? GROUP BY ref_at_creation ORDER BY ref_at_creation', CASE_ID, rv);
+		const sourceNotes = noteRows.map((r) => `${r.ref}: ${r.n}`);
+		await p.goto(`${A.origin}${vpath(rv)}/overview`, ready('overview'));
+		const renderedNotes = await p.evaluate(`[...document.querySelectorAll('section[aria-labelledby="kpi-notes"] li')].map((e) => e.textContent.replace(/\\s+/g, ' ').trim())`);
+		const sourceRows = await fetch(`${A.origin}/api/v/${encodeURIComponent(rv)}/chronology`).then((r) => r.json());
+		const sourceBundles = ['All bundles', ...[...new Set(sourceRows.map((r) => r.bundle))].sort()];
+		await p.goto(`${A.origin}${vpath(rv)}/chronology`, ready('chronology'));
+		const renderedBundles = await p.evaluate(`[...document.querySelectorAll('#f-bundle option')].map((e) => e.textContent.trim())`);
+		const mismatches = sourceMismatches([
+			{ path: 'list.my_notes', rendered: renderedNotes, source: sourceNotes },
+			{ path: 'list.select.all_bundles', rendered: renderedBundles, source: sourceBundles },
+		]);
+		return { evidence: { renderedNotes, sourceNotes, renderedBundles, sourceBundles, mismatches }, checks: { seededNotes: sourceNotes.length === 2, sourceRows: sourceRows.length > 0, oracle: mismatches.length === 0 } };
 	});
 	ok = results.length > 0 && results.every((r) => r.pass);
 } catch (e) {

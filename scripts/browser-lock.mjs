@@ -25,7 +25,7 @@ const SOURCES = { explicit: 'CLEARCASE_BROWSER_LOCK', discovered: 'discovered fr
  * JavaScript: the runners and checks that read a checkout's revision or tracked files (`-C <repo>`, `cwd: <repo>`, or
  * the cwd a package script runs in) take their `env` from here; tests/e2e/pilot/lib/fresh-build.ts re-exports it, and
  * scripts/verify/evidence.sh and scripts/ci/pc1-vm do the same in shell. Tests strip GIT_* at their boundary instead
- * (scripts/gate.mjs, tests/setup/strip-git-env.ts, both shell harnesses). Not covered: scripts/agent-tools/test_guard.mjs
+ * (scripts/gate.mjs; tests/setup/strip-git-env.ts, which every tracked Vitest config lists: the root, tests/parity and tests/acceptance/CC-23; both shell harnesses). Not covered: scripts/agent-tools/test_guard.mjs
  * keeps its own inline copy (its owner's), and scripts/fixtures/leak_check.py reads the repository GIT_DIR names.
  * It lives here because this file imports nothing from the repository.
  */

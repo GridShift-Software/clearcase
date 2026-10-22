@@ -24,7 +24,7 @@
 			{#if e.note}<div class="ex">{revealInvisible(e.note)}</div>{/if}
 		</div>
 	{:else}
-	<div class="ev" role="listitem"><span class="d">{e.date}</span> · <span class="badge b-mut">{e.kind}</span> <span class="mono">{e.ref}</span> <CitationLink resultsVersion={vid} ref={e.ref} exists={known.has(e.ref)} label="{cleanName(e.title)} ↗" />{#if e.note}<div class="ex">{e.note}</div>{/if}</div>
+	<div class="ev" role="listitem"><span class="d">{e.date}</span> · <span class="badge b-mut">{revealInvisible(e.kind)}</span> <span class="mono">{revealInvisible(e.ref)}</span> <CitationLink resultsVersion={vid} ref={e.ref} exists={known.has(e.ref)} label="{revealInvisible(cleanName(e.title))} ↗" />{#if e.note}<div class="ex">{revealInvisible(e.note)}</div>{/if}</div>
 	{/if}
 {/snippet}
 

@@ -40,5 +40,15 @@
       "tests": [],
       "unprotected": "Documentation correction; source counts remain historical, expected mappings are unverified until private real-export samples are available."
     }
+  ],
+  "tests": [
+    {
+      "file": "tests/analysis/supplemental-render.test.ts",
+      "name": "reveals bidi and zero-width characters in evidence text and relationship labels"
+    },
+    {
+      "file": "tests/case-package/newer-analysis-views.test.ts",
+      "name": "the Timeline lists every event once under its explicitly assigned date phase"
+    }
   ]
 }

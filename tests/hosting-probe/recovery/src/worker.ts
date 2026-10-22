@@ -87,12 +87,14 @@ async function guarded(db: D1, condition: string, params: D1Value[], statements:
 
 let recoveryClient: string | null = null; // per isolate, as the storage Worker caches its verified client
 
-async function open(env: RecoveryEnv): Promise<Ctx | Response> {
+async function open(env: RecoveryEnv, request: Request): Promise<Ctx | Response> {
 	const identity = await inner(env, '/identity');
 	if (identity.status !== 200) return identity; // the storage gate's own refusal (503), passed on unchanged
 	const client = ((await identity.json()) as { client: string }).client;
 	if (!isBinding(env.RECOVERY, 'get', 'put', 'head', 'list', 'delete')) refuse(503, 'missing-binding', { binding: 'RECOVERY' });
-	const ctx: Ctx = { client, db: env.DB as D1, bucket: env.BUCKET as R2, copies: env.RECOVERY as R2, env, fault: false, failErase: null };
+	// The probe's faults are read before anything runs, so that they reach the reconcile of a new isolate as well.
+	const fault = env.PROBE_FAULT === '1' ? request.headers.get('x-probe-fault') : null;
+	const ctx: Ctx = { client, db: env.DB as D1, bucket: env.BUCKET as R2, copies: env.RECOVERY as R2, env, fault: fault === 'stop-after-d1', failErase: fault?.startsWith('fail-erase:') ? fault.slice('fail-erase:'.length) : null };
 	if (recoveryClient !== client) {
 		// The other client's identifier is never echoed, as in the storage gate.
 		const object = await ctx.copies.get('identity/client.json');
@@ -464,12 +466,9 @@ async function putBundle(ctx: Ctx, request: Request, caseId: string, bundleId: s
 const INTROSPECT = /^(orig|pkg|rm|backup|export|bundle|recovery|deletion|import)\//;
 
 async function route(request: Request, env: RecoveryEnv): Promise<Response> {
-	const opened = await open(env);
+	const opened = await open(env, request);
 	if (opened instanceof Response) return opened;
 	const ctx = opened;
-	const fault = ctx.env.PROBE_FAULT === '1' ? request.headers.get('x-probe-fault') : null;
-	ctx.fault = fault === 'stop-after-d1';
-	ctx.failErase = fault?.startsWith('fail-erase:') ? fault.slice('fail-erase:'.length) : null;
 	const url = new URL(request.url);
 	const seg = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
 	const m = request.method;

@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { janitorPlan, openRun, runName, type Kind, type Listed, type Provider, type RunManifest } from '../../../deploy/probes/cloud-run.ts';
@@ -9,6 +9,7 @@ const REPO = path.join(import.meta.dirname, '../../..');
 const SCRATCH = path.join(REPO, '.local/hosting-probe/deployment', `cloud-run-${process.pid}`);
 const CHILD = path.join(import.meta.dirname, 'fixtures/cloud-run-child.ts');
 const NAME = 'cc-107-w1-abc1234';
+const RUN_ID = '00000000-0000-4000-8000-000000000107';
 afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
 
 let n = 0;
@@ -19,13 +20,13 @@ function world() {
 	for (const r of ['worker/cc-107-w9-1234567', 'd1/cc-107-w9-1234567', 'r2/clearcase-prod']) mkdirSync(path.join(cloud, r), { recursive: true });
 	return { manifests: path.join(root, 'cloud-runs'), cloud, provider: fakeCloud(cloud) };
 }
-const manifest = (dir: string) => JSON.parse(readFileSync(path.join(dir, `${NAME}.json`), 'utf8')) as RunManifest;
+const manifest = (dir: string) => JSON.parse(readFileSync(path.join(dir, readdirSync(dir).find((file) => file.endsWith('.json'))!), 'utf8')) as RunManifest;
 const OTHERS = ['d1/cc-107-w9-1234567', 'r2/clearcase-prod', 'worker/cc-107-w9-1234567'];
 
 describe('run names', () => {
-	test('cc-<ticket>-<worker>-<sha7>, lowercase', () => {
-		expect(runName({ ticket: '107', worker: 'W1', sha: 'ABC1234DEF0' })).toBe(NAME);
-		expect(runName({ ticket: '109', worker: 'w2', sha: 'ab12cd3' })).toBe('cc-109-w2-ab12cd3');
+	test('cc-<ticket>-<worker>-<sha7>-<run UUID>, lowercase', () => {
+		expect(runName({ ticket: '107', worker: 'W1', sha: 'ABC1234DEF0', runId: RUN_ID })).toBe(`${NAME}-${RUN_ID}`);
+		expect(runName({ ticket: '109', worker: 'w2', sha: 'ab12cd3', runId: RUN_ID })).toBe(`cc-109-w2-ab12cd3-${RUN_ID}`);
 	});
 	test.each([
 		[{ ticket: 'GRS-107', worker: 'w1', sha: 'abc1234' }, 'a ticket that is not digits'],
@@ -39,24 +40,25 @@ describe('run names', () => {
 describe('run manifest and teardown', () => {
 	test('a failed create cannot delete a Worker owned by another checkout', () => {
 		const w = world();
-		mkdirSync(path.join(w.cloud, 'worker', NAME), { recursive: true });
 		const run = openRun({ dir: w.manifests, ticket: '107', worker: 'w1', sha: 'abc1234', kinds: ['worker'], provider: w.provider, trap: false });
+		mkdirSync(path.join(w.cloud, 'worker', run.name), { recursive: true });
 		expect(() => run.create('worker')).toThrow(/exists/);
 		run.teardown();
-		expect(w.provider.names()).toContain(`worker/${NAME}`);
+		expect(w.provider.names()).toContain(`worker/${run.name}`);
 	});
 
-	test('two checkout manifests have distinct run ids and only the creator can remove their shared Worker name', () => {
+	test('two checkout manifests have distinct names and each teardown removes only its own Worker', () => {
 		const w = world();
 		const first = openRun({ dir: w.manifests, ticket: '107', worker: 'w1', sha: 'abc1234', kinds: ['worker'], provider: w.provider, trap: false });
 		const secondDir = path.join(path.dirname(w.manifests), 'other-checkout-runs');
 		const second = openRun({ dir: secondDir, ticket: '107', worker: 'w1', sha: 'abc1234', kinds: ['worker'], provider: w.provider, trap: false });
 		expect(manifest(w.manifests).runId).not.toBe(manifest(secondDir).runId);
+		expect(first.name).not.toBe(second.name);
 		first.create('worker');
-		expect(() => second.create('worker')).toThrow(/exists/);
-		second.teardown();
-		expect(w.provider.names()).toContain(`worker/${NAME}`);
+		second.create('worker');
 		first.teardown();
+		expect(w.provider.names()).toContain(`worker/${second.name}`);
+		second.teardown();
 		expect(w.provider.names()).toEqual(OTHERS);
 	});
 
@@ -78,6 +80,21 @@ describe('run manifest and teardown', () => {
 		expect(resources.size).toBe(0);
 	});
 
+	test('Worker, D1 and R2 names all carry the checkout run identity', () => {
+		const w = world();
+		const first = openRun({ dir: w.manifests, ticket: '107', worker: 'w1', sha: 'abc1234', kinds: ['worker', 'd1', 'r2'], provider: w.provider, trap: false });
+		const second = openRun({ dir: path.join(path.dirname(w.manifests), 'other-checkout-runs'), ticket: '107', worker: 'w1', sha: 'abc1234', kinds: ['worker', 'd1', 'r2'], provider: w.provider, trap: false });
+		for (const kind of ['worker', 'd1', 'r2'] as const) {
+			first.create(kind);
+			second.create(kind);
+		}
+		expect(first.name).not.toBe(second.name);
+		first.teardown();
+		expect(w.provider.names()).toEqual(['worker', 'd1', 'r2'].map((kind) => `${kind}/${second.name}`).concat(OTHERS).sort());
+		second.teardown();
+		expect(w.provider.names()).toEqual(OTHERS);
+	});
+
 	test('the manifest lists every resource before the first is created', () => {
 		const w = world();
 		mkdirSync(path.join(w.cloud, 'r2', NAME), { recursive: true });
@@ -88,18 +105,20 @@ describe('run manifest and teardown', () => {
 		} });
 		run.create('worker');
 		run.create('d1');
-		expect(seen[0]).toBe(`worker:worker/${NAME}/false,d1/${NAME}/false,r2/${NAME}/false`);
-		expect(seen[1]).toBe(`d1:worker/${NAME}/true,d1/${NAME}/false,r2/${NAME}/false`);
+		expect(seen[0]).toBe(`worker:worker/${run.name}/false,d1/${run.name}/false,r2/${run.name}/false`);
+		expect(seen[1]).toBe(`d1:worker/${run.name}/true,d1/${run.name}/false,r2/${run.name}/false`);
 		expect(manifest(w.manifests).state).toBe('open');
 		const done = run.teardown();
 		expect(done.resources.map((r) => [r.kind, r.created, r.teardown])).toEqual([['worker', true, 'deleted'], ['d1', true, 'deleted'], ['r2', false, 'pending']]);
 		expect(w.provider.names()).toEqual([`r2/${NAME}`, ...OTHERS].sort());
 	});
 
-	test('a second run with the same name is refused', () => {
+	test('a second run in the same manifest directory gets its own name and claim', () => {
 		const w = world();
-		openRun({ dir: w.manifests, ticket: '107', worker: 'w1', sha: 'abc1234', kinds: ['d1'], provider: w.provider, trap: false });
-		expect(() => openRun({ dir: w.manifests, ticket: '107', worker: 'w1', sha: 'abc1234', kinds: ['d1'], provider: w.provider, trap: false })).toThrow(/exists/);
+		const first = openRun({ dir: w.manifests, ticket: '107', worker: 'w1', sha: 'abc1234', kinds: ['d1'], provider: w.provider, trap: false });
+		const second = openRun({ dir: w.manifests, ticket: '107', worker: 'w1', sha: 'abc1234', kinds: ['d1'], provider: w.provider, trap: false });
+		expect(second.name).not.toBe(first.name);
+		expect(readdirSync(w.manifests)).toHaveLength(2);
 	});
 
 	test.each([
@@ -120,11 +139,12 @@ describe('run manifest and teardown', () => {
 		const w = world();
 		const child = spawn(process.execPath, [CHILD, w.manifests, w.cloud, 'wait', 'r2,d1'], { stdio: ['ignore', 'pipe', 'inherit'] });
 		await new Promise<void>((resolve) => child.stdout.on('data', (d: Buffer) => d.toString().includes('created') && resolve()));
-		mkdirSync(path.join(w.cloud, 'worker', NAME)); // exists without a successful, recorded create by this run
+		const name = manifest(w.manifests).name;
+		mkdirSync(path.join(w.cloud, 'worker', name)); // exists without a successful, recorded create by this run
 		const code = await new Promise((resolve) => (child.on('close', (c) => resolve(c)), child.kill('SIGTERM')));
 		expect(code).toBe(143);
 		expect(manifest(w.manifests).resources.map((x) => `${x.kind}:${x.created}:${x.teardown}`)).toEqual(['worker:false:pending', 'd1:true:deleted', 'r2:true:deleted']);
-		expect(w.provider.names()).toEqual([`worker/${NAME}`, ...OTHERS].sort());
+		expect(w.provider.names()).toEqual([`worker/${name}`, ...OTHERS].sort());
 	});
 
 	test('a failed delete is recorded and the rest are still deleted', () => {
@@ -134,7 +154,7 @@ describe('run manifest and teardown', () => {
 		const m = manifest(w.manifests);
 		expect(m.state).toBe('finished');
 		expect(m.resources.map((x) => `${x.kind}:${x.teardown}:${x.error}`)).toEqual(['worker:deleted:null', 'd1:failed:synthetic d1 delete failure', 'r2:deleted:null']);
-		expect(w.provider.names()).toEqual([`d1/${NAME}`, ...OTHERS]);
+		expect(w.provider.names()).toEqual([`d1/${m.name}`, ...OTHERS]);
 	});
 });
 
@@ -148,7 +168,7 @@ describe('teardown deletes only what this run opened (M3)', () => {
 	const rewrite = (w: ReturnType<typeof world>, edit: (m: RunManifest) => void) => {
 		const m = manifest(w.manifests);
 		edit(m);
-		writeFileSync(path.join(w.manifests, `${NAME}.json`), JSON.stringify(m));
+		writeFileSync(path.join(w.manifests, `${m.name}.json`), JSON.stringify(m));
 	};
 
 	test("a manifest rewritten during the run to list an unprefixed D1 deletes nothing but the run's own", () => {
@@ -161,7 +181,7 @@ describe('teardown deletes only what this run opened (M3)', () => {
 		run.create('d1');
 		rewrite(w, (m) => m.resources.push({ kind: 'd1', name: 'clearcase-client-a-db', created: true, teardown: 'pending', error: null }));
 		run.teardown();
-		expect(removed).toEqual([`d1/${NAME}`]);
+		expect(removed).toEqual([`d1/${run.name}`]);
 		expect(w.provider.names()).toEqual([`d1/clearcase-client-a-db`, `worker/${NAME}`, `r2/${NAME}`, ...OTHERS].sort());
 	});
 
@@ -177,7 +197,7 @@ describe('teardown deletes only what this run opened (M3)', () => {
 			m.resources[1]!.kind = 'kv' as never;
 		});
 		run.teardown();
-		expect(removed).toEqual([`d1/${NAME}`]);
+		expect(removed).toEqual([`d1/${run.name}`]);
 		expect(w.provider.names()).toEqual([`worker/${NAME}`, `r2/${NAME}`, ...OTHERS].sort());
 	});
 
@@ -188,9 +208,9 @@ describe('teardown deletes only what this run opened (M3)', () => {
 		const { removed, provider } = spy(w);
 		const run = open(w, provider);
 		run.create('d1');
-		writeFileSync(path.join(w.manifests, `${NAME}.json`), '{ not json');
+		writeFileSync(run.file, '{ not json');
 		const done = run.teardown();
-		expect(removed).toEqual([`d1/${NAME}`]);
+		expect(removed).toEqual([`d1/${run.name}`]);
 		expect(w.provider.names()).toEqual([`worker/${NAME}`, `r2/${NAME}`, ...OTHERS].sort());
 		expect(done.state).toBe('finished');
 		expect(manifest(w.manifests).state).toBe('finished');
@@ -220,38 +240,43 @@ describe('the janitor needs its manifests directory named (L6)', () => {
 describe('janitor dry run', () => {
 	const NOW = new Date('2026-10-21T12:00:00.000Z');
 	const OLD = '2026-10-20T11:00:00.000Z';
+	const FINISHED = `cc-107-w1-aaaaaaa-${RUN_ID}`;
+	const ORPHAN = `cc-109-w2-bbbbbbb-${RUN_ID}`;
+	const OPEN = `cc-108-w3-ccccccc-${RUN_ID}`;
+	const YOUNG = `cc-110-w1-ddddddd-${RUN_ID}`;
+	const BAD_TIME = `cc-111-w4-eeeeeee-${RUN_ID}`;
 	const listing: Listed[] = [
-		{ kind: 'worker', name: 'cc-107-w1-aaaaaaa', createdAt: OLD }, // finished manifest
-		{ kind: 'd1', name: 'cc-107-w1-aaaaaaa', createdAt: OLD },
-		{ kind: 'r2', name: 'cc-109-w2-bbbbbbb', createdAt: OLD }, // orphaned: no manifest
-		{ kind: 'd1', name: 'cc-108-w3-ccccccc', createdAt: OLD }, // open manifest
-		{ kind: 'd1', name: 'cc-110-w1-ddddddd', createdAt: '2026-10-21T00:00:00.000Z' }, // younger than 24 hours
+		{ kind: 'worker', name: FINISHED, createdAt: OLD }, // finished manifest
+		{ kind: 'd1', name: FINISHED, createdAt: OLD },
+		{ kind: 'r2', name: ORPHAN, createdAt: OLD }, // orphaned: no manifest
+		{ kind: 'd1', name: OPEN, createdAt: OLD }, // open manifest
+		{ kind: 'd1', name: YOUNG, createdAt: '2026-10-21T00:00:00.000Z' }, // younger than 24 hours
 		{ kind: 'worker', name: 'clearcase-client-a', createdAt: OLD }, // unprefixed
 		{ kind: 'r2', name: 'cc-prod-files', createdAt: OLD }, // cc- but not a run name
 		{ kind: 'worker', name: 'CC-107-W1-AAAAAAA', createdAt: OLD }, // uppercase is not a run name
-		{ kind: 'd1', name: 'cc-111-w4-eeeeeee', createdAt: 'yesterday' }, // unreadable time
-		{ kind: 'kv' as never, name: 'cc-107-w1-aaaaaaa', createdAt: OLD }, // a kind runs never create
+		{ kind: 'd1', name: BAD_TIME, createdAt: 'yesterday' }, // unreadable time
+		{ kind: 'kv' as never, name: FINISHED, createdAt: OLD }, // a kind runs never create
 	];
 	const manifests = () => {
 		const dir = path.join(SCRATCH, 'janitor-runs');
 		mkdirSync(dir, { recursive: true });
 		const m = (name: string, state: string) => writeFileSync(path.join(dir, `${name}.json`), JSON.stringify({ schema: 'clearcase.cloud-run/1', name, state }));
-		m('cc-107-w1-aaaaaaa', 'finished');
-		m('cc-108-w3-ccccccc', 'open');
+		m(FINISHED, 'finished');
+		m(OPEN, 'open');
 		return dir;
 	};
 
 	test('deletes only old run-named resources whose manifest is finished or missing', () => {
 		const plan = janitorPlan({ listing, manifests: manifests(), now: NOW });
-		expect(plan.remove.map((r) => `${r.kind}/${r.name}`)).toEqual(['worker/cc-107-w1-aaaaaaa', 'd1/cc-107-w1-aaaaaaa', 'r2/cc-109-w2-bbbbbbb']);
+		expect(plan.remove.map((r) => `${r.kind}/${r.name}`)).toEqual([`worker/${FINISHED}`, `d1/${FINISHED}`, `r2/${ORPHAN}`]);
 		expect(plan.keep.map((k) => `${k.resource.kind}/${k.resource.name}: ${k.reason.split(':')[0]}`)).toEqual([
-			'd1/cc-108-w3-ccccccc: its manifest is "open", not finished',
-			'd1/cc-110-w1-ddddddd: younger than 24 hours',
-			'worker/clearcase-client-a: not a run name (cc-<ticket>-<worker>-<sha7>)',
-			'r2/cc-prod-files: not a run name (cc-<ticket>-<worker>-<sha7>)',
-			'worker/CC-107-W1-AAAAAAA: not a run name (cc-<ticket>-<worker>-<sha7>)',
-			'd1/cc-111-w4-eeeeeee: createdAt "yesterday" is not a time',
-			'kv/cc-107-w1-aaaaaaa: kind kv is not one a run creates',
+			`d1/${OPEN}: its manifest is "open", not finished`,
+			`d1/${YOUNG}: younger than 24 hours`,
+			'worker/clearcase-client-a: not a run name (cc-<ticket>-<worker>-<sha7>-<run UUID>)',
+			'r2/cc-prod-files: not a run name (cc-<ticket>-<worker>-<sha7>-<run UUID>)',
+			'worker/CC-107-W1-AAAAAAA: not a run name (cc-<ticket>-<worker>-<sha7>-<run UUID>)',
+			`d1/${BAD_TIME}: createdAt "yesterday" is not a time`,
+			`kv/${FINISHED}: kind kv is not one a run creates`,
 		]);
 	});
 
@@ -274,7 +299,7 @@ describe('janitor dry run', () => {
 		const before = readFileSync(file, 'utf8');
 		const r = spawnSync(process.execPath, [path.join(REPO, 'deploy/probes/cloud-run.ts'), 'janitor', '--listing', file, '--manifests', dir, '--now', NOW.toISOString()], { encoding: 'utf8' });
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain('would delete r2 cc-109-w2-bbbbbbb');
+		expect(r.stdout).toContain(`would delete r2 ${ORPHAN}`);
 		expect(r.stdout).toContain('keep worker clearcase-client-a: not a run name');
 		expect(r.stdout.trim().split('\n').at(-1)).toBe('JANITOR DRY RUN: 3 to delete, 7 kept, nothing deleted');
 		expect(readFileSync(file, 'utf8')).toBe(before);

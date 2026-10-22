@@ -1,5 +1,5 @@
 // Disposable cloud resources for proof runs (GRS-107, the 17 October local-first plan on GRS-26). Every Worker, D1
-// database and R2 bucket a run creates is named cc-<ticket>-<worker>-<sha7>, in lowercase. A run claims its manifest,
+// database and R2 bucket a run creates is named cc-<ticket>-<worker>-<sha7>-<run UUID>, in lowercase. A run claims its manifest,
 // <dir>/<name>.json, with a unique run id before it creates anything, records each successful provider creation, and
 // an exit trap deletes only the (kind, name) pairs whose creation was recorded, held in memory and checked against the run's name
 // (the Worker first, then the database, then the bucket), and records each result. The manifest file is a record
@@ -20,7 +20,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const RUN_SCHEMA = 'clearcase.cloud-run/1';
-export const RUN_NAME = /^cc-([0-9]{1,6})-([a-z0-9]{1,12})-([0-9a-f]{7})$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+export const RUN_NAME = /^cc-([0-9]{1,6})-([a-z0-9]{1,8})-([0-9a-f]{7})-([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/;
 export const MAX_AGE_HOURS = 24;
 /** Teardown order: the Worker first, so nothing writes to its database or bucket while they are deleted; the bucket last. */
 export const KINDS = ['worker', 'd1', 'r2'] as const;
@@ -36,9 +37,10 @@ export interface Provider {
 	remove(kind: Kind, name: string): void;
 }
 
-export function runName(a: { ticket: string; worker: string; sha: string }): string {
-	const name = `cc-${a.ticket}-${a.worker}-${a.sha.slice(0, 7)}`.toLowerCase();
-	if (!RUN_NAME.test(name) || !/^[0-9a-f]{7,40}$/i.test(a.sha)) throw new Error(`${name} is not cc-<ticket digits>-<worker [a-z0-9]>-<sha7>`);
+export function runName(a: { ticket: string; worker: string; sha: string; runId?: string }): string {
+	const runId = a.runId ?? randomUUID();
+	const name = `cc-${a.ticket}-${a.worker}-${a.sha.slice(0, 7)}-${runId}`.toLowerCase();
+	if (!RUN_NAME.test(name) || !/^[0-9a-f]{7,40}$/i.test(a.sha) || !UUID.test(runId)) throw new Error(`${name} is not cc-<ticket digits>-<worker [a-z0-9]>-<sha7>-<run UUID>`);
 	return name;
 }
 
@@ -62,12 +64,13 @@ export type Run = { name: string; file: string; create(kind: Kind): void; teardo
  */
 export function openRun(a: { dir: string; ticket: string; worker: string; sha: string; kinds: Kind[]; provider: Provider; now?: () => Date; trap?: boolean }): Run {
 	const now = a.now ?? (() => new Date());
-	const name = runName(a);
+	const runId = randomUUID();
+	const name = runName({ ...a, runId });
 	const file = path.join(a.dir, `${name}.json`);
 	if (new Set(a.kinds).size !== a.kinds.length || !a.kinds.length) throw new Error(`kinds ${a.kinds.join(',')} must be distinct and nonempty`);
 	mkdirSync(a.dir, { recursive: true });
 	const order = [...a.kinds].sort((x, y) => KINDS.indexOf(x) - KINDS.indexOf(y));
-	const manifest: RunManifest = { schema: RUN_SCHEMA, runId: randomUUID(), name, sha: a.sha, createdAt: now().toISOString(), state: 'open', finishedAt: null, resources: order.map((kind) => ({ kind, name, created: false, teardown: 'pending', error: null })) };
+	const manifest: RunManifest = { schema: RUN_SCHEMA, runId, name, sha: a.sha, createdAt: now().toISOString(), state: 'open', finishedAt: null, resources: order.map((kind) => ({ kind, name, created: false, teardown: 'pending', error: null })) };
 	try {
 		write(file, manifest, true);
 	} catch (e) {
@@ -136,7 +139,7 @@ export function janitorPlan(a: { listing: Listed[]; manifests: string; now: Date
 		const created = Date.parse(resource.createdAt);
 		const file = path.join(a.manifests, `${resource.name}.json`);
 		if (!KINDS.includes(resource.kind)) keep(`kind ${resource.kind} is not one a run creates`);
-		else if (!RUN_NAME.test(resource.name)) keep('not a run name (cc-<ticket>-<worker>-<sha7>): never touched');
+		else if (!RUN_NAME.test(resource.name)) keep('not a run name (cc-<ticket>-<worker>-<sha7>-<run UUID>): never touched');
 		else if (!Number.isFinite(created)) keep(`createdAt ${JSON.stringify(resource.createdAt)} is not a time`);
 		else if (a.now.getTime() - created < MAX_AGE_HOURS * 3_600_000) keep(`younger than ${MAX_AGE_HOURS} hours`);
 		else if (!existsSync(file)) plan.remove.push(resource);

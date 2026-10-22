@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
+import { RUN_NAME } from './cloud-run.ts';
 
 export const SUMMARY_SCHEMA = 'clearcase.deployment-probe/1';
 /** What the probe reads from the repository: nothing outside these decides its result. */
@@ -29,6 +30,17 @@ export const PROBE_ENV_KEYS = [
 	'WRANGLER_HIDE_BANNER', 'WRANGLER_LOG_PATH', 'WRANGLER_SEND_ERROR_REPORTS', 'WRANGLER_SEND_METRICS',
 	'XDG_CACHE_HOME', 'XDG_CONFIG_HOME',
 ] as const;
+export const PROBE_ENVIRONMENT = {
+	BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', CI: '1', CLOUDFLARE_CF_FETCH_ENABLED: 'false',
+	CLOUDFLARE_DEPENDENCIES_INSTRUMENTATION: 'false', CLOUDFLARE_INCLUDE_PROCESS_ENV: 'false',
+	CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false', DO_NOT_TRACK: '1', HOME: '<run>/home',
+	PATH: '<node-dir>:<bun-dir>:/usr/bin:/bin', WRANGLER_HIDE_BANNER: 'true',
+	WRANGLER_LOG_PATH: '<run>/logs/wrangler', WRANGLER_SEND_ERROR_REPORTS: 'false',
+	WRANGLER_SEND_METRICS: 'false', XDG_CACHE_HOME: '<run>/home/.cache', XDG_CONFIG_HOME: '<run>/home/.config',
+} as const;
+type Transcript = Record<string, { title: string; steps: { host: string; cmd: string; exit: number | null; network: string[] | string }[]; asserted: string[] }>;
+/** Reviewed transcript that the runner and committed summary must both match. Dynamic values are bound below. */
+export const DEPLOYMENT_TRANSCRIPT: Transcript = JSON.parse(readFileSync(path.join(import.meta.dirname, 'transcript.json'), 'utf8'));
 /** Fixed PASS shape: [steps, assertions, observed fields] for each of the runner's 13 legs. */
 export const DEPLOYMENT_LEGS = {
 	'P1-discovery': [6, 6, ['cfEngines', 'nodeSatisfiesCfEngines', 'bun', 'searchMatches']],
@@ -38,11 +50,11 @@ export const DEPLOYMENT_LEGS = {
 	'P4-local-migrations': [7, 7, ['cfQueryLocal', 'cfRows', 'wranglerRows', 'wranglerReadsCfState', 'wranglerDevOnCfState']],
 	'migration-failure-rollback': [9, 6, ['before', 'afterFailure', 'firstStatementOf0003Kept', 'afterRollback', 'rollback']],
 	'P5-vitest-pool': [2, 2, ['node', 'bun']],
-	'P6-void-native-d1': [3, 10, ['info', 'build', 'generatedConfigBindsD1', 'bundleModules', 'configEvaluations', 'deployOffline', 'automaticMigrations', 'canaryInVoidOutputs']],
+	'P6-void-native-d1': [3, 10, ['info', 'build', 'generatedConfigBindsD1', 'bundleModules', 'configEvaluations', 'deployOffline', 'automaticMigrations', 'canaryInVoidOutputs', 'voidScanFiles']],
 	'P7-cf-dry-run-offline': [1, 4, ['writes', 'writeFree']],
 	'P8-unforced-destructive': [6, 6, ['cf d1 delete, no token', 'cf d1 delete', 'cf workers delete', 'cf d1 delete --local', 'wrangler d1 delete']],
 	'P9-wrong-client': [21, 29, ['account', 'own', 'refusals', 'dryRunAlone', 'prebuilt']],
-	'janitor-dry-run': [3, 6, ['plan', 'withoutManifests']],
+	'janitor-dry-run': [3, 6, ['plan', 'withoutManifests', 'runName']],
 	'credential-scan': [0, 3, ['roots', 'files', 'hits', 'control']],
 } as const;
 
@@ -56,6 +68,37 @@ const probePackage: unknown = JSON.parse(readFileSync(packageFile, 'utf8'));
 if (!isRecord(probePackage) || !isRecord(probePackage.devDependencies) || !nonempty(probePackage.packageManager)) throw new Error(`${packageFile} lacks pinned probe dependencies`);
 export const DEPLOYMENT_PINS = probePackage.devDependencies;
 export const DEPLOYMENT_BUN = probePackage.packageManager.replace(/^bun@/, '');
+
+export function transcriptProblems(a: { legs: Record<string, unknown>; sourceSha: unknown; startedAt: unknown }): string[] {
+	const problems: string[] = [];
+	const observed = (id: string) => isRecord(a.legs[id]) && isRecord(a.legs[id].observed) ? a.legs[id].observed : {};
+	const artifact = observed('P3-build-workerd').artifact;
+	const voidFiles = observed('P6-void-native-d1').voidScanFiles;
+	const files = observed('credential-scan').files;
+	const runName = observed('janitor-dry-run').runName;
+	if (typeof artifact !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(artifact)) problems.push('P3-build-workerd artifact digest is malformed');
+	if (!Number.isInteger(voidFiles) || typeof voidFiles !== 'number' || voidFiles < 1) problems.push('P6-void-native-d1 scan file count is malformed');
+	if (!Number.isInteger(files) || typeof files !== 'number' || files < 1) problems.push('credential-scan file count is malformed');
+	if (typeof runName !== 'string' || !RUN_NAME.test(runName) || typeof a.sourceSha !== 'string' || !runName.startsWith(`cc-107-w1-${a.sourceSha.slice(0, 7)}-`)) problems.push('janitor-dry-run run name is malformed');
+	const values: Record<string, string> = {
+		'<artifact>': typeof artifact === 'string' ? artifact : '',
+		'<sourceSha>': typeof a.sourceSha === 'string' ? a.sourceSha : '',
+		'<startedAt>': typeof a.startedAt === 'string' ? a.startedAt : '',
+		'<voidFiles>': typeof voidFiles === 'number' ? String(voidFiles) : '',
+		'<files>': typeof files === 'number' ? String(files) : '',
+		'<runName>': typeof runName === 'string' ? runName : '',
+	};
+	const expand = (value: string) => Object.entries(values).reduce((text, [key, replacement]) => text.replaceAll(key, replacement), value);
+	for (const [id, expected] of Object.entries(DEPLOYMENT_TRANSCRIPT)) {
+		const leg = a.legs[id];
+		if (!isRecord(leg)) continue;
+		if (leg.title !== expected.title) problems.push(`leg ${id} title does not match the probe definition`);
+		const steps = Array.isArray(leg.steps) ? leg.steps.map((step: unknown) => isRecord(step) ? { host: step.host, cmd: step.cmd, exit: step.exit, network: step.network } : step) : leg.steps;
+		if (!isDeepStrictEqual(steps, expected.steps.map((step) => ({ host: step.host, cmd: expand(step.cmd), exit: step.exit, network: step.network })))) problems.push(`leg ${id} steps do not match the probe definition`);
+		if (!isDeepStrictEqual(leg.asserted, expected.asserted.map(expand))) problems.push(`leg ${id} assertions do not match the probe definition`);
+	}
+	return problems;
+}
 
 /** Every reason the summary at `summary` does not vouch for the checkout at `repo`; empty means it does. */
 export function checkSummary(a: { repo: string; summary: string; doc: string }): string[] {
@@ -91,7 +134,7 @@ export function checkSummary(a: { repo: string; summary: string; doc: string }):
 		problems.push('hosts do not match the probe runtimes and pins');
 	const isolation = isRecord(s.isolation) ? s.isolation : {};
 	if (!hasKeys(isolation, ['network', 'env']) || isolation.network !== 'own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden'
-		|| !isDeepStrictEqual(isolation.env, PROBE_ENV_KEYS)) problems.push('isolation does not describe the offline probe environment');
+		|| !isDeepStrictEqual(isolation.env, PROBE_ENVIRONMENT)) problems.push('isolation does not describe the offline probe environment');
 	if (!isDeepStrictEqual(s.hold, DEPLOYMENT_HOLD)) problems.push('hold is not the deployment cloud-leg boundary');
 	const legs = isRecord(s.legs) ? s.legs : {};
 	if (!Object.keys(legs).length) problems.push('the summary holds no legs');
@@ -114,6 +157,7 @@ export function checkSummary(a: { repo: string; summary: string; doc: string }):
 		)) problems.push(`leg ${id} must hold ${shape[0]} well-formed steps`);
 	}
 	for (const [id, leg] of Object.entries(legs)) if (!Object.hasOwn(DEPLOYMENT_LEGS, id) && isRecord(leg) && leg.status !== 'PASS') problems.push(`leg ${id} is ${String(leg.status)}, not PASS`);
+	problems.push(...transcriptProblems({ legs, sourceSha: s.sourceSha, startedAt: s.startedAt }));
 	const sha = s.sourceSha;
 	if (typeof sha !== 'string' || !/^[0-9a-f]{40}$/.test(sha)) return [...problems, `sourceSha is ${sha === undefined ? 'missing' : JSON.stringify(sha)}, not a full commit id`];
 	if (!ok('merge-base', '--is-ancestor', sha, 'HEAD')) return [...problems, `sourceSha ${sha} is not an ancestor of HEAD`];

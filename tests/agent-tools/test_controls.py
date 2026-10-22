@@ -3234,7 +3234,8 @@ class FixRoundArrival(ControlCase):
         self.assertIn(f"judged from the branch's last merge from dev, {head[:12]}, not from its fixBase {self.base[:12]}",
                       self.guard('--base', 'wave/proofs'))
         guard = self.last_receipt()['guard']
-        self.assertEqual((guard['fixBase'], guard['arrivedThrough'], guard['trustedBase']), (head, head, self.git('rev-parse', 'wave/proofs')))
+        self.assertEqual((guard['fixBase'], guard['arrivedThrough'], guard['trustedBase'], guard['namedTestReference']),
+                         (head, head, self.git('rev-parse', 'wave/proofs'), self.base))
 
     def test_a_weakening_after_the_merge_still_refuses(self):
         head = self.arrive()
@@ -3342,8 +3343,10 @@ class FixRoundArrival(ControlCase):
                             self.git('rev-parse', f'{self.landed}:tests/protected.test.ts'))
         self.assertEqual(self.git('rev-parse', f'{head}:tests/protected.test.ts'),
                          self.git('rev-parse', f'{head}^2:tests/protected.test.ts'))
+        self.assertNotEqual(self.git('rev-parse', f'{head}:support/helper.ts'),
+                            self.git('rev-parse', f'{head}^2:support/helper.ts'))
         out = self.guard('--base', 'wave/proofs', code=1)
-        self.assertIn('named test changed', out)
+        self.assertIn('protected dependency changed: support/helper.ts', out)
         self.assertEqual(self.last_receipt()['result'], 'FAIL')
 
     def test_arrival_keeps_the_original_fix_base_as_a_named_test_reference(self):
@@ -3356,6 +3359,7 @@ class FixRoundArrival(ControlCase):
         self.merge()
         out = self.guard('--base', 'wave/proofs', code=1)
         self.assertIn('named test changed', out)
+        self.assertIn("against the manifest's original fixBase", out)
         self.assertEqual(self.last_receipt()['result'], 'FAIL')
 
 

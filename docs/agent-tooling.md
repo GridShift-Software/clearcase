@@ -440,8 +440,9 @@ base when all of these hold, prints `came in through a merge from dev` and recor
   `refs/remotes/origin/dev`, which holds the same copy.
 - The manifest came in through one: the oldest commit of HEAD's first-parent line from which HEAD's copy is unchanged
   is a merge from `dev`, and its first parent holds no copy.
-- The guard judges from the newest merge from `dev` on that stretch of the line. There, each test file the manifest names
-  is as the `dev` parent holds it, mode and blob alike.
+- Every merge from `dev` on that stretch of the line must hold each named test file exactly as that merge's `dev` parent
+  does, mode and blob alike. If any merge differs, arrival is not trusted and the whole range from `fixBase` is judged;
+  a later clean merge cannot hide an earlier weakened test.
 
 Otherwise the whole range from the `fixBase` is judged, as before. `refs/remotes/origin/dev` is a second trust anchor
 beside `--base`, and nothing the pull request passes names it: CI's checkout fetches it from GitHub, and `base-guard`
@@ -452,10 +453,13 @@ From the merge on, the guard judges every change as for any manifest: the named 
 configuration and the fixtures, with the base's later changes trusted as above. What the line holds at that merge is not
 the fix round's change: the wave's commits, the pull request's own earlier commits, an earlier merge from `dev`, and what
 a merge resolved outside the named test files. A pull request into the wave that does not merge `dev` carries the same
-changes with nothing to protect, so its review owns them, as for any pull request that is not a fix round. A change to a
-named test file anywhere on that line, or inside a merge, leaves the file unlike `dev`'s at the newest merge, and the whole
-range is judged. A pull request that merges `dev` last has an empty range. The rule reaches a pull request only once it
-is on that pull request's base, because CI and `base-guard` run the base's guard.
+changes with nothing to protect, so its review owns them, as for any pull request that is not a fix round. A named test
+change at any merge or on that line makes arrival fail closed. When arrival is trusted, the original manifest `fixBase` remains an additional reference for every
+named test, alongside the arrival merge and applicable GRS-169 base-change references. Narrowing the other comparisons
+therefore cannot replace the named-test baseline: a `dev` change to a named test after the manifest was reviewed still
+refuses until a reviewed `fixBase` advance. The receipt records this baseline as `guard.namedTestReference`. A pull request
+that merges `dev` last has an empty range. The rule reaches a pull request only once it is on that pull request's base,
+because CI and `base-guard` run the base's guard.
 
 Findings JSON has `tests: [{"file": "tests/example.test.ts", "name": "rejects stale evidence"}]`.
 The list must be nonempty, unless the manifest declares that the review names no test

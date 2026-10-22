@@ -1427,9 +1427,11 @@ def capability_command(name, args):
         findings = Path(args.findings).expanduser().resolve() if args.findings else None
         problem = None if findings and args.fix_base else "test-guard requires --findings PATH and --fix-base REF"
         trusted, tip = getattr(args, "trusted_base", None), getattr(args, "fix_head", None)
+        named_test_reference = getattr(args, "named_test_reference", None)
         return ([which("node") or "node", str(script), "--root", str(root), "--fix-base", args.fix_base or "",
                  "--findings", str(findings or ""), *(["--trusted-base", trusted] if trusted else []),
-                 *(["--fix-head", tip] if tip else [])],
+                 *(["--fix-head", tip] if tip else []),
+                 *(["--named-test-reference", named_test_reference] if named_test_reference else [])],
                 ["node"], [script, *([findings] if findings else [])], problem, None)
     if name == "app":
         runner = root / APP_RUNNER
@@ -1473,7 +1475,8 @@ def guard_claims(root, args):
     except (OSError, ValueError, TypeError):
         pass  # the guard itself refuses a missing or malformed manifest
     return {"guard": {"fixBase": base, **claims, "trustedBase": getattr(args, "trusted_base", None),
-                      "fixHead": getattr(args, "fix_head", None), "arrivedThrough": getattr(args, "arrived_through", None)}}
+                      "fixHead": getattr(args, "fix_head", None), "arrivedThrough": getattr(args, "arrived_through", None),
+                      "namedTestReference": getattr(args, "named_test_reference", None)}}
 
 
 def run_capability(name, args):
@@ -2201,11 +2204,14 @@ def arrival(root, head, merge_base, path):
               and git(root, "merge-base", "--is-ancestor", row[2], DEV_ANCHOR)[0] == 0]
     if not merges or merges[-1] is not oldest:
         return None
-    merge = merges[0]
-    listed = [git(root, "--literal-pathspecs", "ls-tree", "-z", sha, "--", *files) for sha in (merge[0], merge[2])]
-    if any(problem for _, _, problem in listed) or listed[0][1] != listed[1][1]:
-        return None
-    return merge[0]
+    # Every merge that carries this unchanged manifest is part of the arrival stretch. Checking only the newest one
+    # lets an earlier merge weaken a named test and a later unrelated dev merge hide that edit from the narrowed range.
+    for merge in merges:
+        listed = [git(root, "--literal-pathspecs", "ls-tree", "-z", sha, "--", *files)
+                  for sha in (merge[0], merge[2])]
+        if any(problem for _, _, problem in listed) or listed[0][1] != listed[1][1]:
+            return None
+    return merges[0][0]
 
 
 def ledger_store(args):
@@ -2335,9 +2341,11 @@ def cmd_fix_round_guard(args):
             status = 1
             continue
         joined, fix_base = arrivals.get(path), manifest["fixBase"]
+        named_test_reference = None
         if joined:
             print(f"fix-round-guard: {path} came in through a merge from dev, which holds it as HEAD does; judged from "
                   f"the branch's last merge from dev, {joined[:12]}, not from its fixBase {fix_base[:12]}")
+            named_test_reference = fix_base
             fix_base = joined
         # A wave pull request into dev reruns every manifest at the wave head. A no-test declaration there covers its
         # own fix round, which ends where its line merged into the wave, judged against the wave state that line holds.
@@ -2350,7 +2358,8 @@ def cmd_fix_round_guard(args):
             tip, line_base = fix_round_line(root, identity["head"], identity["mergeBase"], path)
             judged = line_base if tip else trusted
         guard = argparse.Namespace(**{**vars(args), "findings": str(root / path), "fix_base": fix_base,
-                                      "trusted_base": judged, "fix_head": tip, "arrived_through": joined})
+                                      "trusted_base": judged, "fix_head": tip, "arrived_through": joined,
+                                      "named_test_reference": named_test_reference})
         status = run_capability("test-guard", guard) or status
     return 1 if status else 0
 

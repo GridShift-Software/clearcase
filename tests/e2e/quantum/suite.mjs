@@ -64,6 +64,30 @@ try {
 	await p.s('Emulation.setTimezoneOverride', { timezoneId: 'UTC' });
 	const k = pageKit(p, base);
 	const route = (v) => `/quantum/${v}`;
+	await scenario('Q-PAYMENT-RELOAD-LOST', 'payments_tab', 'a stored payment survives a failed reload with a URL fragment, clears busy, reports the stale page and allows leaving', async () => {
+		const q = await newPage(b, { initScript: CAPTURE });
+		let killed = false, handlerError = null;
+		const off = b.on((m) => {
+			if (m.sessionId !== q.sessionId || m.method !== 'Fetch.requestPaused') return;
+			(async () => {
+				if (!killed) { killed = true; await S.stop('SIGKILL'); }
+				await q.s('Fetch.continueRequest', { requestId: m.params.requestId });
+			})().catch((e) => { handlerError = String(e); });
+		});
+		try {
+			await q.go(`${base}${route('payments_tab')}#main`, 'payments_tab');
+			await q.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json?*x-sveltekit-invalidated=*', requestStage: 'Request' }] });
+			await q.evaluate(`(() => { for (const [id, value] of Object.entries({ pay_date: '2089-04-01', pay_amount: 'R 25.00', pay_method: 'Synthetic EFT', pay_note: 'Synthetic reload payment' })) { const e = document.getElementById(id); e.value = value; e.dispatchEvent(new Event('input', { bubbles: true })); } })()`);
+			await q.click('#pay-add');
+			await q.waitFor(`!document.getElementById('pay-status')`, 10000).catch(() => null);
+			const state = await q.evaluate(`({ busy: !!document.getElementById('pay-status'), error: document.getElementById('reload-error')?.textContent ?? '', alert: document.getElementById('reload-error')?.getAttribute('role'), enabled: !document.getElementById('pay-add')?.disabled })`);
+			const stored = S.rows('payments').some((r) => r.fields.note === 'Synthetic reload payment');
+			await S.start();
+			await q.click('#nav-overview');
+			const left = await q.waitFor(ready('overview'), 3000).then(() => true, () => false);
+			return { pass: killed && stored && !state.busy && state.enabled && state.alert === 'alert' && /could not reload/.test(state.error) && left && !handlerError, evidence: { killed, stored, state, left, handlerError } };
+		} finally { off(); await q.s('Fetch.disable').catch(() => {}); if (!S.srv) await S.start(); await q.close(); }
+	});
 
 	// ---- every view: document title and heading focus after navigating from the sidebar (BA-14, BA-16) ----------------
 	for (const view of Object.keys(LABEL)) {

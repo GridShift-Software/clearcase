@@ -4,7 +4,8 @@
 	// submits with the target in the `confirm` field; with `onconfirm`, Confirm calls it instead. Confirm unmounts when
 	// pressed, so focus returns to this control once a failed action leaves it enabled again, and to the page heading
 	// when the control itself goes (its row was deleted). A failed action's message belongs in the control's
-	// aria-describedby, so it is read again when focus returns.
+	// aria-describedby, so it is read again when focus returns. All three buttons skip the browser's validation of the form
+	// they submit: that form also holds the page's Add input, and half of a date typed there must not stop a delete.
 	import { onMount, tick } from 'svelte';
 	import type { HTMLButtonAttributes } from 'svelte/elements';
 	import { CANCEL, CONFIRM } from './confirm-delete';
@@ -68,7 +69,7 @@
 	}
 </script>
 
-<button bind:this={opener} class={['opener', cls]} hidden={asking} {type} {form} {formaction} {name} {value} {disabled} {...rest} onclick={ask} onkeydown={held}>{label}</button>
+<button bind:this={opener} class={['opener', cls]} hidden={asking} {type} {form} {formaction} {name} {value} {disabled} formnovalidate {...rest} onclick={ask} onkeydown={held}>{label}</button>
 {#if asking}
 	<!-- Without JavaScript the server's answer renders the question, and the browser's autofocus focuses the question, not
 	     Confirm: the repeats of the key that pressed Delete still arrive once that page loads, and nothing can tell them
@@ -77,8 +78,8 @@
 	<span class="confirm" role="group" aria-label={question} data-confirming={target} tabindex="-1" autofocus>
 		<span class="question">{question}</span>
 		{#if !onconfirm}<input type="hidden" {form} name={CONFIRM} value={target} />{/if}
-		<button {type} class="danger" {form} {formaction} {name} {value} {disabled} data-delete-confirm onclick={onconfirm ? confirm : pressed} onkeydown={keys} {@attach (el) => el.focus()}>{confirmLabel}</button>
-		<button {type} {form} {formaction} name={onconfirm ? undefined : CANCEL} value={onconfirm ? undefined : target} data-delete-cancel onclick={cancel} onkeydown={keys}>Cancel</button>
+		<button {type} class="danger" {form} {formaction} {name} {value} {disabled} formnovalidate data-delete-confirm onclick={onconfirm ? confirm : pressed} onkeydown={keys} {@attach (el) => el.focus()}>{confirmLabel}</button>
+		<button {type} {form} {formaction} formnovalidate name={onconfirm ? undefined : CANCEL} value={onconfirm ? undefined : target} data-delete-cancel onclick={cancel} onkeydown={keys}>Cancel</button>
 	</span>
 {/if}
 

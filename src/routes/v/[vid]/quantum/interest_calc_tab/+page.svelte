@@ -7,12 +7,12 @@
 	import { METHODS } from '$lib/calculations/interest';
 	import { importedUnits } from '$lib/calculations/money';
 	import Kpi from '$lib/views/quantum/Kpi.svelte';
-	import { defaultInputs, INTEREST_FIELDS, interestOutcome, MAX_RATE, queryInputs, type InterestInputs } from '$lib/views/quantum/interest';
+	import { defaultInputs, INTEREST_FIELDS, MAX_RATE, queryInputs, shownOutcome, type InterestInputs } from '$lib/views/quantum/interest';
 	import '$lib/views/quantum/quantum.css';
 	let { data } = $props();
 	const submitted = $derived(queryInputs(new URLSearchParams(page.url.search), data.defaults));
 	const inputs = $derived(submitted ?? defaultInputs(data.defaults));
-	const out = $derived(submitted ? interestOutcome(submitted, importedUnits(data.headlineDue)) : null);
+	const out = $derived(submitted ? shownOutcome(submitted, { units: importedUnits(data.headlineDue), date: data.headlineDate, paymentDates: data.paymentDates }) : null);
 	const errs = $derived(out?.errors ?? {});
 	let vals = $state<InterestInputs>({ ...untrack(() => inputs) });
 	let sent: InterestInputs | null = null;
@@ -53,6 +53,7 @@
 					<div class="error" role="alert" id="ic-error"><ul>{#each Object.values(errs) as e (e)}<li>{e}</li>{/each}</ul></div>
 				{:else if out.kpis}
 					<div class="q-kpis">{#each out.kpis as k (k.label)}<Kpi label={k.label} value={k.value} sub={k.sub} />{/each}</div>
+					{#if out.comparison}<div class="q-note" id="ic-compare"><p id="ic-compare-verdict">{out.comparison.verdict}</p><p id="ic-basis-total">{out.comparison.total}</p><p id="ic-basis-due">{out.comparison.due}</p></div>{/if}
 					<p class="tag">Simple vs compound and the from-date materially change the number — this is the exposure counsel must be able to defend. Replace the rate with the rate fixed by the award/contract.</p>
 					<p class="q-note" id="ic-basis">Day count: calendar days between the dates (counted on the calendar, independent of any time zone) over 365.25 days a year; simple interest is exact, compound interest uses the monthly formula; each figure is rounded once to the cent.</p>
 				{/if}

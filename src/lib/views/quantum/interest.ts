@@ -1,5 +1,5 @@
 import { fmtR } from '../../components/format.ts';
-import { dateProblem, daysBetween } from '../../calculations/dates.ts';
+import { dateProblem, daysBetween, isIsoDate } from '../../calculations/dates.ts';
 import { computeInterest, METHODS, type Method } from '../../calculations/interest.ts';
 import { centsText, centsToUnits, parseAmount, parseBounded, TOO_LARGE, unitsToCents, withinCap } from '../../calculations/money.ts';
 
@@ -51,4 +51,43 @@ export function interestOutcome(i: InterestInputs, headlineDueUnits: bigint | nu
 			{ label: 'vs extracted Amount Due', value: R(unitsToCents(head)), sub: capital ? `${diff >= 0n ? '+' : ''}${R(diff)} vs your calc` : 'enter a capital figure' },
 		],
 	};
+}
+
+/** The imported amount due, its as-at date and the dates of the case's recorded payments: what the comparison stands on. */
+export interface Due { units: bigint | null; date: string; paymentDates: readonly string[] }
+/** The comparison's verdict, and each figure's basis and payment treatment, in words. */
+export interface Comparison { verdict: string; total: string; due: string }
+export interface ShownOutcome extends InterestOutcome { comparison: Comparison | null }
+
+/**
+ * Why the computed total and the imported amount due are not on one basis (GRS-173, S-interest_calc_tab-5,
+ * S-payments_tab-3); empty when they are. The total is as at To and deducts no payment, so the two compare only when the
+ * amount due is as at To and no recorded payment is dated on or before To or undated. Netting a payment would need a
+ * rule on whether it pays interest or capital first, a legal choice ClearCase does not make (an arithmetic aid only).
+ */
+export function unlikeBasis(to: string, due: Due): string[] {
+	const why: string[] = [];
+	if (due.units === null) why.push('this package gives no amount due');
+	else if (!isIsoDate(due.date)) why.push('the amount due has no as-at date');
+	else if (due.date !== to) why.push(`your total is as at ${to} and the amount due as at ${due.date}`);
+	const n = due.paymentDates.filter((d) => !isIsoDate(d) || d <= to).length;
+	if (n) why.push(`${n} recorded payment${n === 1 ? ' is' : 's are'} dated on or before ${to} or undated, and your total deducts none: netting ${n === 1 ? 'it' : 'them'} needs a rule on whether a payment pays interest or capital first, which ClearCase does not apply`);
+	return why;
+}
+
+/** The outcome the view shows: v5's comparison line on one basis; otherwise the amount due alone, not compared, and why. */
+export function shownOutcome(i: InterestInputs, due: Due): ShownOutcome {
+	const o = interestOutcome(i, due.units);
+	if (!o.kpis) return { ...o, comparison: null };
+	const why = unlikeBasis(i.to, due);
+	const asAt = isIsoDate(due.date) ? `as at ${due.date}` : 'with no as-at date';
+	const comparison = {
+		verdict: why.length ? `Not compared, so no difference is shown: ${why.join('; ')}.` : `Compared on one basis: both figures are as at ${i.to}, and no payment is recorded on or before that date.`,
+		total: `Your total: the capital plus ${i.m.toLowerCase()} interest from ${i.from} to ${i.to}, on that one figure for the whole period. No payment is deducted.`,
+		due: due.units === null ? 'Extracted amount due: none in this package.' : `Extracted amount due: ${asAt}, as the source statement gives it; ClearCase does not check what it includes. No recorded payment is deducted from it here; Payments & Net Claim deducts them for the net claim.`,
+	};
+	if (!why.length) return { ...o, comparison };
+	const [capital, interest, total, line] = o.kpis as [Kpi, Kpi, Kpi, Kpi];
+	const alone = due.units === null ? { value: '—', sub: 'not in this package' } : { value: line.value, sub: `${asAt}: not comparable with your total` };
+	return { ...o, kpis: [capital, interest, total, { label: line.label, ...alone }], comparison };
 }

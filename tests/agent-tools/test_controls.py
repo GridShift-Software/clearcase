@@ -2044,6 +2044,15 @@ class GuardResidual(GuardCase):
                 ('comma expression key', "(({}) as any)[(0, 'constructor')].is = () => true;")):
             self.route(label, {'src/api.ts': code + '\n' + self.weakened}, why='reaches the test framework')
 
+    def test_fixed_keys_reached_through_namespace_imports_refuse(self):
+        self.route('namespace import',
+                   {'src/api.ts': "import * as keys from './keys';\nconst { [keys.k]: C } = {} as any; C.is = () => true;\n" + self.weakened},
+                   base={'src/keys.ts': "export const k = 'constructor';\n"}, why='reaches the test framework')
+        self.route('imported namespace export',
+                   {'src/api.ts': "import { Keys } from './middle';\nconst { [Keys.k]: C } = {} as any; C.is = () => true;\n" + self.weakened},
+                   base={'src/keys.ts': "export const k = 'constructor';\n",
+                         'src/middle.ts': "export * as Keys from './keys';\n"}, why='reaches the test framework')
+
     def test_export_star_as_a_namespace_forwards_a_capability(self):
         # M1: `export * as N from` is a name, so a capability behind it refuses, directly or under an `export *` chain
         self.route('a star over a module that namespaces a builtin module',

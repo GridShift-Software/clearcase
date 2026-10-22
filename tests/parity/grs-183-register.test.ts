@@ -2,8 +2,9 @@
 // split from 090 and 148, in the main file and CC-04) cover the one difference each names and nothing else. The register's own matcher is asked
 // about synthetic wrong values; each one must stay unregistered so strict parity fails on it. Synthetic text only.
 import { describe, expect, it } from 'vitest';
-import { covering } from '../../scripts/parity/lib/compare.mjs';
+import { classify, covering, diff } from '../../scripts/parity/lib/compare.mjs';
 import { loadRegister, registryKeys, registryOwners } from '../../scripts/parity/lib/register.mjs';
+import { emptySnapshot } from '../../scripts/parity/lib/snapshot.mjs';
 
 const register = loadRegister(undefined, { owners: await registryOwners(), keys: await registryKeys() });
 const coveredBy = (view: string, path: string, v5: string, app: string) =>
@@ -18,6 +19,8 @@ describe('GRS-183 register entries waive only the corrected value', () => {
 	it('IDR-088: a short Chronology excerpt without its ellipsis is waived, nothing else is', () => {
 		const path = 'table.table_1.row.SY-1.excerpt';
 		expect(coveredBy('chronology', path, 'Synthetic excerpt…', 'Synthetic excerpt')).toBe('IDR-088');
+		// an excerpt ending in white space: v5 shows 'text …', and parity keeps that space inside v5's value but trims the app's
+		expect(coveredBy('chronology', path, 'Synthetic excerpt …', 'Synthetic excerpt')).toBe('IDR-088');
 		// the excerpt vanished, or the app shows another row's text
 		expect(coveredBy('chronology', path, 'Synthetic excerpt…', '<absent>')).toBeNull();
 		expect(coveredBy('chronology', path, 'Synthetic excerpt…', 'Another row text')).toBeNull();
@@ -28,6 +31,16 @@ describe('GRS-183 register entries waive only the corrected value', () => {
 		// the app keeps an ellipsis it should not have, or v5 lost its own
 		expect(coveredBy('chronology', path, 'Synthetic excerpt…', 'Synthetic excerpt…')).toBeNull();
 		expect(coveredBy('chronology', path, 'Synthetic excerpt', 'Synthetic excerpt')).toBeNull();
+	});
+
+	it('IDR-088 covers what diff() makes of a short excerpt, white space at its end or not', () => {
+		const snap = (side: 'v5' | 'app', excerpt: string) => ({ ...emptySnapshot('chronology', side), tables: { table_1: { columns: [{ id: 'ref', label: 'Ref' }, { id: 'excerpt', label: 'Excerpt' }], key: 'ref', rows: [{ ref: 'SY-1', excerpt }] } } });
+		for (const raw of ['Synthetic excerpt', 'Synthetic excerpt ', 'Synthetic excerpt\n', 'Synthetic excerpt \u00a0\n']) {
+			// v5's preview is the first 140 code units and an ellipsis, always; the app shows a short excerpt whole
+			const r = classify('chronology', diff(snap('v5', `${raw.slice(0, 140)}…`), snap('app', raw)), register.entries);
+			expect(r.unregistered, JSON.stringify(raw)).toEqual([]);
+			expect(r.registered.map((d) => d.register), JSON.stringify(raw)).toEqual(['IDR-088']);
+		}
 	});
 
 	describe.each([

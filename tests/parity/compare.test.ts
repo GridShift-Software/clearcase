@@ -82,6 +82,7 @@ describe('register coverage', () => {
 		const e: Entry[] = [{ ...register[0], id: 'IDR-903', field: 'text.x', when: { relation: 'app-is-v5-without-ellipsis' } }];
 		const at = (v5: string, app: string) => covering(e, 'chronology', { path: 'text.x', kind: 'value', v5, app });
 		expect(at('short text…', 'short text')).not.toBeNull();
+		expect(at('short text …', 'short text')).not.toBeNull();
 		expect(at('short text…', 'other text')).toBeNull();
 		expect(at('short text…', '<absent>')).toBeNull();
 		expect(at('short text', 'short text')).toBeNull();

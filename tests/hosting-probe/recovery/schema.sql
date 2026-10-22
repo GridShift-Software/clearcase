@@ -9,7 +9,7 @@
 -- of its unsealed exports, so a repeated removal or a reapplied record erases the same objects. The deletion record in the
 -- buckets carries no erase_plan. erased_at is set last, after the R2 deletes and upload aborts: a `removed` row without it is an
 -- erasure that stopped part-way, and the next request for the case or a new isolate finishes it. erase_error holds why the last
--- try failed, until a try finishes.
+-- try failed, until a try finishes; a failed copy of the deletion record never sets it on a row whose erased_at is set (it is logged only).
 CREATE TABLE case_deletion (
   case_id TEXT PRIMARY KEY,
   state TEXT NOT NULL CHECK (state IN ('requested', 'approved', 'offered', 'removed')),

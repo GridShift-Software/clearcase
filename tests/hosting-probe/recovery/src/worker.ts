@@ -216,12 +216,16 @@ async function eraseNow(ctx: Ctx, caseId: string, set: [string, D1Value[]], cond
  * A failure of one case's work that is not an integrity refusal (R2 or D1 unavailable, a crash): it stops that case only. It is
  * written to the case's row (erase_error, which a finished erasure clears) and to the log, and the next request that reconciles
  * tries the case again. An integrity refusal (a conflicting, foreign or invalid record) still stops everything, by design.
+ * erase_error means one thing: the erasure is unfinished, and why. A failure to write the case's record (`record`: the copy back
+ * into the bucket that lost it, or the first write) says nothing of an erasure that is finished, so it reaches the row only while
+ * erased_at is unset, where the finishing erasure clears it; for an erased case it goes to the log alone and is retried when the
+ * next isolate reads the ledger.
  */
-async function failed(ctx: Ctx, caseId: string, e: unknown) {
+async function failed(ctx: Ctx, caseId: string, e: unknown, record = false) {
 	if (e instanceof Refused) throw e;
 	const message = String(e instanceof Error ? e.message : e).slice(0, 300);
-	console.error(`erasure of ${caseId} did not finish: ${message}`);
-	await ctx.db.prepare("UPDATE case_deletion SET erase_error = ? WHERE case_id = ? AND state = 'removed'").bind(message, caseId).run().catch(() => undefined);
+	console.error(`${record ? 'the record of' : 'erasure of'} ${caseId} did not finish: ${message}`);
+	await ctx.db.prepare(`UPDATE case_deletion SET erase_error = ? WHERE case_id = ? AND state = 'removed'${record ? ' AND erased_at IS NULL' : ''}`).bind(message, caseId).run().catch(() => undefined);
 }
 
 const RECORD_FORMAT = 'clearcase.deletion-record/1';
@@ -297,7 +301,7 @@ async function readLedger(ctx: Ctx): Promise<Map<string, DeletionRecord>> {
 		await (async () => {
 			if (ctx.failCopyBack === r.record.caseId) throw new Error('probe fault: the copy of the deletion record back into the bucket that lost it failed');
 			await writeRecord(ctx, r.record);
-		})().catch((e: unknown) => failed(ctx, r.record.caseId, e));
+		})().catch((e: unknown) => failed(ctx, r.record.caseId, e, true));
 	}
 	return new Map([...out].map(([k, v]) => [k, v.record]));
 }
@@ -316,7 +320,7 @@ async function reconcile(ctx: Ctx) {
 			await writeRecord(ctx, record);
 			ledger.set(d.case_id, record);
 		} catch (e) {
-			await failed(ctx, d.case_id, e);
+			await failed(ctx, d.case_id, e, true);
 		}
 	}
 	// A removed case whose erasure never finished is not applied: it is erased again, from its plan.

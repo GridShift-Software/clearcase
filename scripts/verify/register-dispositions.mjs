@@ -33,7 +33,8 @@ const AUTHOR = 'GRS-67 dispositions (scripts/verify/register-dispositions.mjs)';
 const MAIN_RANGE = [74, 99];
 const FIX = 'defect-fix', GAP = 'known-gap', DATA = 'data-correction-deferred-to-pipeline';
 
-// [defect, view, type, productVisible, evidence file, evidence pattern (a literal substring), covering entry or null, reason]
+// [defect, view, type, productVisible, evidence file, evidence pattern (a literal substring), covering entry or null, reason, owner]
+// A known gap names its view's Linear owner unless the row ends with another owner, the issue its reason names.
 // A row may name several defects of one view with one pattern each, all in its evidence file, when one change closes
 // them all: CC-06's id range has fewer never-used ids than it has defects.
 // defect-fix: ClearCase does not have the defect; known-gap: ClearCase reproduces it (an app fix would close it);
@@ -133,15 +134,15 @@ const DISPOSITIONS = [
 		"v5 throws on export, and when rendering chips, if an item has no refs. ClearCase guards the export and writes an empty refs cell, and its import schema requires a refs array on every item, so the view never meets a missing one."],
 	["S-contradictions_tab-3", "contradictions_tab", FIX, false, "src/routes/v/[vid]/analysis/contradictions_tab/+page.server.ts", "viewText(vc, 'contradictions_tab', 'methodNote'", null,
 		"v5 hard-codes a paragraph of case reasoning in the renderer. ClearCase shows the method note from the imported view-content dataset, with the document count derived from the register, so no case wording lives in code."],
-	["S-risk_matrix_tab-1", "risk_matrix_tab", GAP, true, "src/routes/v/[vid]/analysis/risk_matrix_tab/+page.svelte", "riskDisplayTone(r.likelihood)", null,
-		"v5 has no export or edit and maps risk tone by exact-case High or Medium. ClearCase exports the displayed rows and maps High and Medium without case sensitivity (AN-06-EXPORT). Risk data stays read-only: an edit requires an audited candidate correction (GRS-130) or separate user-work overlay, so that part remains a known gap."],
+	["S-risk_matrix_tab-1", "risk_matrix_tab", GAP, true, "src/routes/v/[vid]/analysis/risk_matrix_tab/+page.server.ts", "export const load: PageServerLoad", "IDR-183",
+		"v5 has no export or edit and maps risk tone by exact-case High or Medium. ClearCase exports the displayed rows and maps High and Medium without case sensitivity (AN-06-EXPORT). Risk data stays read-only: an edit requires an audited candidate correction (GRS-130) or separate user-work overlay, so that part remains a known gap.", "GRS-130"],
 	["S-vdm_matrix_tab-1", "vdm_matrix_tab", GAP, true, "tests/analysis/flag-states.test.ts", "hides the defence Refs column and exports v5", null,
 		"v5 never shows or exports the defence matrix free-text refs. ClearCase reproduces this by default: the Refs column and the CSV's last refs column are analysis additions behind CLEARCASE_ANALYSIS_ADDITIONS, off until the client approves them (ADR 0003, GRS-48); with the flag set to 1 both show, after v5's columns."],
 	["S-vdm_matrix_tab-2", "vdm_matrix_tab", FIX, false, "src/routes/v/[vid]/analysis/vdm_matrix_tab/+page.server.ts", "subtitle: viewText(vc, 'vdm_matrix_tab', 'subtitle')", null,
 		"v5 hard-codes party abbreviations in the column headings and subtitle. ClearCase reads the subtitle and column headings from the imported view-content dataset, falling back to neutral headings, so the parties are named by the package and not by code."],
 	["S-info_required_tab-1", "info_required_tab", FIX, true, "tests/analysis/info-required.test.ts", "saves a flag on its item and keeps it there when a later version", null,
 		"v5 keys done flags by array index, so reordering or inserting items in a later version moves flags onto other items. ClearCase keys each flag by a digest of the item's own content and reports flags whose item has left the version instead of moving them."],
-	["S-info_required_tab-2", "info_required_tab", FIX, true, "src/routes/v/[vid]/analysis/info_required_tab/InfoChecklist.svelte", "infoStatus(r.status, shown(r))", null,
+	["S-info_required_tab-2", "info_required_tab", FIX, true, "src/routes/v/[vid]/analysis/info_required_tab/InfoChecklist.svelte", "infoStatus(r.status, shown(r))", "IDR-184",
 		"v5 has no CSV export and its Status column ignores the done flag. ClearCase exports the displayed rows and shows a completed item as Done in Status (AN-08-EXPORT); its CSV uses the saved done flag. The imported results are unchanged."],
 	["S-conflict_tab-1", "conflict_tab", FIX, true, "tests/litigation/conflict.test.ts", "the input hint is generic: no e-mail address, no digits, nothing imported", null,
 		"v5's input placeholder names a real company and a real person's e-mail address from the case. ClearCase uses a generic hint with no imported text and no personal data, and a test pins that."],
@@ -300,7 +301,7 @@ const idOf = (file, defect) => {
 	}
 	throw new Error(`${defect}: no free id in ${ranges.map(([lo, hi]) => `IDR-${lo}–IDR-${hi}`).join(', ')}`);
 };
-for (const [named, view, type, productVisible, file, patterns, cover, why] of DISPOSITIONS) {
+for (const [named, view, type, productVisible, file, patterns, cover, why, gapOwner] of DISPOSITIONS) {
 	const defects = [named].flat();
 	const defect = defects[0];
 	for (const d of defects) if (!isListed(listed, d)) problems.push(`${d}: no such defect in defects.md or view-checklist.md; delete or retarget its disposition`);
@@ -325,7 +326,7 @@ for (const [named, view, type, productVisible, file, patterns, cover, why] of DI
 	// an approval the user gave in review survives a rerun while what it approved is unchanged; otherwise it is reset
 	const unchanged = before && before.view === view && before.type === type && before.productVisible === productVisible && noEvidence(before.reason) === noEvidence(reason);
 	if (before?.approvedBy && !unchanged) lostApproval.push(`${before.id} (${defect})`);
-	out.get(target).push({ id, view, field: [], type, source: defect, ...(type === GAP ? { owner: linear[view] } : {}), reason, productVisible, author: AUTHOR, approvedBy: unchanged ? before.approvedBy ?? null : null, approvedOn: unchanged ? before.approvedOn ?? null : null });
+	out.get(target).push({ id, view, field: [], type, source: defect, ...(type === GAP ? { owner: gapOwner ?? linear[view] } : {}), reason, productVisible, author: AUTHOR, approvedBy: unchanged ? before.approvedBy ?? null : null, approvedOn: unchanged ? before.approvedOn ?? null : null });
 }
 // a hand-written disposition (an empty field in any form: [], '', null or absent) of a defect no longer listed is as stale as a row of the table
 const isDisposition = (e) => !e.field || (Array.isArray(e.field) ? !e.field.length : !String(e.field).trim());

@@ -51,12 +51,14 @@ export function settleOutcome(i: SettleInputs): SettleOutcome {
 	try { s = settlement(claim.value, p.value.value, y.value.value, d.value.value, cost.value); } catch { return { errors: { result: TOO_LARGE }, kpis: null, floor: null }; }
 	if (![s.pessimistic.cents, s.base.cents, s.optimistic.cents, claim.value, cost.value].every(withinCap)) return { errors: { result: TOO_LARGE }, kpis: null, floor: null };
 	const pv = p.value.value;
+	const pessimisticClamped = s.pessimistic.probability !== pv - 25;
+	const optimisticClamped = s.optimistic.probability !== pv + 15;
 	return {
 		errors,
 		kpis: [
-			{ label: s.pessimistic.probability === pv - 25 ? 'Pessimistic (p-25)' : `Pessimistic (p=${s.pessimistic.probability}%)`, value: R(s.pessimistic.cents), sub: `Recovery probability ${s.pessimistic.probability}%` },
-			{ label: `Base (p=${s.base.probability}%)`, value: R(s.base.cents), sub: `Recovery probability ${s.base.probability}%` },
-			{ label: s.optimistic.probability === pv + 15 ? 'Optimistic (p+15)' : `Optimistic (p=${s.optimistic.probability}%)`, value: R(s.optimistic.cents), sub: `Recovery probability ${s.optimistic.probability}%` },
+			{ label: pessimisticClamped ? `Pessimistic (p=${s.pessimistic.probability}%)` : 'Pessimistic (p-25)', value: R(s.pessimistic.cents), sub: pessimisticClamped ? `Recovery probability ${s.pessimistic.probability}%` : '' },
+			{ label: `Base (p=${s.base.probability}%)`, value: R(s.base.cents), sub: '' },
+			{ label: optimisticClamped ? `Optimistic (p=${s.optimistic.probability}%)` : 'Optimistic (p+15)', value: R(s.optimistic.cents), sub: optimisticClamped ? `Recovery probability ${s.optimistic.probability}%` : '' },
 		],
 		floor: `a rational settlement sits around the base risk-adjusted present value of ${R(s.base.cents)} (claim ${R(claim.value)} discounted for a ${pv}% recovery probability over ${y.value.value} year(s) at ${d.value.value}%, net of ${R(cost.value)} costs). The ${R(cost.value)} undiscounted enforcement costs are subtracted after the claim is discounted. Below this, litigation is preferable; a premium above it reflects certainty and time saved.`,
 	};

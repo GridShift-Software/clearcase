@@ -8,7 +8,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 // A test run must never write into another repository. A Git hook (or another checkout's script) that runs the tests
 // exports GIT_DIR, and every scratch repository a test builds with a bare `git` call would then be built in the
 // repository the variable names (the commits land on its branch). The test boundary strips GIT_*: scripts/gate.mjs gives
-// each step an environment without it, and vitest.config.ts's setup file deletes it for a direct `bun run --bun test`.
+// each step an environment without it, and tests/setup/strip-git-env.ts, listed by every tracked Vitest config, deletes it for a direct
+// `bun run --bun test` or `vitest --config <config>`.
 // Synthetic repositories only.
 const REPO_ROOT = join(import.meta.dirname, '..', '..');
 let ws: string, target: string;

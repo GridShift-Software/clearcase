@@ -1,7 +1,7 @@
 // Disposable cloud resources for proof runs (GRS-107, the 17 October local-first plan on GRS-26). Every Worker, D1
-// database and R2 bucket a run creates is named cc-<ticket>-<worker>-<sha7>, in lowercase. A run writes its manifest,
-// <dir>/<name>.json, before it creates anything, records each creation after the provider returns, and an exit trap
-// deletes the (kind, name) pairs the run itself opened, held in memory and each checked against the run's own name
+// database and R2 bucket a run creates is named cc-<ticket>-<worker>-<sha7>, in lowercase. A run claims its manifest,
+// <dir>/<name>.json, with a unique run id before it creates anything, records each successful provider creation, and
+// an exit trap deletes only the (kind, name) pairs whose creation was recorded, held in memory and checked against the run's name
 // (the Worker first, then the database, then the bucket), and records each result. The manifest file is a record
 // for operators and the janitor: the run reads only its status, so a file rewritten during the run deletes nothing.
 // The janitor deletes only cc-* resources older than 24 hours whose manifest is finished or missing, and never one
@@ -102,7 +102,7 @@ export function openRun(a: { dir: string; ticket: string; worker: string; sha: s
 			for (const r of manifest.resources) {
 				if (!owned.has(r.kind)) continue;
 				try {
-					// a run deletes its own names and nothing else, whatever its manifest file or its caller says
+					// A successful provider create and manifest record are required, whatever the file or caller says.
 					if (r.name !== name || !RUN_NAME.test(r.name) || !KINDS.includes(r.kind)) throw new Error(`${r.kind} ${r.name} is not one of ${name}'s own`);
 					a.provider.remove(r.kind, r.name);
 					r.teardown = 'deleted';

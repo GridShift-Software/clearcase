@@ -46,6 +46,20 @@ describe('run manifest and teardown', () => {
 		expect(w.provider.names()).toContain(`worker/${NAME}`);
 	});
 
+	test('two checkout manifests have distinct run ids and only the creator can remove their shared Worker name', () => {
+		const w = world();
+		const first = openRun({ dir: w.manifests, ticket: '107', worker: 'w1', sha: 'abc1234', kinds: ['worker'], provider: w.provider, trap: false });
+		const secondDir = path.join(path.dirname(w.manifests), 'other-checkout-runs');
+		const second = openRun({ dir: secondDir, ticket: '107', worker: 'w1', sha: 'abc1234', kinds: ['worker'], provider: w.provider, trap: false });
+		expect(manifest(w.manifests).runId).not.toBe(manifest(secondDir).runId);
+		first.create('worker');
+		expect(() => second.create('worker')).toThrow(/exists/);
+		second.teardown();
+		expect(w.provider.names()).toContain(`worker/${NAME}`);
+		first.teardown();
+		expect(w.provider.names()).toEqual(OTHERS);
+	});
+
 	test('the manifest lists every resource before the first is created', () => {
 		const w = world();
 		mkdirSync(path.join(w.cloud, 'r2', NAME), { recursive: true });

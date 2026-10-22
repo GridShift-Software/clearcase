@@ -55,20 +55,19 @@ it('the changed Chronology controls cover only one old and one new control', () 
 	}
 });
 
-it.each([
-	{
-		name: 'an extra saved-note item', view: 'overview', path: 'list.my_notes',
-		v5: [], rendered: ['OD-001: 1', 'OD-002: 1'], source: ['OD-001: 1'],
-	},
-	{
-		name: 'a changed existing bundle option', view: 'chronology', path: 'list.select.all_bundles',
-		v5: ['All bundles', 'Original'], rendered: ['All bundles', 'Wrong bundle'], source: ['All bundles', 'Original'],
-	},
-])('$name is refused despite its register wildcard', ({ view, path, v5, rendered, source }) => {
-	const left = { ...emptySnapshot(view, 'v5'), lists: view === 'overview' ? {} : { [path.slice(5)]: v5 } };
+function checkRenderedList(view: string, path: string, v5: string[] | null, rendered: string[], source: string[]) {
+	const left = { ...emptySnapshot(view, 'v5'), lists: v5 ? { [path.slice(5)]: v5 } : {} };
 	const right = { ...emptySnapshot(view, 'app'), lists: { [path.slice(5)]: rendered } };
 	const result = classify(view, diff(left, right), register.entries, { sourceChecks: [{ path, rendered, source }] });
 	expect(result.unregistered.map((d: { path: string }) => d.path)).toContain(path);
+}
+
+it('an extra saved-note item is refused despite its register wildcard', () => {
+	checkRenderedList('overview', 'list.my_notes', null, ['OD-001: 1', 'OD-002: 1'], ['OD-001: 1']);
+});
+
+it('a changed existing bundle option is refused despite its register wildcard', () => {
+	checkRenderedList('chronology', 'list.select.all_bundles', ['All bundles', 'Original'], ['All bundles', 'Wrong bundle'], ['All bundles', 'Original']);
 });
 
 it('a phantom backup table is refused despite the inventory wildcard', () => {

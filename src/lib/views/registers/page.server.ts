@@ -1,6 +1,7 @@
 import { fail, type RequestEvent } from '@sveltejs/kit';
 import type { DocumentAnchor } from '../../case-package/index.ts';
 import { now } from '../../components/clock.ts';
+import { deleteStep } from '../../components/confirm-delete.ts';
 import { viewAt } from '../../components/views.ts';
 import { app } from '../../local-case/app.server.ts';
 import { resolveRefs } from '../../local-case/documents.server.ts';
@@ -125,6 +126,9 @@ export function registerActions(view: RegisterView) {
 			const c = caseOf(params);
 			if (!c) return fail(404, { op: 'delete' as const, rowId: null, message: 'Unknown results version.' });
 			if (typeof rowId !== 'string' || !rowId) return fail(400, { op: 'delete' as const, rowId: null, message: 'No entry was named.' });
+			// a Delete that is not confirmed deletes nothing: the page asks for the confirmation (none after Cancel)
+			const step = deleteStep(f, rowId);
+			if (step !== 'confirm') return fail(400, { op: 'delete' as const, rowId, confirm: step === 'ask' ? rowId : null });
 			try {
 				return { deleted: await deleteEntry(app().userWork, c.caseId, def, rowId) };
 			} catch (e) {

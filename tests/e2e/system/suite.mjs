@@ -182,6 +182,7 @@ try {
 	await scenario('SY4-backup-roundtrip', 'backup_tab', 'Export all state downloads one case file that says binaries are not included; after the additions are cleared, Import state restores them with the same refs', async () => {
 		await openView('backup_tab');
 		const shown = await tableRows('#backup-tables');
+		const headers = await p.evaluate(`[...document.querySelectorAll('#backup-tables thead th')].map((e) => e.textContent.trim())`);
 		const heading = await text('#tables-h');
 		const binaries = await text('#backup-binaries');
 		const dl = await fetchText('#backup-export');
@@ -190,6 +191,7 @@ try {
 		const sourceTables = backup.userWork.tables.map((t) => [t.name, t.owner, String(t.rows.length)]);
 		const sourceHeading = `What a backup holds now (${backup.userWork.tables.reduce((n, t) => n + t.rows.length, 0)} rows)`;
 		const inventory = sourceMismatches([
+			{ path: 'table.what_a_backup_holds_now.columns', rendered: headers, source: ['Table', 'Owner', 'Rows'] },
 			{ path: 'table.what_a_backup_holds_now.rows', rendered: shown, source: sourceTables },
 			{ path: 'table.what_a_backup_holds_now.heading', rendered: heading, source: sourceHeading },
 		]);
@@ -202,7 +204,7 @@ try {
 		const r = await restore({ file: backupPath });
 		await openView('rescan_tab');
 		const back = await addedRefs();
-		return { evidence: { shown, heading, inventory, binaries, disposition: dl.disposition, counts: backup.counts, cleared, r, back },
+		return { evidence: { shown, headers, heading, inventory, binaries, disposition: dl.disposition, counts: backup.counts, cleared, r, back },
 			checks: { file: backup.format === 'clearcase.backup/1' && backup.binaries === false && backup.case.caseId === CASE_ID && backup.case.resultsVersion === rv && typeof backup.sha256 === 'string',
 				name: /filename="clearcase-backup-e2e-system-\d{8}-\d{4}\.json"/.test(dl.disposition ?? ''), inventory: inventory.length === 0, said: /^Binaries are not included\./.test(binaries ?? ''),
 				carried: backup.counts.rescan_file === 3 && backup.counts.rescan_run === 1 && !('trusted_warning' in backup.counts), cleared: cleared.length === 0, restored: /^Restored /.test(r.done ?? '') && J(back) === J(refs) } };

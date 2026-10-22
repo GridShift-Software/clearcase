@@ -242,7 +242,7 @@
         "v5": "<absent>"
       },
       "type": "improvement",
-      "reason": "The app's table inventory (table, owner, rows). The heading includes the case-dependent total, so the table id needs a wildcard; the synthetic browser check SY4-backup-roundtrip compares every rendered row and the heading with the downloaded backup's tables and row counts.",
+      "reason": "The app's table inventory (table, owner, rows). The heading includes the case-dependent total, so the table id needs a wildcard; the synthetic browser check SY4-backup-roundtrip checks the three column labels and compares every rendered row and the heading with the downloaded backup's tables and row counts.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
       "approvedBy": null,

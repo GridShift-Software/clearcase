@@ -752,6 +752,8 @@ try {
 			await idleBusy(p);
 		}
 		const kept = storedHeader()?.court === 'SYN FOCUS COURT';
+		// leave the page as CB-HEADER-CONFIRM-CASES does, with the header restored and no error pending a leave guard
+		for (const k of ['clear', 'restore']) { await p.click(`#cb-retry-${k}`); await idleBusy(p); }
 		return { pass: kept && focus.clear === true && focus.restore === true, evidence: { kept, focus } };
 	});
 	await S('CL-RETRY-INFLIGHT', 'caselines_tab', 'review L1: Retry pressed during a link in flight is disabled and the path is linked once', async () => {

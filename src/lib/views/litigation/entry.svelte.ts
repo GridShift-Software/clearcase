@@ -1,11 +1,12 @@
 import { applyAction } from '$app/forms';
 import { invalidateAll } from '$app/navigation';
 import type { SubmitFunction } from '$app/forms';
+import { deleteStep } from '$lib/components/confirm-delete';
 import { lostMessage, refused, type Failure } from './submit.ts';
 
 export const UNSAVED = 'Not saved yet: this entry is still only in the form. Press Add to save it, or Discard it.';
 
-export type Answer = { op?: 'add' | 'delete'; values?: Record<string, string>; message?: string | null; retry?: boolean; target?: string; gone?: boolean; deleted?: string } | null | undefined;
+export type Answer = { op?: 'add' | 'delete'; values?: Record<string, string>; message?: string | null; retry?: boolean; target?: string; gone?: boolean; deleted?: string; confirm?: string | null } | null | undefined;
 
 export class EntryForm {
 	values = $state<Record<string, string>>({});
@@ -15,6 +16,8 @@ export class EntryForm {
 	deleting = $state<Record<string, true>>({});
 	deleteErrors = $state<Record<string, string>>({});
 	notice = $state<string | null>(null);
+	/** The Delete value awaiting Confirm; without JavaScript the server's refusal names it. */
+	confirming = $state<string | null>(null);
 
 	readonly #fields: readonly string[];
 	readonly #canAdd: (v: Record<string, string>) => boolean;
@@ -26,6 +29,7 @@ export class EntryForm {
 		if (answer?.op === 'add' && answer.message) this.addError = { message: answer.message, retry: answer.retry === true };
 		if (answer?.op === 'delete') {
 			if (fields.some((k) => answer.values?.[k])) this.note = UNSAVED;
+			this.confirming = answer.confirm ?? null;
 			if (answer.gone && answer.message) this.notice = answer.message;
 			else if (answer.message && answer.target) this.deleteErrors = { [answer.target]: answer.message };
 		}
@@ -68,6 +72,9 @@ export class EntryForm {
 		const raw = String(formData.get('rowId') ?? formData.get('seedId') ?? '');
 		const id = raw.slice(0, raw.lastIndexOf(' ') < 0 ? raw.length : raw.lastIndexOf(' '));
 		if (!id || this.deleting[id]) { cancel(); return; }
+		const step = deleteStep(formData, raw);
+		this.confirming = step === 'ask' ? raw : null;
+		if (step !== 'confirm') { cancel(); return; }
 		for (const k of this.#fields) formData.delete(k);
 		this.deleting[id] = true;
 		delete this.deleteErrors[id];

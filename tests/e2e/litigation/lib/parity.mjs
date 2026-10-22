@@ -1,6 +1,7 @@
 // App-side parity helpers shared by the litigation adapters (scripts/parity/adapters/app/<view>.mjs, GRS-18). They
 // read the app the way a user sees it: the rendered DOM and real clicks, never the database or page data.
 import { sleep } from '../../pilot/lib/cdp.mjs';
+import { confirmIfAsked } from '../../pilot/lib/confirm.mjs';
 import { domExtract } from '../../../../scripts/parity/lib/dom.mjs';
 import { syntheticInput } from '../../../../scripts/parity/lib/sweeps.mjs';
 import { tableFromRaw } from '../../../../scripts/parity/lib/snapshot.mjs';
@@ -61,7 +62,7 @@ export async function registerEdit(p, ctx, view, { cleanup } = {}) {
 		record(`add${n + 1}`, rows);
 	}
 	const del = await p.evaluate(`(() => { const b = [...document.querySelectorAll('#main table tbody tr button')].find((b) => /delete|remove|×|✕/i.test(b.textContent + (b.title || ''))); if (!b) return false; b.setAttribute('data-parity-del', '1'); return true; })()`);
-	if (del) { await p.click('[data-parity-del]'); rows = await changed(p, rows); record('delete', rows); } else out.delete = 'no-delete-control';
+	if (del) { await p.click('[data-parity-del]'); await confirmIfAsked(p, '#main', 1500); rows = await changed(p, rows); record('delete', rows); } else out.delete = 'no-delete-control';
 	if (cleanup) await cleanup(p);
 	for (const [label, t] of Object.entries(await readOverviewTiles(p, ctx))) out[`overview.${label}`] = t.value;
 	return out;

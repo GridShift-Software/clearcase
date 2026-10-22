@@ -14,6 +14,7 @@ const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { outDir } = await import('../pilot/lib/record.mjs');
 const { CHROME, launch } = await import('../pilot/lib/cdp.mjs');
+const { asking, confirmPressed, focusOf, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
 const { bunIdentity } = await import('../pilot/lib/server.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
 const { INIT, openPage, sleep } = await import('../pilot/suite/browser.mjs');
@@ -339,11 +340,13 @@ try {
 		await p.goto(`${V}${route('crossexam_tab')}`, ready('crossexam_tab'));
 		const n = await count(p, '#cx-table tbody tr[data-row]');
 		await p.click('#cx-table tbody tr[data-kind="seed"] button');
+		await confirmPressed(p, '#cx-table');
 		await until(p, `document.querySelectorAll('#cx-table tbody tr[data-row]').length === ${n - 1}`);
 		const ov = overlays().map((o) => ({ ...o, fields: JSON.parse(o.fields) }));
 		for (let i = 0; i < 5 && (await count(p, '#cx-table tbody tr[data-row]')) > 0; i++) {
 			const m = await count(p, '#cx-table tbody tr[data-row]');
 			await p.click('#cx-table tbody tr[data-row] button');
+			await confirmPressed(p, '#cx-table');
 			await until(p, `document.querySelectorAll('#cx-table tbody tr[data-row]').length === ${m - 1}`);
 		}
 		await p.goto(`${V}${route('crossexam_tab')}`, ready('crossexam_tab'));
@@ -519,6 +522,7 @@ try {
 		// deleting another row after the failed add leaves the typed fields alone
 		await p.evaluate(`[...document.querySelectorAll('#heads-table tbody tr[data-row]')].find((r) => r.cells[1].textContent.trim() === 'Disposable heading').querySelector('button').setAttribute('data-del', '1')`);
 		await p.click('[data-del="1"]');
+		await confirmPressed(p, '#heads-table');
 		const deleted = await until(p, `![...document.querySelectorAll('#heads-table tbody tr[data-row]')].some((r) => r.cells[1].textContent.trim() === 'Disposable heading')`);
 		const keptAfterDelete = {};
 		for (const sel of Object.keys(typed)) keptAfterDelete[sel] = await val(p, sel);
@@ -584,6 +588,7 @@ try {
 			const err = await until(p, `document.querySelector(${J(r.err)})?.textContent.trim() ?? ''`);
 			await rowButton(r.table, r.cell, r.label);
 			await p.click('[data-pick="1"]');
+			await confirmPressed(p, r.table);
 			const gone = await until(p, `![...document.querySelectorAll('${r.table} tbody tr[data-row]')].some((t) => t.cells[${r.cell}].textContent.trim() === ${J(r.label)})`);
 			await sleep(200);
 			const still = await p.evaluate(`({ err: document.querySelector(${J(r.err)})?.textContent.trim() ?? null, other: document.querySelector(${J(r.other)}).value, big: document.querySelector(${J(r.big)}).value.length })`);
@@ -598,7 +603,7 @@ try {
 		await scenario(`D4-nojs-${r.view}`, r.view, 'without JavaScript a Delete posts the add form, so the typed entry comes back with a note that it is not saved (D4)', async () => {
 			await A.c.form(`${at(r.view)}?/add`, r.seed);
 			const id = rowsWhere(r.store, r.key, 'D4 row')[0]?.row_id;
-			const res = await A.c.form(`${at(r.view)}?/delete`, { rowId: id, ...r.typed });
+			const res = await A.c.form(`${at(r.view)}?/delete`, { rowId: id, confirm: id, ...r.typed });
 			const values = Object.values(r.typed).filter(Boolean);
 			return all({ ok: res.status === 200, deleted: rowsWhere(r.store, r.key, 'D4 row').length === 0, refilled: values.every((v) => res.text.includes(`value="${v}"`)), noted: res.text.includes('Not saved yet: this entry is still only in the form.'), notStored: rowsWhere(r.store, r.key, values[0]).length === 0, evidence: { status: res.status } });
 		});
@@ -612,6 +617,7 @@ try {
 		const lock = holdLock();
 		const t0 = Date.now();
 		await p.click('[data-pick="1"]');
+		await confirmPressed(p, '#heads-table');
 		const err = await until(p, `document.querySelector('[data-pick="1"]')?.closest('tr')?.querySelector('[data-delete-error]')?.textContent.trim() ?? ''`, 25000);
 		const slot = await p.evaluate(`document.querySelector('#hd-error')?.textContent ?? null`);
 		while (Date.now() - t0 < 13000) await sleep(100);
@@ -622,9 +628,11 @@ try {
 	await scenario('TWO-TAB-delete', 'heads_tab', 'a Delete of a row another tab already deleted says so once, with no error and no error page', async () => {
 		await A.c.form(`${at('heads_tab')}?/add`, { head: 'Twice deleted', sub: 'x', auth: '', ref: '' });
 		await p.goto(`${V}${route('heads_tab')}`, ready('heads_tab'));
-		await A.c.form(`${at('heads_tab')}?/delete`, { rowId: rowsWhere('heads', 'head', 'Twice deleted')[0].row_id });
+		const twice = rowsWhere('heads', 'head', 'Twice deleted')[0].row_id;
+		await A.c.form(`${at('heads_tab')}?/delete`, { rowId: twice, confirm: twice });
 		await rowButton('#heads-table', 1, 'Twice deleted');
 		await p.click('[data-pick="1"]');
+		await confirmPressed(p, '#heads-table');
 		const notice = await until(p, `document.querySelector('[data-delete-notice]')?.textContent.trim() ?? ''`);
 		return all({ said: notice === 'This entry was already deleted elsewhere (in another tab or window). Nothing else was changed.', noError: (await count(p, '[data-delete-error]')) === 0, listed: (await until(p, `![...document.querySelectorAll('#heads-table tr[data-row]')].some((t) => t.cells[1].textContent.trim() === 'Twice deleted')`)) === true, evidence: { notice } });
 	});
@@ -637,6 +645,48 @@ try {
 		await sleep(1500);
 		const shown = await p.evaluate(`[...document.querySelectorAll('#heads-table tbody tr[data-row]')].some((t) => t.cells[1].textContent.trim() === 'Confirm kept')`);
 		return all({ shown, stored: rowsWhere('heads', 'head', 'Confirm kept').length === 1, focus: await p.evaluate(`document.activeElement?.hasAttribute('data-delete-confirm') ?? false`), cancel: (await count(p, '#heads-table [data-delete-cancel]')) === 1 });
+	});
+	await scenario('CONFIRM-delete-cases', 'heads_tab', "GRS-175: Cancel and Escape keep the submission and return focus to its Delete; a second row's Delete moves the question and deletes nothing; a reload drops the question and keeps both; a POST without the row's confirmation is refused; Confirm delete deletes exactly that submission", async () => {
+		await A.c.form(`${at('heads_tab')}?/add`, { head: 'Confirm second', sub: 'x', auth: '', ref: '' });
+		await p.goto(`${V}${route('heads_tab')}`, ready('heads_tab'));
+		const k = rowsWhere('heads', 'head', 'Confirm kept')[0].row_id, o = rowsWhere('heads', 'head', 'Confirm second')[0].row_id;
+		const opener = (id) => `#heads-table tr[data-row=${J(id)}] [data-delete]`;
+		const del = (id) => p.evaluate(`document.querySelector(${J(opener(id))})?.value ?? null`);
+		const dk = await del(k), dO = await del(o);
+		const both = async () => { const shown = await p.evaluate(`[...document.querySelectorAll('#heads-table tbody tr[data-row]')].map((t) => t.dataset.row)`); return [k, o].every((id) => shown.includes(id) && savedRows().some((r) => r.store === 'heads' && r.row_id === id)); };
+		const step = async () => ({ asking: await asking(p), focus: await focusOf(p, opener(k)), both: await both() });
+		await p.click(opener(k));
+		const asked = await step();
+		await p.click(`#heads-table tr[data-row=${J(k)}] [data-delete-cancel]`);
+		await sleep(300);
+		const cancelled = await step();
+		await p.click(opener(k));
+		await pressEscape(p);
+		await sleep(300);
+		const escaped = await step();
+		await p.click(opener(k));
+		await p.click(opener(o));
+		await sleep(1000);
+		const second = await step();
+		await p.goto(`${V}${route('heads_tab')}`, ready('heads_tab'));
+		const reloaded = await step();
+		const bare = await postAction(p, '?/delete', { rowId: dk });
+		const other = await postAction(p, '?/delete', { rowId: dk, confirm: dO });
+		const refused = await both();
+		await p.click(opener(k));
+		await confirmPressed(p, `#heads-table tr[data-row=${J(k)}]`);
+		const gone = await until(p, `!document.querySelector(${J(`#heads-table tr[data-row=${J(k)}]`)})`);
+		const after = { k: savedRows().some((r) => r.store === 'heads' && r.row_id === k), o: savedRows().some((r) => r.store === 'heads' && r.row_id === o) && !!(await p.evaluate(`!!document.querySelector(${J(opener(o))})`)) };
+		return all({
+			asked: J(asked.asking) === J([dk]) && asked.focus === 'confirm' && asked.both,
+			cancelKeeps: cancelled.asking.length === 0 && cancelled.focus === 'opener' && cancelled.both,
+			escapeKeeps: escaped.asking.length === 0 && escaped.focus === 'opener' && escaped.both,
+			secondMoves: J(second.asking) === J([dO]) && second.both,
+			reloadDrops: reloaded.asking.length === 0 && reloaded.both,
+			serverRefuses: bare.type === 'failure' && bare.status === 400 && other.type === 'failure' && other.status === 400 && refused,
+			confirmDeletesThatRow: gone === true && !after.k && after.o,
+			evidence: { dk, dO, asked, cancelled, escaped, second, reloaded, bare, other, after },
+		});
 	});
 	await scenario('EXPORT-neutral', 'heads_tab', 'a package without view-content export names: Heads of Argument and Authorities export under their neutral names, each with the generic-name note beside its export button', async () => {
 		const neutral = await neutralCase(join(tmp, 'neutral'));

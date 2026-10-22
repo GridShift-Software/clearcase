@@ -11,6 +11,7 @@ import { decodeUtf8Strict, parseStrictJson } from '../../src/lib/case-package/st
 import { buildSynth } from '../../tests/case-package/fixtures/build.ts';
 import { cleanup } from '../../tests/case-package/fixtures/synth.ts';
 import { malform } from '../../tests/case-package/fixtures/malform.ts';
+import { withPresentation } from '../../tests/case-package/fixtures/presentation';
 import { SCHEMA_DIR, schemaDocs } from './schemas.ts';
 
 const root = path.resolve(import.meta.dirname, '../..');
@@ -38,7 +39,7 @@ function expect(file: string, value: unknown, valid: boolean, label: string): vo
 const clone = <T>(v: T): T => structuredClone(v);
 
 // 1. a freshly emitted synthetic package is valid under every schema
-const built = await buildSynth('schema-check');
+const built = await buildSynth('schema-check', withPresentation);
 try {
   const files = new Map([...built.files].map(([p, b]) => [p, parseStrictJson(decodeUtf8Strict(b)) as any]));
   const manifest = files.get('manifest.json');

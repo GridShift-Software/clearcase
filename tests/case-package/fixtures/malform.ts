@@ -1,12 +1,13 @@
 // Derive a malformed copy of a dataset's data from its schema: one required member removed or
 // retyped. Used by the per-dataset malformed-record tests and the independent schema check.
-type S = { type?: string; required?: string[]; properties?: Record<string, S>; items?: S; patternProperties?: Record<string, S> };
+type S = { type?: string; required?: string[]; properties?: Record<string, S>; items?: S; patternProperties?: Record<string, S>; anyOf?: S[] };
 
 const wrong = (sub: S | undefined): unknown => (sub?.type === 'string' ? 12345 : 'not-a-' + (sub?.type ?? 'value'));
 
 export function malform(schema: unknown, original: unknown): unknown {
   const s = schema as S;
   const data = structuredClone(original) as any;
+  if (s.anyOf?.every((branch) => branch.type === 'array')) return [{ invalid: 'no supported phase shape' }];
   if (s.type === 'array' && s.items?.type === 'object' && Array.isArray(data) && data.length) {
     const req = s.items.required ?? [];
     if (!req.length) return undefined;

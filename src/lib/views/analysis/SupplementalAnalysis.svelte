@@ -30,7 +30,7 @@
 			<div class="diagram">
 				<svg viewBox="0 0 {layout.width} {layout.height}" role="img" aria-label="Organogram; full node and connection details follow">
 					<defs><marker id="organogram-arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" /></marker></defs>
-					{#each layout.edges as e, i (i)}{#if e.source && e.target}<line x1={e.source.x} y1={e.source.y} x2={e.target.x} y2={e.target.y} marker-end="url(#organogram-arrow)"><title>{e.source.label} → {e.target.label}: {e.label ?? e.type ?? ''}</title></line>{/if}{/each}
+					{#each layout.edges as e, i (i)}{#if e.source && e.target}<path class="connection" d={e.path} marker-end="url(#organogram-arrow)"><title>{e.source.label} → {e.target.label}: {e.label ?? e.type ?? ''}</title></path>{/if}{/each}
 					{#each layout.nodes as n, i (i)}<g><rect x={n.x - 90} y={n.y - 25} width="180" height="50" rx="6" /><text x={n.x} y={n.y + 5} text-anchor="middle">{i + 1}. {n.label.length > 18 ? n.label.slice(0, 18) + '…' : n.label}</text><title>{n.label}</title></g>{/each}
 				</svg>
 			</div>
@@ -61,7 +61,7 @@
 	blockquote { white-space: pre-wrap; border-left: 3px solid var(--navy); padding-left: 12px; }
 	.diagram { overflow-x: auto; }
 	svg { width: 100%; min-width: 600px; display: block; }
-	line { stroke: var(--ink-2); stroke-width: 2; }
+	.connection { fill: none; stroke: var(--ink-2); stroke-width: 2; }
 	marker path { fill: var(--ink-2); }
 	rect { fill: var(--paper, white); stroke: var(--navy); }
 	text { fill: var(--ink); font-size: 12px; }

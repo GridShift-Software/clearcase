@@ -100,13 +100,14 @@ describe('every top-level source dataset is accounted for', () => {
     expect([...keys.keys()].filter((k) => k.startsWith('DATA.'))).toHaveLength(24);
     const account = accountFor('v5-js-newer', keys, packageDatasets(b.files), subjects(b.result.diagnostics));
     expect(account.filter((a) => a.state === 'unaccounted' || a.state === 'dropped')).toEqual([]);
-    expect(account.filter((a) => a.state === 'residual').map((a) => a.source).sort()).toEqual(['DATA.anchors', 'DATA.emails', 'DATA.organogram', 'DATA.profile', 'DATA.text', 'DATA.transcripts', 'DATA.whatsapp']);
+    expect(account.filter((a) => a.state === 'residual').map((a) => a.source).sort()).toEqual(['DATA.emails', 'DATA.profile', 'DATA.text', 'DATA.transcripts', 'DATA.whatsapp']);
     expect(account.filter((a) => a.state === 'empty').map((a) => a.source)).toEqual([]);
-    expect(account.find((a) => a.source === 'DATA.anchors')).toEqual({ source: 'DATA.anchors', state: 'residual', datasets: ['v5-residual-anchors'] });
+    expect(account.find((a) => a.source === 'DATA.anchors')).toEqual({ source: 'DATA.anchors', state: 'mapped', datasets: ['anchors'] });
+    expect(account.find((a) => a.source === 'DATA.organogram')).toEqual({ source: 'DATA.organogram', state: 'mapped', datasets: ['organogram'] });
     expect(account.find((a) => a.source === 'DATA.lit')!.datasets).toContain('lit-presc-summary');
     expect(account.find((a) => a.source === 'window.__SCHED__')).toEqual({ source: 'window.__SCHED__', state: 'mapped', datasets: ['discovery-schedules'] });
     expect(account.find((a) => a.source === 'window.__CASELINES_IDX__')).toEqual({ source: 'window.__CASELINES_IDX__', state: 'mapped', datasets: ['caselines-index'] });
-    expect(b.result.diagnostics.filter((d) => d.code === 'V5_UNMAPPED_KEY').map((d) => [d.severity, d.subject]).sort()).toEqual(Object.keys(NEW).map((k) => ['warning', `DATA.${k}`]).sort());
+    expect(b.result.diagnostics.filter((d) => d.code === 'V5_UNMAPPED_KEY').map((d) => [d.severity, d.subject]).sort()).toEqual(Object.keys(NEW).filter((k) => !['anchors', 'organogram'].includes(k)).map((k) => ['warning', `DATA.${k}`]).sort());
   });
 
   it('the JSON script: every app-data and app-seed key is mapped, kept residual, or dropped with a diagnostic', async () => {

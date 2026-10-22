@@ -51,7 +51,8 @@ const wanted = (s) => !TARGET || TARGET.test(s);
 const PAYLOAD = ' Syn;=CCX(1)\t+CCX(2)\r-CCX(3)\n@CCX(4)';
 /** The cell-start payload: a formula start behind two spaces, as the first thing in an imported free-text cell (a "Trim spaces" import runs it). */
 const START_PAYLOAD = '  =CCX(0) ';
-const CELL_START = /(?:^|[,\r\n]) *"?[=+\-@]CCX\(0\)/g;
+/** A cell that starts with the start payload's formula behind any spaces, quoted or not: `,"  =CCX(0)` (neutralised, `,"'  =CCX(0)`). */
+const CELL_START = /(?:^|[,\r\n]) *"? *[=+\-@]CCX\(0\)/g;
 /** CSV files that carried the start payload at a cell start (neutralised): a page that exports only typed work has none, so the suite as a whole must have some. */
 let startReached = 0;
 /** A URL in two documents' excerpts: the unbroken text a diff of them shows (hoa_diff, class narrow). */
@@ -526,7 +527,7 @@ async function csv(route, url, viewId, forms) {
 		const files = downloads.filter(isCsv);
 		const checked = files.map(csvFileEvidence);
 		// the cell start: no cell may begin with the start payload's formula
-		const starts = files.map((d) => ({ name: d.name, bad: [...d.text.matchAll(CELL_START)].length, reached: /(?:^|[,\r\n]) *"?'? *[=+\-@]CCX\(0\)/.test(d.text) }));
+		const starts = files.map((d) => { const bad = [...d.text.matchAll(CELL_START)]; return { name: d.name, bad: bad.length, sample: bad.slice(0, 3).map((m) => J(d.text.slice(m.index, m.index + 16))), reached: /(?:^|[,\r\n]) *"?'? *[=+\-@]CCX\(0\)/.test(d.text) }; });
 		startReached += starts.filter((x) => x.reached).length;
 		return { evidence: { url, nonCsvReason: nonCsvReason ?? null, typed, controls, files: checked, starts, nonCsv: other.map((d) => d.name), undeclared },
 			checks: { ...(nonCsvReason ? { declaredNotCsv: files.length === 0, downloaded: downloads.length > 0 } : { ...csvChecks(checked), noFormulaAtCellStart: starts.every((x) => x.bad === 0) }), typedSaved: typed.every((x) => x.errors.length === 0 && x.saved), onlyDeclaredNonCsv: undeclared.length === 0 } };

@@ -369,7 +369,8 @@ try {
 			})().catch((e) => { handlerError = String(e); });
 		});
 		try {
-			await q.go(`${base}${route('payments_tab')}#main`, 'payments_tab');
+			await q.navigate(`${base}${route('payments_tab')}#main`);
+			await q.waitFor(ready('payments_tab'), 15000);
 			await q.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json?*x-sveltekit-invalidated=*', requestStage: 'Request' }] });
 			await q.evaluate(`(() => { for (const [id, value] of Object.entries({ pay_date: '2089-04-01', pay_amount: 'R 25.00', pay_method: 'Synthetic EFT', pay_note: 'Synthetic reload payment' })) { const e = document.getElementById(id); e.value = value; e.dispatchEvent(new Event('input', { bubbles: true })); } })()`);
 			await q.click('#pay-add');

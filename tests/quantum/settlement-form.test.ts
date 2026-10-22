@@ -27,6 +27,14 @@ describe('defaults and prefill', () => {
 
 describe('outcome', () => {
 	const base = { claim: '1000000', p: '70', y: '2', d: '10', c: '100000' };
+	it('shows clamped scenario probabilities and the undiscounted cost basis without changing the money', () => {
+		const low = settleOutcome({ ...base, p: '10' });
+		const high = settleOutcome({ ...base, p: '95' });
+		expect(low.kpis![0]).toMatchObject({ label: 'Pessimistic (p=0%)', value: '-R 100 000.00', sub: 'Recovery probability 0%' });
+		expect(high.kpis![2]).toMatchObject({ label: 'Optimistic (p=100%)', value: 'R 726 446.28', sub: 'Recovery probability 100%' });
+		expect(low.floor).toContain('R 100 000.00 undiscounted enforcement costs');
+		expect(high.floor).toContain('R 100 000.00 undiscounted enforcement costs');
+	});
 	it('the checklist example, with v5\'s labels', () => {
 		const o = settleOutcome(base);
 		expect(o.kpis!.map((k) => `${k.label}=${k.value}`)).toEqual(['Pessimistic (p-25)=R 271 900.83', 'Base (p=70%)=R 478 512.40', 'Optimistic (p+15)=R 602 479.34']);

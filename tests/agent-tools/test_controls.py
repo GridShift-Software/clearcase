@@ -3322,6 +3322,42 @@ class FixRoundArrival(ControlCase):
             self.merge()
             self.refused_whole()
 
+    def test_every_merge_on_the_arrival_stretch_must_preserve_the_named_test(self):
+        self.wave({'vitest.config.ts': self.wave_config})
+        self.pull_request()
+        weakened = self.test.replace('.toEqual(false)', '.toBeDefined()')
+        self.merge(commit=False)
+        self.change({'tests/protected.test.ts': weakened,
+                     'support/helper.ts': self.helper.replace('false', 'true')},
+                    'resolve the first dev merge with a weakened named test and helper')
+        first = self.git('rev-parse', 'HEAD')
+        self.assertEqual(len(self.git('rev-list', '--parents', '-n', '1', 'HEAD').split()), 3)
+        self.change({'tests/protected.test.ts': self.test}, 'restore only the named test')
+        self.git('switch', '-q', 'dev')
+        later = self.change({'docs/later.md': 'unrelated dev update\n'}, 'unrelated dev update')
+        self.git('update-ref', 'refs/remotes/origin/dev', later)
+        self.git('switch', '-q', 'feature/grs-105-polish')
+        head = self.merge()
+        self.assertNotEqual(self.git('rev-parse', f'{first}:tests/protected.test.ts'),
+                            self.git('rev-parse', f'{self.landed}:tests/protected.test.ts'))
+        self.assertEqual(self.git('rev-parse', f'{head}:tests/protected.test.ts'),
+                         self.git('rev-parse', f'{head}^2:tests/protected.test.ts'))
+        out = self.guard('--base', 'wave/proofs', code=1)
+        self.assertIn('named test changed', out)
+        self.assertEqual(self.last_receipt()['result'], 'FAIL')
+
+    def test_arrival_keeps_the_original_fix_base_as_a_named_test_reference(self):
+        self.arrive()
+        self.git('switch', '-q', 'dev')
+        weakened = self.test.replace('.toEqual(false)', '.toBeDefined()')
+        later = self.change({'tests/protected.test.ts': weakened}, 'dev weakens the named test after the manifest landed')
+        self.git('update-ref', 'refs/remotes/origin/dev', later)
+        self.git('switch', '-q', 'feature/grs-105-polish')
+        self.merge()
+        out = self.guard('--base', 'wave/proofs', code=1)
+        self.assertIn('named test changed', out)
+        self.assertEqual(self.last_receipt()['result'], 'FAIL')
+
 
 class RetainedPaths(ControlCase):
     """L1 and L2."""

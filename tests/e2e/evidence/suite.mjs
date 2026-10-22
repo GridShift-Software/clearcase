@@ -135,30 +135,6 @@ try {
 	}
 	const byRef = new Map(chronology.map((x) => [x.ref, x]));
 	const collator = new Intl.Collator('en-US');
-	await scenario('E-FILINGS-RELOAD-LOST', 'filings_tab', 'a stored filing survives a failed reload with a URL fragment, clears busy, reports the stale page and allows leaving', async () => {
-		const q = await openPage(b, { initScript: INIT });
-		let killed = false, handlerError = null;
-		const off = b.on((m) => {
-			if (m.sessionId !== q.sessionId || m.method !== 'Fetch.requestPaused') return;
-			(async () => {
-				if (!killed) { killed = true; const srv = A.srv; A.srv = null; await srv.stop('SIGKILL'); }
-				await q.s('Fetch.continueRequest', { requestId: m.params.requestId });
-			})().catch((e) => { handlerError = String(e); });
-		});
-		try {
-			await q.goto(`${V}/evidence/filings_tab#main`, R('filings_tab'));
-			await q.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json?*x-sveltekit-invalidated=*', requestStage: 'Request' }] });
-			await q.evaluate(`(() => { for (const [id, value] of Object.entries({ fl_filing: 'Synthetic reload filing', fl_fdate: '1997-07-08', fl_fparty: 'Synthetic party', fl_response: 'Synthetic response', fl_rdate: '1997-08-09', fl_ref: 'OD-002' })) { const e = document.getElementById(id); e.value = value; e.dispatchEvent(new Event('input', { bubbles: true })); } })()`);
-			await q.click('#register-add');
-			await q.waitFor(`!document.getElementById('register-status')`, 10000).catch(() => null);
-			const state = await q.evaluate(`({ busy: !!document.getElementById('register-status'), error: document.getElementById('reload-error')?.textContent ?? '', alert: document.getElementById('reload-error')?.getAttribute('role'), enabled: !document.querySelector('#register-form fieldset')?.disabled })`);
-			const stored = A.work("SELECT fields FROM register_row WHERE store = 'filings-register'").some((r) => JSON.parse(r.fields).filing === 'Synthetic reload filing');
-			await A.start();
-			await q.click('#nav-documents');
-			const left = await q.waitFor(`document.querySelector('main#main')?.dataset.ready === 'documents'`, 3000).then(() => true, () => false);
-			return { pass: killed && stored && !state.busy && state.enabled && state.alert === 'alert' && /could not reload/.test(state.error) && left && !handlerError, evidence: { killed, stored, state, left, handlerError } };
-		} finally { off(); await q.s('Fetch.disable').catch(() => {}); if (!A.srv) await A.start(); await q.close(); }
-	});
 
 	// E2/E3 (documents): every bundle, filter, pagination, order, Back, no whole-corpus reload per change
 	await scenario('E-DOCS', 'documents', 'Documents: every imported bundle selectable (Additional included), filter resets to page 1, Next keeps bundle and filter in the URL, type-then-date order, Back from a document keeps the state, each change loads one page of rows as page data (D18)', async () => {
@@ -1031,6 +1007,31 @@ try {
 		};
 		return { pass: Object.values(checks).every(Boolean), evidence: { checks, nav: nav.got, pair, reloaded, pick, general, optionsN: options.length } };
 	});
+	await scenario('E-FILINGS-RELOAD-LOST', 'filings_tab', 'a stored filing survives a failed reload with a URL fragment, clears busy, reports the stale page and allows leaving', async () => {
+		const q = await openPage(b, { initScript: INIT });
+		let killed = false, handlerError = null;
+		const off = b.on((m) => {
+			if (m.sessionId !== q.sessionId || m.method !== 'Fetch.requestPaused') return;
+			(async () => {
+				if (!killed) { killed = true; const srv = A.srv; A.srv = null; await srv.stop('SIGKILL'); }
+				await q.s('Fetch.continueRequest', { requestId: m.params.requestId });
+			})().catch((e) => { handlerError = String(e); });
+		});
+		try {
+			await q.goto(`${V}/evidence/filings_tab#main`, R('filings_tab'));
+			await q.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json?*x-sveltekit-invalidated=*', requestStage: 'Request' }] });
+			await q.evaluate(`(() => { for (const [id, value] of Object.entries({ fl_filing: 'Synthetic reload filing', fl_fdate: '1997-07-08', fl_fparty: 'Synthetic party', fl_response: 'Synthetic response', fl_rdate: '1997-08-09', fl_ref: 'OD-002' })) { const e = document.getElementById(id); e.value = value; e.dispatchEvent(new Event('input', { bubbles: true })); } })()`);
+			await q.click('#register-add');
+			await q.waitFor(`!document.getElementById('register-status')`, 10000).catch(() => null);
+			const state = await q.evaluate(`({ busy: !!document.getElementById('register-status'), error: document.getElementById('reload-error')?.textContent ?? '', alert: document.getElementById('reload-error')?.getAttribute('role'), enabled: !document.querySelector('#register-form fieldset')?.disabled })`);
+			const stored = A.work("SELECT fields FROM register_row WHERE store = 'filings-register'").some((r) => JSON.parse(r.fields).filing === 'Synthetic reload filing');
+			await A.start();
+			await q.click('#nav-documents');
+			const left = await q.waitFor(`document.querySelector('main#main')?.dataset.ready === 'documents'`, 3000).then(() => true, () => false);
+			return { pass: killed && stored && !state.busy && state.enabled && state.alert === 'alert' && /could not reload/.test(state.error) && left && !handlerError, evidence: { killed, stored, state, left, handlerError } };
+		} finally { off(); await q.s('Fetch.disable').catch(() => {}); if (!A.srv) await A.start(); await q.close(); }
+	});
+
 	exitOk = true;
 } catch (e) {
 	scenarios.push({ id: 'HARNESS', view: 'none', title: 'evidence suite harness', pass: false, evidence: { error: String(e?.stack ?? e).slice(0, 4000) } });

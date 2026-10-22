@@ -138,30 +138,6 @@ try {
 	titleName = typeof shellTitle === 'string' && shellTitle.trim() ? shellTitle : manifest.case.label || manifest.case.id;
 	b = await launch({ profileRoot: join(tmp, 'chromium') });
 	p = await openPage(b, { initScript: `${INIT};${HOOK}` });
-	await scenario('SC-RELOAD-LOST', 'disbursements_tab', 'a stored register entry survives a failed reload with a URL fragment, clears busy, reports the stale page and allows leaving', async () => {
-		const q = await openPage(b, { initScript: INIT });
-		let killed = false, handlerError = null;
-		const off = b.on((m) => {
-			if (m.sessionId !== q.sessionId || m.method !== 'Fetch.requestPaused') return;
-			(async () => {
-				if (!killed) { killed = true; const srv = A.srv; A.srv = null; await srv.stop('SIGKILL'); }
-				await q.s('Fetch.continueRequest', { requestId: m.params.requestId });
-			})().catch((e) => { handlerError = String(e); });
-		});
-		try {
-			await q.goto(`${base()}/registers/disbursements_tab#main`, ready('disbursements_tab'));
-			await q.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json?*x-sveltekit-invalidated=*', requestStage: 'Request' }] });
-			await q.evaluate(`(() => { for (const [key, value] of Object.entries({ date: '2026-10-09', desc: 'Synthetic reload courier', payee: 'Synthetic Couriers', amount: '25' })) { const e = document.getElementById('in-' + key); e.value = value; e.dispatchEvent(new Event('input', { bubbles: true })); } })()`);
-			await q.click('#register-save');
-			await q.waitFor(`!document.getElementById('register-status')`, 10000).catch(() => null);
-			const state = await q.evaluate(`({ busy: !!document.getElementById('register-status'), error: document.getElementById('reload-error')?.textContent ?? '', alert: document.getElementById('reload-error')?.getAttribute('role'), enabled: !document.getElementById('register-save')?.disabled })`);
-			const persisted = stored('disbursements').some((r) => r.fields.desc === 'Synthetic reload courier');
-			await A.start();
-			await q.click('#nav-overview');
-			const left = await q.waitFor(ready('overview'), 3000).then(() => true, () => false);
-			return { checks: { killed, persisted, idle: !state.busy, enabled: state.enabled, alert: state.alert === 'alert' && /could not reload/.test(state.error), left, handler: !handlerError }, evidence: { state, handlerError } };
-		} finally { off(); await q.s('Fetch.disable').catch(() => {}); if (!A.srv) await A.start(); await q.close(); }
-	});
 
 	// 1. Each register's first state, reached from the overview's navigation: title, focused heading, empty state.
 	for (const view of REGISTER_VIEWS) {
@@ -876,6 +852,31 @@ try {
 			checks: { noField: fields.exportFileName === undefined && fields.icsProductId === undefined, neutralName: x?.name === 'deadlines.ics', note: J(note.texts) === J([EXPORT_NAME_NOTE]) && note.beside,
 				neutralProdid: (x?.text ?? '').split('\r\n').includes('PRODID:-//ClearCase//Deadlines//EN') } };
 	});
+	await scenario('SC-RELOAD-LOST', 'disbursements_tab', 'a stored register entry survives a failed reload with a URL fragment, clears busy, reports the stale page and allows leaving', async () => {
+		const q = await openPage(b, { initScript: INIT });
+		let killed = false, handlerError = null;
+		const off = b.on((m) => {
+			if (m.sessionId !== q.sessionId || m.method !== 'Fetch.requestPaused') return;
+			(async () => {
+				if (!killed) { killed = true; const srv = A.srv; A.srv = null; await srv.stop('SIGKILL'); }
+				await q.s('Fetch.continueRequest', { requestId: m.params.requestId });
+			})().catch((e) => { handlerError = String(e); });
+		});
+		try {
+			await q.goto(`${base()}/registers/disbursements_tab#main`, ready('disbursements_tab'));
+			await q.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json?*x-sveltekit-invalidated=*', requestStage: 'Request' }] });
+			await q.evaluate(`(() => { for (const [key, value] of Object.entries({ date: '2026-10-09', desc: 'Synthetic reload courier', payee: 'Synthetic Couriers', amount: '25' })) { const e = document.getElementById('in-' + key); e.value = value; e.dispatchEvent(new Event('input', { bubbles: true })); } })()`);
+			await q.click('#register-save');
+			await q.waitFor(`!document.getElementById('register-status')`, 10000).catch(() => null);
+			const state = await q.evaluate(`({ busy: !!document.getElementById('register-status'), error: document.getElementById('reload-error')?.textContent ?? '', alert: document.getElementById('reload-error')?.getAttribute('role'), enabled: !document.getElementById('register-save')?.disabled })`);
+			const persisted = stored('disbursements').some((r) => r.fields.desc === 'Synthetic reload courier');
+			await A.start();
+			await q.click('#nav-overview');
+			const left = await q.waitFor(ready('overview'), 3000).then(() => true, () => false);
+			return { checks: { killed, persisted, idle: !state.busy, enabled: state.enabled, alert: state.alert === 'alert' && /could not reload/.test(state.error), left, handler: !handlerError }, evidence: { state, handlerError } };
+		} finally { off(); await q.s('Fetch.disable').catch(() => {}); if (!A.srv) await A.start(); await q.close(); }
+	});
+
 	ok = results.length > 0 && results.every((r) => r.pass);
 } catch (e) {
 	results.push({ id: 'HARNESS', view: '-', pass: false });

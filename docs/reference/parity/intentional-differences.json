@@ -420,6 +420,44 @@
       "approvedOn": "2026-10-21"
     },
     {
+      "id": "IDR-088",
+      "view": "chronology",
+      "field": "table.table_1.row.*.excerpt",
+      "type": "defect-fix",
+      "source": "S-chronology-3",
+      "reason": "v5 appends an ellipsis to short Chronology excerpts. ClearCase shows the complete short excerpt without a truncation mark and marks only excerpts longer than the preview.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null,
+      "when": {
+        "v5": {
+          "re": "…$"
+        },
+        "app": {
+          "re": "[^…]$"
+        }
+      }
+    },
+    {
+      "id": "IDR-090",
+      "view": "chronology",
+      "field": [
+        "list.select.any_text_status.count",
+        "list.select.any_text_status.item.2",
+        "list.select.any_text_status.item.3",
+        "list.select.any_text_status.item.4",
+        "sweep.filter_sort_ui.b0.t0.s2.q0.date.asc"
+      ],
+      "type": "defect-fix",
+      "source": "S-chronology-5",
+      "reason": "v5 offers an OCR filter even when no document has OCR status. ClearCase omits that empty option in Chronology, including the corresponding filter sweep; an OCR row makes the option available.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
       "id": "IDR-074",
       "view": "overview",
       "field": [],
@@ -588,43 +626,16 @@
       "approvedOn": null
     },
     {
-      "id": "IDR-088",
-      "view": "chronology",
-      "field": [],
-      "type": "known-gap",
-      "source": "S-chronology-3",
-      "owner": "GRS-12",
-      "reason": "v5 always appends an ellipsis to the excerpt preview, even when the excerpt is shorter than the cut. ClearCase copies this: the preview is the first part of the excerpt followed by an ellipsis whenever the excerpt is non-empty; fixing it would need an app change. Evidence: src/lib/local-case/chronology.ts:44.",
-      "productVisible": true,
-      "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": "Vaperizer2",
-      "approvedOn": "2026-10-21"
-    },
-    {
       "id": "IDR-089",
       "view": "chronology",
       "field": [],
-      "type": "known-gap",
+      "type": "defect-fix",
       "source": "S-chronology-4",
-      "owner": "GRS-12",
-      "reason": "v5 says sorted by date in the subtitle whatever sort is chosen. ClearCase keeps the same fixed subtitle wording; there is no page to reset because the whole filtered list renders incrementally. Making the subtitle follow the chosen sort would need an app change. Evidence: src/routes/v/[vid]/chronology/+page.svelte:50.",
+      "reason": "v5 says sorted by date after another sort. ClearCase names the active sort in the subtitle. Evidence: src/routes/v/[vid]/chronology/+page.svelte:50.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": "Vaperizer2",
-      "approvedOn": "2026-10-21"
-    },
-    {
-      "id": "IDR-090",
-      "view": "chronology",
-      "field": [],
-      "type": "known-gap",
-      "source": "S-chronology-5",
-      "owner": "GRS-12",
-      "reason": "v5 offers an ocr text-status option that no row can match. ClearCase offers the same whole vocabulary as v5 does, including ocr, so choosing it shows no rows; removing or labelling the empty option would need an app change. Evidence: src/lib/local-case/chronology.ts:36.",
-      "productVisible": true,
-      "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": "Vaperizer2",
-      "approvedOn": "2026-10-21"
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
       "id": "IDR-091",

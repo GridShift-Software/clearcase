@@ -32,9 +32,13 @@ const refuse = (status: number, code: string, detail: Record<string, unknown> = 
 class GuardFailed extends Error {}
 
 type Row = Record<string, unknown>;
-/** PROBE_CLOCK exists only in the probe's deployments: it lets a request name the rotation time. Never bind it in production. */
-type RecoveryEnv = Env & { RECOVERY?: unknown; PROBE_CLOCK?: string };
-type Ctx = { client: string; db: D1; bucket: R2; copies: R2; env: RecoveryEnv };
+/**
+ * PROBE_CLOCK exists only in the probe's deployments: it lets a request name the rotation time. PROBE_FAULT likewise: a request
+ * that sends x-probe-fault: stop-after-d1 makes an erasure stop right after its D1 commit, as a Worker that is evicted or dies
+ * there would. Never bind either in production.
+ */
+type RecoveryEnv = Env & { RECOVERY?: unknown; PROBE_CLOCK?: string; PROBE_FAULT?: string };
+type Ctx = { client: string; db: D1; bucket: R2; copies: R2; env: RecoveryEnv; fault: boolean };
 /** What R2's list and head return beyond platform.ts's shape: the time R2 stored the object, which is what rotation ages. */
 type Stored = R2Object & { uploaded: Date };
 
@@ -87,7 +91,7 @@ async function open(env: RecoveryEnv): Promise<Ctx | Response> {
 	if (identity.status !== 200) return identity; // the storage gate's own refusal (503), passed on unchanged
 	const client = ((await identity.json()) as { client: string }).client;
 	if (!isBinding(env.RECOVERY, 'get', 'put', 'head', 'list', 'delete')) refuse(503, 'missing-binding', { binding: 'RECOVERY' });
-	const ctx: Ctx = { client, db: env.DB as D1, bucket: env.BUCKET as R2, copies: env.RECOVERY as R2, env };
+	const ctx: Ctx = { client, db: env.DB as D1, bucket: env.BUCKET as R2, copies: env.RECOVERY as R2, env, fault: false };
 	if (recoveryClient !== client) {
 		// The other client's identifier is never echoed, as in the storage gate.
 		const object = await ctx.copies.get('identity/client.json');
@@ -168,6 +172,7 @@ async function erase(ctx: Ctx, caseId: string, set: [string, D1Value[]], conditi
 		['DELETE FROM original WHERE sha256 IN (SELECT value FROM json_each(?)) AND NOT EXISTS (SELECT 1 FROM case_original c WHERE c.sha256 = original.sha256)', [JSON.stringify(plan.originals)]],
 	];
 	await guarded(ctx.db, condition[0], condition[1], statements);
+	if (ctx.fault) throw new Error('probe fault: the Worker stopped after the D1 commit and before the R2 deletes');
 	// R2 after D1: once the rows are gone nothing serves these objects, and a repeat of this call deletes what is left.
 	const keys: string[] = [];
 	for (const prefix of [...plan.versions.flatMap((v) => [`pkg/${v}/`, `rm/${v}/`]), `export/${caseId}/`, `backup/${caseId}/`, `bundle/${caseId}/`]) {
@@ -450,6 +455,7 @@ async function route(request: Request, env: RecoveryEnv): Promise<Response> {
 	const opened = await open(env);
 	if (opened instanceof Response) return opened;
 	const ctx = opened;
+	ctx.fault = ctx.env.PROBE_FAULT === '1' && request.headers.get('x-probe-fault') === 'stop-after-d1';
 	const url = new URL(request.url);
 	const seg = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
 	const m = request.method;

@@ -22,7 +22,7 @@ import { DESCRIPTOR_SIZE, type Entry, crc32, descriptor, localHeader, trailer } 
 const HERE = import.meta.dirname;
 const STORAGE = path.join(HERE, '../storage');
 const SCHEMA = 'clearcase.recovery-probe/1';
-const LEGS = ['build', 'provision', 'crossed-recovery', 'seed', 'rollback', 'copies', 'deletion-flow', 'deletion-reapply', 'restore-from-copy', 'retention', 'restore-leftovers', 'ledger-guards', 'warm-isolate'] as const;
+const LEGS = ['build', 'provision', 'crossed-recovery', 'seed', 'rollback', 'copies', 'deletion-flow', 'deletion-reapply', 'restore-from-copy', 'retention', 'restore-leftovers', 'ledger-guards', 'warm-isolate', 'interrupted-erasure'] as const;
 type LegName = (typeof LEGS)[number];
 type Measure = Record<string, number | string | boolean>;
 type Leg = { status: 'PASS' | 'FAIL' | 'NOT RUN'; commands: string[]; asserted: string[]; measured: Measure; failure?: string };
@@ -74,6 +74,7 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	'restore-leftovers': [5, 9],
 	'ledger-guards': [4, 4],
 	'warm-isolate': [5, 6],
+	'interrupted-erasure': [6, 8],
 };
 type Spec = null | boolean | number | string | RegExp | ((v: unknown) => boolean) | Spec[] | { [key: string]: Spec };
 const NONEMPTY = (v: unknown) => typeof v === 'string' && v.length > 0;
@@ -96,6 +97,7 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 	'restore-leftovers': { stepped: 6, erasedByLedger: 3, agedOut: 3, kept: 3, residueRows: 0 },
 	'ledger-guards': { refusedRequests: 3 },
 	'warm-isolate': { routesGone: 9, repeatedRemovals: 1, residueRows: 0 },
+	'interrupted-erasure': { interruptedRemovals: 2, finishedByRoute: 1, finishedByNewIsolate: 1, objectsLeftAfterFinish: 0, residueRows: 0 },
 };
 const ENV_KEYS = ['CI', 'CLOUDFLARE_CF_FETCH_ENABLED', 'CLOUDFLARE_INCLUDE_PROCESS_ENV', 'CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV', 'HOME', 'PATH', 'WRANGLER_HIDE_BANNER', 'WRANGLER_LOG_PATH', 'WRANGLER_SEND_ERROR_REPORTS', 'WRANGLER_SEND_METRICS', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME'];
 
@@ -995,6 +997,56 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			const res = residue('client-a', A2, versionsOfA2, exportsOfA2);
 			check(res.left.length === 0 && isGone(await liveOf(A2)), `A2 holds no row in any of the ${res.tables} tables sqlite_master lists with such a column (${res.left.join(', ')})`);
 			Object.assign(m, { routesGone: gone, repeatedRemovals: retry.json().repeated === true ? 1 : 0, residueRows: res.left.length });
+		});
+
+		// ----- a removal that stops after its D1 commit: the next request, or a new isolate, finishes the erasure -----
+		await leg('interrupted-erasure', ['PUT /originals/<sha256>, POST /cases/<case>/originals, import and activate a version, POST …/registers/notes/add, PUT …/bundles/b-1, seal an export, POST …/exports (left building), POST …/deletion/{request,approve,offer} for cases A5 and A6', 'POST /cases/<A6>/deletion/remove with x-probe-fault: stop-after-d1, GET /cases/<A6>/deletion, GET /recovery/head/{live,copies}/<key>', serveCmd('client-a') + ' (a new isolate), GET /recovery/copies, GET /recovery/head/live/<key>', 'POST /cases/<A5>/deletion/remove with x-probe-fault: stop-after-d1', 'GET /cases/<A5>/documents/<ref> on the same running Worker, GET /recovery/head/live/<key>', wcmd('d1 execute DB --local --env client-a --command "SELECT state, erased_at, erase_plan FROM case_deletion"') + '; POST /cases/<A6>/deletion/remove (a repeat)'], async (check, m) => {
+			const FA = { role: 'firm-admin', id: 'fa-1' };
+			const GA = { role: 'global-admin', id: 'ga-1' };
+			const seedCase = async (caseId: string, tag: string) => {
+				const o = original(`${tag}-letter`, `recovery probe ${tag} letter`, 120);
+				const v = versionOf(`${tag} v1`);
+				await putOriginal(caseId, o);
+				await importVersion(caseId, v, ['S-0001'], [o]);
+				if ((await post(`/cases/${caseId}/activate`, { version: v, expected: null })).status !== 200) throw new Error(`activate ${caseId}`);
+				await addRow(caseId, `${tag} note`, 'S-0001');
+				const bundle = synthetic(`recovery probe ${tag} bundle`, 50);
+				if ((await http(`/cases/${caseId}/bundles/b-1`, { method: 'PUT', headers: { 'x-sha256': sha256(bundle) }, body: bundle })).status !== 200) throw new Error(`bundle ${caseId}`);
+				const sealed = await exportCase(caseId);
+				const building = (await post(`/cases/${caseId}/exports`, {})).json().exportId as string;
+				const step = (name: string, actor: unknown, extra: Record<string, unknown> = {}) => post(`/cases/${caseId}/deletion/${name}`, { actor, ...extra });
+				const steps = [await step('request', FA), await step('approve', GA), await step('offer', GA, { exportId: sealed.exportId })];
+				if (steps.some((r) => r.status !== 200)) throw new Error(`deletion steps ${caseId}: ${steps.map((r) => r.status).join()}`);
+				return { caseId, v, exports: [sealed.exportId, building], keys: [`pkg/${v}/datasets/chronology.json`, `rm/${v}/chronology.json`, `orig/${o.sha}`, `export/${caseId}/${sealed.exportId}.zip`, `bundle/${caseId}/b-1.pdf`] };
+			};
+			const remaining = async (c: { keys: string[] }) => {
+				const out: string[] = [];
+				for (const k of c.keys) if (await held('live', k)) out.push(k);
+				return out;
+			};
+			const interrupt = (c: { caseId: string }) => http(`/cases/${c.caseId}/deletion/remove`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-probe-fault': 'stop-after-d1' }, body: JSON.stringify({ actor: GA }) });
+			const row = (c: { caseId: string }) => d1('client-a', `SELECT state, erased_at, erase_plan FROM case_deletion WHERE case_id = '${c.caseId}'`)[0] as { state: string; erased_at: string | null; erase_plan: string };
+			const a5 = await seedCase('case-recovery-a5', 'A5');
+			const a6 = await seedCase('case-recovery-a6', 'A6');
+			check((await remaining(a5)).length === 5 && (await remaining(a6)).length === 5, 'cases A5 and A6 each hold a package file, a list, an original, a sealed export and a bundle version, with an export left building, and their removal is offered');
+			const r6 = await interrupt(a6);
+			const removed6 = d1('client-a', `SELECT state FROM case_deletion WHERE case_id = '${a6.caseId}'`)[0]?.state;
+			check(r6.status === 500 && r6.json().code === 'internal' && String(r6.json().message).includes('probe fault') && removed6 === 'removed' && (await held('live', `deletion/${a6.caseId}.json`)) && (await held('copies', `deletion/${a6.caseId}.json`)), "A6's removal stops after its D1 commit: D1 holds it as removed, its deletion record is in both buckets, and the request answered 500");
+			await serve('client-a');
+			check((await http('/recovery/copies')).status === 200, 'a new isolate answers its first request');
+			const left6 = await remaining(a6);
+			check(left6.length === 0, `the new isolate's first request finished A6's erasure: its package file, list, original, export and bundle version are gone from the live bucket (${left6.join(', ')} left)`);
+			const r5 = await interrupt(a5);
+			check(r5.status === 500 && String(r5.json().message).includes('probe fault') && row(a5).state === 'removed' && (await remaining(a5)).length === 5, "A5's removal stops after its D1 commit on the running Worker: D1 holds it as removed and its five objects are still in the live bucket");
+			const doc = await http(`/cases/${a5.caseId}/documents/S-0001`);
+			const left5 = await remaining(a5);
+			check(code(doc, 410, 'case-deleted') && left5.length === 0, `the next request for A5 on the same Worker answers 410 and finishes the erasure: no object of A5 is left (${left5.join(', ')})`);
+			const rows = [row(a5), row(a6)];
+			const res = [residue('client-a', a5.caseId, [a5.v], a5.exports), residue('client-a', a6.caseId, [a6.v], a6.exports)];
+			check(rows.every((r) => r.state === 'removed' && typeof r.erased_at === 'string' && ISO.test(r.erased_at) && (JSON.parse(r.erase_plan) as { uploads?: unknown[] }).uploads?.length === 1) && res.every((r) => r.left.length === 0), 'each case records when its erasure finished, its plan names the export upload that was left open, and no row of either case is left in any table');
+			const again = await post(`/cases/${a6.caseId}/deletion/remove`, { actor: GA });
+			check(again.status === 200 && again.json().repeated === true && row(a6).erased_at === rows[1]!.erased_at, 'a repeated removal of a finished case is a no-op that keeps the time the erasure first finished');
+			Object.assign(m, { interruptedRemovals: 2, finishedByRoute: left5.length === 0 ? 1 : 0, finishedByNewIsolate: left6.length === 0 ? 1 : 0, objectsLeftAfterFinish: left5.length + left6.length, residueRows: res[0]!.left.length + res[1]!.left.length });
 		});
 	} catch (e) {
 		failure = e instanceof Error ? e.message : String(e);

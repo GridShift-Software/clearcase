@@ -546,6 +546,21 @@ class WaveChangeReverted(DocsOnlyFixRound):
         self.commit('restore the fix base copy of a guide')
         self.guard()
 
+    def test_editing_a_document_the_wave_made_executable_is_no_documentation(self):
+        # GRS-169 escalation: a changed path's modes are read at every reference, the wave's copy included
+        self.fix_round()
+        self.git('switch', '-q', WAVE)
+        (self.repo / 'docs/other.md').chmod(0o755)
+        self.commit('the wave makes a guide executable')
+        self.git('switch', '-q', BRANCH)
+        self.merge(WAVE)
+        (self.repo / 'docs/other.md').chmod(0o644)
+        self.write('docs/other.md', '# Other, edited\n')
+        self.commit('edit the guide and drop its executable bit')
+        out = self.guard(code=1)
+        self.assertIn('docs-only', out)
+        self.assertIn('docs/other.md', out)
+
 
 class TheRepositoryItself(DocsOnlyFixRound):
     """The repository's own tracked tree at HEAD is the reviewed commit, so its real readers, comments and printed text

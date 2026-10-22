@@ -5,6 +5,8 @@
 	import { page } from '$app/state';
 	import type { SubmitFunction } from '$app/forms';
 	import CitationLink from '$lib/components/CitationLink.svelte';
+	import ConfirmDelete from '$lib/components/ConfirmDelete.svelte';
+	import { deleteStep } from '$lib/components/confirm-delete';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	import { now } from '$lib/components/clock';
@@ -21,7 +23,7 @@
 		exportName: { name: string; note: string | null };
 		icsProductId: string | null;
 	};
-	type Form = { op?: 'save' | 'delete'; values?: Entry; rowId?: string | null; version?: string | null; message?: string; retry?: boolean } | null;
+	type Form = { op?: 'save' | 'delete'; values?: Entry; rowId?: string | null; version?: string | null; message?: string; retry?: boolean; confirm?: string | null } | null;
 	let { data, form }: { data: Data; form: Form } = $props();
 	const reg = $derived(data.register);
 	const vid = $derived(data.version.id);
@@ -37,6 +39,8 @@
 	let deleteError = $state<{ rowId: string | null; message: string } | null>(untrack(() => (form?.op === 'delete' && form.message ? { rowId: form.rowId ?? null, message: form.message } : null)));
 	let busy = $state(false);
 	let deleting = $state<string | null>(null);
+	// the row whose Delete awaits Confirm; without JavaScript the server's refusal names it
+	let confirming = $state<string | null>(untrack(() => (form?.op === 'delete' ? (form.confirm ?? null) : null)));
 	const locked = $derived(busy || (editing !== null && deleting === editing));
 	let rebaseNote = $state<string | null>(null);
 	let ask = $state<{ what: string; go: () => void; leave?: boolean } | null>(null);
@@ -91,8 +95,11 @@
 	};
 	const remove: SubmitFunction = ({ formData, cancel, formElement }) => {
 		const id = String(formData.get('rowId'));
+		const step = deleteStep(formData, id);
+		if (step !== 'confirm') { cancel(); confirming = step === 'ask' ? id : null; return; }
 		const typed = reg.fields.some((f) => values[f.k] && !(f.type === 'select' && f.placeholder === undefined));
 		if (id === editing && unsaved && typed) { cancel(); ask = { what: question(), go: () => { reset(); formElement.requestSubmit(); } }; return; }
+		confirming = null;
 		deleting = id;
 		return async ({ result }) => {
 			try {
@@ -234,7 +241,7 @@
 	{#if rebaseNote}<p class="status" role="status" id="register-rebase-note">{rebaseNote}</p>{/if}
 	{#if deleteError}
 		<div class="error" role="alert" id="register-delete-error">
-			<p>{deleteError.message}</p>
+			<p id="register-delete-message">{deleteError.message}</p>
 			<button type="button" id="register-delete-dismiss" onclick={() => (deleteError = null)}>Dismiss</button>
 		</div>
 	{/if}
@@ -263,7 +270,7 @@
 						<td class="row-actions">
 							{#if !r.intact}<span class="altered">this entry was altered on disk since it was saved</span>{/if}
 							<button type="button" data-edit onclick={() => edit(r)} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)}>Edit</button>
-							<form method="POST" action="?/delete" use:enhance={remove}><input type="hidden" name="rowId" value={r.rowId} /><button data-delete disabled={busy || deleting === r.rowId || (saveError !== null && !ready)}>Delete</button></form>
+							<form method="POST" action="?/delete" use:enhance={remove}><input type="hidden" name="rowId" value={r.rowId} /><ConfirmDelete bind:pending={confirming} target={r.rowId} question="Delete this entry?" data-delete aria-describedby={deleteError?.rowId === r.rowId ? 'register-delete-message' : undefined} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)} /></form>
 						</td>
 					</tr>
 				{/each}

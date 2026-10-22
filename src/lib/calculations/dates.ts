@@ -58,5 +58,7 @@ export const utcDate = (t: Date) => t.toISOString().slice(0, 10);
 /**
  * The calendar date of an instant in South Africa (Africa/Johannesburg, SAST): UTC+2 all year, since South Africa has
  * no daylight saving, so it is the UTC date of the instant two hours later, whatever the host's time zone (CC-06 r2, D9).
+ * It is the court calendar for the deadline countdown and the prescription as-of date (IDR-289); a per-case time zone
+ * would replace it at those two call sites.
  */
 export const saDate = (t: Date) => new Date(t.getTime() + 2 * 3_600_000).toISOString().slice(0, 10);

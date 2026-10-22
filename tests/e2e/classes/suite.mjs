@@ -7,8 +7,8 @@
 //             values through another row's action on the page;
 //   dialog    a question answered while a save is in flight, or a save started while it is open, never leaves that
 //             save's error beside another entry;
-//   csv       every CSV export of a case whose free-text fields carry a formula after ;, tab, CR and LF (and a typed
-//             entry that does, on pages with a form) has no unneutralised formula start after one of them;
+//   csv       every CSV export of a case whose free-text fields carry a formula at the cell start and after ;, tab, CR and LF
+//             (and a typed entry that does, on pages with a form) has no unneutralised formula start at either;
 //   narrow    at 320 and 390 px, under an ordinary id and a 64-character id without break opportunity, no page scrolls
 //             sideways, a wide table scrolls in its own labelled, focusable box, and no heading overlaps an export control;
 //   back      after Back to a page, focus is on an element of the page, never <body>; after Back with typed input
@@ -49,6 +49,12 @@ const TARGET = process.env.CLASSES_TARGET ? new RegExp(process.env.CLASSES_TARGE
 const wanted = (s) => !TARGET || TARGET.test(s);
 /** The formula payload: one segment after each of ;, tab, CR and LF. A text input drops CR and LF; a textarea keeps them. */
 const PAYLOAD = ' Syn;=CCX(1)\t+CCX(2)\r-CCX(3)\n@CCX(4)';
+/** The cell-start payload: a formula start behind two spaces, as the first thing in an imported free-text cell (a "Trim spaces" import runs it). */
+const START_PAYLOAD = '  =CCX(0) ';
+/** A cell that starts with the start payload's formula behind any spaces, quoted or not: `,"  =CCX(0)` (neutralised, `,"'  =CCX(0)`). */
+const CELL_START = /(?:^|[,\r\n]) *"? *[=+\-@]CCX\(0\)/g;
+/** CSV files that carried the start payload at a cell start (neutralised): a page that exports only typed work has none, so the suite as a whole must have some. */
+let startReached = 0;
 /** A URL in two documents' excerpts: the unbroken text a diff of them shows (hoa_diff, class narrow). */
 const LONG_URL = 'https://synthetic.invalid/' + 'a1b2c3d4e5'.repeat(12);
 /** A newer-generation export: risks that carry category, owner and documents, and one document text at the builder's cap (V5_TEXT_CAPPED) and one source key with no mapping (V5_UNMAPPED_KEY). */
@@ -499,7 +505,7 @@ async function dialog(t) {
 async function csv(route, url, viewId, forms) {
 	const nonCsvReason = D.NON_CSV_PAGES[route];
 	if (nonCsvReason) notApplicable('csv', route, nonCsvReason);
-	return scenario(`csv:${route}`, viewId, nonCsvReason ?? 'no formula starts unneutralised after ;, tab, CR or LF in any column of the export', async () => {
+	return scenario(`csv:${route}`, viewId, nonCsvReason ?? 'no formula starts unneutralised at a cell start or after ;, tab, CR or LF in any column of the export', async () => {
 		await open(url);
 		const typed = [];
 		for (const f of (await p.evaluate(FORMS)).filter((x) => x.fields.length && forms.has(x.action))) {
@@ -520,8 +526,11 @@ async function csv(route, url, viewId, forms) {
 		const undeclared = other.filter((d) => !Object.keys(D.NON_CSV_DOWNLOADS).some((x) => d.name.toLowerCase().endsWith(x))).map((d) => d.name);
 		const files = downloads.filter(isCsv);
 		const checked = files.map(csvFileEvidence);
-		return { evidence: { url, nonCsvReason: nonCsvReason ?? null, typed, controls, files: checked, nonCsv: other.map((d) => d.name), undeclared },
-			checks: { ...(nonCsvReason ? { declaredNotCsv: files.length === 0, downloaded: downloads.length > 0 } : csvChecks(checked)), typedSaved: typed.every((x) => x.errors.length === 0 && x.saved), onlyDeclaredNonCsv: undeclared.length === 0 } };
+		// the cell start: no cell may begin with the start payload's formula
+		const starts = files.map((d) => { const bad = [...d.text.matchAll(CELL_START)]; return { name: d.name, bad: bad.length, sample: bad.slice(0, 3).map((m) => J(d.text.slice(m.index, m.index + 16))), reached: /(?:^|[,\r\n]) *"?'? *[=+\-@]CCX\(0\)/.test(d.text) }; });
+		startReached += starts.filter((x) => x.reached).length;
+		return { evidence: { url, nonCsvReason: nonCsvReason ?? null, typed, controls, files: checked, starts, nonCsv: other.map((d) => d.name), undeclared },
+			checks: { ...(nonCsvReason ? { declaredNotCsv: files.length === 0, downloaded: downloads.length > 0 } : { ...csvChecks(checked), noFormulaAtCellStart: starts.every((x) => x.bad === 0) }), typedSaved: typed.every((x) => x.errors.length === 0 && x.saved), onlyDeclaredNonCsv: undeclared.length === 0 } };
 	});
 }
 
@@ -697,7 +706,7 @@ try {
 	let hostileFields = 0;
 	// (free text: letters and a space, not a path, URL or date; and the invoice numbers and bundle names, which the
 	// quantum exports carry)
-	const addPayload = (o) => { for (const k of Object.keys(o)) { const v = o[k]; if (typeof v === 'string') { if ((/^(invoice_no|no|bundle)$/.test(k) && v) || (/[A-Za-z]{3,}/.test(v) && / /.test(v) && !/^(\.\/|https?:)/.test(v) && !/^\d{4}-\d\d/.test(v))) { o[k] = v + PAYLOAD; hostileFields++; } } else if (v && typeof v === 'object') addPayload(v); } };
+	const addPayload = (o) => { for (const k of Object.keys(o)) { const v = o[k]; if (typeof v === 'string') { if ((/^(invoice_no|no|bundle)$/.test(k) && v) || (/[A-Za-z]{3,}/.test(v) && / /.test(v) && !/^(\.\/|https?:)/.test(v) && !/^\d{4}-\d\d/.test(v))) { o[k] = START_PAYLOAD + v + PAYLOAD; hostileFields++; } } else if (v && typeof v === 'object') addPayload(v); } };
 	const hostile = await buildCase(join(tmp, 'hostile'), { caseId: 'e2e-classes-hostile', edit: (r) => addPayload(r.DATA) });
 	const himp = await A.c.importPkg(hostile.caseDir, hostile.pkgDir);
 	if (!himp.importId) throw new Error(`hostile import failed: ${himp.status} ${himp.location}`);
@@ -768,6 +777,8 @@ try {
 	}
 	// a class that was run and has no PASS proves nothing: it fails the suite
 	if (!TARGET) for (const c of CLASSES.filter(runs)) if (!results.some((r) => r.pass && r.id.startsWith(c) && /^[-:]/.test(r.id.slice(c.length)))) results.push({ id: `${c}:NO-PASS`, view: '-', pass: false });
+	// the cell-start payload must have reached a CSV file somewhere, or the cell-start check saw nothing
+	if (!TARGET && runs('csv') && startReached === 0) results.push({ id: 'csv:NO-CELL-START', view: '-', pass: false });
 	ok = results.length > 0 && results.every((r) => r.pass);
 
 } catch (e) {

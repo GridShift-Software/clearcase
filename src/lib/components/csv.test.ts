@@ -46,10 +46,12 @@ describe('CSV cells with a semicolon or tab', () => {
 			[userCell('=SUM(A1)'), userCell('x;=1+1'), userCell('+1'), ';', '\t', ';;', 'x;', ';x'],
 		];
 		const now = toCSV(rows);
+		// GRS-172: the one cell that starts a formula, the lone tab, now starts with a `'`; every other value is as before
+		const was = rows.map((r) => r.map((c) => (c === '\t' ? "'\t" : c)));
 		expect(now).not.toBe(before(rows));
-		expect(parse(now, ',')).toEqual(parse(before(rows), ','));
-		expect(parseCsv(now)).toEqual(parseCsv(before(rows)));
-		expect(parseCsv(now)).toEqual(rows.map((r) => r.map((c) => (c === null || c === undefined ? '' : Array.isArray(c) ? c.join('; ') : String(c)))));
+		expect(parse(now, ',')).toEqual(parse(before(was), ','));
+		expect(parseCsv(now)).toEqual(parseCsv(before(was)));
+		expect(parseCsv(now)).toEqual(was.map((r) => r.map((c) => (c === null || c === undefined ? '' : Array.isArray(c) ? c.join('; ') : String(c)))));
 	});
 });
 
@@ -131,8 +133,8 @@ describe('imported cells in any column of a multi-column row (BASE-R2g)', () => 
 			expect(fields.filter(formula)).toEqual([]);
 		});
 	});
-	it("leaves an imported cell's own first character alone (v5 parity)", () => {
-		expect([csvCell('=A1'), csvCell('-5'), csvCell(-5), csvCell('@x')]).toEqual(['=A1', '-5', '-5', '@x']);
+	it("neutralises an imported cell's own first character, except in a plain number (GRS-172)", () => {
+		expect([csvCell('=A1'), csvCell('-5'), csvCell(-5), csvCell('@x')]).toEqual(["'=A1", '-5', '-5', "'@x"]);
 	});
 });
 
@@ -142,7 +144,7 @@ describe('explicit monetary CSV cells (GRS-49)', () => {
 		['-999999999999.99', '-999999999999.99'], ['R 1,250.50', '1250.50'], ['0', '0.00'], [' -500 ', '-500.00'],
 	])('exports the validated monetary amount %j as a numeric CSV cell', (raw, numeric) => {
 		expect(toCSV([['amount'], [monetaryCell(raw)]])).toBe(`amount\r\n${numeric}`);
-		expect(userCell(raw)).toBe(raw.startsWith('-') ? `'${raw}` : raw);
+		expect(userCell(raw)).toBe(/^ *-/.test(raw) ? `'${raw}` : raw); // GRS-172: spaces before the sign do not hide it
 	});
 	it.each(['-1+2', '-1e3', '-12,34', '-5.001', '-1000000000000', '=1', '@SUM(A1)', '', 'plain'])('does not exempt malformed monetary text %j', (raw) => {
 		expect(monetaryCell(raw)).toBe(userCell(raw));
@@ -161,4 +163,61 @@ describe('explicit monetary CSV cells (GRS-49)', () => {
 			});
 		}
 	}
+});
+
+describe('imported cells that start a formula, in any column (GRS-172)', () => {
+	const rowsFor = (cell: string) => ({ first: [cell, 'B', 'C'], later: ['T', 'A', cell] });
+	describe.each(['=', '+', '-', '@', '\t', '\r'])('%j', (lead) => {
+		const imported = `${lead}SYN(1)`;
+		it.each(['first', 'later'] as const)("in the %s column: one cell that holds the imported text after a `'`", (at) => {
+			const csv = toCSV([rowsFor(imported)[at]]);
+			expect(parseCsv(csv)).toEqual([rowsFor(`'${imported}`)[at]]);
+			expect(parse(csv, ',')).toEqual([rowsFor(`'${imported}`)[at]]);
+			expect(parse(csv, ',').flat().filter(formula)).toEqual([]);
+		});
+		it('is written as userCell writes the same text typed', () => {
+			expect(csvCell(imported)).toBe(csvCell(userCell(imported)));
+		});
+	});
+	it.each(['-5', '-500.00', '-0.5', '0', '42', '1150.00'])('keeps the plain number %j, so a spreadsheet reads a number', (n) => {
+		expect(csvCell(n)).toBe(n);
+		expect(parseCsv(toCSV([['T', n]]))).toEqual([['T', n]]);
+	});
+	it('keeps a number cell, negative included', () => {
+		expect([csvCell(-5), csvCell(-500.25), csvCell(0)]).toEqual(['-5', '-500.25', '0']);
+	});
+	it.each([
+		['-1+2', "'-1+2"], ['-1e3', "'-1e3"], ['-', "'-"], ['-.5', "'-.5"], ['--5', "'--5"], ['-5 ', "'-5 "], ['-R 500', "'-R 500"],
+		['-1,250.50', `"'-1,250.50"`], ['+5', "'+5"], ['+27820000000', "'+27820000000"], ['+27 82 000 0000', "'+27 82 000 0000"],
+	])('neutralises %j, which is not a plain number', (raw, cell) => {
+		expect(csvCell(raw)).toBe(cell);
+	});
+	it('keeps a validated signed amount numeric (GRS-49) beside imported text that is neutralised', () => {
+		expect(toCSV([[monetaryCell('-R 1 250.50'), monetaryCell('-500'), monetaryCell('R 1,250.50')]])).toBe('-1250.50,-500.00,1250.50');
+		expect(parseCsv(toCSV([[monetaryCell('-500'), '=SYN(1)', '-SYN(1)']]))).toEqual([['-500.00', "'=SYN(1)", "'-SYN(1)"]]);
+	});
+	it('leaves a neutralised cell as it is when written again', () => {
+		for (const s of ['=SYN(1)', '\t=1', '\r\r=1', 'x;=1', '-5', '-1+2']) expect(csvCell(csvCell(s).replace(/^"|"$/g, '').replaceAll('""', '"'))).toBe(csvCell(s));
+	});
+});
+
+describe('a cell that starts with spaces and then a formula character (GRS-172 M1)', () => {
+	// LibreOffice's "Trim spaces" import turns ` =1+1` into a live formula, whether the text was imported or typed
+	const cases: [string, string][] = [[' =1+1', "' =1+1"], ['  +1', "'  +1"], [' -5', "' -5"], [' @SUM(A1)', "' @SUM(A1)"], [' \t=1', "' \t'=1"]];
+	it.each(cases)('%j starts with a `\'` at position 0, imported (csvCell) and typed (userCell)', (raw, want) => {
+		const q = (s: string) => (/[",;\t\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s);
+		expect(csvCell(raw)).toBe(q(want));
+		expect(userCell(raw)).toBe(want);
+		expect(parseCsv(toCSV([[raw, 'B']]))).toEqual([[want, 'B']]);
+		expect(parseCsv(toCSV([[userCell(raw), 'B']]))).toEqual([[want, 'B']]);
+	});
+	it('matches the segment rule: after a separator the same spaces and character get a `\'`, and text with an inner space does not', () => {
+		expect(userCell('x; =1+1')).toBe("x; '=1+1");
+		expect(csvCell(' =1+1')).toBe("' =1+1");
+		expect([csvCell('a =1+1'), csvCell(' plain'), userCell(' plain')]).toEqual(['a =1+1', ' plain', ' plain']);
+	});
+	it('is idempotent, and keeps the plain-number exception only for an unpadded number', () => {
+		expect(userCell(userCell(' =1+1'))).toBe("' =1+1");
+		expect([csvCell('-5'), csvCell(' 5'), userCell('-5')]).toEqual(['-5', ' 5', "'-5"]);
+	});
 });

@@ -1,5 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import { citedRefs } from '$lib/components/cite';
+import { deleteStep } from '$lib/components/confirm-delete';
 import { guarded, type Say } from '$lib/local-case/answer.server';
 import { app } from '$lib/local-case/app.server';
 import { resolveRefs } from '$lib/local-case/documents.server';
@@ -40,6 +41,15 @@ export const SAY = { add: { busy: BUSY, refused, failed: FAILED }, delete: { bus
 export async function addAction<V extends Record<string, string>>(caseId: string, store: string, values: V, addId: string | null) {
 	const r = await guarded('add', values, () => register(caseId, store).add(values, { addId }), SAY.add);
 	return r.ok ? { op: 'add' as const, added: r.value.rowId } : r.failure;
+}
+
+/**
+ * The refusal of a Delete that is not confirmed for `raw`, its Delete button's value, or null when it is (GRS-175).
+ * Nothing is deleted; the add form's entry comes back, and the page asks for the confirmation unless this was a Cancel.
+ */
+export function unconfirmed<V extends Record<string, string>>(f: FormData, raw: string, values: V) {
+	const step = deleteStep(f, raw);
+	return step === 'confirm' ? null : fail(400, { op: 'delete' as const, values, confirm: step === 'ask' ? raw : null });
 }
 
 export async function deleteAnswer<V extends Record<string, string>>(target: string, values: V, write: () => Promise<DeleteResult | 'absent'>) {

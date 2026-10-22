@@ -35,6 +35,7 @@ function passing(): Record<string, unknown> {
 		routes,
 		counts: countsOf(routes),
 		clerk: { users: { created: 9, deleted: 9 }, invitations: { created: 12, deleted: 12 }, sessions: { created: 20, ended: 20, pending: 0 }, testingTokens: { created: 20 }, devBrowsers: { created: 20 }, apiCalls: { backend: 100 } },
+		sweep: { users: 0, invitations: 0, undated: 0, failed: 0 },
 		hold: [...HOLD],
 		failure: null,
 		evidence: true,
@@ -104,6 +105,9 @@ describe('shape, table and counts', () => {
 			['a Clerk user left behind', (s) => (s.clerk.users.deleted -= 1)],
 			['an invitation left behind', (s) => (s.clerk.invitations.deleted -= 1)],
 			['a session not ended', (s) => (s.clerk.sessions.ended -= 1)],
+			['the sweep counts missing', (s) => delete s.sweep],
+			['an undated count that is not a count', (s) => (s.sweep.undated = -1)],
+			['a fractional undated count', (s) => (s.sweep.undated = 0.5)],
 			['a leg not PASS', (s) => (s.legs.cleanup.status = 'FAIL')],
 			['a HOLD dropped', (s) => s.hold.pop()],
 		];

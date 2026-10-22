@@ -1229,13 +1229,13 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			await serve('client-a');
 			check(workerd.length > 0 && died !== 200, `the step dies with its Worker (answer ${died ?? 'none'})`);
 			const statements = (r: Res) => Number(r.headers.get('x-probe-d1-statements'));
-			const liveLease = await http(`/cases/${caseId}/documents/S-0001`, { timeout: 60_000 });
+			const liveLease = await http(`/cases/${caseId}/documents/S-0001`);
 			const during = (await json(`/probe/erasure/${caseId}`)) as { state: string | null; erasedAt: string | null; pending: number };
 			const duringRow = d1('client-a', `SELECT erased_at, erase_error FROM case_deletion WHERE case_id = '${caseId}'`)[0] as { erased_at: string | null; erase_error: string | null } | undefined;
 			check(code(liveLease, 410, 'case-deleted') && WITHIN_D1(statements(liveLease)), `a new isolate reconciles the removal within D1's per-invocation limit while the dead intent's lease runs (${statements(liveLease)} statements, limit ${D1_QUERY_LIMIT}, answer ${liveLease.status})`);
 			check(during.state === 'removed' && during.erasedAt === null && during.pending === 1 && typeof duringRow?.erase_error === 'string', `erasure stays unfinished, with erase_error set, while the lease runs (erase_error ${duringRow?.erase_error ?? null})`);
 			d1('client-a', `UPDATE restore_object SET expires_at = '2000-01-01T00:00:00.000Z' WHERE case_id = '${caseId}' AND in_progress = 1`);
-			const expiredLease = await http(`/cases/${caseId}/documents/S-0001`, { timeout: 60_000 });
+			const expiredLease = await http(`/cases/${caseId}/documents/S-0001`);
 			check(code(expiredLease, 410, 'case-deleted') && WITHIN_D1(statements(expiredLease)), `once the lease has run out the next reconcile stays within D1's per-invocation limit (${statements(expiredLease)} statements)`);
 			const after = (await json(`/probe/erasure/${caseId}`)) as { state: string | null; erasedAt: string | null; pending: number };
 			const afterRow = d1('client-a', `SELECT erased_at, erase_error FROM case_deletion WHERE case_id = '${caseId}'`)[0] as { erased_at: string | null; erase_error: string | null };

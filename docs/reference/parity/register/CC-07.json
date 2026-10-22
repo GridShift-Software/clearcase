@@ -643,8 +643,8 @@
       "reason": "v5's CSV export writes free-text fields unprotected, so a cell starting with a formula character can run as a formula in a spreadsheet. ClearCase passes every exported user cell through a neutraliser that prefixes such cells, and formula segments after a separator, with an apostrophe. The exception is a validated amount in a signed-money field (Disbursements Amount): it is written as a plain two-decimal number, credits included, with R and grouping removed, where v5 writes what the user typed. Evidence: tests/registers/logic.test.ts:99.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": "Vaperizer2",
-      "approvedOn": "2026-10-21"
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
       "id": "IDR-287",
@@ -656,8 +656,8 @@
       "reason": "v5 exports only the stored fields, so the derived Value is missing from the CSV. ClearCase writes the same stored field keys and rows and does not add the Value column; an app change is needed to export it. Evidence: src/lib/views/registers/logic.ts:90.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": "Vaperizer2",
-      "approvedOn": "2026-10-21"
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
       "id": "IDR-288",

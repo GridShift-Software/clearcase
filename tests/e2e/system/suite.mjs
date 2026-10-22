@@ -305,6 +305,10 @@ try {
 	await scenario('SY9-manual', 'manual', 'the badges, the OCR list and a real link-sample check; the Rescan & Update link and then Back return to the manual with the list and the focused heading', async () => {
 		await openView('manual');
 		const badges = await text('#manual-badges');
+		const imported = JSON.parse(new TextDecoder().decode(sc.files.get('datasets/chronology.json'))).data;
+		const emails = imported.filter((r) => r.doc_type === 'email').length;
+		const noText = imported.filter((r) => r.text_status === 'none').length;
+		const pending = imported.filter((r) => r.text_status === 'pending').length;
 		await p.click('#manual-ocr');
 		await p.waitFor(`!!document.getElementById('manual-ocr-list')`, 20000);
 		const ocr = await tableRows('#manual-ocr-list');
@@ -319,8 +323,11 @@ try {
 		await p.waitFor(`${ready('manual')} && !!document.getElementById('manual-link-list')`, 20000);
 		await sleep(150);
 		const focus = await p.active();
-		return { evidence: { badges, ocr, ocrLabel, links, verified, focus },
+		await p.goto(`${A.origin}${vpath(rv)}/overview`, ready('overview'));
+		const overviewNoText = await text('#count-text-none');
+		return { evidence: { badges, ocr, ocrLabel, links, verified, focus, overviewNoText },
 			checks: { badges: /^Documents 10 \(\+3 via rescan\) Emails \d+ People \S+ Scanned \(none\) \d+ Pending \d+$/.test(badges ?? ''), ocrList: ocrLabel === `List scanned documents needing OCR (${ocr.length})`,
+				derivedCounts: badges?.includes(`Emails ${emails} `) && badges?.includes(`Scanned (none) ${noText} `) && badges?.endsWith(`Pending ${pending}`) && overviewNoText === String(noText),
 				links: links.length === 1 && links[0][3] === 'found in the case folder' && verified === '1 of 1 found in the case folder.', focusAfterBack: focus?.heading === true } };
 	});
 

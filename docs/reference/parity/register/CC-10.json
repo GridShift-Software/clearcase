@@ -228,12 +228,21 @@
     {
       "id": "IDR-414",
       "view": "backup_tab",
-      "field": "table.what_a_backup_holds_now_*",
+      "field": [
+        "table.what_a_backup_holds_now_*_rows.columns",
+        "table.what_a_backup_holds_now_*_rows.col.table",
+        "table.what_a_backup_holds_now_*_rows.col.owner",
+        "table.what_a_backup_holds_now_*_rows.col.rows",
+        "table.what_a_backup_holds_now_*_rows.rows",
+        "table.what_a_backup_holds_now_*_rows.row.*.table",
+        "table.what_a_backup_holds_now_*_rows.row.*.owner",
+        "table.what_a_backup_holds_now_*_rows.row.*.rows"
+      ],
       "when": {
         "v5": "<absent>"
       },
       "type": "improvement",
-      "reason": "The app's list of the tables a backup holds now (table, owner, rows).",
+      "reason": "The app's table inventory (table, owner, rows). The heading includes the case-dependent total, so the table id needs a bounded wildcard; tests/system/backup.test.ts checks the page inventory and its row counts against an independently saved backup.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
       "approvedBy": null,
@@ -292,12 +301,15 @@
     {
       "id": "IDR-418",
       "view": "backup_tab",
-      "field": "export.export_all_state.*",
+      "field": [
+        "export.export_all_state.name",
+        "export.export_all_state.text"
+      ],
       "when": {
         "app": "<absent>"
       },
       "type": "improvement",
-      "reason": "The app's file is not v5's ess_dcs_backup.json: it is one case's work in a versioned format (clearcase.backup/1) with the case identity, the results version, a checksum and binaries: false. The adapter does not press the link; tests/system/backup.test.ts and tests/e2e/system check the file and its round trip.",
+      "reason": "The app's replacement file is a case-scoped clearcase.backup/1 with identity, results version, checksum and binaries: false. The v5 export's name and text are the only covered paths. tests/system/backup.test.ts ('replacement round trip restores the earlier saved work') checks replacing work and recovering the pre-restore copy; tests/e2e/system checks the download.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
       "approvedBy": null,
@@ -307,17 +319,19 @@
       "id": "IDR-419",
       "view": "backup_tab",
       "field": [
-        "text.import_state.*",
-        "control.input:file:*",
-        "control.input:text:*",
-        "control.input:checkbox:*",
+        "text.import_state.1",
+        "text.import_state.2",
+        "text.import_state.3",
+        "control.input:file:Backup file (up to # MiB)",
+        "control.input:text:or its full path on this computer",
+        "control.input:checkbox:Yes, replace this case’s work with the backup’s",
         "control.button:Import state"
       ],
       "when": {
         "v5": "<absent>"
       },
       "type": "improvement",
-      "reason": "The restore form: a backup file (size checked before sending) or its full path for a file larger than the upload limit, a required confirmation, and Import state.",
+      "reason": "The restore form: a backup file (size checked before sending) or its full path, a required confirmation, and Import state. Only the observed controls and three paragraphs are covered; tests/parity/pending-coverage.test.ts rejects an extra restore input. tests/system/backup.test.ts checks replacement and the pre-restore copy.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
       "approvedBy": null,
@@ -380,17 +394,20 @@
       "id": "IDR-423",
       "view": "manual",
       "field": [
-        "text.starting_and_importing.*",
-        "text.what_search_covers.*",
+        "text.starting_and_importing.1",
+        "text.starting_and_importing.2",
+        "text.what_search_covers.1",
+        "text.what_search_covers.2",
         "text.freshness_and_rescans.1",
-        "text.your_work_and_backups.*",
+        "text.your_work_and_backups.1",
+        "text.your_work_and_backups.2",
         "text.checking_links_to_originals.1"
       ],
       "when": {
         "v5": "<absent>"
       },
       "type": "improvement",
-      "reason": "The app's manual sections.",
+      "reason": "The eight observed app Manual paragraphs on starting, search, freshness, work, backups and original links. tests/parity/pending-coverage.test.ts rejects an extra paragraph under these sections.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
       "approvedBy": null,
@@ -399,13 +416,20 @@
     {
       "id": "IDR-424",
       "view": "manual",
-      "field": "list.list_*",
+      "field": [
+        "list.list_1.count",
+        "list.list_1.item.0",
+        "list.list_1.item.1",
+        "list.list_1.item.2",
+        "list.list_1.item.3",
+        "list.list_1.item.4"
+      ],
       "when": {
         "v5": "<absent>"
       },
       "type": "improvement",
       "source": "S-meta-counts",
-      "reason": "v5's build-report badges as a list. Like the overview tiles (IDR-049), the email and documents-without-text figures are counted from the rows, not taken from the build metadata (S-meta-counts), so they can differ from v5's.",
+      "reason": "The app's five Manual badges replace v5's build-report badges. The email and documents-without-text figures are derived from rows rather than META (S-meta-counts, IDR-049); tests/case-package/package.test.ts ('keeps raw META and exposes derived counts next to it') checks the disagreement, and tests/e2e/system checks the rendered badge list. Only the five observed badge items are covered.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
       "approvedBy": null,

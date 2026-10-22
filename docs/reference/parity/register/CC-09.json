@@ -529,7 +529,7 @@
       "type": "known-gap",
       "source": "S-court_bundle_tab-13",
       "owner": "GRS-19",
-      "reason": "v5 Restore matter defaults and Clear all overwrite the header without confirmation. ClearCase asks only when there are unsaved typed fields; with none, the stored header is replaced at once. A confirmation for the stored header would need an app change. Evidence: src/routes/v/[vid]/bundles/court_bundle_tab/+page.svelte:63.",
+      "reason": "v5 Restore matter defaults and Clear all overwrite the header without confirmation. ClearCase asks only when there are unsaved typed fields; with none, the stored header is replaced at once. A confirmation for the stored header would need an app change. Evidence: src/routes/v/[vid]/bundles/court_bundle_tab/+page.svelte:67.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

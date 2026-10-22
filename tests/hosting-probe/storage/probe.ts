@@ -860,10 +860,11 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			check(over.status === 409 && over.json().code === 'conflicting-object' && (await held(hB))?.sha256 === hB && (await served('case-wo-1', 'wo-b', B)), 'completing that multipart upload over the recorded key answers 409 conflicting-object, and the recorded original is served unchanged');
 			const uj = (await post(`/originals/${hJ}/uploads`, {})).json();
 			const pj = await http(`/originals/${hJ}/uploads/${uj.uploadId}/1`, { method: 'PUT', body: J });
-			check(pj.status === 200 && (await post(`/originals/${hJ}/uploads/${uj.uploadId}/complete`, { parts: [pj.json()] })).status === 200, 'a multipart upload whose bytes are not the ones its key names completes: R2 checks no SHA-256 for multipart');
+			const rejected = await post(`/originals/${hJ}/uploads/${uj.uploadId}/complete`, { parts: [pj.json()] });
+			if (rejected.status === 422 && rejected.json().code === 'digest-mismatch') refused++;
+			check(pj.status === 200 && rejected.status === 422 && rejected.json().code === 'digest-mismatch', 'a multipart upload whose bytes differ from its content address is refused before publication');
 			const junk = await finalize('case-wo-1', 'wo-junk', hJ, J.length);
-			if (junk.status === 409 && junk.json().code === 'digest-mismatch') refused++;
-			check(junk.status === 409 && junk.json().code === 'digest-mismatch' && junk.json().check === 'sha256' && (await held(hJ))?.size === J.length && (await http('/cases/case-wo-1/originals/wo-junk')).status === 404, 'finalizing it answers 409 digest-mismatch (sha256), records nothing and deletes nothing: the unrecorded object stays for a reaper');
+			check(junk.status === 409 && junk.json().code === 'not-uploaded' && (await held(hJ)) === null && (await http('/cases/case-wo-1/originals/wo-junk')).status === 404, 'the rejected multipart upload leaves no canonical object or original row to finalize');
 			const rebind = await finalize('case-wo-1', 'wo-letter', hB, B.length);
 			if (rebind.status === 409 && rebind.json().code === 'asset-bound-to-another-original') refused++;
 			check(rebind.status === 409 && rebind.json().code === 'asset-bound-to-another-original' && (await served('case-wo-1', 'wo-letter', A)), 'binding a recorded asset to another original answers 409 and the asset still serves the first');
@@ -875,7 +876,7 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			const sha = sha256(good);
 			const upload = async (bytes: Uint8Array) => {
 				const start = await post(`/originals/${sha}/uploads`, {});
-				const part = await http(`/originals/${sha}/uploads/${start.json().uploadId}/1`, { method: 'PUT', body: bytes });
+				const part = await http(`/originals/${sha}/uploads/${start.json().uploadId}/1`, { method: 'PUT', body: bytes as Uint8Array<ArrayBuffer> });
 				return { id: start.json().uploadId as string, part: part.json() };
 			};
 			const winner = await upload(good);
@@ -1290,9 +1291,10 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			const Y = synthetic('restore guard restore target', 100);
 			const hY = sha256(Y);
 			const other = synthetic('bytes under the target key already', 50);
-			const um = (await post(`/originals/${hY}/uploads`, {})).json();
-			const pm = await http(`/originals/${hY}/uploads/${um.uploadId}/1`, { method: 'PUT', body: other });
-			check(pm.status === 200 && (await post(`/originals/${hY}/uploads/${um.uploadId}/complete`, { parts: [pm.json()] })).status === 200, 'an object other than its key names is in place under orig/<sha> (a multipart upload)');
+			const otherFile = path.join(scratch, 'guard-other-original.bin');
+			writeFileSync(otherFile, other);
+			check(r2put('client-a', 'storage-a', `orig/${hY}`, otherFile).code === 0, 'a credential holder puts other bytes under the restore target key through the local R2 CLI');
+			await serve('client-a'); // the running workerd caches R2 metadata; a new isolate sees the out-of-band write
 			const idHeld = await upload(zip('case-guard-held', versionOf('held'), [{ path: `originals/${hY}`, kind: 'original', bytes: Y }]));
 			const over = await post(`/restore/packets/${idHeld}/step`, { caseId: 'case-guard-held', from: 1 });
 			const kept = await held(`orig/${hY}`);
@@ -1325,7 +1327,9 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			const refusedDrift = await post(`/restore/packets/${idDrift}/finish`, { caseId: main });
 			check(refused(code(refusedDrift, 422, 'snapshot-incomplete')) && refusedDrift.json().table === 'uw_note' && (await live(main)) === before[0], 'finishing it answers 422 snapshot-incomplete naming uw_note, and the case holds no version, row or activation it did not hold before');
 			const idOk = await upload(good.bytes);
-			check((await post(`/restore/packets/${idOk}/open`, { caseId: main })).status === 200 && (await stepAll(idOk, main)).status === 200, 'the corrected backup of the same case and version opens, and its objects, already copied, are accepted again');
+			const openedOk = await post(`/restore/packets/${idOk}/open`, { caseId: main });
+			const steppedOk = await stepAll(idOk, main);
+			check(openedOk.status === 200 && steppedOk.status === 200, 'the corrected backup of the same case and version opens, and its objects, already copied, are accepted again');
 			const ok = await post(`/restore/packets/${idOk}/finish`, { caseId: main }, 60_000);
 			const after = JSON.parse(await live(main));
 			check(ok.status === 200 && after.active === V && after.versions.length === 1 && after.versions[0].state === 'stored' && after.originals === 1 && after.work.uw_note === 1, 'the retry restores the version, the activation, the original and the user work');
@@ -1364,20 +1368,20 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			const countAfter = JSON.parse(await live(counted));
 			check(countOk && countAfter.active === Vc && countAfter.originals === 1 && countAfter.work.uw_note === 1, 'the corrected backup of the same case and version restores');
 
-			// i. an original that another case shares, stored and recorded through multipart (R2 keeps no SHA-256 for it), is accepted
+			// i. an original that another case shares, stored and recorded through multipart, is accepted
 			const shared = synthetic('restore guard original mp', 200);
 			const hShared = sha256(shared);
 			const us = (await post(`/originals/${hShared}/uploads`, {})).json();
 			const ps = await http(`/originals/${hShared}/uploads/${us.uploadId}/1`, { method: 'PUT', body: shared });
 			const completed = await post(`/originals/${hShared}/uploads/${us.uploadId}/complete`, { parts: [ps.json()] });
 			const recorded = await post('/cases/case-guard-owner/originals', { assetId: 'own-1', sha256: hShared, size: shared.length, filename: 'own-1.pdf', mediaType: 'application/pdf' });
-			check(ps.status === 200 && completed.status === 200 && recorded.status === 200 && (await held(`orig/${hShared}`))?.sha256 === null, 'an original is stored through multipart and recorded by another case: R2 holds no SHA-256 for it');
+			check(ps.status === 200 && completed.status === 200 && recorded.status === 200 && (await held(`orig/${hShared}`))?.sha256 === hShared, 'an original is verified through multipart and recorded by another case under its SHA-256 key');
 			const mpCase = 'case-guard-mp';
 			const Vmp = versionOf('mp');
 			const idMp = await upload((await backupOf(mpCase, Vmp, 'mp')).bytes);
 			const mpOpen = (await post(`/restore/packets/${idMp}/open`, { caseId: mpCase })).status === 200 && (await stepAll(idMp, mpCase)).status === 200;
 			const mpOk = mpOpen && (await post(`/restore/packets/${idMp}/finish`, { caseId: mpCase }, 60_000)).status === 200;
-			check(mpOk && JSON.parse(await live(mpCase)).active === Vmp && (await held(`orig/${hShared}`))?.sha256 === null, 'a backup carrying that original steps and restores: the recorded multipart object is accepted and left as it was');
+			check(mpOk && JSON.parse(await live(mpCase)).active === Vmp && (await held(`orig/${hShared}`))?.sha256 === hShared, 'a backup carrying that shared original steps and restores without replacing its verified bytes');
 
 			// j. user work that breaks a constraint of its table, and a read model that repeats or retypes a value, are refused before the first write
 			const uw = 'case-guard-uw';

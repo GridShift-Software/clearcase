@@ -257,7 +257,8 @@ async function putOriginal(ctx: Ctx, request: Request, sha: string): Promise<Res
 	const existing = await ctx.bucket.head(key);
 	if (existing) return checksum(existing) === sha && existing.size === length ? json(ctx, { stored: true, repeated: true }) : refuse(409, 'conflicting-object');
 	try {
-		await ctx.bucket.put(key, request.body!, { sha256: sha, customMetadata: { client: ctx.client } });
+		const stored = await ctx.bucket.put(key, request.body!, { sha256: sha, customMetadata: { client: ctx.client }, onlyIf: { etagDoesNotMatch: '*' } });
+		if (!stored) refuse(409, 'conflicting-object');
 	} catch (e) {
 		if (/SHA-256/i.test(String(e))) refuse(422, 'digest-mismatch');
 		throw e;
@@ -376,7 +377,8 @@ async function putPackageObject(ctx: Ctx, request: Request, caseId: string, v: s
 	if (existing && checksum(existing) !== sha) refuse(409, 'conflicting-object');
 	if (!existing) {
 		try {
-			await ctx.bucket.put(key, request.body!, { sha256: sha, customMetadata: { client: ctx.client } });
+			const stored = await ctx.bucket.put(key, request.body!, { sha256: sha, customMetadata: { client: ctx.client }, onlyIf: { etagDoesNotMatch: '*' } });
+			if (!stored) refuse(409, 'conflicting-object');
 		} catch (e) {
 			if (/SHA-256/i.test(String(e))) refuse(422, 'digest-mismatch');
 			throw e;
@@ -501,6 +503,20 @@ const holdHere = (token: string) => async () => {
 	}
 };
 
+/** The public upload id carries the random staging key and R2's private multipart id across Worker isolates. */
+function originalUpload(sha: string, publicId: string) {
+	if (!/^[A-Za-z0-9_-]{1,1500}$/.test(publicId)) refuse(404, 'not-found');
+	let pair: unknown;
+	try {
+		pair = JSON.parse(atob(publicId.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(publicId.length / 4) * 4, '=')));
+	} catch {
+		refuse(404, 'not-found');
+	}
+	if (!Array.isArray(pair) || pair.length !== 2 || !isText(/^[0-9a-f-]{36}$/)(pair[0]) || !isText(/^.{1,1000}$/)(pair[1])) refuse(404, 'not-found');
+	const [nonce, uploadId] = pair as [string, string];
+	return { stage: `staging/orig/${sha}/${nonce}`, uploadId };
+}
+
 /** The case's user work and its revision in one read: one D1 batch runs as one transaction, so the revision names exactly the rows read with it. */
 async function snapshot(ctx: Ctx, caseId: string, between?: () => Promise<void>) {
 	const names = await uwTables(ctx);
@@ -520,7 +536,11 @@ async function backup(ctx: Ctx, caseId: string, label: string, snap: Awaited<Ret
 	const text = JSON.stringify(snap);
 	const sha = await sha256Hex(text);
 	const key = `backup/${caseId}/${label}-${snap.rev}-${sha}.json`;
-	await ctx.bucket.put(key, text, { sha256: sha, customMetadata: { client: ctx.client } });
+	const stored = await ctx.bucket.put(key, text, { sha256: sha, customMetadata: { client: ctx.client }, onlyIf: { etagDoesNotMatch: '*' } });
+	if (!stored) {
+		const existing = await ctx.bucket.head(key);
+		if (!existing || !(await isStored(ctx, key, existing, sha, new TextEncoder().encode(text).length))) refuse(409, 'conflicting-object');
+	}
 	return { key, sha256: sha, size: new TextEncoder().encode(text).length };
 }
 
@@ -634,7 +654,7 @@ async function startExport(ctx: Ctx, caseId: string): Promise<Response> {
 	const entries: PlanEntry[] = [];
 	for (const [path, kind, text] of generated) {
 		const sha = await sha256Hex(text);
-		await ctx.bucket.put(`${base}/gen/${path}`, text, { sha256: sha });
+		if (!(await ctx.bucket.put(`${base}/gen/${path}`, text, { sha256: sha, onlyIf: { etagDoesNotMatch: '*' } }))) refuse(409, 'conflicting-object');
 		entries.push({ path, source: `${base}/gen/${path}`, sha256: sha, size: new TextEncoder().encode(text).length, kind });
 	}
 	for (const f of s.files) entries.push({ path: `package/${f.path}`, source: `pkg/${s.v}/${f.path}`, sha256: f.sha256, size: f.size, kind: 'package' });
@@ -643,7 +663,7 @@ async function startExport(ctx: Ctx, caseId: string): Promise<Response> {
 	for (const o of s.originals) if (!seen.has(o.sha256)) (seen.add(o.sha256), entries.push({ path: `originals/${o.sha256}`, source: `orig/${o.sha256}`, sha256: o.sha256, size: o.size, kind: 'original' }));
 	const manifest = JSON.stringify({ format: BACKUP_FORMAT, client: ctx.client, caseId, resultsVersion: s.v, entries: entries.map(({ source: _, ...e }) => e) });
 	const manifestSha = await sha256Hex(manifest);
-	await ctx.bucket.put(`${base}/gen/manifest.json`, manifest, { sha256: manifestSha });
+	if (!(await ctx.bucket.put(`${base}/gen/manifest.json`, manifest, { sha256: manifestSha, onlyIf: { etagDoesNotMatch: '*' } }))) refuse(409, 'conflicting-object');
 	entries.unshift({ path: 'manifest.json', source: `${base}/gen/manifest.json`, sha256: manifestSha, size: new TextEncoder().encode(manifest).length, kind: 'manifest' });
 	const upload = await ctx.bucket.createMultipartUpload(`${base}.zip`, { customMetadata: { client: ctx.client } });
 	await ctx.db.batch([["INSERT INTO export_job (export_id, case_id, version_id, state, object_key, upload_id, next_entry, next_offset, parts, plan) VALUES (?, ?, ?, 'building', ?, ?, 0, 0, '[]', ?)", [exportId, caseId, s.v, `${base}.zip`, upload.uploadId, JSON.stringify(entries)]]]);
@@ -1126,17 +1146,20 @@ async function route(request: Request, env: Env): Promise<Response> {
 		const key = `orig/${sha}`;
 		if (m === 'POST' && seg.length === 3 && seg[2] === 'uploads') {
 			if (await ctx.bucket.head(key)) refuse(409, 'conflicting-object');
-			const u = await ctx.bucket.createMultipartUpload(key, { customMetadata: { client: ctx.client } });
-			return json(ctx, { uploadId: u.uploadId });
+			const stage = `staging/orig/${sha}/${crypto.randomUUID()}`;
+			const u = await ctx.bucket.createMultipartUpload(stage, { customMetadata: { client: ctx.client } });
+			return json(ctx, { uploadId: btoa(JSON.stringify([stage.slice(stage.lastIndexOf('/') + 1), u.uploadId])).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') });
 		}
 		if (seg.length === 5 && seg[2] === 'uploads' && m === 'PUT') {
 			const length = Number(request.headers.get('content-length'));
 			if (!request.body || !Number.isSafeInteger(length) || length > SINGLE_PUT_MAX) refuse(413, 'part-too-large');
-			return json(ctx, await ctx.bucket.resumeMultipartUpload(key, seg[3]!).uploadPart(Number(seg[4]), request.body!));
+			const u = originalUpload(sha, seg[3]!);
+			return json(ctx, await ctx.bucket.resumeMultipartUpload(u.stage, u.uploadId).uploadPart(Number(seg[4]), request.body!));
 		}
 		if (seg.length === 5 && seg[2] === 'uploads' && seg[4] === 'complete' && m === 'POST') {
 			const b = await body(request);
-			const upload = ctx.bucket.resumeMultipartUpload(key, seg[3]!);
+			const u = originalUpload(sha, seg[3]!);
+			const upload = ctx.bucket.resumeMultipartUpload(u.stage, u.uploadId);
 			// orig/<sha> is write-once: a complete would replace whatever a racing upload put there since this one began.
 			if (await ctx.bucket.head(key)) {
 				await upload.abort().catch(() => undefined);
@@ -1147,8 +1170,34 @@ async function route(request: Request, env: Env): Promise<Response> {
 				if (!HOLD_TOKEN.test(token)) refuse(400, 'invalid-field', { field: 'x-probe-hold' });
 				await holdHere(token)();
 			}
+			if (await ctx.bucket.head(key)) {
+				await upload.abort().catch(() => undefined);
+				refuse(409, 'conflicting-object');
+			}
 			const o = await upload.complete(field(b, 'parts', (x): x is R2UploadedPart[] => Array.isArray(x)));
-			return json(ctx, { size: o.size });
+			try {
+				try {
+					await hashWhole(ctx, u.stage, sha, o.size);
+				} catch (e) {
+					if (e instanceof Refused && e.code === 'changed-original') refuse(422, 'digest-mismatch');
+					throw e;
+				}
+				// A multipart complete cannot be conditional. Publish only its verified staging object with R2's atomic
+				// If-None-Match: * PUT, which also checks the SHA-256 while streaming to the canonical key.
+				const staged = await ctx.bucket.get(u.stage);
+				if (!hasBody(staged)) refuse(410, 'missing-original', { key: u.stage });
+				let published: R2Object | null;
+				try {
+					published = await ctx.bucket.put(key, (staged as R2ObjectBody).body, { sha256: sha, customMetadata: { client: ctx.client }, onlyIf: { etagDoesNotMatch: '*' } });
+				} catch (e) {
+					if (/SHA-256/i.test(String(e))) refuse(422, 'digest-mismatch');
+					throw e;
+				}
+				if (!published) refuse(409, 'conflicting-object');
+				return json(ctx, { size: (published as R2Object).size });
+			} finally {
+				await ctx.bucket.delete(u.stage);
+			}
 		}
 	}
 	if (seg[0] === 'restore' && seg[1] === 'packets') {

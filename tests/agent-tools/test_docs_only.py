@@ -290,6 +290,36 @@ class Refused(DocsOnlyFixRound):
         self.fix_round({'docs/other.md': '# Other\n'})
         self.guard()
 
+    def test_removed_or_renamed_markdown_stays_an_input_at_original_and_received_references(self):
+        # A tip-only reader scan loses the original path on deletion/rename, and a document reader can also arrive
+        # through the trusted base after this fix round's review.
+        cases = ('deleted document', 'renamed document', 'last document in a read directory', 'received reader')
+        for label in cases:
+            with self.subTest(reference=label):
+                self.reset()
+                if label == 'last document in a read directory':
+                    self.readers({'tests/walk.test.ts': "readdirSync('docs/oracles');\n"},
+                                 document='docs/oracles/oracle.md')
+                else:
+                    self.readers({'tests/oracle.test.ts': "readFileSync('docs/oracle.md');\n"})
+                if label == 'received reader':
+                    self.git('switch', '-q', WAVE)
+                    self.write('tests/received.test.ts', "readFileSync('docs/oracle.md');\n")
+                    self.commit('trusted base adds a reader after the review')
+                    self.git('switch', '-q', BRANCH)
+                    self.merge(WAVE)
+                if label == 'renamed document':
+                    self.git('mv', 'docs/oracle.md', 'docs/renamed.md')
+                else:
+                    document = self.repo / ('docs/oracles/oracle.md' if label == 'last document in a read directory'
+                                            else 'docs/oracle.md')
+                    document.unlink()
+                    if label == 'last document in a read directory':
+                        document.parent.rmdir()
+                self.manifest()
+                self.commit(f'docs-only fix round: {label}')
+                self.assertRefused(self.guard(code=1), 'docs-only', 'docs/')
+
     def test_a_tip_whose_code_cannot_be_read_refuses(self):
         # The guard cannot tell what the tip's code reads when Git cannot hand it a tracked file (a pruned object, a
         # partial clone): it fails closed, as when git grep failed before.

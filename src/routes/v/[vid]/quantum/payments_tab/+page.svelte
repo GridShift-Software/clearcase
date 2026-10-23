@@ -161,7 +161,7 @@
 							<td class="num">{#if p.amountCents !== null}{R(p.amountCents)}{:else}{p.amount} <small class="q-flag" data-not-counted>not counted: not a valid amount</small>{/if}</td>
 							<td>{p.method}</td>
 							<td>{p.note}</td>
-							<td class="q-nowrap"><input type="hidden" form="pay-form" name="hash.{p.rowId}" value={p.hash} /><button form="pay-form" formaction="?/delete" name="rowId" value={p.rowId} disabled={busy} data-delete>Delete</button><form method="POST" action="?/delete" hidden><input type="hidden" name="rowId" value={p.rowId} /><input type="hidden" name="hash" value={p.hash} /></form>
+							<td class="q-nowrap"><input type="hidden" form="pay-form" name="hash.{p.rowId}" value={p.hash} /><button form="pay-form" formaction="?/delete" formnovalidate name="rowId" value={p.rowId} disabled={busy} data-delete>Delete</button><form method="POST" action="?/delete" hidden><input type="hidden" name="rowId" value={p.rowId} /><input type="hidden" name="hash" value={p.hash} /></form>
 								{#if deleteErrors[p.rowId]}<p class="error" role="alert" data-delete-error={p.rowId}>{deleteErrors[p.rowId]}</p>{/if}</td>
 						</tr>
 					{/each}

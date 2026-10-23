@@ -1,6 +1,6 @@
 {
   "schema": "clearcase.identity-probe/1",
-  "sourceSha": "a0b458afc993fe5c2393268c5079205d8499f9f7",
+  "sourceSha": "a52f8ac8781741aa8922552915836d6a15b8e2fd",
   "inputs": {
     "paths": [
       "tests/hosting-probe/identity",
@@ -10,13 +10,13 @@
       "deploy/probes/secrets-fd.mjs",
       "deploy/probes/scan.ts"
     ],
-    "digest": "sha256:8b4925c703d46e76170716c15c3ee00e5b245979d56b547ec2c9b78a3360d9de"
+    "digest": "sha256:afcd7f3cbaa9d10e3e608bbd6cff4814c7c4d3ebb9dbce06f39ed68346969737"
   },
   "treeClean": true,
-  "servedStamp": "a0b458afc993fe5c2393268c5079205d8499f9f7",
-  "startedAt": "2026-10-22T00:38:37.131Z",
-  "finishedAt": "2026-10-22T00:44:09.699Z",
-  "runDir": ".local/hosting-probe/identity/2026-10-22T00-38-37-131Z",
+  "servedStamp": "a52f8ac8781741aa8922552915836d6a15b8e2fd",
+  "startedAt": "2026-10-22T23:40:00.494Z",
+  "finishedAt": "2026-10-22T23:45:17.198Z",
+  "runDir": ".local/hosting-probe/identity/2026-10-22T23-40-00-494Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -37,7 +37,7 @@
     "workerd": "1.20261019.1",
     "wrangler": "4.151.3"
   },
-  "artifact": "sha256:7f443778a18aca643e424daf2f986e510d6271c42b1e2f5e7c9b9b8bf54017f5",
+  "artifact": "sha256:7879a13f5e4c1dd189a4b5f67fc99ed976b22fb0a1b5688ad454dbcb0d8ac925",
   "instances": {
     "client": {
       "name": "Clear-Case-Dev-A",
@@ -184,7 +184,7 @@
       "asserted": [
         "client: viewer2 reads case 2 with a fresh token",
         "client: POST /auth/sign-out revokes the session in Clerk",
-        "client: the same token, 3 s old and unexpired, is refused at once (401 session-revoked)",
+        "client: the same token, 1 s old and unexpired, is refused at once (401 session-revoked)",
         "client: Clerk refuses a new token for the revoked session (FAPI 401)",
         "client: editor1 reads case 1 Notes on a second session",
         "client: after a Backend API revoke, the same unexpired token is refused on its next request",

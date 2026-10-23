@@ -3,6 +3,9 @@
 # doctor passes in this environment, Bun >= 1.4.2 on PATH or in CLEARCASE_BUN.
 # Usage: bash tests/agent-tools/run.sh   (exit 0 only when every case passes)
 set -u
+# No inherited GIT_* variable (a Git hook exports GIT_DIR) may send the scratch repositories below to another repository.
+# shellcheck disable=SC2046
+unset $(compgen -e GIT_)
 
 HERE=$(cd "${BASH_SOURCE[0]%/*}" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
@@ -1395,6 +1398,11 @@ for fault in "v1-doctor: summary.tsv does not hold exactly one MATCH row with ex
 done
 
 run "unattended controls synthetic CLI suite" 0 python3 -I "$HERE/test_controls.py"
+run "docs-only fix round controls (GRS-156)" 0 python3 -I "$HERE/test_docs_only.py"
+
+run "custom-file protection controls (GRS-193)" 0 python3 -I "$HERE/test_file_protection.py"
+
+run "trusted setup arrival controls (GRS-196)" 0 python3 -I "$HERE/test_trusted_setup_arrivals.py"
 
 echo "# summary"
 echo "$passed passed, $failed failed"

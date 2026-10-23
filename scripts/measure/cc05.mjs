@@ -24,6 +24,7 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
 import { bunIdentity, chromiumIdentity, ensureOffline, gitIdentity, hostIdentity, PORTS, REPO, stats } from '../../tests/e2e/pilot/v5/env.mjs';
+import { gitEnv } from '../browser-lock.mjs';
 
 const { values: a } = parseArgs({ options: {
 	ticket: { type: 'string' }, candidate: { type: 'string' }, samples: { type: 'string' }, warmup: { type: 'string' },
@@ -59,7 +60,7 @@ try { fx = await loadConfig(a.config ? resolve(a.config) : undefined); } catch (
 rmSync(work, { recursive: true, force: true });
 mkdirSync(work, { recursive: true });
 
-const p0 = spawnSync('git', ['-C', REPO, 'rev-parse', '--verify', `${a.candidate ?? 'HEAD'}^{commit}`], { encoding: 'utf8' });
+const p0 = spawnSync('git', ['-C', REPO, 'rev-parse', '--verify', `${a.candidate ?? 'HEAD'}^{commit}`], { encoding: 'utf8', env: gitEnv() });
 if (p0.status !== 0) usage(`unknown revision ${a.candidate}`);
 const full = p0.stdout.trim();
 const RV = fx.accepted.resultsVersion;

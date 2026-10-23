@@ -1190,9 +1190,10 @@ function main() {
     && treeEntry(tip, file) === treeEntry(trusted, file)
     && forks.every(fork => treeEntry(fork, file) === treeEntry(base, file));
   // Equality alone cannot establish arrival: candidate-only commits can hide on any merged side ancestry. Inspect
-  // every candidate-only commit reachable from HEAD, including commits before a later deletion or restoration. A
-  // protected path may change only in a two-parent merge whose second parent is trusted history and whose result
-  // preserves that parent's exact mode/blob. This keeps genuine arrivals and trusted updates while refusing edits
+  // every candidate-only commit reachable from HEAD, including commits before a later deletion or restoration. Compare
+  // each commit with its first parent: retaining that parent's copy at a merge is no edit, even if another parent has
+  // older or absent bytes. A protected path may change only in a two-parent merge whose second parent is trusted
+  // history and whose result preserves that parent's exact mode/blob. This keeps genuine arrivals and trusted updates while refusing edits
   // anywhere in merged candidate history.
   let arrivalHistory;
   const trustedAncestors = new Map();
@@ -1213,8 +1214,8 @@ function main() {
       let introduced = false;
       for (const [revision, ...parents] of arrivalHistory) {
         const after = treeEntry(revision, file);
-        if (parents.every(parent => treeEntry(parent, file) === after)) continue;
         const [first, second, ...rest] = parents;
+        if (after === (first ? treeEntry(first, file) : undefined)) continue;
         if (!first || !second || rest.length || !REGULAR.includes(tracked(revision).get(file)?.mode)
             || after !== treeEntry(second, file) || !fromTrusted(second)) return false;
         if (treeEntry(first, file) === undefined) introduced = true;

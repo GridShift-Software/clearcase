@@ -422,9 +422,11 @@ HEAD holds that origin's full blob and mode unchanged.
 GRS-196 admits a new protected setup/helper dependency when its origin was absent at the original `fixBase` and every
 merge base with the trusted base, HEAD has merged the current explicit trusted base, and HEAD holds that base's full
 mode and blob. Equality alone does not prove arrival. Across all candidate-only commits reachable from HEAD, including
-merged side ancestry, each change to the origin must be a two-parent merge whose second parent is an ancestor of the
-trusted base and whose result holds that parent's exact mode and blob. This covers the first arrival and every later
-trusted update. An ordinary candidate commit that adds, edits, deletes or changes its mode refuses, even if a later
+merged side ancestry, each change to the origin against that commit's first parent must be a two-parent merge whose
+second parent is an ancestor of the trusted base and whose result holds that parent's exact mode and blob. This covers the first arrival and every later
+trusted update. A merge retaining its first parent's copy makes no origin change, even when another parent holds an
+older copy or none; every candidate-side commit is still inspected. An ordinary candidate commit that adds, edits,
+deletes or changes its mode refuses, even if a later
 commit restores the trusted bytes; candidate-side edits or pre-arrival additions later hidden by another merge refuse
 too. A deletion through a merge also refuses. Copied files, unmerged or moved-on bases, octopus arrivals, and unsupported
 mixed or cyclic origins refuse.

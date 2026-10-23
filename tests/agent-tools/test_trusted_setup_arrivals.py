@@ -70,16 +70,7 @@ class TrustedSetupArrivals:
         self.merge()
         self.assertIn(self.helper, self.guard())
 
-    def test_arrival_history_queries_only_needed_paths(self):
-        self.upstream(self.additions())
-        self.merge()
-        history = []
-        for i in range(8):
-            self.write(f'unrelated/item-{i}.txt', 'unrelated data\n')
-            history.append(self.commit(f'unrelated candidate commit {i}'))
-        # Keep these intermediate commits outside the base/tip inventories the guard needs in full.
-        self.write('app.txt', 'final runtime fix\n')
-        self.commit('candidate tip')
+    def trace_tree_queries(self):
         real_git = shutil.which('git', path=self.env['PATH'])
         trace = self.work / 'git-queries.jsonl'
         wrapper = self.work / 'bin' / 'git'
@@ -94,12 +85,45 @@ raise SystemExit(subprocess.call([{real_git!r}, *args]))
 ''')
         wrapper.chmod(0o755)
         self.env['PATH'] = str(wrapper.parent) + os.pathsep + self.env['PATH']
+        return trace
+
+    def test_arrival_history_queries_only_needed_paths(self):
+        self.upstream(self.additions())
+        self.merge()
+        history = []
+        for i in range(8):
+            self.write(f'unrelated/item-{i}.txt', 'unrelated data\n')
+            history.append(self.commit(f'unrelated candidate commit {i}'))
+        # Keep these intermediate commits outside the base/tip inventories the guard needs in full.
+        self.write('app.txt', 'final runtime fix\n')
+        self.commit('candidate tip')
+        trace = self.trace_tree_queries()
         self.guard()
         queries = [json.loads(line) for line in trace.read_text().splitlines()]
         historical = [args for args in queries if any(rev in args for rev in history)]
         self.assertTrue(historical, 'the arrival proof must inspect intermediate candidate history')
         self.assertTrue(all('--' in args and args.index('--') < len(args) - 1 for args in historical),
                         f'arrival proof loaded full historical trees: {historical}')
+
+    def test_repository_comparison_reads_tip_inventory_once(self):
+        trace = self.trace_tree_queries()
+        for arrival in (False, True):
+            with self.subTest(arrival=arrival):
+                self.restore()
+                files = {f'unrelated/item-{i}.txt': 'unrelated data\n' for i in range(32)}
+                if arrival:
+                    files.update(self.additions())
+                self.upstream(files)
+                self.merge()
+                self.write('app.txt', 'final runtime fix\n')
+                tip = self.commit('candidate tip')
+                trace.write_text('')
+                self.guard()
+                queries = [json.loads(line) for line in trace.read_text().splitlines()]
+                tip_queries = [args for args in queries if tip in args]
+                self.assertEqual(len(tip_queries), 1,
+                                 f'repository comparison made per-path tip queries: {tip_queries}')
+                self.assertNotIn('--', tip_queries[0], 'the repository comparison needs the full tip inventory')
 
     def test_docs_only_side_from_before_trusted_arrival_passes(self):
         self.git('branch', 'candidate-side')

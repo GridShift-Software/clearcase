@@ -24,6 +24,14 @@ describe('diff', () => {
 		expect(c).toHaveLength(1170);
 		expect(c[0]).toEqual({ ref: rows[0]!.ref, label: `${rows[0]!.ref} · Synthetic 0` });
 	});
+	it('offers more than 1,200 excerpt-bearing documents with the last eligible option intact', () => {
+		const rows = Array.from({ length: 1301 }, (_, i) => listRow(`SY-${String(i).padStart(4, '0')}`, { excerpt: i < 1251 ? `synthetic excerpt ${i}` : '' }));
+		const offered = candidates(rows);
+		expect(offered).toHaveLength(1251);
+		expect(offered[1200]?.ref).toBe('SY-1200');
+		expect(offered.at(-1)?.ref).toBe('SY-1250');
+		expect(offered.some((o) => o.ref === 'SY-1251')).toBe(false);
+	});
 
 	it('compares only an explicitly chosen pair, and states the compared coverage', () => {
 		const rows = [listRow('OD-1', { excerpt: 'the cat sat', textStatus: 'extracted' }), listRow('OD-2', { excerpt: 'the dog sat', textStatus: 'none', filename: '(2) Second.pdf' })];

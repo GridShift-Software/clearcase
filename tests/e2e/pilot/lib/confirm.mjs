@@ -75,6 +75,32 @@ export async function holdEnterWithoutJs(p, url, ready, opener, repeats = 12) {
 	} finally { await p.s('Emulation.setScriptExecutionDisabled', { value: false }); }
 }
 
+/** Exercise both full-page Delete round trips with scripts off, reading the Add draft and the target row after each post. */
+export async function draftThroughDeleteWithoutJs(p, { url, ready, draft, text, row, opener }) {
+	await p.s('Emulation.setScriptExecutionDisabled', { value: true });
+	try {
+		const open = async () => {
+			const nav = await p.navigate(url);
+			if (nav.errorText) throw new Error(`navigate ${url}: ${nav.errorText}`);
+			await p.waitFor(ready, 20000);
+			await p.type(draft, text);
+		};
+		const post = async (selector) => {
+			await p.evaluate('window.__draftRound = true');
+			await p.click(selector);
+			await p.waitFor(`window.__draftRound !== true && (${ready})`, 20000);
+			return p.evaluate(`({ value: document.querySelector(${JSON.stringify(draft)})?.value ?? null, row: !!document.querySelector(${JSON.stringify(row)}), asking: !!document.querySelector(${JSON.stringify(`${row} [data-delete-confirm]`)}) })`);
+		};
+		await open();
+		const askedBeforeCancel = await post(opener);
+		const cancelled = await post(`${row} [data-delete-cancel]`);
+		await open();
+		const askedBeforeConfirm = await post(opener);
+		const confirmed = await post(`${row} [data-delete-confirm]`);
+		return { askedBeforeCancel, cancelled, askedBeforeConfirm, confirmed };
+	} finally { await p.s('Emulation.setScriptExecutionDisabled', { value: false }); }
+}
+
 /** Press the inline Cancel within `scope` when a question shows, so the next step starts from the Delete. */
 export async function cancelIfAsked(p, scope = '') {
 	const sel = `${scope} [data-delete-cancel]`.trim();

@@ -1,5 +1,7 @@
 # CC-25 / GRS-24 compatibility gate
 
+**22 October 2026: GRS-194 implementation in progress.** The user requested presentation and testing of the retained anchors, organogram, date phases and count-free checks before approval. The historical proposal below is superseded for this branch; it is not signed off. See [GRS-194 evidence and remaining gates](GRS-194-report.md). Real-export verification must run at the new candidate revision before presenting a replacement approval text.
+
 **HOLD at `ac22cf0e3d446126e7ed0bccf3e7893c2b6817f3`.** Independent reviewer: Claude Opus 5.5. The reviewed product code is `wave/maintenance` at `10bd59fc39b076b92da9855c0b55773ad1efadac` (GRS-22, PR #72); the reviewed revision adds only this suite (`tests/acceptance/CC-25/`) and one `vitest.config.ts` include line, which the runner's `revision` step checks. The commit that adds this page changes documentation only.
 
 *(This summary was rewritten by the GRS-149 worker, not by the independent reviewer; the reviewer's text is in the history at `67ffc21c`.)* Items 1, 2, 3 and 5 pass. Item 4 held at the reviewed revision: unsupported and invalid input never publishes and the published version stays available, but the operator was not shown what the retained residual data contains (F1). F1's fix is confirmed on `dev` at `67ffc21c`, and GRS-149 reads the newer export's hand-authored analysis into the views (both under "GRS-149 and F1 on `dev`" below), so item 4 now passes. Item 6 holds: the contract approval is the user's. The proposed approval text is at the end.

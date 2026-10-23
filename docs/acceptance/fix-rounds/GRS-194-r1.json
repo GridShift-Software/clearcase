@@ -1,0 +1,59 @@
+{
+  "schema": "clearcase-fix-round/1",
+  "unit": "GRS-194/implementation",
+  "fixBase": "10630fa6ad632e448633fb8531fe8b2af054743d",
+  "reviewFindingsSha256": "2d30b6102fdedd60fcec23c0d85ba5bf4d066df5df822d273f92e496b0f2004d",
+  "review": {
+    "reviewedHead": "3423d90b8c9423e623c8b7556e6d24305635093e",
+    "note": "Two independent T3 code-review axes; full findings and dispositions in docs/acceptance/CC-25/GRS-194-review.md. fixBase is the red regression commit. All unrun real-export boundaries remain HOLD. The guard cannot resolve Svelte component imports in the two UI regressions (confirmed by a FAIL receipt); they remain unchanged, runtime-tested and independently source-reviewed, but are explicitly unprotected by this guard. Top-level tests protect the existing v5-grouping and count-free-check class invariants only; a guard PASS must not be described as protecting the component regressions."
+  },
+  "findings": [
+    {
+      "file": "src/lib/views/analysis/SupplementalAnalysis.svelte",
+      "line": 16,
+      "severity": "P2",
+      "text": "Imported text does not reveal bidi and invisible characters.",
+      "tests": [
+        {
+          "file": "tests/analysis/supplemental-render.test.ts",
+          "name": "reveals bidi and zero-width characters in evidence text and relationship labels"
+        }
+      ],
+      "unprotected": "The current guard cannot resolve Svelte component imports. Runtime regression and independent source review retained; no guard coverage claimed for this test."
+    },
+    {
+      "file": "src/routes/v/[vid]/analysis/timeline/+page.svelte",
+      "line": 20,
+      "severity": "P2",
+      "text": "Secondary timeline refs are not displayed.",
+      "tests": [
+        {
+          "file": "tests/case-package/newer-analysis-views.test.ts",
+          "name": "the Timeline lists every event once under its explicitly assigned date phase"
+        }
+      ],
+      "unprotected": "The current guard cannot resolve Svelte component imports. Runtime regression and independent source review retained; no guard coverage claimed for this test."
+    },
+    {
+      "file": "docs/compatibility.md",
+      "line": 38,
+      "severity": "P2",
+      "text": "Expected inventory retains superseded residual mappings.",
+      "tests": [],
+      "unprotected": "Documentation correction; source counts remain historical, expected mappings are unverified until private real-export samples are available."
+    }
+  ],
+  "assertionCountReasons": {
+    "tests/ci/pc1-vm-verify.test.ts": "The monolith at this manifest's unchanged fixBase 10630fa6ad632e448633fb8531fe8b2af054743d was extracted into four PC1 suites plus pc1-vm-support.ts and split-inventory coverage by the inherited, previously accepted GRS-165 work. Evidence: .orchestration/reports/GRS-165/recheck.md at 24b21a1e042da7278394a4c638a8b636f77bf45b records 64 preserved test-bearing statements and no deletion/skip/loosening/rename; .orchestration/reports/app-followups-wave/recheck-pc1-manifest-20261022.md independently records all 356 original AST assertion expressions (354 suites + 2 helper) and 115 ordered collected names. .orchestration/reports/PR-135-r1/inherited-assertion-diagnosis-20261023.md statically ties that original monolith to this fixBase and all seven destination files at b8403d31849a3fef22318cddcaabfdb449ef07ac to DEV f1d41c3cfa5920cce18c324a63c50465eb5010e9 byte/mode identities. The original actual-wave refusal remains mandatory evidence: .orchestration/reports/PR-135-r1/final-head-validation-b840-20261023.md, inner receipt 20261023T193853.752723Z-test-guard, reviewed 356 / merged 356 -> absent old-path 0. This reason explains the inherited free-test extraction for GRS-194 only; it transfers no other manifest's approval, changes no protected binding, and claims neither fresh candidate runtime counts nor admission PASS."
+  },
+  "tests": [
+    {
+      "file": "src/lib/views/analysis/supplemental.test.ts",
+      "name": "keeps v5 year-based grouping"
+    },
+    {
+      "file": "src/lib/views/analysis/supplemental.test.ts",
+      "name": "shows both counted and count-free checks, retaining repeated source rows"
+    }
+  ]
+}

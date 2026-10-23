@@ -1,0 +1,43 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.anchors.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "properties": {
+      "date": {
+        "pattern": "^(?:\\d{4}-\\d{2}-\\d{2})?$",
+        "type": "string"
+      },
+      "issue": {
+        "type": "string"
+      },
+      "page": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "quote": {
+        "type": "string"
+      },
+      "rank": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "ref": {
+        "type": "string"
+      },
+      "title": {
+        "type": "string"
+      },
+      "why": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "ref",
+      "issue",
+      "why"
+    ],
+    "type": "object"
+  },
+  "title": "data of v5.anchors@1 (authored)",
+  "type": "array"
+}

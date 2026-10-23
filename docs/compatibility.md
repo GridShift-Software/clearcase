@@ -2,6 +2,10 @@
 
 Three generations of the case builder's workspace HTML convert through the one results-package contract ([results-package.md](results-package.md#the-v5-adapter)). The converter detects each one explicitly and refuses anything else. This page records what each observed export holds, counted from the source on 19 October 2026, and where each part ends up. `tests/case-package/compat/probe.ts` converts and validates a real export under `.local/`, counts its inventory again and fails when it differs from the block below; its receipts are the evidence. Only counts, dataset names and shapes are recorded here.
 
+## GRS-194 expected presentation
+
+The machine-readable inventory below retains the previously observed source counts but now expects recognized anchors, organogram and date phases. These are implementation expectations, **not a new real-export PASS**. The private samples are unavailable on this host; the real-export probe and full CC-25 gate remain HOLD. [The prior inventory](acceptance/CC-25/GRS-194-prior-inventory.json) preserves the old mapping expectations. Synthetic conversion and real-app evidence are recorded separately in [the GRS-194 report](acceptance/CC-25/GRS-194-report.md).
+
 ## Generations
 
 | Generation | Detected by | Observed export |
@@ -34,9 +38,194 @@ The received HTML and case folder are left as they were.
 
 ```json compat-inventory
 {
- "v5": {"generation": "v5-js", "chronologyRows": 1689, "dataKeys": 17, "auxiliaryRoots": 2, "metaVersion": null, "bundleGroups": 5, "courtBundles": 14, "storylineEntries": 6, "profileKeys": 0, "risks": 6, "textEntries": 0, "textAtCap": 0, "rowsWithoutText": null, "rowsWithParent": 0, "positionTypes": {"string": 1689}, "emails": null, "verdict": "report", "documents": 1689, "unaccounted": [], "demoted": [], "analysisOverlay": null, "riskFields": {"risks": 6, "category": 0, "owner": 0, "refs": 0}, "textCapNotice": null},
- "ess-newer": {"generation": "v5-js-newer", "chronologyRows": 2131, "dataKeys": 24, "auxiliaryRoots": 2, "metaVersion": "V1", "bundleGroups": 8, "courtBundles": 14, "storylineEntries": 0, "profileKeys": 30, "risks": 0, "textEntries": 2049, "textAtCap": 576, "rowsWithoutText": 82, "rowsWithParent": 399, "positionTypes": {"number": 2131}, "emails": {"rows": 568, "threads": 198, "gaps": 29}, "verdict": "report", "documents": 2131, "unaccounted": [], "demoted": ["timeline-phases"], "refReuse": {"sharedRefs": 1212, "sameOriginal": 497, "changedOriginal": 715, "anchorOutcome": {"ambiguous": 139, "exact": 576}, "followedTheRef": 0}, "analysisOverlay": {"anchors": 32, "authorities": 19, "contradictions": 5, "crossexam_seed": 7, "defenceMatrix": 11, "elements": 9, "enforcement": 7, "infoRequired": 14, "interestBasis": 9, "legality": 4, "matter": 7, "organogram": 2, "prescSummary": 5, "prescription": 46, "recon": 57, "riskMatrix": 14, "settlement": 8, "timeline": 2, "witnesses": 10}, "riskFields": {"risks": 14, "category": 14, "owner": 14, "refs": 14}, "analysisRead": {"anchors": {"v5-residual-anchors": 32}, "authorities": {"lit-authorities": 19}, "contradictions": {"contradictions": 6}, "crossexam_seed": {"lit-crossexam-seed": 7}, "defenceMatrix": {"defence-matrix": 11}, "elements": {"lit-elements": 9}, "enforcement": {"lit-enforcement": 7}, "infoRequired": {"info-required": 14}, "interestBasis": {"lit-interest-basis": 13}, "legality": {"lit-legality": 4}, "matter": {"matter": 7}, "organogram": {"v5-residual-organogram": 2}, "prescSummary": {"lit-presc-summary": 5}, "prescription": {"lit-prescription": 46}, "recon": {"lit-recon": 57}, "riskMatrix": {"risk-matrix": 14}, "settlement": {"lit-settlement": 9}, "timeline": {"timeline-events": 93, "v5-residual-timeline-phases": 6}, "witnesses": {"witnesses": 10}}, "textCapNotice": "576 of 2,049 document texts (DATA.text) stop at the 4,000-character cap, so the export holds only their first 4,000 characters"},
- "json-room": {"generation": "json-script", "chronologyRows": 4466, "appDataKeys": 21, "appSeedKeys": 11, "bundleGroups": 4, "courtBundles": 4, "matters": 3, "storylineEntries": 26, "risks": 38, "risksWithOwner": 38, "risksWithType": 38, "rowsShortened": 741, "rowsWithDateSource": 4465, "rowsWithParent": 156, "positionTypes": {"number": 4466}, "verdict": "report", "documents": 4466, "unaccounted": [], "demoted": [], "riskFields": {"risks": 38, "category": 38, "owner": 38, "refs": 0}, "textCapNotice": "741 of 4,466 chronology rows are marked shortened (sh) by the export, which holds only part of their text"}
+ "v5": {
+  "generation": "v5-js",
+  "chronologyRows": 1689,
+  "dataKeys": 17,
+  "auxiliaryRoots": 2,
+  "metaVersion": null,
+  "bundleGroups": 5,
+  "courtBundles": 14,
+  "storylineEntries": 6,
+  "profileKeys": 0,
+  "risks": 6,
+  "textEntries": 0,
+  "textAtCap": 0,
+  "rowsWithoutText": null,
+  "rowsWithParent": 0,
+  "positionTypes": {
+   "string": 1689
+  },
+  "emails": null,
+  "verdict": "report",
+  "documents": 1689,
+  "unaccounted": [],
+  "demoted": [],
+  "analysisOverlay": null,
+  "riskFields": {
+   "risks": 6,
+   "category": 0,
+   "owner": 0,
+   "refs": 0
+  },
+  "textCapNotice": null
+ },
+ "ess-newer": {
+  "generation": "v5-js-newer",
+  "chronologyRows": 2131,
+  "dataKeys": 24,
+  "auxiliaryRoots": 2,
+  "metaVersion": "V1",
+  "bundleGroups": 8,
+  "courtBundles": 14,
+  "storylineEntries": 0,
+  "profileKeys": 30,
+  "risks": 0,
+  "textEntries": 2049,
+  "textAtCap": 576,
+  "rowsWithoutText": 82,
+  "rowsWithParent": 399,
+  "positionTypes": {
+   "number": 2131
+  },
+  "emails": {
+   "rows": 568,
+   "threads": 198,
+   "gaps": 29
+  },
+  "verdict": "report",
+  "documents": 2131,
+  "unaccounted": [],
+  "demoted": [],
+  "refReuse": {
+   "sharedRefs": 1212,
+   "sameOriginal": 497,
+   "changedOriginal": 715,
+   "anchorOutcome": {
+    "ambiguous": 139,
+    "exact": 576
+   },
+   "followedTheRef": 0
+  },
+  "analysisOverlay": {
+   "anchors": 32,
+   "authorities": 19,
+   "contradictions": 5,
+   "crossexam_seed": 7,
+   "defenceMatrix": 11,
+   "elements": 9,
+   "enforcement": 7,
+   "infoRequired": 14,
+   "interestBasis": 9,
+   "legality": 4,
+   "matter": 7,
+   "organogram": 2,
+   "prescSummary": 5,
+   "prescription": 46,
+   "recon": 57,
+   "riskMatrix": 14,
+   "settlement": 8,
+   "timeline": 2,
+   "witnesses": 10
+  },
+  "riskFields": {
+   "risks": 14,
+   "category": 14,
+   "owner": 14,
+   "refs": 14
+  },
+  "analysisRead": {
+   "anchors": {
+    "anchors": 32
+   },
+   "authorities": {
+    "lit-authorities": 19
+   },
+   "contradictions": {
+    "contradictions": 6
+   },
+   "crossexam_seed": {
+    "lit-crossexam-seed": 7
+   },
+   "defenceMatrix": {
+    "defence-matrix": 11
+   },
+   "elements": {
+    "lit-elements": 9
+   },
+   "enforcement": {
+    "lit-enforcement": 7
+   },
+   "infoRequired": {
+    "info-required": 14
+   },
+   "interestBasis": {
+    "lit-interest-basis": 13
+   },
+   "legality": {
+    "lit-legality": 4
+   },
+   "matter": {
+    "matter": 7
+   },
+   "organogram": {
+    "organogram": 2
+   },
+   "prescSummary": {
+    "lit-presc-summary": 5
+   },
+   "prescription": {
+    "lit-prescription": 46
+   },
+   "recon": {
+    "lit-recon": 57
+   },
+   "riskMatrix": {
+    "risk-matrix": 14
+   },
+   "settlement": {
+    "lit-settlement": 9
+   },
+   "timeline": {
+    "timeline-events": 93,
+    "timeline-phases": 6
+   },
+   "witnesses": {
+    "witnesses": 10
+   }
+  },
+  "textCapNotice": "576 of 2,049 document texts (DATA.text) stop at the 4,000-character cap, so the export holds only their first 4,000 characters"
+ },
+ "json-room": {
+  "generation": "json-script",
+  "chronologyRows": 4466,
+  "appDataKeys": 21,
+  "appSeedKeys": 11,
+  "bundleGroups": 4,
+  "courtBundles": 4,
+  "matters": 3,
+  "storylineEntries": 26,
+  "risks": 38,
+  "risksWithOwner": 38,
+  "risksWithType": 38,
+  "rowsShortened": 741,
+  "rowsWithDateSource": 4465,
+  "rowsWithParent": 156,
+  "positionTypes": {
+   "number": 4466
+  },
+  "verdict": "report",
+  "documents": 4466,
+  "unaccounted": [],
+  "demoted": [],
+  "riskFields": {
+   "risks": 38,
+   "category": 38,
+   "owner": 38,
+   "refs": 0
+  },
+  "textCapNotice": "741 of 4,466 chronology rows are marked shortened (sh) by the export, which holds only part of their text"
+ }
 }
 ```
 
@@ -56,7 +245,7 @@ Each source key becomes a recognized dataset, an opaque residual dataset (`opaqu
 | `text` | 2,049 entries | unsupported: no view. 576 entries (28%) stop at exactly 4,000 characters (the builder's cap) and 82 rows have no entry; the validation report shows the count (`V5_TEXT_CAPPED`). The chronology excerpt is 400 characters. |
 | `emails` | 568 rows, 198 threads, 29 gaps | unsupported: no Emails or Email silences view (BA-11) |
 | `transcripts` | 1 | unsupported: no view |
-| `anchors`, `organogram` | 32; 25 nodes and 20 edges | empty in the payload line and filled by the analysis module; residual (`V5_UNMAPPED_KEY` with the count), no view reads them |
+| `anchors`, `organogram` | 32; 25 nodes and 20 edges | empty in the payload line and filled by the analysis module; recognized by GRS-194 and shown in Matter & Strategy |
 | `whatsapp` | 0 | empty in this export, and unsupported |
 
 **JSON script.** 17 keys map, among them the chronology, people, entities, contradictions, agreements (as contracts), bundles, the client and matters (as the storyline), risk, defence, info required, witnesses, elements, authorities and the discovery schedule. `hot` builds the timeline and is also kept residual, and `meta` is kept residual beside the `META` the adapter derives from the rows. `ft`, the viewer's own token index, is the one key dropped, with `V5_SOURCE_INDEX_DROPPED` (info). Fourteen keys are residual and unsupported: `fulltext`, `pages`, `threads`, `taxevents`, `vdp`, `dcand`, `firms`, `sections`, `tax`, `taxsum`, `valuations`, `financials`, the seed's `settlement` and `conflict_note`. A record field the v5 shape has no place for stays on its record and is reported as `DS_UNSUPPORTED_FIELD`. On chronology rows that includes the text length `tl` and the shortened flag `sh`: 741 of 4,466 rows are marked shortened, and the validation report shows that count (`V5_TEXT_CAPPED`). A risk's `type` is renamed `category`, the newer builder's name for it.
@@ -75,12 +264,12 @@ Counted from the source on 21 October 2026 (`analysisOverlay` and `analysisRead`
 | --- | ---: | --- | --- |
 | `matter` | title, 6 storyline and 6 strategy headings | `matter` | `[heading, text]` pairs become `{h, t}`; `summary` and `status` carried. The profile no longer stands in. |
 | `timeline.events` | 93 | `timeline-events` | `type` is `kind`, `detail` is `note`, the first of `refs` is `ref` with that row's `url`; `phase` and `refs` carried |
-| `timeline.phases` | 6 | residual `v5-residual-timeline-phases` (`V5_DATASET_SHAPE_UNMAPPED`) | each phase is bounded by dates and names its events by key; v5 phases are year ranges that place events by year, which would show 57 of the 93 events in two phases, so the phases stay residual and the Timeline lists the events outside phases |
+| `timeline.phases` | 6 | `timeline-phases` | Date phases retain their source keys and dates; membership uses each event?s explicit phase key, never an overlapping year range. Duplicate or unknown keys leave events visible outside phases for review. |
 | `riskMatrix` | 14 | `risk-matrix` | every risk with `category`, `owner` and `refs` |
 | `defenceMatrix` | 11 | `defence-matrix` | `theirs` is `dcs`; each cited ref becomes a document link (`docs`); `refs` is empty |
 | `witnesses` | 10 | `witnesses` | as written; `side`, `proves`, `docs`, `status` carried |
 | `infoRequired` | 14 | `info-required` | as written; `id`, `why`, `refs`, `from` carried |
-| `contradictions` | 5 categories, 19 items, 6 checks | `contradictions` | an item's refs become document links, `values` carried; the checks carry no count `n`, so they are kept as `source_checks` and the view lists no checks; a source that already holds `source_checks` is never overwritten, and its whole dataset is kept residual under `V5_DATASET_SHAPE_UNMAPPED` |
+| `contradictions` | 5 categories, 19 items, 6 checks | `contradictions` | an item's refs become document links, `values` carried; the checks carry no count `n`, so they are kept as validated `source_checks` and displayed alongside counted checks without inventing a number; a source that already holds `source_checks` is never overwritten, and its whole dataset is kept residual under `V5_DATASET_SHAPE_UNMAPPED` |
 | `legality` | intro, 14 documents, 4 scenarios, 5 factors | `lit-legality` | as written |
 | `elements` | 9 | `lit-elements` | `goto` is `tab`; `refs`, `gap` carried |
 | `recon` | 57 | `lit-recon` | `period` is `month`, `due` is `amountdue`; `breakdown` carried |
@@ -91,10 +280,10 @@ Counted from the source on 21 October 2026 (`analysisOverlay` and `analysisRead`
 | `prescription` | 46 | `lit-prescription` | as written; `due`, `amount` carried |
 | `prescSummary` | 5 fields | `lit-presc-summary` | as written, `keyEvent` carried; no longer demoted |
 | `interestBasis` | 9 fields | `lit-interest-basis` | merged onto the builder's own 4 fields; the headline date and first invoice date as before |
-| `anchors` | 32 | residual `v5-residual-anchors` (`V5_UNMAPPED_KEY`) | no view |
-| `organogram` | 25 nodes, 20 edges | residual `v5-residual-organogram` (`V5_UNMAPPED_KEY`) | no view |
+| `anchors` | 32 | `anchors` | Matter & Strategy: evidence anchors, reason, quote, supplied rank/date/title and page citation. |
+| `organogram` | 25 nodes, 20 edges | `organogram` | Matter & Strategy: diagram plus complete node and connection lists, citations and unresolved-endpoint notices. |
 
-Every root reaches the package: 16 roots and the timeline events fill the datasets v5 and the JSON script fill, and the timeline phases, the anchors and the organogram stay residual with a diagnostic: `V5_UNMAPPED_KEY` gives the anchors' and the organogram's counts, and `V5_DATASET_SHAPE_UNMAPPED` names the phases without a count (their dataset holds 6). No root is left in `v5-residual-analysis-overlay` for this export. The validation of the newer package reports 8 residual datasets (`DS_UNKNOWN_SCHEMA`), 131 unsupported fields (`DS_UNSUPPORTED_FIELD`) and 176 bare ref mentions (`CITE_BARE_MENTION`; the module cites refs as plain text).
+Historical GRS-149 measurement, before GRS-194 (not current presentation): every root reaches the package: 16 roots and the timeline events fill the datasets v5 and the JSON script fill, and the timeline phases, the anchors and the organogram stay residual with a diagnostic: `V5_UNMAPPED_KEY` gives the anchors' and the organogram's counts, and `V5_DATASET_SHAPE_UNMAPPED` names the phases without a count (their dataset holds 6). No root is left in `v5-residual-analysis-overlay` for this export. The validation of the newer package reports 8 residual datasets (`DS_UNKNOWN_SCHEMA`), 131 unsupported fields (`DS_UNSUPPORTED_FIELD`) and 176 bare ref mentions (`CITE_BARE_MENTION`; the module cites refs as plain text).
 
 ## Verification steps
 

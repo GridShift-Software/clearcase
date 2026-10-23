@@ -60,6 +60,12 @@ describe('register-dispositions --check', () => {
 		expect(r.status).toBe(1);
 		expect(r.out).toContain('differs from generated defects table');
 	});
+	it('generates the table from --reference as well as checking its register', () => {
+		edit(FILE, (d) => { d.entries.find((e) => e.id === 'IDR-289')!.type = 'known-gap'; });
+		const r = run('--check');
+		expect(r.status).toBe(1);
+		expect(r.out).toContain('differs from generated defects table');
+	});
 
 	it('keeps an approval through a rerun, and does not report the approval as drift', () => {
 		edit(FILE, (d) => { const e = d.entries.find((x) => x.author?.startsWith('GRS-67 dispositions'))!; e.approvedBy = 'dianbrown'; e.approvedOn = '2026-10-20'; });

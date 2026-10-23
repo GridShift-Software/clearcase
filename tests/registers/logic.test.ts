@@ -81,6 +81,15 @@ describe('entries', () => {
 		// a submitted textarea's CRLF (multipart and urlencoded alike) is stored as the LF the user typed
 		expect(entryFrom(REGISTERS.annotations_tab, { note: 'one\r\ntwo\rthree\nfour', ref: 'a\r\nb' })).toEqual({ ref: 'a\r\nb', date: '', note: 'one\ntwo\nthree\nfour' });
 	});
+	it('refuses years below the countdown calendar range in every register date field', () => {
+		for (const [view, def] of Object.entries(REGISTERS)) {
+			const defaults = Object.fromEntries(def.fields.map((field) => [field.k, field.type === 'select' ? field.opts?.[0] ?? '' : '']));
+			for (const field of def.fields.filter((field) => field.type === 'date')) {
+				const entry = entryFrom(def, { ...defaults, [field.k]: '0999-12-31' });
+				expect(invalidReason(def, entry), `${view}.${field.k}`).toContain('1000 to 9999');
+			}
+		}
+	});
 	it("carries no v5 browser storage key: a later v5 import derives the keys from v5's data (D16)", () => {
 		for (const d of Object.values(REGISTERS)) expect(Object.keys(d)).not.toContain('v5Key');
 	});

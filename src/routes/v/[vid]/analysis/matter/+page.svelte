@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import Narrative from '$lib/components/Narrative.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import SupplementalAnalysis from '$lib/views/analysis/SupplementalAnalysis.svelte';
 	import '$lib/views/analysis/analysis.css';
 	let { data } = $props();
 	const m = $derived(data.matter);
@@ -29,4 +30,5 @@
 			{/each}
 		</div>
 	{/if}
+	<SupplementalAnalysis anchors={data.anchors} graph={data.graph} resultsVersion={vid} known={data.known} />
 </main>

@@ -1,12 +1,52 @@
 {
   "$id": "https://clearcase.invalid/schema/data.v5.timeline-phases.v1.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "items": {
-    "items": {
-      "type": "string"
+  "anyOf": [
+    {
+      "items": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "type": "array"
     },
-    "type": "array"
-  },
-  "title": "data of v5.timeline-phases@1 (authored)",
-  "type": "array"
+    {
+      "items": {
+        "properties": {
+          "from": {
+            "pattern": "^(?:\\d{4}-\\d{2}-\\d{2})?$",
+            "type": "string"
+          },
+          "key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "oneLine": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "to": {
+            "pattern": "^(?:\\d{4}-\\d{2}-\\d{2})?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "from",
+          "to",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  ],
+  "title": "data of v5.timeline-phases@1 (authored)"
 }

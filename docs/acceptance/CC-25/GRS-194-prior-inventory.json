@@ -1,0 +1,192 @@
+{
+  "v5": {
+    "generation": "v5-js",
+    "chronologyRows": 1689,
+    "dataKeys": 17,
+    "auxiliaryRoots": 2,
+    "metaVersion": null,
+    "bundleGroups": 5,
+    "courtBundles": 14,
+    "storylineEntries": 6,
+    "profileKeys": 0,
+    "risks": 6,
+    "textEntries": 0,
+    "textAtCap": 0,
+    "rowsWithoutText": null,
+    "rowsWithParent": 0,
+    "positionTypes": {
+      "string": 1689
+    },
+    "emails": null,
+    "verdict": "report",
+    "documents": 1689,
+    "unaccounted": [],
+    "demoted": [],
+    "analysisOverlay": null,
+    "riskFields": {
+      "risks": 6,
+      "category": 0,
+      "owner": 0,
+      "refs": 0
+    },
+    "textCapNotice": null
+  },
+  "ess-newer": {
+    "generation": "v5-js-newer",
+    "chronologyRows": 2131,
+    "dataKeys": 24,
+    "auxiliaryRoots": 2,
+    "metaVersion": "V1",
+    "bundleGroups": 8,
+    "courtBundles": 14,
+    "storylineEntries": 0,
+    "profileKeys": 30,
+    "risks": 0,
+    "textEntries": 2049,
+    "textAtCap": 576,
+    "rowsWithoutText": 82,
+    "rowsWithParent": 399,
+    "positionTypes": {
+      "number": 2131
+    },
+    "emails": {
+      "rows": 568,
+      "threads": 198,
+      "gaps": 29
+    },
+    "verdict": "report",
+    "documents": 2131,
+    "unaccounted": [],
+    "demoted": [
+      "timeline-phases"
+    ],
+    "refReuse": {
+      "sharedRefs": 1212,
+      "sameOriginal": 497,
+      "changedOriginal": 715,
+      "anchorOutcome": {
+        "ambiguous": 139,
+        "exact": 576
+      },
+      "followedTheRef": 0
+    },
+    "analysisOverlay": {
+      "anchors": 32,
+      "authorities": 19,
+      "contradictions": 5,
+      "crossexam_seed": 7,
+      "defenceMatrix": 11,
+      "elements": 9,
+      "enforcement": 7,
+      "infoRequired": 14,
+      "interestBasis": 9,
+      "legality": 4,
+      "matter": 7,
+      "organogram": 2,
+      "prescSummary": 5,
+      "prescription": 46,
+      "recon": 57,
+      "riskMatrix": 14,
+      "settlement": 8,
+      "timeline": 2,
+      "witnesses": 10
+    },
+    "riskFields": {
+      "risks": 14,
+      "category": 14,
+      "owner": 14,
+      "refs": 14
+    },
+    "analysisRead": {
+      "anchors": {
+        "v5-residual-anchors": 32
+      },
+      "authorities": {
+        "lit-authorities": 19
+      },
+      "contradictions": {
+        "contradictions": 6
+      },
+      "crossexam_seed": {
+        "lit-crossexam-seed": 7
+      },
+      "defenceMatrix": {
+        "defence-matrix": 11
+      },
+      "elements": {
+        "lit-elements": 9
+      },
+      "enforcement": {
+        "lit-enforcement": 7
+      },
+      "infoRequired": {
+        "info-required": 14
+      },
+      "interestBasis": {
+        "lit-interest-basis": 13
+      },
+      "legality": {
+        "lit-legality": 4
+      },
+      "matter": {
+        "matter": 7
+      },
+      "organogram": {
+        "v5-residual-organogram": 2
+      },
+      "prescSummary": {
+        "lit-presc-summary": 5
+      },
+      "prescription": {
+        "lit-prescription": 46
+      },
+      "recon": {
+        "lit-recon": 57
+      },
+      "riskMatrix": {
+        "risk-matrix": 14
+      },
+      "settlement": {
+        "lit-settlement": 9
+      },
+      "timeline": {
+        "timeline-events": 93,
+        "v5-residual-timeline-phases": 6
+      },
+      "witnesses": {
+        "witnesses": 10
+      }
+    },
+    "textCapNotice": "576 of 2,049 document texts (DATA.text) stop at the 4,000-character cap, so the export holds only their first 4,000 characters"
+  },
+  "json-room": {
+    "generation": "json-script",
+    "chronologyRows": 4466,
+    "appDataKeys": 21,
+    "appSeedKeys": 11,
+    "bundleGroups": 4,
+    "courtBundles": 4,
+    "matters": 3,
+    "storylineEntries": 26,
+    "risks": 38,
+    "risksWithOwner": 38,
+    "risksWithType": 38,
+    "rowsShortened": 741,
+    "rowsWithDateSource": 4465,
+    "rowsWithParent": 156,
+    "positionTypes": {
+      "number": 4466
+    },
+    "verdict": "report",
+    "documents": 4466,
+    "unaccounted": [],
+    "demoted": [],
+    "riskFields": {
+      "risks": 38,
+      "category": 38,
+      "owner": 38,
+      "refs": 0
+    },
+    "textCapNotice": "741 of 4,466 chronology rows are marked shortened (sh) by the export, which holds only part of their text"
+  }
+}

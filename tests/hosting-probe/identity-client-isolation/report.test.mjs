@@ -32,3 +32,20 @@ test('artifact hashes detect changed output bytes and exclude only final self-re
 		assert.notDeepEqual(artifacts(dir, path.join(dir, 'absent-build')), first);
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
+for (const kind of ['metadata', 'snapshot-write', 'final-write']) test(`${kind} failure cannot bypass scanning existing logs`, () => {
+	const dir = mkdtempSync(path.join(tmpdir(), 'grs201-report-failure-'));
+	try {
+		const canary = 'synthetic-report-failure-canary';
+		mkdirSync(path.join(dir, 'logs'));
+		writeFileSync(path.join(dir, 'logs/serve.log'), canary);
+		if (kind === 'snapshot-write') mkdirSync(path.join(dir, 'summary-scan.json'));
+		if (kind === 'final-write') mkdirSync(path.join(dir, 'summary.json'));
+		const summary = { sourceSha: 'a'.repeat(40), treeClean: false, evidence: false, cleanup: {} };
+		finishRun({ summary, metadata: () => { if (kind === 'metadata') throw new Error('Git unavailable'); return {}; },
+			dir, buildDir: path.join(dir, 'absent-build'), canaries: [canary], failure: { failed: false, interrupted: false, cleanupOkay: true, stage: 'reporting control' } });
+		assert.equal(summary.scan.hits, 1);
+		assert.equal(summary.evidence, false);
+		assert.ok(summary.scan.manifest.some((f) => f.path === 'logs/serve.log'));
+		assert.equal(JSON.parse(readFileSync(path.join(dir, 'failure.json'), 'utf8')).reportingOkay, false);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});

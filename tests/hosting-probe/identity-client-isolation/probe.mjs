@@ -105,10 +105,11 @@ async function main() {
 	}
 	// Failed and interrupted runs take the same scan path; the signal hook waits through it.
 	try {
-		const summary = { schema: SCHEMA, sourceSha: sha, inputs: { paths: INPUTS, digest: digest(sha) }, treeClean: git(['rev-parse', 'HEAD']) === sha && !git(['status', '--porcelain']),
+		const summary = { schema: SCHEMA, sourceSha: sha, treeClean: false,
 			mode: 'live-clerk-development', runDir: path.relative(ROOT, dir).split(path.sep).join('/'), environment: ENVIRONMENT, instances: INSTANCES, served: { a: sha, c: sha }, ...data,
 			lifecycle: LIFECYCLE.map((assertion) => ({ assertion, pass: !failure && !interrupted && cleanupOkay })), cleanup, scan: { files: 0, hits: 0, manifest: [] }, hold: HOLD, evidence: false };
-		finishRun({ summary, dir, buildDir: path.join(HERE, '.svelte-kit'), canaries: [...canaries], failure: { failed: failure, interrupted, cleanupOkay, stage } });
+		finishRun({ summary, metadata: () => ({ inputs: { paths: INPUTS, digest: digest(sha) }, treeClean: git(['rev-parse', 'HEAD']) === sha && !git(['status', '--porcelain']) }),
+			dir, buildDir: path.join(HERE, '.svelte-kit'), canaries: [...canaries], failure: { failed: failure, interrupted, cleanupOkay, stage } });
 		console.log(`ISOLATION ${summary.evidence ? 'PASS' : 'FAIL'} ${sha}; summary ${path.relative(ROOT, dir)}/summary.json`);
 		if (!summary.evidence) process.exitCode = 1;
 	} finally { finish(); unregister(); }

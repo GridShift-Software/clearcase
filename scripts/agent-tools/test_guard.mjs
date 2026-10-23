@@ -1189,26 +1189,35 @@ function main() {
   const fromBase = file => merged && (treeEntry(tip, file) !== undefined || treeEntry(base, file) !== undefined)
     && treeEntry(tip, file) === treeEntry(trusted, file)
     && forks.every(fork => treeEntry(fork, file) === treeEntry(base, file));
-  // Equality alone cannot establish arrival: the candidate could have copied the helper before merging the base.
-  // Every change on its first-parent line must come through a two-parent merge of a trusted ancestor, with the
-  // received mode/blob intact. Inspect the whole line, so editing then restoring or deleting then remerging refuses.
-  let arrivalLine;
+  // Equality alone cannot establish arrival: candidate-only commits can hide on any merged side ancestry. Inspect
+  // every candidate-only commit reachable from HEAD, including commits before a later deletion or restoration. A
+  // protected path may change only in a two-parent merge whose second parent is trusted history and whose result
+  // preserves that parent's exact mode/blob. This keeps genuine arrivals and trusted updates while refusing edits
+  // anywhere in merged candidate history.
+  let arrivalHistory;
+  const trustedAncestors = new Map();
+  const fromTrusted = revision => {
+    if (!trustedAncestors.has(revision)) {
+      trustedAncestors.set(revision,
+        spawnSync('git', ['-C', root, 'merge-base', '--is-ancestor', revision, trusted], { env }).status === 0);
+    }
+    return trustedAncestors.get(revision);
+  };
   const arrivals = new Map();
   const trustedArrival = file => {
     if (arrivals.has(file)) return arrivals.get(file);
     const prove = () => {
       if (treeEntry(base, file) !== undefined || !fromBase(file)) return false;
-      arrivalLine ??= git('rev-list', '--first-parent', '--parents', tip, `^${base}`).trim().split('\n')
-        .filter(Boolean).map(row => row.split(' ')).reverse();
+      arrivalHistory ??= git('rev-list', '--topo-order', '--parents', tip, `^${trusted}`).trim().split('\n')
+        .filter(Boolean).map(row => row.split(' '));
       let introduced = false;
-      for (const [revision, first, second, ...rest] of arrivalLine) {
-        const before = first && treeEntry(first, file);
+      for (const [revision, ...parents] of arrivalHistory) {
         const after = treeEntry(revision, file);
-        if (before === after) continue;
+        if (parents.every(parent => treeEntry(parent, file) === after)) continue;
+        const [first, second, ...rest] = parents;
         if (!first || !second || rest.length || !REGULAR.includes(tracked(revision).get(file)?.mode)
-            || after !== treeEntry(second, file)
-            || spawnSync('git', ['-C', root, 'merge-base', '--is-ancestor', second, trusted], { env }).status !== 0) return false;
-        if (before === undefined) introduced = true;
+            || after !== treeEntry(second, file) || !fromTrusted(second)) return false;
+        if (treeEntry(first, file) === undefined) introduced = true;
       }
       return introduced;
     };

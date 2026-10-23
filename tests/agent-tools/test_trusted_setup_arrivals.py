@@ -43,7 +43,7 @@ class TrustedSetupArrivals:
         self.git('switch', '-q', 'dev')
         for file, text in files.items():
             self.write(file, text)
-        self.git('-c', 'user.name=Synthetic', '-c', 'user.email=test@example.invalid', 'commit', '-qam', 'trusted additions')
+        self.commit('trusted additions')
         self.git('switch', '-q', 'candidate')
 
     def merge(self, ref='dev'):

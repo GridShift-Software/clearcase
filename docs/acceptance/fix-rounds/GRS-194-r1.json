@@ -1,46 +1,56 @@
 {
   "schema": "clearcase-fix-round/1",
   "unit": "GRS-194/implementation",
-  "fixBase": "88eb5dac8e6f41b42091a55f438afdd8f07e0105",
-  "reviewFindingsSha256": "278997bf823ef148635582b38afced143c868cc1c1a7935ad8ba0cda5af26d3c",
+  "fixBase": "10630fa6ad632e448633fb8531fe8b2af054743d",
+  "reviewFindingsSha256": "2d30b6102fdedd60fcec23c0d85ba5bf4d066df5df822d273f92e496b0f2004d",
   "review": {
-    "reviewedHead": "88eb5dac8e6f41b42091a55f438afdd8f07e0105",
-    "note": "Greptile PR #135 review comment 4361866317; verbatim finding and protected regression tests below. The source review is scoped to the one P2 geometry finding."
+    "reviewedHead": "3423d90b8c9423e623c8b7556e6d24305635093e",
+    "note": "Two independent T3 code-review axes; full findings and dispositions in docs/acceptance/CC-25/GRS-194-review.md. fixBase is the red regression commit. All unrun real-export boundaries remain HOLD. The guard cannot resolve Svelte component imports in the two UI regressions (confirmed by a FAIL receipt); they remain unchanged, runtime-tested and independently source-reviewed, but are explicitly unprotected by this guard. Top-level tests protect the existing v5-grouping and count-free-check class invariants only; a guard PASS must not be described as protecting the component regressions."
   },
   "findings": [
     {
-      "file": "src/lib/views/analysis/supplemental.ts",
-      "line": 21,
+      "file": "src/lib/views/analysis/SupplementalAnalysis.svelte",
+      "line": 16,
       "severity": "P2",
-      "text": "Connections cross unrelated nodes\n\n`relationshipLayout` draws every non-self connection as a straight line. A connection from the first node to the third crosses the second node, whose box is drawn over the line. Readers can mistake that unrelated node for part of the relationship. The full connection table stays correct, so this is non-blocking, but the diagram requires cross-checking. Route connections around intervening boxes.\n\nNote: If this suggestion doesn't match your team's coding style, reply to this and let me know. I'll remember it for next time!",
+      "text": "Imported text does not reveal bidi and invisible characters.",
       "tests": [
         {
-          "file": "src/lib/views/analysis/relationship-layout-routing.test.ts",
-          "name": "routes same-row nonadjacent nodes around intervening boxes"
-        },
-        {
-          "file": "src/lib/views/analysis/relationship-layout-routing.test.ts",
-          "name": "routes same-column nonadjacent nodes around intervening boxes"
-        },
-        {
-          "file": "src/lib/views/analysis/relationship-layout-routing.test.ts",
-          "name": "routes diagonal nonadjacent nodes around intervening boxes"
+          "file": "tests/analysis/supplemental-render.test.ts",
+          "name": "reveals bidi and zero-width characters in evidence text and relationship labels"
         }
-      ]
+      ],
+      "unprotected": "The current guard cannot resolve Svelte component imports. Runtime regression and independent source review retained; no guard coverage claimed for this test."
+    },
+    {
+      "file": "src/routes/v/[vid]/analysis/timeline/+page.svelte",
+      "line": 20,
+      "severity": "P2",
+      "text": "Secondary timeline refs are not displayed.",
+      "tests": [
+        {
+          "file": "tests/case-package/newer-analysis-views.test.ts",
+          "name": "the Timeline lists every event once under its explicitly assigned date phase"
+        }
+      ],
+      "unprotected": "The current guard cannot resolve Svelte component imports. Runtime regression and independent source review retained; no guard coverage claimed for this test."
+    },
+    {
+      "file": "docs/compatibility.md",
+      "line": 38,
+      "severity": "P2",
+      "text": "Expected inventory retains superseded residual mappings.",
+      "tests": [],
+      "unprotected": "Documentation correction; source counts remain historical, expected mappings are unverified until private real-export samples are available."
     }
   ],
   "tests": [
     {
-      "file": "src/lib/views/analysis/relationship-layout-routing.test.ts",
-      "name": "routes same-row nonadjacent nodes around intervening boxes"
+      "file": "src/lib/views/analysis/supplemental.test.ts",
+      "name": "keeps v5 year-based grouping"
     },
     {
-      "file": "src/lib/views/analysis/relationship-layout-routing.test.ts",
-      "name": "routes same-column nonadjacent nodes around intervening boxes"
-    },
-    {
-      "file": "src/lib/views/analysis/relationship-layout-routing.test.ts",
-      "name": "routes diagonal nonadjacent nodes around intervening boxes"
+      "file": "src/lib/views/analysis/supplemental.test.ts",
+      "name": "shows both counted and count-free checks, retaining repeated source rows"
     }
   ]
 }

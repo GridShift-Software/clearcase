@@ -9,6 +9,14 @@ The pilot's surface is a web UI at `http://127.0.0.1:<PORT>` (case list, import,
 
 Synthetic data only. The runner builds its case with `tests/e2e/pilot/lib/fixtures.ts` (`buildCase`, GRS-10's own converter, invented names). Never point it at case material, `RAWS/` or the hosted system.
 
+## Choose the evidence needed
+
+Use this skill for the local pilot. Its `every-view` step proves navigation, headings and readiness for 42 views; it does not prove every save, delete, export or reload action. For a changed action, name the step that exercises it and inspect that run's resulting state. A separate suite may provide that evidence, but record its command, revision and result separately. Keep actions without such evidence marked *not yet driven* or NOT RUN.
+
+The feature index checks document structure and step modules. It does not currently resolve a prose `Step` reference to an executable step, so check that reference against the discovered steps before making a coverage claim. A green index alone is not behavior evidence.
+
+On a shared host, run this local runner inside the coordinator's admitted browser job. Unlike the hosted runner, it does not acquire the shared browser slot itself; a passing doctor or setting `CLEARCASE_BROWSER_LOCK` does not reserve one. Isolated network namespaces prevent port collisions, not CPU or memory contention. This admission gap remains an executable follow-up, not a capability added by these instructions.
+
 ## Launch
 
 One command runs the whole lifecycle: preflight, isolated build, offline boot, live doctor, drive, cleanup.
@@ -28,7 +36,7 @@ CLEARCASE_BUN=/path/to/bun-1.4.2/bun PATH=/path/to/bun-1.4.2:$PATH scripts/agent
 What it does, in order:
 
 1. **Preflight**: `bin/verify-clearcase preflight` runs this step alone. It checks the Bun running the runner against the revision's `packageManager` pin (an exact match), that `node_modules` is installed and `bun.lock` matches the revision, the harness files under `tests/e2e/pilot/`, `unshare` (and that `unshare -rn true` works), `ip`, `mount`, Chromium (`CLEARCASE_CHROMIUM`, else `~/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome`; on a host without build 1223 set `CLEARCASE_CHROMIUM` to an installed one, such as `chromium-1243`) and the ports. It only reads local files and versions. Missing prerequisites exit 3 with one `fix:` line each, before anything is built, started or contacted.
-2. **Isolated build**: `isolatedBuild` from `tests/e2e/pilot/lib/isolated-build.mjs`. It runs `git archive <rev>` into the run's scratch, reflinks the checkout's `node_modules` after checking that `bun.lock` is byte-identical, then runs `bun run --bun build` with `CLEARCASE_SOURCE_REVISION`. The stamp `build/clearcase-build.json` must name that revision with `exported: true` and `dirty: false`. The worktree's own `build/` is never used, so uncommitted edits are not part of the proof. Commit first.
+2. **Isolated build**: `isolatedBuild` from `tests/e2e/pilot/lib/isolated-build.mjs`. It runs `git archive <rev>` into the run's scratch, reflinks the checkout's `node_modules` after checking that `bun.lock` is byte-identical, then runs `bun run --bun build` with `CLEARCASE_SOURCE_REVISION`. The stamp `build/clearcase-build.json` must name that revision with `exported: true` and `dirty: false`. The application build comes from the selected committed revision, not the worktree's `build/`. The doctor, drive, owner step modules and harness come from the calling checkout. For acceptance, use a clean checkout of the intended verifier revision and retain its receipt alongside the application's full SHA; an application stamp alone does not establish verifier provenance.
 3. **Offline boot**: `unshare -rn env OUTER_UID=… OUTER_GID=… tests/e2e/pilot/offline.sh bun lib/inner.mjs CONFIG` runs the server and browser in a fresh network namespace with only `lo`, with the host resolver's sockets hidden. `netproof` must show outbound TCP (IPv4 and IPv6) and DNS failing and loopback working. Then `startServer` from `tests/e2e/pilot/lib/server.mjs` boots `<scratch>/src/scripts/pilot/start.ts` under Bun with the run's ports and a fresh data directory. The server is ready when `/api/health` answers from the spawned PID.
 4. Live doctor, drive, stop, cleanup: see the sections below.
 
@@ -95,7 +103,7 @@ Evidence goes to `$CLEARCASE_REPORT_DIR/skill/<run-id>/` when `CLEARCASE_REPORT_
 - `screens/NN-<step>.png`: one screenshot of each state the drive reaches, the filled import form included.
 - `health.json` (the `/api/health` the doctor accepted), `clearcase-build.json` (the build stamp), `server.log` (the server's stdout and stderr) and `offline.log` (the namespace transcript).
 
-Proof standards: the steps act on user controls, never on internal setters or test endpoints. Each step captures the action and the resulting state, and checks side effects through a second view: the `/` redirect before and after activation, and the viewer's frame state, not just the wrapper. A SKIPPED or NOT RUN step is never a pass, and `verify app` exits nonzero for any of them. Evidence outlives cleanup, and the run's `evidence-kept` step checks that after the scratch is gone: every file whose step ran, and every screenshot a passing step returned, must still exist (a full pass has all five files and one screenshot per step that takes one: sixteen today).
+Proof standards: the steps act on user controls, never on internal setters or test endpoints. Each step captures the action and the resulting state, and checks side effects through a second view: the case list's Open destination before and after activation, and the viewer's frame state, not just the wrapper. A SKIPPED or NOT RUN step is never a pass, and `verify app` exits nonzero for any of them. Evidence outlives cleanup, and the run's `evidence-kept` step checks that after the scratch is gone: every file whose step ran, and every screenshot a passing step returned, must still exist (a full pass has all five files and one screenshot per step that takes one: sixteen today).
 
 ## Cleanup
 
@@ -165,5 +173,5 @@ All of these go through `bin/verify-clearcase`, which runs `lib/main.mjs` under 
 - Chromium builds newer than the default 1223 (1228, 1243) contact `update.googleapis.com`, `www.google.com` and `android.clients.google.com` despite the harness flags. `no-egress` records these as `backgroundHits`; any other canary hit still fails.
 - Chromium's own network-time query (`clients2.google.com/time`) would hit the canary. The runner adds `NetworkTimeServiceQuerying` to the harness's `--disable-features` list. The last `--disable-features` switch wins, so the list is repeated in full.
 - `#open-original` opens a new tab (`noopener`). Read it through `x.openTab`, not the main tab's session. A step that opens a tab must bring the main tab back to front afterwards (`x.b.send('Page.bringToFront', {}, x.page.sessionId)`, as `viewer` does): Chromium throttles a background tab's timers, and every later client-side navigation then takes about 1 s.
-- The worktree's own `build/` and uncommitted edits are never what gets verified. The build is of a committed revision.
-- `verify app` records the revision before and after the run. A commit or edit in the checkout during the run turns its receipt SKIPPED, so rerun when the checkout is quiet.
+- The application build is of a committed revision. Verifier code runs from the calling checkout; keep its revision/state distinct when using `--rev` for an older application.
+- `verify app` records the revision before and after the run. A commit or edit during the run makes the receipt FAIL (exit 1 if the runner otherwise succeeded; otherwise its failure code is retained), so rerun when the checkout is quiet.

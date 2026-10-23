@@ -2,6 +2,8 @@
 
 The workspace `AGENTS.md` above this repository sets models, budgets, the build-review-fix-ship loop, Git and push rules, the Bun commands and the rules on case material; it overrides this file. This file adds what is specific to the repository.
 
+In a clone without that workspace file, record its absence and follow this repository's available instructions and the user's current authorization. Historical references to an external hook, model sheet or run do not prove it is installed or current on this host.
+
 ## Read on demand
 
 - `GLOSSARY.md`: the domain words. Use them in code, tests, reports and Linear text.
@@ -18,6 +20,7 @@ The workspace `AGENTS.md` above this repository sets models, budgets, the build-
 
 - Match the v5 main HTML, with 1,689 documents and 42 views, first. Test the newer 2,131-document export afterwards.
 - The hosted results-import endpoint is unverified. Client upload APIs are a different thing; do not treat them as that endpoint.
+- Before hosted route work, reconcile the ticket's initial reservations with `deploy/client/hosted-files.json`, which currently selects `deploy/client/routes`. Resolve exact paths and shared-file ownership in the dispatch brief; a route implemented only under `src/routes` is not thereby part of the hosted artifact. Keep live scopes and their generated snapshot synchronized through the coordinator.
 - Write ADRs under `docs/adr/` only for decisions that earn a permanent record.
 
 ## Case data and evidence

@@ -1,10 +1,10 @@
 # ClearCase scope: local v5 pilot and hosted alpha
 
-Updated 17 October 2026. The local app reproduces the supplied v5 sample and is the proof of concept. Clients will use only the hosted alpha. The [decision records](adr/README.md) hold the accepted decisions, and the [Linear project](https://linear.app/vaper/project/clearcase-realignment-e64366f52809) holds the work. The 8 October planning baseline is kept below; where it conflicts with this section, this section wins.
+Scope updated 17 October 2026; status clarified 22 October 2026. The local app reproduces the supplied v5 sample and is the proof of concept. Clients will use only the hosted alpha. The [decision records](adr/README.md) hold the accepted decisions, and the [Linear project](https://linear.app/vaper/project/clearcase-realignment-e64366f52809) holds the work. The 8 October planning baseline is kept below; where it conflicts with this section, this section wins.
 
 ## Hosted alpha
 
-This is a planning baseline, not an implementation or acceptance report. Approval of the complete plan ([GRS-69](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha)) is still open, every hosted issue is blocked by it, and the hosted design gate ([GRS-27](https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation)) comes before client intake. Every implementation, runtime and hosted proof named here is UNRUN.
+This is the accepted scope, not an acceptance report. The complete plan was approved on 17 October 2026 and [GRS-69](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha) is Done. At the 22 October audit baseline `225b7e00578319d16383678a8d1ae6efb362a0ba`, the local pilot and hosted runtime/bootstrap are implemented, while production hosted services remain unavailable. Local and Clerk-development proof records are distinct from cloud-provider and product acceptance; see the [dated retrospective](reviews/retrospective-2026-10-22/product-and-delivery.md). The hosted design gate ([GRS-27](https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation)) still precedes foundation/client-intake implementation. Read live ticket dependencies and GRS-26's current provider decisions before dispatch; do not request plan approval again or infer deployment authority from this page.
 
 ### Clients and access
 

@@ -127,6 +127,32 @@ class TrustedSetupArrivals:
                     self.commit('restore trusted bytes after candidate change')
                 self.assertIn('test-guard: FAIL', self.guard(1))
 
+    def test_candidate_side_branch_edit_restored_after_trusted_arrival_refuses(self):
+        self.upstream(self.additions())
+        self.merge()
+        self.git('switch', '-q', '-c', 'candidate-side')
+        self.write(self.helper, 'export const weakened = true;\n')
+        self.commit('candidate side branch edits trusted helper')
+        self.write(self.helper, 'export {};\n')
+        self.commit('candidate side branch restores trusted helper')
+        self.git('switch', '-q', 'candidate')
+        self.git('-c', 'user.name=Synthetic', '-c', 'user.email=test@example.invalid', 'merge', '-q', '--no-ff',
+                 '-m', 'merge candidate side history', 'candidate-side')
+        self.assertIn('test-guard: FAIL', self.guard(1))
+
+    def test_candidate_side_prearrival_add_delete_history_refuses(self):
+        self.git('switch', '-q', '-c', 'candidate-side')
+        self.write(self.helper, 'export {} from \'./boot\';\n')
+        self.commit('candidate side branch creates helper before arrival')
+        (self.repo / self.helper).unlink()
+        self.commit('candidate side branch deletes prearrival helper')
+        self.git('switch', '-q', 'candidate')
+        self.git('-c', 'user.name=Synthetic', '-c', 'user.email=test@example.invalid', 'merge', '-q', '--no-ff',
+                 '-m', 'merge candidate prearrival history', 'candidate-side')
+        self.upstream(self.additions())
+        self.merge()
+        self.assertIn('test-guard: FAIL', self.guard(1))
+
     def test_prearrival_copy_unmerged_other_origin_and_implicit_trust_refuse(self):
         for action in ('prearrival', 'deleted-prearrival', 'copy', 'unmerged', 'other-origin', 'implicit', 'moved-base'):
             with self.subTest(action=action):

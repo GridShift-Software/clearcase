@@ -1170,18 +1170,31 @@ function main() {
   const held = forks.length > 0 && spawnSync('git', ['-C', root, 'merge-base', '--all', trusted, tip], { env, encoding: 'utf8' });
   const received = held?.status === 0 ? held.stdout.split('\n').filter(Boolean) : [];
   // a revision's tracked files: path -> { mode, id }, parsed once for the base-change test and the closures alike
+  const parseTree = output => new Map(output.split('\0').filter(Boolean).map(entry => {
+    const [mode, , id] = entry.slice(0, entry.indexOf('\t')).split(' ');
+    return [entry.slice(entry.indexOf('\t') + 1), { mode, id }];
+  }));
   const trees = new Map();
   const tracked = revision => {
     if (!trees.has(revision)) {
-      trees.set(revision, new Map(git('ls-tree', '-r', '-z', revision).split('\0').filter(Boolean).map(entry => {
-        const [mode, , id] = entry.slice(0, entry.indexOf('\t')).split(' ');
-        return [entry.slice(entry.indexOf('\t') + 1), { mode, id }];
-      })));
+      trees.set(revision, parseTree(git('ls-tree', '-r', '-z', revision)));
     }
     return trees.get(revision);
   };
+  // Arrival history needs individual paths, not a full retained repository tree per candidate commit.
+  // Reuse an existing inventory; otherwise cache just the exact requested entry, including absence.
+  const entries = new Map();
+  const trackedEntry = (revision, file) => {
+    if (trees.has(revision)) return trees.get(revision).get(file);
+    if (!entries.has(revision)) entries.set(revision, new Map());
+    const files = entries.get(revision);
+    if (!files.has(file)) {
+      files.set(file, parseTree(git('--literal-pathspecs', 'ls-tree', '-r', '-z', revision, '--', file)).get(file));
+    }
+    return files.get(file);
+  };
   const treeEntry = (revision, file) => {
-    const entry = tracked(revision).get(file);
+    const entry = trackedEntry(revision, file);
     return entry && `${entry.mode} ${entry.id}`;
   };
   // A key neither HEAD nor the fix base tracks (a derived entry whose origin was not mapped, a typo) is nobody's change:
@@ -1216,7 +1229,7 @@ function main() {
         const after = treeEntry(revision, file);
         const [first, second, ...rest] = parents;
         if (after === (first ? treeEntry(first, file) : undefined)) continue;
-        if (!first || !second || rest.length || !REGULAR.includes(tracked(revision).get(file)?.mode)
+        if (!first || !second || rest.length || !REGULAR.includes(trackedEntry(revision, file)?.mode)
             || after !== treeEntry(second, file) || !fromTrusted(second)) return false;
         if (treeEntry(first, file) === undefined) introduced = true;
       }

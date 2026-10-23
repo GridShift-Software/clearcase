@@ -2536,7 +2536,6 @@ class FixRoundMergedBase(ControlCase):
     def test_an_added_deleted_symlinked_or_mode_changed_dependency_still_refuses(self):
         setup = "export default { test: { include: ['tests/**/*.test.ts'], setupFiles: ['./tests/setup.ts'] } };\n"
         cases = {
-            'a setup file the base added': ({'vitest.config.ts': setup, 'tests/setup.ts': 'export {};\n'}, 'protected dependency added/deleted: tests/setup.ts'),
             'a configuration the base deleted': ({'vitest.config.ts': None}, 'protected dependency added/deleted: vitest.config.ts'),
         }
         for label, (base, message) in cases.items():
@@ -2545,6 +2544,13 @@ class FixRoundMergedBase(ControlCase):
                 self.on_dev(base)
                 self.merge()
                 self.assertIn(message, self.guard('--base', 'dev', code=1))
+        with self.subTest(control='GRS-196 admits genuine unchanged setup arrivals'):
+            self.reset()
+            self.on_dev({'vitest.config.ts': setup, 'tests/setup.ts': 'export {};\n'})
+            self.merge()
+            self.guard('--base', 'dev')
+            self.change({'tests/setup.ts': 'export const weakened = true;\n'}, 'candidate edits the arrived setup')
+            self.assertIn('protected dependency added/deleted: tests/setup.ts', self.guard('--base', 'dev', code=1))
         with self.subTest(bypass='a helper the base made a symlink'):
             self.reset()
             self.git('switch', '-q', 'dev')
@@ -2683,17 +2689,21 @@ class FixRoundConfigurationAdditions(ControlCase):
                 if entry == 'package.json#scripts':
                     self.assertIn('package.json#resolution', out)
 
-    def test_setup_addition_still_refuses_when_it_is_also_imported_by_a_new_runner(self):
+    def test_trusted_setup_arrival_shared_with_a_runner_passes_until_the_candidate_edits_it(self):
         setup = "import './setup';\nexport default { test: { include: ['tests/**/*.test.ts'], setupFiles: ['./setup.ts'] } };\n"
         self.receive({self.added: setup, 'tests/deployment/setup.ts': 'export {};\n'})
+        self.guard('--base', 'dev')
+        self.change({'tests/deployment/setup.ts': 'export const weakened = true;\n'}, 'candidate changes shared setup')
         out = self.guard('--base', 'dev', code=1)
         self.assertIn('protected dependency added/deleted: tests/deployment/setup.ts', out)
 
-    def test_helper_addition_still_refuses_when_it_is_also_imported_by_a_new_runner(self):
+    def test_trusted_helper_arrival_shared_with_a_runner_passes_until_the_candidate_edits_it(self):
         runner = "import '../../support/added';\n" + self.config
         self.receive({self.added: runner,
                       'support/helper.ts': "import './added';\n" + self.helper,
                       'support/added.ts': 'export const added = true;\n'})
+        self.guard('--base', 'dev')
+        self.change({'support/added.ts': 'export const added = false;\n'}, 'candidate changes shared helper')
         out = self.guard('--base', 'dev', code=1)
         self.assertIn('protected dependency added/deleted: support/added.ts', out)
 
@@ -2790,6 +2800,9 @@ class FixRoundConfigurationAdditions(ControlCase):
                 files = {f'tests/{name}.ts': ''.join(f"import './{target}';\n" for target in targets) + 'export {};\n'
                          for name, targets in imports.items()}
                 self.receive({self.added: "import '../bootstrap';\n" + self.config, **files})
+                self.guard('--base', 'dev')
+                self.change({'tests/added.ts': files['tests/added.ts'] + 'export const weakened = true;\n'},
+                            'candidate weakens shared transitive/cyclic setup')
                 for attempt in range(2):
                     with self.subTest(attempt=attempt):
                         out = self.guard('--base', 'dev', code=1)
@@ -2814,6 +2827,9 @@ class FixRoundConfigurationAdditions(ControlCase):
                     config = self.config.replace('include:', setting + ', include:')
                     self.receive({self.added: statement + '\n' + config,
                                   'tests/deployment/shared.ts': 'export default {};\n'})
+                    self.guard('--base', 'dev')
+                    self.change({'tests/deployment/shared.ts': 'export default { weakened: true };\n'},
+                                'candidate changes setup reached through an import form')
                     out = self.guard('--base', 'dev', code=1)
                     self.assertIn('protected dependency added/deleted: tests/deployment/shared.ts', out)
 

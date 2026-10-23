@@ -1189,6 +1189,43 @@ function main() {
   const fromBase = file => merged && (treeEntry(tip, file) !== undefined || treeEntry(base, file) !== undefined)
     && treeEntry(tip, file) === treeEntry(trusted, file)
     && forks.every(fork => treeEntry(fork, file) === treeEntry(base, file));
+  // Equality alone cannot establish arrival: candidate-only commits can hide on any merged side ancestry. Inspect
+  // every candidate-only commit reachable from HEAD, including commits before a later deletion or restoration. Compare
+  // each commit with its first parent: retaining that parent's copy at a merge is no edit, even if another parent has
+  // older or absent bytes. A protected path may change only in a two-parent merge whose second parent is trusted
+  // history and whose result preserves that parent's exact mode/blob. This keeps genuine arrivals and trusted updates while refusing edits
+  // anywhere in merged candidate history.
+  let arrivalHistory;
+  const trustedAncestors = new Map();
+  const fromTrusted = revision => {
+    if (!trustedAncestors.has(revision)) {
+      trustedAncestors.set(revision,
+        spawnSync('git', ['-C', root, 'merge-base', '--is-ancestor', revision, trusted], { env }).status === 0);
+    }
+    return trustedAncestors.get(revision);
+  };
+  const arrivals = new Map();
+  const trustedArrival = file => {
+    if (arrivals.has(file)) return arrivals.get(file);
+    const prove = () => {
+      if (treeEntry(base, file) !== undefined || !fromBase(file)) return false;
+      arrivalHistory ??= git('rev-list', '--topo-order', '--parents', tip, `^${trusted}`).trim().split('\n')
+        .filter(Boolean).map(row => row.split(' '));
+      let introduced = false;
+      for (const [revision, ...parents] of arrivalHistory) {
+        const after = treeEntry(revision, file);
+        const [first, second, ...rest] = parents;
+        if (after === (first ? treeEntry(first, file) : undefined)) continue;
+        if (!first || !second || rest.length || !REGULAR.includes(tracked(revision).get(file)?.mode)
+            || after !== treeEntry(second, file) || !fromTrusted(second)) return false;
+        if (treeEntry(first, file) === undefined) introduced = true;
+      }
+      return introduced;
+    };
+    const proven = prove();
+    arrivals.set(file, proven);
+    return proven;
+  };
   // A path the base added, changed or deleted after the review is one whose copy at a base commit HEAD holds differs from
   // the copy at every merge base of that commit with the fix base, and from the fix base's. The fix base's copy is no
   // reference for it (an addition's absence least of all, a rename's new path included): the base's copy HEAD received
@@ -1987,11 +2024,11 @@ function main() {
   // reference's closure protects that path. No reason excuses a change there.
   const dependency = (file, origin, oldText, newText, reference) => {
     // A runner configuration or derived package entry can be absent at review because the merged base added its file.
-    // Protected test/setup code keeps refusal precedence when an origin also belongs to the runner; equality for an
-    // accepted inherited origin includes its full blob and mode.
+    // Protected membership takes precedence over runner membership: those origins need a genuine arrival, even
+    // through transitive/cyclic runner imports. Both rules require the full trusted origin's blob and mode.
     if (oldText === undefined && newText !== undefined && !oldClosure.ids.has(origin)
-        && !currentClosure.protectedDeps.has(origin)
-        && (currentClosure.runner.has(origin) || file !== origin) && fromBase(origin)) {
+        && (currentClosure.protectedDeps.has(origin) ? trustedArrival(origin)
+          : (currentClosure.runner.has(origin) || file !== origin) && fromBase(origin))) {
       inherited.push(file);
       return;
     }

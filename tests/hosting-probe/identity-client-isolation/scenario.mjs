@@ -10,10 +10,10 @@ export function observe(r, reply) {
 	return { ...r, observed, pass };
 }
 // Both live and crafted runtime modes execute exactly this request sweep.
-export async function sweep(worlds) {
-	const results = [];
+export async function sweep(worlds, progress = { results: [], storesUnchanged: {} }) {
+	// The live caller retains these safe observations even when a later check throws.
+	const { results, storesUnchanged } = progress;
 	const before = {};
-	const storesUnchanged = {};
 	for (const r of transcript()) {
 		const w = worlds[r.target];
 		if (r.actor === 'foreign' && !before[r.target]) before[r.target] = await w.snapshot();
@@ -31,5 +31,5 @@ export async function sweep(worlds) {
 		storesUnchanged[name] = before[name] === await w.snapshot();
 		if (!storesUnchanged[name]) throw new Error(`hostile requests mutated ${name}'s store`);
 	}
-	return { results, storesUnchanged };
+	return progress;
 }

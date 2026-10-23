@@ -55,7 +55,7 @@ async function main() {
 	let finish;
 	const finished = new Promise((resolve) => { finish = resolve; });
 	const unregister = onInterrupt(async () => { interrupted = true; halt.on = true; await finished; });
-	let data;
+	const data = { results: [], storesUnchanged: {} };
 	let failure = false;
 	let cleanupOkay = false;
 	try {
@@ -96,7 +96,7 @@ async function main() {
 			};
 		}
 		stage = 'reciprocal request sweep';
-		data = await sweep(worlds);
+		await sweep(worlds, data);
 	} catch { failure = true; }
 	finally {
 		// A signal only halts creation; cleanup starts after the in-flight operation settles.

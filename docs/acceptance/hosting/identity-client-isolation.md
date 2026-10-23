@@ -38,7 +38,7 @@ From the repository root, wrap these commands with `scripts/agent-tools/receipt 
 
 ```sh
 node --test tests/hosting-probe/identity-client-isolation/check.test.mjs
-node --test tests/hosting-probe/identity-client-isolation/cleanup.test.mjs tests/hosting-probe/identity-client-isolation/report.test.mjs
+node --test tests/hosting-probe/identity-client-isolation/cleanup.test.mjs tests/hosting-probe/identity-client-isolation/report.test.mjs tests/hosting-probe/identity-client-isolation/scenario.test.mjs
 env PROBE_BUN=/absolute/path/to/bun node --test tests/hosting-probe/identity-client-isolation/runtime.test.mjs
 bun tests/hosting-probe/identity-client-isolation/live.mjs
 node tests/hosting-probe/identity-client-isolation/check.mjs .local/hosting-probe/identity-client-isolation/live-RUN/summary.json
@@ -49,6 +49,8 @@ The live launcher selects `CLIENT_A_PK`, `CLIENT_A_SK`, `CLIENT_C_PK`, `CLIENT_C
 The checker accepts only the exact clean source SHA; it includes the reused app, harness and secret-reader files in its input digest. It compares every request's command, assertion and observation to `transcript.mjs`. The runner verifies installed pins, the build host and stamp, native workerd processes, local environment settings, instance settings, session claims, non-audit store snapshots, cleanup counts and credential scan. The initial summary always says `evidence: false`; it becomes true only after these checks. Offline crafted controls cannot emit a live summary.
 
 Issuer controls use the recipient gate's origin: client origin for client gates, staff origin for staff gates. Both the foreign client and the target's own client attempt every staff gate. The scanner runs after unsuccessful and interrupted attempts too. Cleanup attempts each identity independently and falls back to known created IDs when enumeration fails; any incomplete operation keeps the run failed.
+
+A failed request stops the sweep but retains completed observations and the failed request's expected and observed fields in the scanned summary. Tokens, response bodies and exception text are excluded; partial results never pass the evidence checker.
 
 Scan evidence includes a SHA-256 manifest of the actual files under the run directory and reused build. The checker re-enumerates and hashes them, requires logs, both clients' and staff stores, the build entry and immutable `summary-scan.json`, and refuses missing or altered coverage. Keep these ignored artifacts on the execution host; the summary alone is insufficient. Only final self-referencing reports and the known Bun transpiler-cache directories are excluded. This is a local evidence-integrity check, not a cryptographic attestation of an external provider run.
 

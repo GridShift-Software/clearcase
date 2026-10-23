@@ -648,6 +648,33 @@ try {
 		return { pass: ok, evidence: out };
 	});
 
+	await scenario('AN-194', 'matter', 'GRS-194: anchors, organogram, keyed date phases and count-free checks are visible through the real app', async () => {
+		const { X } = await import('../../case-package/fixtures/newer-analysis.ts');
+		const sc = await L.buildCase(join(tmp, 'presentation'), { caseId: 'e2e-newer-presentation', edit: (r) => {
+			r.DATA.anchors = structuredClone(X.anchors);
+			r.DATA.anchors[0].quote = '<img src=x onerror=alert(1)> quoted as text';
+			r.DATA.organogram = { nodes: [...structuredClone(X.organogram.nodes), { id: 'b', label: 'Org B', role: 'Supplier', refs: ['OD-002'] }], edges: [{ from: 'a', to: 'b', label: 'Supplies', refs: ['OD-001'] }] };
+			r.DATA.timeline.phases = structuredClone(X.timeline.phases);
+			r.DATA.timeline.events = X.timeline.events.map((e) => ({ ...e, kind: e.type, note: e.detail, ref: e.refs[0] ?? '', url: '' }));
+			r.DATA.contradictions.checks = [];
+			r.DATA.contradictions.source_checks = [{ check: 'Check without count', result: 'Review required' }];
+		} });
+		const rv = await importActivate(sc);
+		await arrive(p, rv, 'matter', caseName(sc));
+		const matter = await p.evaluate(`({ anchors: document.querySelectorAll('[data-anchor]').length, nodes: document.querySelectorAll('[data-node]').length, edges: document.querySelectorAll('[data-edge]').length, text: document.querySelector('#analysis-anchors').textContent, unsafe: document.querySelectorAll('#analysis-anchors img, #analysis-anchors script').length })`);
+		await p.shot(join(SCREENS, 'grs194-matter-desktop.png'));
+		await p.click('#analysis-anchors a.cite');
+		await p.waitFor(`document.querySelector('main')?.dataset.ready === 'doc:OD-001'`);
+		const citation = await p.evaluate(`location.pathname.endsWith('/doc/OD-001') && new URLSearchParams(location.search).get('page') === '1'`);
+		await arrive(p, rv, 'timeline', caseName(sc));
+		const phases = await p.evaluate(`[...document.querySelectorAll('[data-phase]')].map((p) => ({ title: p.querySelector('h3').textContent, events: p.querySelectorAll('[role=listitem]').length }))`);
+		await p.shot(join(SCREENS, 'grs194-timeline.png'));
+		await arrive(p, rv, 'contradictions_tab', caseName(sc));
+		const checks = await p.evaluate(`[...document.querySelectorAll('#checks-table tbody tr')].map((r) => r.textContent)`);
+		await p.shot(join(SCREENS, 'grs194-checks.png'));
+		return { pass: matter.anchors === 1 && matter.nodes === 2 && matter.edges === 1 && matter.unsafe === 0 && matter.text.includes('<img src=x onerror=alert(1)>') && citation && J(phases.map((x) => x.events)) === J([1, 2]) && checks.length === 1 && checks[0].includes('Check without count') && checks[0].includes('Review required'), evidence: { matter, citation, phases, checks } };
+	});
+
 	await scenario('AN-NET', 'all', 'no canary hit, no request off the loopback app origin, and no page error, console error or CSP violation outside the failed-write scenarios, during the whole run', async () => {
 		const errors = b.events.console.filter((c) => c.at >= t0 && (c.kind === 'exception' || /error/i.test(c.kind)) && !(noisy.some((w) => c.at >= w.from && c.at <= w.to) && /Failed to load resource|net::ERR_/.test(c.text)));
 		const reqs = b.events.requests.filter((r) => r.at >= t0).filter((r) => { try { const u = new URL(r.url); return /^(https?|wss?):$/.test(u.protocol) && !['127.0.0.1', 'localhost', 'clearcase-originals.localhost'].includes(u.hostname); } catch { return false; } });

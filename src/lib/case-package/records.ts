@@ -70,8 +70,16 @@ export const V5Witnesses = Type.Array(Obj({ name: Str, role: Str, willsay: Str }
 const BuildRow = Obj({ bundle: Str, filename: Str, ref: Str });
 export const V5BuildReport = Obj({ generatedFrom: Str, pending: Type.Array(BuildRow), textNone: Type.Array(BuildRow) });
 export const V5LinkSample = Type.Array(Obj({ bundle: Str, filename: Str, ref: Str, url: Str }));
-export const V5TimelineEvents = Type.Array(Obj({ date: IsoDateOrEmpty, kind: Str, note: Str, ref: Str, title: Str, url: Str }));
-export const V5TimelinePhases = Type.Array(StrArr);
+export const V5TimelineEvents = Type.Array(Obj({ date: IsoDateOrEmpty, kind: Str, note: Str, ref: Str, title: Str, url: Str, phase: Type.Optional(Str), refs: Type.Optional(StrArr) }));
+export const DatePhase = Type.Object({ key: Type.String({ minLength: 1 }), title: Str, from: IsoDateOrEmpty, to: IsoDateOrEmpty, summary: Str, oneLine: Type.Optional(Str) });
+// Keep the two generations distinct: date-phase membership comes from event.phase, never its year.
+export const V5TimelinePhases = Type.Union([Type.Array(StrArr), Type.Array(DatePhase)]);
+export const AnalysisAnchor = Type.Object({ ref: Str, issue: Str, why: Str, rank: Type.Optional(Count), page: Type.Optional(Type.Integer({ minimum: 1 })), quote: Type.Optional(Str), title: Type.Optional(Str), date: Type.Optional(IsoDateOrEmpty) });
+export const AnalysisAnchors = Type.Array(AnalysisAnchor);
+export const Organogram = Type.Object({
+  nodes: Type.Array(Type.Object({ id: Type.String({ minLength: 1 }), label: Str, kind: Type.Optional(Str), side: Type.Optional(Str), role: Type.Optional(Str), refs: Type.Optional(StrArr) })),
+  edges: Type.Array(Type.Object({ from: Type.String({ minLength: 1 }), to: Type.String({ minLength: 1 }), label: Type.Optional(Str), type: Type.Optional(Str), refs: Type.Optional(StrArr) })),
+});
 export const V5TimelineYearCounts = Rec(Count);
 export const V5TimelineTypeByYear = Rec(Rec(Count));
 const RegisterItem = Obj({ date: IsoDateOrEmpty, doc_type: Str, note: Str, party: Str, ref: Str, role: Str, text_status: Str, title: Str, url: Str });
@@ -94,6 +102,8 @@ export const V5Contradictions = Obj({
     })),
   })),
   checks: Type.Array(Obj({ check: Str, n: Count, result: Str })),
+  /** Newer checks retain their original shape, without a fabricated count. */
+  source_checks: Type.Optional(Type.Array(Obj({ check: Str, result: Str, n: Type.Optional(Count) }))),
   highCount: Count,
   total: Count,
 });

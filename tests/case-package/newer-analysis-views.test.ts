@@ -70,11 +70,15 @@ describe('the newer export\'s code-embedded analysis in its views (GRS-149)', ()
 		expect(t).not.toContain('A claim.');
 	});
 
-	it('the Timeline lists every event once, by date, outside phases it cannot place', async () => {
+	it('the Timeline lists every event once under its explicitly assigned date phase', async () => {
 		const body = await view('timeline', TimelinePage);
-		const unplaced = body.slice(body.indexOf('data-phase="unplaced"'));
-		for (const e of X.timeline.events) expect(text(unplaced).split(e.title).length - 1).toBe(1);
-		expect(unplaced).toContain(`href="${docPath(rv, 'OD-001')}"`);
+		const phased = body.slice(body.indexOf('id="phases"'), body.indexOf('id="quantum"'));
+		for (const e of X.timeline.events) expect(text(phased).split(e.title).length - 1).toBe(1);
+		expect(body).not.toContain('data-phase="unplaced"');
+		expect(text(body)).toContain('Phase one');
+		expect(text(body)).toContain('Phase two');
+		expect(body).toContain(`href="${docPath(rv, 'OD-001')}"`);
+		expect(body).toContain(`href="${docPath(rv, 'SD-001')}"`);
 	});
 
 	it('the Risk Matrix shows the 2 risks with category, owner and documents', async () => {
@@ -98,6 +102,6 @@ describe('the newer export\'s code-embedded analysis in its views (GRS-149)', ()
 		const body = render(ImportPage, { props: { data: d, form: null } as never }).body;
 		expect(body).not.toContain('V5_OVERLAY_UNMAPPED');
 		expect(body).not.toContain('v5-residual-analysis-overlay');
-		expect(body).toContain('v5-residual-timeline-phases');
+		expect(body).not.toContain('v5-residual-timeline-phases');
 	});
 });

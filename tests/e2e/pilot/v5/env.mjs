@@ -7,6 +7,7 @@ import { createReadStream, existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import { join, resolve } from 'node:path';
 import { crc32 } from 'node:zlib';
+import { gitEnv } from '../../../../scripts/browser-lock.mjs';
 import { readStamp } from '../lib/fresh-build.ts';
 
 export const REPO = resolve(import.meta.dirname, '..', '..', '..', '..');
@@ -60,7 +61,7 @@ export function treeStamp(dir) {
 }
 
 export function gitIdentity(repo = REPO) {
-	const g = (args) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).stdout;
+	const g = (args) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', env: gitEnv() }).stdout;
 	const status = g(['status', '--porcelain']).split('\n').filter(Boolean);
 	return { head: g(['rev-parse', 'HEAD']).trim(), branch: g(['rev-parse', '--abbrev-ref', 'HEAD']).trim(), dirty: status.length > 0, dirtyPaths: status.map((l) => l.slice(3)) };
 }

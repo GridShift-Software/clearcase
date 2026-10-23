@@ -12,6 +12,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { gitEnv } from '../../../scripts/browser-lock.mjs';
 import { REDUCED_ENV } from '../../../scripts/gate.mjs';
 import { gateSummaryProblem } from '../../../scripts/gate-hosted.mjs';
 import { evidenceWalk } from './mutations.mjs';
@@ -20,7 +21,7 @@ import { gateWith as gateWithFixture } from './fixtures.mjs';
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
 const LEADER_ENV = 'CLEARCASE_HOSTED_GATE_LEADER';
 const git = (cwd, ...a) => {
-	const r = spawnSync('git', ['-C', cwd, '-c', 'user.name=refusal-test', '-c', 'user.email=refusal-test@example.invalid', ...a], { encoding: 'utf8' });
+	const r = spawnSync('git', ['-C', cwd, '-c', 'user.name=refusal-test', '-c', 'user.email=refusal-test@example.invalid', ...a], { encoding: 'utf8', env: gitEnv() });
 	if (r.status !== 0) throw new Error(`git ${a.join(' ')}: ${r.stderr.trim()}`);
 	return r.stdout.trim();
 };

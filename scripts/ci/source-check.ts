@@ -13,6 +13,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { gitEnv } from '../browser-lock.mjs';
 
 /** The two Bun APIs this script uses; the project has no @types/bun. */
 declare const Bun: {
@@ -33,7 +34,7 @@ const BUILT: Record<string, string> = {
 };
 
 function git(args: string[]): string {
-	const r = spawnSync('git', args, { encoding: 'utf8', maxBuffer: 64 << 20 });
+	const r = spawnSync('git', args, { encoding: 'utf8', maxBuffer: 64 << 20, env: gitEnv() });
 	if (r.error || r.status !== 0) throw new SetupError(`git ${args.join(' ')} failed: ${r.error?.message ?? r.stderr.trim()}`);
 	return r.stdout;
 }

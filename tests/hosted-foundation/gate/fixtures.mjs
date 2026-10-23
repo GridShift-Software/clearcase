@@ -4,13 +4,14 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { gitEnv } from '../../../scripts/browser-lock.mjs';
 import { REFUSAL_MIN, REFUSAL_NAMES, REQUIRED, runHostedGate } from '../../../scripts/gate-hosted.mjs';
 import { DRIVE_STEPS, featureOf, TEST_LEGS } from '../../../.agents/skills/verify-clearcase-hosted/lib/evidence.mjs';
 import { gateFixture } from '../runtime/gate-fixture.ts';
 
 export const REPO = resolve(import.meta.dirname, '..', '..', '..');
-export const SHA = spawnSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
-export const PARENT = spawnSync('git', ['-C', REPO, 'rev-parse', 'HEAD~1'], { encoding: 'utf8' }).stdout.trim();
+export const SHA = spawnSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8', env: gitEnv() }).stdout.trim();
+export const PARENT = spawnSync('git', ['-C', REPO, 'rev-parse', 'HEAD~1'], { encoding: 'utf8', env: gitEnv() }).stdout.trim();
 
 const ARTIFACT = `sha256:${'a'.repeat(64)}`;
 const RUN = 'run-2026-01-01T00-00-00-000Z';

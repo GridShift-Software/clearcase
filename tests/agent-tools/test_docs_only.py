@@ -294,8 +294,10 @@ class Refused(DocsOnlyFixRound):
         # A tip-only reader scan loses the original path on deletion/rename, and a document reader can also arrive
         # through the trusted base after this fix round's review.
         cases = ('deleted document', 'renamed document', 'last document in a read directory', 'received reader')
+        reviewed = self.reviewed
         for label in cases:
             with self.subTest(reference=label):
+                self.reviewed = reviewed
                 self.reset()
                 if label == 'last document in a read directory':
                     self.readers({'tests/walk.test.ts': "readdirSync('docs/oracles');\n"},
@@ -304,6 +306,8 @@ class Refused(DocsOnlyFixRound):
                     self.readers({'tests/oracle.test.ts': "readFileSync('docs/oracle.md');\n"})
                 if label == 'received reader':
                     self.git('switch', '-q', WAVE)
+                    self.write('docs/oracle.md', '# Oracle\n')
+                    self.commit('trusted base receives the oracle')
                     self.write('tests/received.test.ts', "readFileSync('docs/oracle.md');\n")
                     self.commit('trusted base adds a reader after the review')
                     self.git('switch', '-q', BRANCH)

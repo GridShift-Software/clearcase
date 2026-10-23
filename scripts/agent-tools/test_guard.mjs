@@ -1316,9 +1316,11 @@ function main() {
       refuse(`covers a docs-only range, but ${base.slice(0, 12)}..${tip.slice(0, 12)} changes ${offending.join(', ')}; only `
         + 'regular Markdown files outside source, script and test directories, and the manifest itself, may change');
     }
-    // A document that code or a test reads is that check's input, not documentation: one READ_DOCUMENTS lists, or one the
-    // tip's code reads (a reader this branch adds is not on the base's list yet). Naming a file is not reading it.
-    const reads = markdownReads(root, env, tip).reads;
+    // A document that code or a test reads is that check's input, not documentation: one READ_DOCUMENTS lists, or one
+    // code reads at the fix base, a received base reference or the tip (which catches a reader this branch adds). A
+    // removed or renamed document may not exist at the tip for markdownReads() to associate with its reader. Scan each
+    // distinct snapshot once; naming a file is not reading it.
+    const reads = [...new Set([base, ...received, tip])].flatMap(revision => markdownReads(root, env, revision).reads);
     const inputs = documents.filter(file => file !== own).flatMap(file => {
       const read = reads.find(({ document }) => file === document || document.endsWith('/') && file.startsWith(document));
       const why = [listed(file) && 'READ_DOCUMENTS lists it', read && `${read.reader}:${read.line} reads it, or names it in a path it builds`];

@@ -791,9 +791,10 @@ symlinked `.md`, a `.MD`. A Markdown file that tracked code or a test reads, as 
 check's input and not documentation: a docs-only round could loosen the check without changing a test. Naming a file is
 not reading it: a comment, printed text, a message or an assertion's expected text that holds a document's name reads
 nothing, and GRS-154's two files are named only so. The guard refuses a changed `.md` file that `READ_DOCUMENTS` in
-`scripts/agent-tools/test_guard.mjs` lists (an entry ending in `/` covers its directory), and one that the tip's tracked
-code reads, which catches a reader the branch adds before the base's list holds it; the refusal names the entry, or the
-reader and its line. A read is a path that reaches a file-read call (`readFileSync`, `readdirSync`, `Bun.file`, an
+`scripts/agent-tools/test_guard.mjs` lists (an entry ending in `/` covers its directory), and one that tracked code reads
+at the fix base, a received base reference or the tip; this catches readers the branch or base adds, including when the
+round deletes or renames the document. The refusal names the entry, or the reader and its line. A read is a path that
+reaches a file-read call (`readFileSync`, `readdirSync`, `Bun.file`, an
 import, Python's `open` or `read_text`, a shell command), a call that takes it as a path (a fixture loader), or a path
 built with `join`, `resolve` or `new URL`, resolved through the file's constants and parameter defaults. A write, an
 existence test and a copy are not reads: the code that reads a copy is scanned where it reads. Ambiguity fails closed:

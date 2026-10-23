@@ -43,6 +43,7 @@ function fixture(scenario = 'pass') {
   writeFileSync(path.join(guest, 'github-scenario'), 'ok');
   cpSync(path.join(app, 'scripts/agent-tools'), path.join(source, 'scripts/agent-tools'), { recursive: true });
   for (const script of ['pc1-vm', 'summary.ts', 'guest-provision.sh']) cpSync(path.join(app, 'scripts/ci', script), path.join(source, 'scripts/ci', script));
+  cpSync(path.join(app, 'scripts/browser-lock.mjs'), path.join(source, 'scripts/browser-lock.mjs')); // summary.ts takes gitEnv from it
   writeFileSync(path.join(source, 'scripts/ci/install-chrome.sh'), '#!/bin/bash\nset -euo pipefail\nfake-ci-chrome\n');
   chmodSync(path.join(source, 'scripts/ci/install-chrome.sh'), 0o755);
   writeFileSync(path.join(source, 'package.json'), '{"packageManager":"bun@1.4.2"}\n');

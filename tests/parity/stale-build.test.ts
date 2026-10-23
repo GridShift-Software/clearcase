@@ -54,7 +54,7 @@ describe('parity refuses a stale build', () => {
 		// with its HEAD, so the app tree is the only reason left
 		const synth = mkdtempSync(join(root, 'synth-'));
 		const g = (...a: string[]) => { const x = spawnSync('git', ['-C', synth, '-c', 'user.name=synthetic', '-c', 'user.email=synthetic@example.invalid', '-c', 'commit.gpgsign=false', ...a], { encoding: 'utf8' }); if (x.status !== 0) throw new Error(x.stderr); return x.stdout.trim(); };
-		for (const p of ['scripts/parity', 'tests/e2e/pilot', 'docs/reference/parity', 'docs/reference/v5-summary.json', 'src/lib/components/view-registry.ts']) cpSync(join(REPO, p), join(synth, p), { recursive: true });
+		for (const p of ['scripts/parity', 'scripts/browser-lock.mjs', 'tests/e2e/pilot', 'docs/reference/parity', 'docs/reference/v5-summary.json', 'src/lib/components/view-registry.ts']) cpSync(join(REPO, p), join(synth, p), { recursive: true });
 		writeFileSync(join(synth, '.gitignore'), 'build/\nnode_modules\n.local/\n');
 		symlinkSync(join(REPO, 'node_modules'), join(synth, 'node_modules'));
 		g('init', '-q');

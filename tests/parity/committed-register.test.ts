@@ -65,7 +65,7 @@ function checkout(name: string) {
 		g('commit', '-q', '-m', msg);
 		stampBuild(dir, g('rev-parse', 'HEAD'));
 	};
-	for (const p of ['scripts/parity', 'tests/e2e', 'docs/reference/parity', 'docs/reference/v5-summary.json', 'src/lib/components/view-registry.ts']) cpSync(join(REPO, p), join(dir, p), { recursive: true });
+	for (const p of ['scripts/parity', 'scripts/browser-lock.mjs', 'tests/e2e', 'docs/reference/parity', 'docs/reference/v5-summary.json', 'src/lib/components/view-registry.ts']) cpSync(join(REPO, p), join(dir, p), { recursive: true });
 	cpSync(join(REPO, '.gitignore'), join(dir, '.gitignore'));
 	symlinkSync(join(REPO, 'node_modules'), join(dir, 'node_modules'), 'junction');
 	g('init', '-q');

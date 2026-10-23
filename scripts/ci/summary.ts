@@ -9,6 +9,7 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { gitEnv } from '../browser-lock.mjs';
 
 type Problem = { check: string; where: string | null; detail: string; reproduce: string };
 type Receipt = { name: string; result: string; exitCode: number | null; reason: string | null; command: string[]; durationSeconds: number | null; revision: { head: string | null; dirty: boolean | null } };
@@ -78,7 +79,7 @@ function testProblems(reportFile: string, root: string): { problems: Problem[]; 
 			problems.push({ check: 'test', where, detail, reproduce: run(rel, a) });
 		}
 	}
-	const tracked = execFileSync('git', ['ls-files', '*.test.ts'], { cwd: root, encoding: 'utf8' }).split('\n').filter((f) => f && !f.startsWith('tests/acceptance/'));
+	const tracked = execFileSync('git', ['ls-files', '*.test.ts'], { cwd: root, encoding: 'utf8', env: gitEnv() }).split('\n').filter((f) => f && !f.startsWith('tests/acceptance/'));
 	for (const f of tracked.filter((f) => !ran.has(f))) problems.push({ check: 'test', where: f, detail: 'tracked test file missing from the report: not collected by vitest.config.ts, or it failed to load', reproduce: run(f) });
 	if (report.numTotalTests === 0) problems.push({ check: 'test', where: null, detail: 'the report lists no tests', reproduce: run('') });
 	const line = `${report.numTotalTests} tests in ${report.testResults.length} files (${tracked.length} tracked), ${report.numFailedTests} failed, ${report.numPendingTests + report.numTodoTests} skipped`;
@@ -90,8 +91,8 @@ if (!dir || names.length === 0) {
 	console.error('usage: bun scripts/ci/summary.ts RECEIPTS_DIR CHECK...');
 	process.exit(2);
 }
-const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
-const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', env: gitEnv() }).trim();
+const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', env: gitEnv() }).trim();
 const receipts = receiptProblems(dir, names, head);
 const tests = names.includes('test') ? testProblems(path.join(dir, 'vitest.json'), root) : { problems: [], line: '' };
 const problems = [...receipts.problems, ...tests.problems];

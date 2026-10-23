@@ -274,15 +274,18 @@ Escalation tests prove missing linkage, source, exact/clean SHA or bounded quest
 
 The suite exits nonzero on any unexpected behavior. `check-plan` can independently remain FAIL for the real plan even when every tooling behavior test passes.
 
+`tests/agent-tools/test_docs_only.py`, which the suite runs after `test_controls.py`, drives the real `fix-round-guard`,
+`test-guard`, `approve` and `approval-check` through a docs-only fix round ([Docs-only fix rounds](#docs-only-fix-rounds)):
+the accepted declaration in either order, each refused binding and path, the omitted named tests, the ledger and
+approval bindings, and the declaration carried from its ticket into the wave pull request.
+
 ## Fix-diff test protection
 
-A passing guard is not clearance: it bounds test-code changes and the capability routes in the reviewer-owned list at the end of
-this section (tracked in GRS-150), and nothing else. A fix-round worker should not rely on it for any of these, and the
-re-check reviewer checks each by hand: destructured `constructor`/`__proto__` of `{}` or `[]` then written; a bare
-`export * from` whose target exports a capability; CommonJS `module.exports`/`exports.x`; code generation including
-indirect eval; a capability through a function return or parameter, a getter, an object literal, a class field or
-`this`; a package's exports and Vite aliases; non-literal `import()`/`require` and `import.meta.glob`; `node:process`
-writes; a markup `<script>` under jsdom; and the `viewer.mjs` refusal, which stays fail-closed.
+A passing guard bounds test-code changes and the capability routes described below; it is not clearance for every
+runtime behavior. The re-check reviewer still owns code generation, a `constructor`/`__proto__` key the guard cannot
+fold, unchanged CommonJS modules, values moved through functions or containers, package exports and aliases,
+non-literal loads, `node:process` writes, markup `<script>` under jsdom, and the `viewer.mjs` refusal. The detailed
+reviewer list is at the end of this section.
 
 `scripts/agent-tools/test-guard --fix-base REVIEWED_SHA --findings PATH` runs the guard,
 and so does `verify test-guard` with the same arguments. `receipt --name CHECK --fix-base REVIEWED_SHA
@@ -294,8 +297,10 @@ CI runs it from the repository. A fix round commits its findings as a manifest,
 `docs/acceptance/fix-rounds/<ISSUE>-<round>.json`: the findings JSON below plus `"schema": "clearcase-fix-round/1"`,
 the canonical `unit`, `fixBase` (the reviewed commit's full SHA) and `reviewFindingsSha256` (the content hash of the
 review's findings file). The reviewer's findings file, the one `review-record` retains, carries
-`"protectedTests": [{"file", "name"}]` (a list; empty only when the review names no test) and the manifest's `tests`
-must equal it. The fix worker commits the manifest first, with the red tests. `scripts/agent-tools/fix-round-guard
+`"protectedTests": [{"file", "name"}]` (a list; empty when the review names no test or uses explicit file protection)
+and the manifest's `tests` must equal it; without file protection, an empty list is declared in `noTests`
+([Docs-only fix rounds](#docs-only-fix-rounds)). The fix worker
+commits the manifest first, with the red tests. `scripts/agent-tools/fix-round-guard
 --base REF [--root DIR]` lists the manifests added or changed between the merge base with REF and HEAD, and runs
 the guard at HEAD for each one, with one `test-guard` receipt per manifest. A deleted manifest, a malformed one, or a
 `fixBase` that is not a full SHA of an ancestor fails (exit 1). Whatever `--base` names is the trust anchor: the guard accepts the base's changes
@@ -306,7 +311,8 @@ A branch with no new or changed manifest exits 0, prints `nothing to protect` an
 receipt whose `guard.nothingToProtect` is true: the receipt says no guard ran, and approval never accepts it as a guard
 receipt. That exit is refused, with exit 1, when the pull request is a fix round: `--require-manifest` (CI passes it
 for a pull request labelled `fix-round`, which the coordinator applies when it dispatches the fix), or `--ledger DIR
---branch feature/<id>-<slug>` when the coordinator's ledger records a `fix` dispatch for that branch's unit. With
+--branch feature/<id>-<slug>` when the coordinator's ledger records a `fix` dispatch for that branch's unit. A
+manifest that came in through a merge from `dev` (below) is not the fix round's own and does not satisfy either. With
 `--ledger`, the ledger and not the manifest names what the guard compares against: a manifest whose `fixBase` is not
 the commit of the review the ledger recorded before the unit's first `fix` dispatch, or whose `reviewFindingsSha256`
 names other findings, refuses, and so does a `fix` dispatch with no review recorded before it. CI has no copy of the
@@ -358,7 +364,7 @@ branch's own change again. The named tests are still compared token for token wh
 the base holds. Everything else refuses with the messages above: a branch edit after a merge or on top of a base change,
 an edit inside the merge commit, a revert of a reviewed change to the base's older copy, a path both sides changed (a
 hand-resolved union, which is a branch-side choice: PR #75's `vitest.config.ts` was one, and even Git's 3-way merge of it
-conflicts), a protected dependency added or deleted, a symlink, a mode change on top, a base HEAD has not merged
+conflicts), an added setup/helper dependency or a deleted protected dependency, a symlink, a mode change on top, a base HEAD has not merged
 (including one that moved on after the merge: merge it again), an unreadable base, and no `--base` (the default base sets
 the range only). A key that neither HEAD nor the fix base tracks, such as a derived entry whose file is not mapped, is never the base's
 change. A criss-cross history also refuses falsely: if the fix base merged a `dev` config change Q and `dev` merged the branch's P, the
@@ -372,11 +378,109 @@ protected file the guard's line names. A `fixBase` advance like `9699b18` (PR #7
 to a path the branch had not touched; it still is for a hand-resolved union and for a later ticket in the same wave
 (`fc8ad471`, PR #84, where the change came from the wave, not the base). Existing manifests stay as they are.
 
+A path the base added, changed or deleted after the review has the base's copy as a reference beside the fix base's
+(GRS-169). Its test is that a copy of it at a base commit HEAD holds, the trusted base's own once HEAD has merged it and
+otherwise each commit in `merge-base --all` of the base and HEAD, differs from the copy at every merge base of that commit
+with the fix base and from the fix base's own. A base addition, a rename's new path included, is the case where all the
+others are absent. A path's references are the fix base's copy and each such base copy, and every check that judges HEAD
+against a reviewed copy takes all of them: the named tests, the protected test files, the rest of the closure, the
+fixtures, the docs-only paths, the assertion counts and the imports of a changed module. So a branch cannot undo or mask a
+base change by merging it and then restoring the fix base's copy, and the base moving on after the merge does not free
+the path. Per kind of path:
+
+- A named test must match its copy at each reference, so a base change to a named test refuses, whatever the branch does
+  with it, until a reviewed `fixBase` advance.
+- A protected test file is judged against each reference in turn. Against the base's copy, as against the fix base's, its
+  imports, helpers, mocks, hooks and everything up to its last named test stay as that copy holds them, and a free-test
+  change after it needs a recorded reason, so a restore of the fix base's copy refuses.
+- The rest of the closure (helpers, runner configuration, setup files, resolver inputs, test scripts) and the fixtures
+  must hold the base's copy wherever any reference's closure protects the path. A restore of the fix base's copy of a
+  helper, a configuration or a fixture refuses with `protected dependency changed` or `protected fixture changed or
+  deleted`, and so does a deletion of a configuration or fixture the base added (`protected dependency added/deleted`).
+- A test file counts at least the assertions of Git's merge of the fix base's copy with the base's copy (`git merge-tree`,
+  its objects in a scratch directory), and never fewer than the fix base's, whatever the branch did with the merge. That
+  merge is what an unchanged branch merging the base holds, through any number of merge bases, so an unchanged merge
+  passes and dropping an assertion either side contributed refuses with `assertion count fell`: a base rename carrying a
+  weakening to the new path, a restore of the fix base's copy after a base strengthening (5 -> 3), a drop of one
+  assertion from it (5 -> 4), a deletion of a base addition, and a drop through two merge bases that disagree (6 -> 5). A
+  reviewed weakening merged with a base strengthening counts both (4, not 5). No single merge base's count is the floor:
+  with merge bases of 4 and 2 assertions and a fix base of 3, subtracting the larger would let the branch drop the
+  assertion the base added after the review. Where the two copies conflict, the branch resolved them by hand, and the
+  floor is the fix base's count plus the base copy's over the lower merge base's (0 where absent).
+- In a docs-only range a path the round restored to the fix base's copy, after HEAD received the base's change to it,
+  counts as a changed path, and a document must be a regular file at the tip and at each reference, so only a document
+  may be restored, deleted or edited.
+- A changed module's import is new when any of its references lacks it, and a module restored to the fix base's copy
+  after a base change counts as changed.
+
+An unchanged branch merging a base change to an existing test, runtime file, fixture, helper or runner configuration
+passes. Additions can still refuse: a protected fixture or setup/helper dependency the base adds or deletes remains
+protected, including when the same origin is imported by a new runner configuration. GRS-195's exception applies to a
+runner configuration, a module it imports or a derived package entry (test scripts or resolution fields) absent at review
+only when that origin is not also a protected setup/helper dependency, the merged trusted base added its origin file and
+HEAD holds that origin's full blob and mode unchanged. Protected
+test/setup traversal follows every shared, transitive or cyclic dependency even
+when the runner already visited the file. Protected membership takes precedence over runner membership for every origin.
+Import, re-export, dynamic import and require specifiers, including explicit extensions and TypeScript import-equals,
+belong to the runner import graph; setup entries and other path expressions still create protected setup membership.
+The rule is based on closure provenance, not filenames. Candidate additions, edits or deletions,
+symlinks, mode changes, copied or unmerged base files, and missing or implicit trust still refuse. Four kinds of path are unaffected: the branch's own
+new test or fixture, a path the reviewed commit had deleted (a merge base still holds it), a path the base added or
+changed after HEAD's last merge, and a later base change to a path HEAD already holds. A base commit HEAD received is no
+reference for a path it had not changed when it and the fix base parted, such as a test the branch added before a
+criss-cross merge. Without a trusted base nothing changes, and a weakening under a base rename then refuses at the old
+path, which counts as the branch's.
+
+A path that the branch added in the reviewed commit and the base added with other content is a hand-resolved union. Git
+cannot merge the two copies, since both sides added the path, so there is no unchanged merge to count, and the floor is
+the sum of both sides' assertions. A resolution that keeps the base's copy where it is a superset of the branch's (2
+assertions and 3) therefore refuses with `5 -> 3`: record `assertionCountReasons[file]` saying the base's copy holds the
+branch's assertions. Counting a union of the conflicting lines instead would count text neither side wrote, which need
+not parse. At a wave PR into `dev`, another wave ticket's recorded weakening of a test `dev` added now refuses an earlier
+ticket's manifest, which used to pass against 0 (consistent with the conservatism for fix-base paths in `afd48fc4`, PR
+#84); the remedy is the reviewed `fixBase` advance.
+
+A manifest that came in from `dev` is judged from the branch's last merge from `dev`, not from its `fixBase` (GRS-179).
+A wave cut before a fix round's manifest reached `dev` receives it when it merges `dev`, and in a pull request into that
+wave the manifest counts as added. Its range from a `fixBase` on the `dev` line then spans the wave's own reviewed
+changes, and the guard refused them: in PR #114's polish of `wave/proofs`, the `vitest.config.ts` the wave changed (the
+wave had moved on after the polish was cut, so its base was not merged) and the `tests/hosting-probe/deployment/vitest.config.ts`
+it added. As a pull request into `dev` the same head has nothing to protect: `dev` holds the manifest, and judged it when
+it landed there. With an explicit `--base` and no `--ledger`, `fix-round-guard` gives the guard that merge as the fix
+base when all of these hold, prints `came in through a merge from dev` and records the merge in `guard.arrivedThrough`:
+
+- The manifest is added in the range and names tests. A no-test declaration is judged whole.
+- A merge from `dev` is a commit with two parents whose second holds HEAD's copy of the manifest and is an ancestor of
+  `refs/remotes/origin/dev`, which holds the same copy.
+- The manifest came in through one: the oldest commit of HEAD's first-parent line from which HEAD's copy is unchanged
+  is a merge from `dev`, and its first parent holds no copy.
+- Every merge from `dev` on that stretch of the line must hold each named test file exactly as that merge's `dev` parent
+  does, mode and blob alike. If any merge differs, arrival is not trusted and the whole range from `fixBase` is judged;
+  a later clean merge cannot hide an earlier weakened test.
+
+Otherwise the whole range from the `fixBase` is judged, as before. `refs/remotes/origin/dev` is a second trust anchor
+beside `--base`, and nothing the pull request passes names it: CI's checkout fetches it from GitHub, and `base-guard`
+reads the coordinator's repository. So a manifest the branch commits, copies to another path or edits after the merge,
+and one merged from a history that rewrote `dev`, is the branch's and judged whole, and an arrived manifest satisfies
+neither `--require-manifest` nor the ledger's requirement (`other than N that came in through a merge from dev`).
+From the merge on, the guard judges every change as for any manifest: the named tests, the helpers, the runner
+configuration and the fixtures, with the base's later changes trusted as above. What the line holds at that merge is not
+the fix round's change: the wave's commits, the pull request's own earlier commits, an earlier merge from `dev`, and what
+a merge resolved outside the named test files. A pull request into the wave that does not merge `dev` carries the same
+changes with nothing to protect, so its review owns them, as for any pull request that is not a fix round. A named test
+change at any merge or on that line makes arrival fail closed. When arrival is trusted, the original manifest `fixBase` remains an additional reference for every
+named test, alongside the arrival merge and applicable GRS-169 base-change references. Narrowing the other comparisons
+therefore cannot replace the named-test baseline: a `dev` change to a named test after the manifest was reviewed still
+refuses until a reviewed `fixBase` advance. The receipt records this baseline as `guard.namedTestReference`. A pull request
+that merges `dev` last has an empty range. The rule reaches a pull request only once it is on that pull request's base,
+because CI and `base-guard` run the base's guard.
+
 Findings JSON has `tests: [{"file": "tests/example.test.ts", "name": "rejects stale evidence"}]`.
-The list must be nonempty. Paths are relative to the repository; literal names must be unique
+The list must be nonempty, unless the manifest declares that the review names no test
+([Docs-only fix rounds](#docs-only-fix-rounds)). Paths are relative to the repository; literal names must be unique
 and active in both revisions. JS/TS syntax is parsed by the project's TypeScript dependency,
 without executing the tests. Deletion, rename, skip/todo/only and inactive parent groups fail.
-The guard compares changed paths with rename detection off, so a renamed test counts as deleted at its old path and added at its new one, and its old assertion count is checked.
+The guard compares changed paths with rename detection off, so a renamed test counts as deleted at its old path and added at its new one, and its old assertion count is checked. When the base made the rename, the new path counts from the base's copy (above).
 Protection is deliberately conservative: every executable token of the top-level statement containing a named test must stay
 unchanged (including its enclosing suite/control flow), so assertion changes (including strengthening) and callback rewrites also fail.
 Comments and whitespace may change. The protected closure, resolved from both Git snapshots, is test code only:
@@ -403,7 +507,7 @@ Comments and whitespace may change. The protected closure, resolved from both Gi
 - fixtures: every file in a fixture directory (`fixtures`, `__fixtures__`, `__mocks__`, `__snapshots__`) under a
   protected test's top-level directory, and every file a protected test or helper reads by literal path
   (`readFileSync('p')`, `readFile`, `Bun.file`, `join(__dirname, 'p')`, `new URL('p', import.meta.url)`), must keep its
-  Git blob. A new fixture may be added. A read by a computed path (a variable, a loop) is not bound and does not fail
+  Git blob. A new fixture may be added, and one the base added or changed after the review keeps the base's copy (above). A read by a computed path (a variable, a loop) is not bound and does not fail
   closed, since real tests read fixtures that way; the fixture directories are protected whole instead.
 - resolver inputs read from Git (tsconfig, tracked extended configurations). Missing or unsupported extended
   configurations fail closed, with one exemption: SvelteKit's generated `.svelte-kit/tsconfig.json`, which Git ignores,
@@ -480,8 +584,23 @@ and handlers, with a component that does not parse or compile failing closed) re
   `let` or `var`, a destructuring, `await`, a conditional, logical, comma or assignment expression, a literal `require`
   or `import()`, or an import binding, which the guard follows into the module that exports it (`export const`,
   `export { x as y }`, `export default`, a re-export, `export *`), across modules, whether or not that module changed.
-  Destructuring is followed only when its initialiser is itself rooted at a capability: `const { constructor: C } = {}`
-  and a destructuring assignment to a `let` are not (reviewer-owned, below).
+  A `constructor` key or a dunder key such as `__proto__` in any object binding or assignment pattern refuses,
+  whatever the pattern reads: a variable, a call result, a string, a function, a parameter, a `catch` binding, a
+  `for-of` or `for-in` head, a shorthand `{ constructor }`, a nested pattern, or a default. `x.constructor` and `x[k]`
+  with a fixed `k` root at a constructor under the same rule. A computed key is resolved from a literal, a template
+  with constant parts, a `+` tree of these, a `satisfies` or `!` wrapper, or any chain of `const` aliases, including
+  an alias imported or re-exported from a tracked module through named, default, namespace or bare-star exports
+  (`export { k as j }` chains and `export default` included). There is no configured expression-depth cap. A computed
+  pattern key or element-read key refuses as unresolved when its static resolution cannot finish: an alias cycle, an
+  unavailable import or export, an unresolved static key, or an inline array or object literal read in place
+  (`['constructor'][0]`, `({ k: 'constructor' }).k`). Any other expression the folder does not reduce is not refused;
+  see the reviewer-owned list below.
+  Conditionals with fixed branches carry up to 256 possible strings through templates and `+`: a special possibility
+  refuses, safe possibilities pass, and more than 256 possibilities fail closed. A `const`
+  initialized by a runtime call is a runtime key, not a fixed alias. For example, `{ ['constr' + 'uctor']: C }`
+  refuses, as does a longer concatenation. A
+  `getPrototypeOf` result remains rooted. A pattern that reads a plain string, `{ constructor: label } = { constructor:
+  'x' }`, refuses too, as conservative.
   The global object may appear only as the object of a property read with a literal, non-framework name
   (`globalThis.performance`, `window['x']`, `Symbol.for('app.cache')` as the key), in `typeof`, `in` or an equality
   test, as a literal-named destructuring, or as a `const` initialiser. `Symbol.for` may only be called directly with a
@@ -489,7 +608,8 @@ and handlers, with a component that does not parse or compile failing closed) re
   extended, compared, read by name, or (a converter: `String`, `Number`, `Boolean`, `BigInt`) passed to a call. Each
   use of a `const` that holds one is checked the same way, where it appears. Moving one anywhere else refuses: an
   export under any name (`export { g as h }`, `export default`, a named or default re-export, `export * as ns`, a
-  TypeScript `export import`; a bare `export * from` is not refused, see below), an
+  TypeScript `export import`, a bare `export * from` whose local target exports a capability, or one of them forwarded
+  through `export * as N` or under an `export *` chain, with a cycle in the chain judged once), an
   argument, a return value, a property, an element, a field, a `let` or an assignment, a spread, a computed key. A
   TypeScript import alias of a value (`import P = O`) fails closed. A member of a capability (`Object.keys`,
   `fs.readFile`, `fs.promises`) is a plain value and may move;
@@ -516,25 +636,40 @@ A local function named `expect`, and literal reads of the global object (`global
 `const g = globalThis as {...}` then `g.__clearcase`), are fine. A changed module may load an unchanged module under
 test freely, since application code is trusted as reviewed.
 
-What the guard bounds at `8df11a8` (GRS-148, landed as defence in depth, as GRS-104 was): a changed JS/TS/Svelte
+What the guard bounds after GRS-150 (defence in depth, as GRS-104 was): a changed JS/TS/Svelte
 module cannot name a framework, move or write a rooted capability (the global object, `Symbol`, a builtin, a Node or
 Bun builtin module, a constructor or prototype) through the shapes listed above, followed through `const`/`let`/`var`,
-destructuring of a rooted initialiser, `await`, conditionals, a literal `require`/`import()` and import bindings
-across modules. It is a best-effort net, not a sandbox. The routes below stay open. GRS-150 tracks them; until it
-lands, the re-check reviewer owns each one and must check it by hand in every changed module of the fix diff:
+destructuring, `await`, conditionals, a literal `require`/`import()` and import bindings across modules. It also refuses:
 
-- `const { constructor: C } = {} as any; C.is = () => true` (also `{ __proto__: p } = []`, and `({ constructor: C } = {})`
-  assigned to a `let`): a destructured `constructor`/`__proto__` of an unrooted `{}` or `[]` is a capability the guard
-  does not root (`destructured()` in `test_guard.mjs`). Look for destructuring of `constructor`, `prototype` or
-  `__proto__` followed by a member write.
-- a bare `export * from './m'` whose target exports a capability (`Object`, `globalThis`, `node:fs`, a prototype)
-  is not refused; only the importer that writes it is followed, and not when the writing module is unchanged. Open
-  every `export *` a fix adds or changes and read the target's exports.
-- CommonJS `module.exports = Object`, `exports.x = ...` and `export { default as P } from './c.cjs'` are not
-  followed from an unchanged module (`exportRoot`). A changed `.cjs` is checked. The repository has no tracked
-  `.cjs` or `.cts` file today; a new one is the signal.
+- a `constructor` or dunder key in any object binding or assignment pattern, from any source, with keys folded
+  through literals, templates, `+`, `const` aliases and imported constants as above; a static key that cannot be
+  resolved (a cycle, an unavailable import, an inline array or object member) refuses;
+- a bare `export *`, or an `export * as N`, whose local target exports a capability, directly or under an `export *`
+  chain;
+- any reference to an unbound `module` or `exports` (an assignment, `Object.assign(module.exports, ...)`,
+  `Object.defineProperty(exports, ...)`, an alias or a destructuring); a local binding of either name passes.
+
+The guard does not follow exports from an unchanged CommonJS module, so an import of one still needs review. It is a
+best-effort net, not a sandbox. The cases below remain reviewer-owned; GRS-150 does not record their acceptance:
+
+- a `constructor` or `__proto__` key built at runtime: `({})[k]` or `{ [k]: C }` with a parameter, loop variable,
+  `let`, call result or `const` initialized by a call; `['constr', 'uctor'].join('')` and
+  `String.fromCharCode(...)` also stay reviewer-owned. Look for a computed key beside a member write. A call result
+  such as `Reflect.get(o, 'constructor')` stays under the function-return review rule below.
+- a fixed `constructor` or `__proto__` key that the folder does not reduce, which passes today and which GRS-190
+  tracks closing:
+  - a member of a `const` object, array or enum: `K.k` or `T[0]` with `const K = { k: 'constructor' }` or
+    `const T = ['constructor']`;
+  - a binding destructured from a literal: `const { k } = { k: 'constructor' }` and then `{ [k]: C }`;
+  - `??`, `||` and `&&` with a runtime or `undefined` operand, such as `'constructor' || x` or `undefined ?? 'constructor'`;
+  - a `const` set from `String.raw` with the template `constructor`, or from `Object.freeze({ k: 'constructor' })`,
+    which count as runtime calls;
+  - `Symbol.for(x)` keys, which fold to the string `x`, so `globalThis[Symbol.for('$$matchers-object')]` reads
+    as a plain name.
 - code generation: `eval`, indirect eval (`(0, eval)(...)`), `Function`, a constructor chain. Search the diff for
   the words.
+- an unchanged CommonJS module's `module.exports`/`exports.x` or `export { default as P } from './c.cjs'` is not
+  followed by `exportRoot`. Check imports from one; the repository has no tracked `.cjs` or `.cts` file today.
 - a function's return value (`Object.getOwnPropertyDescriptor(...).get.call([])`) or parameter, a getter, an object or
   array literal's member, a class field and `this`: a capability reaching a write through one is not followed.
   Read any new function that returns or receives `Object`, `globalThis`, a prototype or a builtin module.
@@ -562,6 +697,149 @@ lands, the re-check reviewer owns each one and must check it by hand in every ch
 Unsupported named syntax or changed Python/shell test sources fail closed, and so does a protected file importing a
 module the resolver cannot bind, a `.svelte` component included; this draft does not claim semantic understanding of
 arbitrary test frameworks.
+
+### Custom probe file protection
+
+A custom probe need not pretend to be a framework test. An additive files mode uses `tests: []` and
+`protection: {kind: "files", files: [{file, revision}, ...], review: {file, sha256}}` in the existing
+`clearcase-fix-round/1` manifest. It is exclusive with named tests and `noTests`. The files list must be nonempty,
+unique and explicit: every entry names a canonical repository path and a full commit SHA. No directories, private
+paths, symlinks or submodules are accepted. Each snapshot must descend from the original `fixBase` and be an ancestor
+of the independently reviewed head. HEAD must retain its committed blob bytes **and mode** exactly. A reason cannot
+excuse a difference. The protection snapshot does not move the original runtime review anchor.
+
+`protection.review.file` names a separate committed regular JSON file, whose raw bytes hash to `review.sha256`.
+Its exact fields are:
+
+```json
+{
+  "schema": "clearcase-file-protection-review/1",
+  "unit": "GRS-26/implementation",
+  "fixBase": "<original full runtime review SHA>",
+  "reviewFindingsSha256": "<original findings SHA256>",
+  "reviewedHead": "<independently approved full snapshot SHA>",
+  "verdict": "PASS",
+  "fresh": true,
+  "reviewer": "<independent reviewer>",
+  "implementer": "<implementer, distinct from reviewer>",
+  "files": [{"file": "<repository path>", "revision": "<full snapshot SHA>"}]
+}
+```
+
+Replace the placeholders with the actual review and complete ordered files list. This document preserves the new
+review provenance separately from the original findings hash and history. Every declaration must equal its reviewed
+entry. The guard still runs ordinary configuration, dependency/reach and touched-test assertion-count checks against
+`fixBase..HEAD`; it does not execute the custom legs. Frozen files join the protected closure for reach checks, while
+the original assertion floor still applies to them. Other changed runtime files remain subject to the existing checks.
+
+With a ledger, the original prompting review and first fix dispatch still determine `fixBase`, findings hash and
+`protectedTests`. Files mode cannot replace a nonempty named-test list. Only this explicit mode permits absent or
+empty original `protectedTests`: the latest recorded independent PASS `clearcase-review/1` at exact HEAD must also
+hold a `fileProtection` field equal to the entire manifest `protection`, including its provenance path/hash and every
+snapshot. `fix-round-guard --ledger`, `approve` and `approval-check` enforce that equality. `guard.protection` and its
+lossless `protectionExact` twin bind the declaration into the receipt; approval retains it in its fingerprinted binding
+with `nothingToProtect: false`. Stale reviews, a shorter file list or a later weaker snapshot cannot authorize themselves
+by changing only the manifest. The coordinator must identify and use its actual store; do not reset its history.
+
+CI has no ledger: a hash checks integrity, not reviewer authority. Reviewers own the provenance, the completeness of
+the explicit inputs list, runtime changes and exact-head execution evidence. A worker can rewrite both the declaration
+and its claimed review in a candidate; CI cannot authenticate that claim. The existing trusted `review-record` caller
+boundary and unsigned-ledger limits still apply. This mode becomes usable for acceptance only after its implementation
+lands on the trusted PR base. A candidate running its own guard is diagnostic evidence only.
+
+For PRFIX-114f the proposed boundary is **all bytes** of both `tests/hosting-probe/storage/probe.ts` and
+`tests/hosting-probe/recovery/probe.ts` at independently approved `16589bdd02c2172359e49db34dc26b5e22f5530c`.
+The explicit input list also freezes, at that same commit:
+
+- `tests/hosting-probe/storage/generate.ts` and `tests/hosting-probe/storage/src/zip.ts`;
+- `tests/hosting-probe/storage/schema.sql`, `tests/hosting-probe/recovery/schema.sql`;
+- both probes' `package.json` and `wrangler.toml`, and `tests/hosting-probe/storage/bun.lock`;
+- `tests/e2e/pilot/offline.sh` and the root `tsconfig.json`.
+
+The generator makes synthetic fixtures; both entire probes freeze their inline race setup, helpers, assertions and
+leg ordering (`multipart-race`, `restore-removal-race`, `dead-intent`). Worker implementations and their runtime support
+remain the module under test, reviewed over `a3f80d1305294a8c685a87351281eef7928c7d9c..HEAD`. This list is a proposed
+review boundary, not an approval or evidence that the hosted legs ran. Binaries, installed package bytes and OS remain
+under the existing prerequisite/check trust. New inputs or corrected expectations require a new explicit independent
+review binding; they cannot be silently excused by a newer snapshot.
+
+### Docs-only fix rounds
+
+A review that names no test (`protectedTests: []`) gives the guard nothing to protect by name, yet a fix round labelled
+`fix-round`, or one the ledger records, still needs a manifest (GRS-156). Its manifest lists `"tests": []` and declares
+why, once:
+
+```json
+"noTests": {"reviewSha": "<fixBase>", "reviewFindingsSha256": "<the manifest's reviewFindingsSha256>",
+            "reason": "M1 is a documentation finding; the review names no test."}
+```
+
+The declaration is bound to the saved review: `reviewSha` is the reviewed commit's full SHA and equals `fixBase`, and
+`reviewFindingsSha256` equals the manifest's own, the content hash of the findings file `review-record` retained. It
+holds exactly these three fields, with a nonempty reason, and stands for the empty list: a manifest names tests or
+declares none, never both, and takes no `assertionCountReasons`. A manifest without `noTests` still needs a nonempty
+`tests` list, and a missing manifest on a fix round, a malformed one and a deleted one still refuse as above.
+
+What the guard bounds. A declaration holds for a docs-only range only. Every path that differs between the fix base and
+HEAD, other than the base's changes as above, must be the manifest itself or a documentation file (a base change the
+round undid counts as such a path, and a document is regular at each reference, as above): a regular,
+non-executable file (mode `100644`, or absent on one side) whose name ends in `.md` and none of whose directories is
+`src`, `scripts`, `static`, `build`, `node_modules`, `.svelte-kit`, `RAWS`, `.local` or a test-support directory listed
+above. Anything else fails closed and is named: a runtime module, a test, helper or fixture, a shell or Python test
+(GRS-155's `tests/ci-guard/run.sh`), the workflow, another manifest, Markdown under `src/` or `tests/`, an executable or
+symlinked `.md`, a `.MD`. A Markdown file that tracked code or a test reads, as an input or an expected value, is that
+check's input and not documentation: a docs-only round could loosen the check without changing a test. Naming a file is
+not reading it: a comment, printed text, a message or an assertion's expected text that holds a document's name reads
+nothing, and GRS-154's two files are named only so. The guard refuses a changed `.md` file that `READ_DOCUMENTS` in
+`scripts/agent-tools/test_guard.mjs` lists (an entry ending in `/` covers its directory), and one that tracked code reads
+at the fix base, a received base reference or the tip; this catches readers the branch or base adds, including when the
+round deletes or renames the document. The refusal names the entry, or the reader and its line. A read is a path that
+reaches a file-read call (`readFileSync`, `readdirSync`, `Bun.file`, an
+import, Python's `open` or `read_text`, a shell command), a call that takes it as a path (a fixture loader), or a path
+built with `join`, `resolve` or `new URL`, resolved through the file's constants and parameter defaults. A write, an
+existence test and a copy are not reads: the code that reads a copy is scanned where it reads. Ambiguity fails closed:
+a path computed under a directory that holds documentation (`` join(ROOT, 'docs', 'plan', `${id}.md`) ``) reads that
+directory, and a read of a file name under an unknown directory (a copy in a temporary tree) reads every document of that
+name. A generic `commit('README.md', ...)` call is conservatively classified as a README read even when the helper writes
+to a temporary repository; the identity test's helper does not read the tracked root `README.md`. A walk with no static directory, as `check-links` makes over every `.md` file, judges each document as its subject,
+not as an expected value, and is not counted. `ReadDocuments` in `tests/agent-tools/test_docs_only.py` is the control:
+it fails when `test_guard.mjs --root . --read-documents HEAD` finds a read no entry covers, or an entry that covers no
+document, so a new reader adds its document to the list in the same change. A round that changes a read document names
+the tests to protect instead.
+For a declaration the guard runs nothing else, since a docs-only range holds no code for the closure, reach or assertion-count checks to
+judge; its receipt records the declaration as `guard.noTests`. `test-guard` and `fix-round-guard` compare the declaration
+with the manifest only. With `--ledger`, `fix-round-guard` also refuses a declaration when the review the ledger recorded
+names a test or lists no `protectedTests`, besides the `fixBase` and findings-hash binding every manifest gets there, and
+`approve` checks the same ([The guard binding](#the-guard-binding)). CI has no ledger, so a declaration that names a
+later commit consistently passes there; the ledger and approval refuse it.
+
+Ordering, and the fix rounds before it. A docs-only round has no red test, so its manifest may come before or after the
+docs fix within the round: the guard judges the whole range from the fix base at HEAD either way. GRS-154's correction
+(`8507d759..431fb7b7`, two Markdown files) predates the declaration and stays as it shipped: no manifest, the ordinary
+trusted guard's `nothing to protect`, no `fix-round` label, the exception disclosed on its pull request and Linear issue,
+and its re-check's evidence that no non-Markdown byte changed. It gets no manifest after the fact, since a range from its
+fix base would now span later work; its draft manifest's `orderingLimitation` field is not part of a declaration.
+
+In the wave. A wave pull request into `dev` reruns the declaration at the wave head, where the range from the fix base
+also holds the wave's later tickets. With an explicit `--base` that is `dev` (`origin/dev`), no `--ledger`, a `--branch`
+of the form `wave/<name>` (one component, as `merge-check` admits) and a manifest added in the range, `fix-round-guard`
+bounds the declaration at its own fix round. The head branch's name alone proves nothing: CI passes the pull request's own,
+and a ticket PR into a wave may use any, so the bound also needs a base of `dev` and a first-parent line of two-parent
+merges from the merge base to HEAD; any direct commit or octopus merge on that line, before or after the joining merge,
+or a manifest committed there gives the whole range. The oldest commit on HEAD's first-parent line that holds the manifest
+is the merge that brought the round's line into the wave, and its one other parent holding the same manifest bytes is the
+line's tip. The guard judges the fix base
+to that tip (`--fix-head`, recorded as `guard.fixHead`), with the newest wave state the tip holds as the trusted base, so
+a wave change the ticket merged in before its own merge is the wave's, as at the ticket's pull request. A manifest changed
+after the merge or brought in any other way gets the whole range, which fails closed. The merges that follow it on the
+wave's line, a later merge of the same ticket branch included, are other pull requests' work, judged by their own guard
+runs. On
+any other base or branch the whole range is the declaration's, so a ticket that merges its manifest in from a side line is
+judged whole. Approval refuses a bounded receipt as it refuses a base-aware one.
+
+Rollout. CI and `base-guard` run the guard of the pull request's base branch, never the pull request's own. A
+declaration is therefore refused (`findings.tests must be a nonempty list`) until this change reaches the PR's base
+branch, and a wave's pull request into `dev` refuses one until the wave itself has landed the change.
 
 ### Guard internals
 
@@ -606,9 +884,14 @@ not from the worker's files: the review that prompted the fix is the unit's late
 (3) a manifest `tests` list equal to the recorded findings' `protectedTests`. A worker-written manifest with a later
 `fixBase`, another findings hash or a shorter `tests` list refuses, and so does a receipt from `fix-round-guard --base`
 without `--ledger` (its `guard.trustedBase` is set, or its recorded command carries `--trusted-base`), since a worker
-chooses that base. When the recorded review lists no `protectedTests`
-field the approval refuses; an empty list records `guard.nothingToProtect` and needs no receipt. The row keeps the
-binding and the receipt joins the fingerprinted inputs, so editing the receipt afterwards refuses at readback.
+chooses that base. A receipt bounded at a fix head (`guard.fixHead`, or `--fix-head` in its command) refuses too.
+Outside the explicit files mode above, a review with no `protectedTests` field refuses approval. Outside that mode, an
+empty list records `guard.nothingToProtect` and still needs the receipt: approval admits no recorded fix that `fix-round-guard --ledger`
+refuses, and that guard demands a manifest. Outside files mode, an empty list needs a docs-only declaration
+([Docs-only fix rounds](#docs-only-fix-rounds)), whose PASS receipt must name the recorded review's SHA and findings hash,
+so a recorded fix with no manifest refuses, whatever it changes. A declaration for a review that names tests
+refuses. The row keeps the binding (with `noTests` for a declaration) and the receipt joins the fingerprinted inputs, so
+editing the receipt afterwards refuses at readback.
 A unit with no recorded `fix` dispatch approves as before.
 
 ## Model-sheet verification

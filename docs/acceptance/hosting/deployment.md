@@ -2,7 +2,7 @@
 
 [GRS-107](https://linear.app/vaper/issue/GRS-107) asks for proof of the cf and Void deployment, migration and credential boundaries. Under the local-first plan on GRS-26, this unit runs GRS-102's P1 to P9 offline under `unshare -rn`, with a placeholder account (`00000000000000000000000000000107`) and synthetic data. There is no account, token, login or deploy. Cloudflare stays pinned. P10 and the janitor's real sweep wait for the account owner at moment M1.
 
-**Verdict: PASS for the local legs at `427a6a76eb9035409d64092d479428e0e78c3d36`; HOLD for the cloud legs.** All 13 probe legs pass. The committed run is [evidence/deployment-summary.json](evidence/deployment-summary.json), which names the SHA it ran at. What stays HOLD is listed [at the end](#what-stays-hold).
+**Verdict: PASS for the local legs at `6720d08d9b3684331c30bc0ed67076ac2e5bc4e9`; HOLD for the cloud legs.** The committed offline run passes all 13 probe legs and records its exact source SHA and input digests in [evidence/deployment-summary.json](evidence/deployment-summary.json). The pre-integration source-locked summaries remain byte-for-byte at [proof head `427a6a76`](evidence/deployment-summary-427a6a76.json) and [accepted dev `a52f8ac8`](evidence/deployment-summary-a52f8ac8.json). What stays HOLD is listed [at the end](#what-stays-hold).
 
 ## Run it
 

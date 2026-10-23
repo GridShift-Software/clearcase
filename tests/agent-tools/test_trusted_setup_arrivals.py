@@ -2,6 +2,9 @@
 import hashlib
 import importlib.util
 import json
+import os
+import shutil
+import sys
 import unittest
 from pathlib import Path
 
@@ -66,6 +69,37 @@ class TrustedSetupArrivals:
         self.upstream(self.additions())
         self.merge()
         self.assertIn(self.helper, self.guard())
+
+    def test_arrival_history_queries_only_needed_paths(self):
+        self.upstream(self.additions())
+        self.merge()
+        history = []
+        for i in range(8):
+            self.write(f'unrelated/item-{i}.txt', 'unrelated data\n')
+            history.append(self.commit(f'unrelated candidate commit {i}'))
+        # Keep these intermediate commits outside the base/tip inventories the guard needs in full.
+        self.write('app.txt', 'final runtime fix\n')
+        self.commit('candidate tip')
+        real_git = shutil.which('git', path=self.env['PATH'])
+        trace = self.work / 'git-queries.jsonl'
+        wrapper = self.work / 'bin' / 'git'
+        wrapper.parent.mkdir()
+        wrapper.write_text(f'''#!{sys.executable}
+import json, subprocess, sys
+args = sys.argv[1:]
+if 'ls-tree' in args and '-r' in args and '-z' in args and '--name-only' not in args:
+    with open({str(trace)!r}, 'a') as out:
+        out.write(json.dumps(args) + '\\n')
+raise SystemExit(subprocess.call([{real_git!r}, *args]))
+''')
+        wrapper.chmod(0o755)
+        self.env['PATH'] = str(wrapper.parent) + os.pathsep + self.env['PATH']
+        self.guard()
+        queries = [json.loads(line) for line in trace.read_text().splitlines()]
+        historical = [args for args in queries if any(rev in args for rev in history)]
+        self.assertTrue(historical, 'the arrival proof must inspect intermediate candidate history')
+        self.assertTrue(all('--' in args and args.index('--') < len(args) - 1 for args in historical),
+                        f'arrival proof loaded full historical trees: {historical}')
 
     def test_docs_only_side_from_before_trusted_arrival_passes(self):
         self.git('branch', 'candidate-side')

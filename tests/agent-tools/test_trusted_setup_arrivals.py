@@ -67,6 +67,38 @@ class TrustedSetupArrivals:
         self.merge()
         self.assertIn(self.helper, self.guard())
 
+    def test_docs_only_side_from_before_trusted_arrival_passes(self):
+        self.git('branch', 'candidate-side')
+        self.upstream(self.additions())
+        self.merge()
+        self.guard()
+        self.git('switch', '-q', 'candidate-side')
+        self.write('docs/unrelated.md', 'unrelated candidate change\n')
+        self.commit('candidate side changes only docs before helper arrival')
+        self.git('switch', '-q', 'candidate')
+        self.merge('candidate-side')
+        self.assertEqual(self.git('diff', 'HEAD^1', 'HEAD', '--', self.helper), '')
+        self.assertEqual(self.git('ls-tree', 'HEAD', '--', self.helper),
+                         self.git('ls-tree', 'dev', '--', self.helper))
+        self.guard()
+
+    def test_docs_only_side_retaining_older_trusted_helper_passes(self):
+        self.upstream(self.additions())
+        self.merge()
+        self.git('branch', 'candidate-side')
+        self.upstream({self.helper: 'export const updated = true;\n'})
+        self.merge()
+        self.guard()
+        self.git('switch', '-q', 'candidate-side')
+        self.write('docs/unrelated.md', 'unrelated candidate change\n')
+        self.commit('candidate side changes only docs after initial arrival')
+        self.git('switch', '-q', 'candidate')
+        self.merge('candidate-side')
+        self.assertEqual(self.git('diff', 'HEAD^1', 'HEAD', '--', self.helper), '')
+        self.assertEqual(self.git('ls-tree', 'HEAD', '--', self.helper),
+                         self.git('ls-tree', 'dev', '--', self.helper))
+        self.guard()
+
     def restore(self):
         self.git('switch', '-q', '-C', 'candidate', self.fixed)
         self.git('branch', '-f', 'dev', self.dev)

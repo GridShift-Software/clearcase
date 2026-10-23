@@ -19,6 +19,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { gitEnv } from '../browser-lock.mjs';
 import { canonicalText } from '../../src/lib/case-package/canonical.ts';
 import { parseStrictJson } from '../../src/lib/case-package/strict-json.ts';
 
@@ -41,7 +42,7 @@ const outDir = path.resolve(values.out ?? path.join(repo, '.local/measure'));
 const base = path.join(repo, '.local/measure');
 await mkdir(outDir, { recursive: true });
 
-const git = (args: string[]) => spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
+const git = (args: string[]) => spawnSync('git', args, { cwd: repo, encoding: 'utf8', env: gitEnv() });
 const resolveRev = (rev: string) => git(['rev-parse', '--verify', `${rev}^{commit}`]).stdout.trim();
 const dirtyWorktree = git(['status', '--porcelain']).stdout.trim().length > 0;
 
@@ -52,7 +53,7 @@ async function isolate(rev: string): Promise<string | null> {
   await rm(dir, { recursive: true, force: true });
   await mkdir(dir, { recursive: true });
   const tarFile = `${dir}.tar`;
-  const archive = spawnSync('git', ['-C', repo, 'archive', '--format=tar', '-o', tarFile, rev]);
+  const archive = spawnSync('git', ['-C', repo, 'archive', '--format=tar', '-o', tarFile, rev], { env: gitEnv() });
   const untar = archive.status === 0 ? spawnSync('tar', ['-xf', tarFile, '-C', dir]) : archive;
   await rm(tarFile, { force: true });
   if (untar.status !== 0) throw new Error(`git archive ${rev} failed`);

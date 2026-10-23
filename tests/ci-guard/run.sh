@@ -8,6 +8,9 @@
 # alter through hardlinks, and a private HOME, so no operator Bun or Git configuration applies. Needs Bun, Git,
 # Python 3, util-linux (setsid, unshare -rn), pgrep and the npm registry.
 set -u
+# No inherited GIT_* variable (a Git hook exports GIT_DIR) may send the scratch repositories below to another repository.
+# shellcheck disable=SC2046
+unset $(compgen -e GIT_)
 export GIT_OPTIONAL_LOCKS=0
 hold() { echo "ci-guard: HOLD, $*" >&2; exit 2; }
 here=$(cd "${BASH_SOURCE[0]%/*}" && pwd)

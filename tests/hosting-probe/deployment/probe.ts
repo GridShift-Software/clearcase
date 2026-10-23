@@ -19,9 +19,10 @@ import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { accessSync, appendFileSync, constants, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { parseArgs } from 'node:util';
+import { isDeepStrictEqual, parseArgs } from 'node:util';
 import { scanPaths } from '../../../deploy/probes/scan.ts';
-import { checkSummary, PROBE_INPUTS } from '../../../deploy/probes/summary-check.ts';
+import { RUN_NAME } from '../../../deploy/probes/cloud-run.ts';
+import { checkSummary, DEPLOYMENT_HOLD, PROBE_ENVIRONMENT, PROBE_INPUTS, transcriptProblems } from '../../../deploy/probes/summary-check.ts';
 import { BUILD_OUTPUT, checkTarget, digestDir, loadTargets } from '../../../deploy/probes/target.ts';
 
 const HERE = import.meta.dirname;
@@ -33,11 +34,6 @@ const PLACEHOLDER_ACCOUNT = '00000000000000000000000000000107';
 // A synthetic placeholder, not a credential: without any token cf stops at authentication before the step under test.
 const SYNTHETIC_TOKEN = { CLOUDFLARE_API_TOKEN: 'synthetic-placeholder-not-a-token' };
 const PORT = 18797;
-const HOLD = [
-	'P10 (moment M1, Workers Free): a real prebuilt upload with an upload-only token, enforced token grants and denied actions, a Void deploy with pending D1 migrations behind a time-travel bookmark, a Worker rollback, and teardown of cc-* resources through the run manifest',
-	"the janitor's real sweep of the account's cc-* resources (M1)",
-	'actual token breadth on the real API: no resource-scoped Worker or D1 token is claimed',
-];
 
 class Refusal extends Error {}
 
@@ -494,6 +490,7 @@ async function main(out: string): Promise<number> {
 			deployOffline: { exit: deploy.code, network: deploy.network, lastLines: show(deploy.out.trim().split('\n').slice(-4).join(' | ')).slice(0, 600) },
 			automaticMigrations: { source: `node_modules/void/dist/${migrates?.f}`, order: 'list pending, save a time-travel bookmark (refuses to migrate without one), apply, list again', skipFlag: 'none found' },
 			canaryInVoidOutputs: voidScan.hits,
+			voidScanFiles: voidScan.files,
 		};
 	});
 
@@ -609,29 +606,33 @@ async function main(out: string): Promise<number> {
 		mkdirSync(manifests, { recursive: true });
 		const now = new Date(startedAt);
 		const old = new Date(now.getTime() - 25 * 3_600_000).toISOString();
-		writeFileSync(path.join(manifests, 'cc-107-w1-aaaaaaa.json'), JSON.stringify({ schema: 'clearcase.cloud-run/1', name: 'cc-107-w1-aaaaaaa', state: 'finished' }));
-		writeFileSync(path.join(manifests, 'cc-108-w3-ccccccc.json'), JSON.stringify({ schema: 'clearcase.cloud-run/1', name: 'cc-108-w3-ccccccc', state: 'open' }));
+		const id = '00000000-0000-4000-8000-000000000107';
+		const finished = `cc-107-w1-aaaaaaa-${id}`;
+		const orphan = `cc-109-w2-bbbbbbb-${id}`;
+		const open = `cc-108-w3-ccccccc-${id}`;
+		writeFileSync(path.join(manifests, `${finished}.json`), JSON.stringify({ schema: 'clearcase.cloud-run/1', name: finished, state: 'finished' }));
+		writeFileSync(path.join(manifests, `${open}.json`), JSON.stringify({ schema: 'clearcase.cloud-run/1', name: open, state: 'open' }));
 		const listing = [
-			{ kind: 'worker', name: 'cc-107-w1-aaaaaaa', createdAt: old },
-			{ kind: 'r2', name: 'cc-109-w2-bbbbbbb', createdAt: old },
-			{ kind: 'd1', name: 'cc-108-w3-ccccccc', createdAt: old },
-			{ kind: 'd1', name: 'cc-110-w1-ddddddd', createdAt: now.toISOString() },
+			{ kind: 'worker', name: finished, createdAt: old },
+			{ kind: 'r2', name: orphan, createdAt: old },
+			{ kind: 'd1', name: open, createdAt: old },
+			{ kind: 'd1', name: `cc-110-w1-ddddddd-${id}`, createdAt: now.toISOString() },
 			{ kind: 'worker', name: clientA.worker, createdAt: old },
 			{ kind: 'r2', name: 'cc-prod-files', createdAt: old },
 		];
 		const file = path.join(dir, 'listing.json');
 		writeFileSync(file, JSON.stringify(listing));
 		const name = step(l, 'Bun', [path.join(root, 'deploy/probes/cloud-run.ts'), 'name', '--ticket', '107', '--worker', 'w1', '--sha', sha], { cwd: root });
-		check(name.code === 0 && name.out.trim() === `cc-107-w1-${sha.slice(0, 7)}`, `this run's resources would be named cc-107-w1-${sha.slice(0, 7)}`);
+		check(name.code === 0 && RUN_NAME.test(name.out.trim()) && name.out.trim().startsWith(`cc-107-w1-${sha.slice(0, 7)}-`), `this run's resources would be named ${name.out.trim()}`);
 		const r = step(l, 'Bun', [path.join(root, 'deploy/probes/cloud-run.ts'), 'janitor', '--listing', file, '--manifests', manifests, '--now', now.toISOString()], { cwd: root });
 		const lines = r.out.trim().split('\n');
 		check(r.code === 0 && lines.at(-1) === 'JANITOR DRY RUN: 2 to delete, 4 kept, nothing deleted', 'the dry run plans 2 deletions, keeps 4 and deletes nothing');
-		check(lines.includes(`would delete worker cc-107-w1-aaaaaaa (created ${old})`) && lines.includes(`would delete r2 cc-109-w2-bbbbbbb (created ${old})`), 'it would delete only the finished run and the orphan, both older than 24 hours');
+		check(lines.includes(`would delete worker ${finished} (created ${old})`) && lines.includes(`would delete r2 ${orphan} (created ${old})`), 'it would delete only the finished run and the orphan, both older than 24 hours');
 		check(lines.some((x) => x.startsWith(`keep worker ${clientA.worker}: not a run name`)) && lines.some((x) => x.startsWith('keep r2 cc-prod-files: not a run name')), 'it never touches an unprefixed or malformed name');
 		check(readFileSync(file, 'utf8') === JSON.stringify(listing), 'the listing is unchanged');
 		const blind = step(l, 'Bun', [path.join(root, 'deploy/probes/cloud-run.ts'), 'janitor', '--listing', file, '--manifests', path.join(dir, 'no-such-runs'), '--now', now.toISOString()], { cwd: root });
 		check(blind.code === 1 && !blind.out.includes('would delete'), 'without its manifests directory the janitor refuses (exit 1) rather than reading every old run as orphaned');
-		l.observed = { plan: lines, withoutManifests: { exit: blind.code } };
+		l.observed = { plan: lines, withoutManifests: { exit: blind.code }, runName: name.out.trim() };
 	});
 
 	await leg('credential-scan', 'no canary or credential shape in build artifacts, staged deploy inputs, logs or homes', (l, check) => {
@@ -651,6 +652,12 @@ async function main(out: string): Promise<number> {
 	const endSha = head();
 	const clean = !dirty();
 	const failed = Object.entries(legs).filter(([, l]) => l.status !== 'PASS').map(([id]) => id);
+	const transcriptErrors = transcriptProblems({ legs, sourceSha: sha, startedAt });
+	const recordedEnv = Object.fromEntries(Object.entries(baseEnv).map(([key, value]) => [key, key === 'PATH'
+		? value.split(':').map((dir, index) => index === 0 ? '<node-dir>' : index === 1 ? '<bun-dir>' : dir).join(':')
+		: value.replaceAll(runDir, '<run>')]));
+	if (!isDeepStrictEqual(recordedEnv, PROBE_ENVIRONMENT)) transcriptErrors.push('probe child environment differs from the reviewed values');
+	for (const problem of transcriptErrors) console.log(`FAIL  ${problem}`);
 	const summary = {
 		schema: SCHEMA,
 		sourceSha: sha,
@@ -662,10 +669,10 @@ async function main(out: string): Promise<number> {
 		runDir: path.relative(root, runDir),
 		hosts: { bun: process.versions.bun, node: node.version, runner: `Bun ${BUN}`, appBuild: `Bun ${BUN}`, tools: `Node ${node.version} (cf, Wrangler, Void, Vitest)`, app: `workerd ${pins.workerd} (native, local)` },
 		pins,
-		isolation: { network: isolation, env: Object.keys(baseEnv).sort() },
+		isolation: { network: isolation, env: recordedEnv },
 		legs,
-		hold: HOLD,
-		evidence: failed.length === 0 && clean && endSha === sha,
+		hold: DEPLOYMENT_HOLD,
+		evidence: failed.length === 0 && transcriptErrors.length === 0 && clean && endSha === sha,
 	};
 	mkdirSync(path.dirname(out), { recursive: true });
 	const text = show(`${JSON.stringify(summary, null, 2)}\n`).replaceAll(path.dirname(root), '<workspace>');

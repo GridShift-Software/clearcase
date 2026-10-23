@@ -34,6 +34,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join, relative, resolve } from 'node:path';
 import { unpinned, xlsxLockProblems } from './lib/pins.mjs';
 import { allowStale, evidenceRecord, evidenceSuffix, freshLine, freshness, refusal } from './lib/fresh-build.ts';
+import { gitEnv } from '../../../scripts/browser-lock.mjs';
 import { buildFromEnv, bunIdentity, chromiumIdentity, ensureOffline, gitIdentity, hostIdentity, PORTS, REPO, sha256Bytes, treeStamp } from './v5/env.mjs';
 
 // fresh-build evidence, before anything starts (a missing build is the setup error further down)
@@ -102,13 +103,13 @@ const buildMatchesHead = build.stamp?.revision === git.head && !build.stamp?.dir
 // When the stamp names another commit, list what differs between it and HEAD (an app-equivalence note, not a pass).
 const buildDelta = (() => {
 	if (!build.stamp?.revision || build.stamp.revision === git.head) return null;
-	const r = spawnSync('git', ['-C', REPO, 'diff', '--name-only', build.stamp.revision, git.head], { encoding: 'utf8' });
+	const r = spawnSync('git', ['-C', REPO, 'diff', '--name-only', build.stamp.revision, git.head], { encoding: 'utf8', env: gitEnv() });
 	if (r.status !== 0) return { error: (r.stderr || 'git diff failed').trim() };
 	const paths = r.stdout.split('\n').filter(Boolean);
 	const app = paths.filter((f) => /^(src|static|scripts\/pilot)\/|^(svelte\.config\.js|vite\.config\.ts|tsconfig\.json|bun\.lock)$/.test(f));
 	let pkgScriptsOnly = null;
 	if (paths.includes('package.json')) {
-		const show = (rev) => { const x = JSON.parse(spawnSync('git', ['-C', REPO, 'show', `${rev}:package.json`], { encoding: 'utf8' }).stdout); delete x.scripts; return JSON.stringify(x); };
+		const show = (rev) => { const x = JSON.parse(spawnSync('git', ['-C', REPO, 'show', `${rev}:package.json`], { encoding: 'utf8', env: gitEnv() }).stdout); delete x.scripts; return JSON.stringify(x); };
 		pkgScriptsOnly = show(build.stamp.revision) === show(git.head);
 	}
 	return { paths, appPaths: app, packageJsonScriptsOnly: pkgScriptsOnly, appEquivalent: app.length === 0 && pkgScriptsOnly !== false };

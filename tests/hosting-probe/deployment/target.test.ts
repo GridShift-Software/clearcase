@@ -243,6 +243,14 @@ describe('the trusted parent stages only a checked config and the reviewed artif
 	const digest = digestDir(artifact);
 	afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
 
+	test('a stage path already owned by another run is preserved', () => {
+		const out = path.join(SCRATCH, 'stage-competing-run');
+		mkdirSync(out, { recursive: true });
+		writeFileSync(path.join(out, 'owner.txt'), 'other run');
+		expect(stage({ client: 'client-a', artifact, digest, out })).toEqual([`${out} exists; a stage starts empty`]);
+		expect(readFileSync(path.join(out, 'owner.txt'), 'utf8')).toBe('other run');
+	});
+
 	test('a checked config and the reviewed digest are staged with a record of what was staged', () => {
 		const out = path.join(SCRATCH, 'stage-ok');
 		expect(stage({ client: 'client-a', artifact, digest, out })).toEqual([]);

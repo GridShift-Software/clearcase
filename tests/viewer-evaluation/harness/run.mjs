@@ -11,11 +11,12 @@ import { startServer } from './server.mjs';
 import { launch, openShell, rendererFrame, VIEWPORTS } from './browser.mjs';
 import { HERE, OUT_ROOT, REPO } from './paths.mjs';
 import { CHECKS } from './checks/index.mjs';
+import { gitEnv } from '../../../scripts/browser-lock.mjs';
 
 const args = process.argv.slice(2);
 const only = args.includes('--only') ? args[args.indexOf('--only') + 1].split(',') : null;
 const onlyViewport = args.includes('--viewport') ? args[args.indexOf('--viewport') + 1] : null;
-const git = (...a) => execFileSync('git', a, { cwd: REPO, encoding: 'utf8' }).trim();
+const git = (...a) => execFileSync('git', a, { cwd: REPO, encoding: 'utf8', env: gitEnv() }).trim();
 const revision = { head: git('rev-parse', 'HEAD'), harnessTree: (() => { try { return git('rev-parse', 'HEAD:tests/viewer-evaluation'); } catch { return null; } })(), dirty: git('status', '--porcelain', '--untracked-files=all', '--', 'tests/viewer-evaluation') !== '' };
 
 const store = createStore(path.join(OUT_ROOT, 'fixtures'));

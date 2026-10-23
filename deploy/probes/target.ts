@@ -317,7 +317,14 @@ export function stage(a: { client: string; artifact: string; digest: string; out
 	const problems = [realDirectory(a.artifact, 'artifact'), realDirectory(migrationsDir, STAGED.migrations), existsSync(a.out) ? `${a.out} exists; a stage starts empty` : null].filter((p): p is string => p !== null);
 	for (const f of files) if (!existsSync(path.join(dir, f))) problems.push(`${f} is missing`);
 	if (problems.length) return problems;
-	mkdirSync(a.out, { recursive: true });
+	mkdirSync(path.dirname(a.out), { recursive: true });
+	try {
+		// Claim the stage path atomically. A competing run that wins after the precheck owns its directory.
+		mkdirSync(a.out);
+	} catch (e) {
+		if (e instanceof Error && 'code' in e && e.code === 'EEXIST') return [`${a.out} exists; a stage starts empty`];
+		throw e;
+	}
 	const refuse = (m: string[]) => (rmSync(a.out, { recursive: true, force: true }), m);
 	try {
 		// refuse before copying anything a copy would follow or block on; the staged copy is checked again below

@@ -39,6 +39,8 @@ Start the pilot only with `bun run --bun start` (`scripts/pilot/start.ts`). It b
 
 Planning snapshot validation lives in `scripts/planning/check.py`; `scripts/agent-tools/check-plan --linear-relations PATH` compares the supplied readback with `snapshot.readback`, including project totals and status counts. If an issue creation or status change causes "Recorded project issue and status counts differ from the readback", refresh the capture and `snapshot.readback` together.
 
+The fix-round tooling map is in [`agent-tooling.md`](agent-tooling.md). `scripts/agent-tools/agent_tools.py` owns `cmd_fix_round_guard` and manifest arrival; `scripts/agent-tools/test_guard.mjs` owns the guard's file, import and assertion analysis. Files-mode protection freezes reviewed file bytes and mode while retaining the original runtime `fixBase`. Runner configuration/import origins and derived package entries retain their unchanged-origin inheritance rule. As additional support, a protected setup/helper origin may arrive unchanged only from a genuine trusted-base merge with the exact mode and blob. The guard inspects the full candidate-only DAG and judges each commit's edits against its first parent. Candidate edits, deletions, mode changes, copied or unmerged origins, and origins changed before arrival remain refused; original findings, `fixBase`, named-test and frozen-file bindings remain in force. See the [fix-round protection contract](agent-tooling.md#fix-diff-test-protection) for detail.
+
 ### Browser admission (GRS-154)
 
 Browser jobs share the host's two browser slots through the workspace's `orch-bin/browser-lock` (`--exclusive` takes both, for evidence runs). The local `gate`, `scripts/verify/evidence.sh` and the hosted runner (`verify-clearcase-hosted` and `gate:hosted` through its preflight) resolve the lock with one contract, `scripts/browser-lock.mjs`, in this order:
@@ -55,7 +57,7 @@ The resolver exists only on branches that carry GRS-154 (`wave/delivery-controls
 
 ### Working in a worktree
 
-- A fresh worktree needs `svelte-kit sync` (`check` runs it) before a single-file `bun run --bun test`; otherwise Vitest stops at startup with `Tsconfig not found` or rolldown's `Could not resolve node:module`. Use `bun run --bun test`, never `bunx vitest`, which runs under Node and fails `render.test.ts`.
+- A fresh worktree needs `svelte-kit sync` (`check` runs it) before a single-file `bun run --bun test`; otherwise Vitest stops at startup with `Tsconfig not found` or rolldown's `Could not resolve node:module`. Use `bun run --bun test`, never `bunx vitest`, which runs under Node and fails `render.test.ts`. For a direct parity Vitest run, use `bun --bun x vitest run --config tests/parity/vitest.config.ts`; plain `bunx vitest` runs signal cases under Node.
 - Under `bun run --bun`, the `node` on `PATH` is Bun's shim. The real Node is the one where `process.versions.bun` is undefined, and Wrangler needs it.
 - The root `tsconfig.json` has `allowJs: false`: `tsc` and `svelte-check` read `tests/**/*.{ts,svelte}` but never `.js` or `.mjs` files, `node_modules` or dot directories, and `tests/acceptance/**` is excluded, so `check` never type-checks the acceptance suites. A self-contained workspace under `tests/` uses `.mjs` to stay out of `tsc`. `svelte-check` loads the nearest `vite.config.js` above a `.svelte` file, so a nested Kit workspace names its config otherwise (`tests/hosting-probe/runtime/vite.probe.config.js`).
 - `scripts/ci/source-check.ts` reads tracked files only: commit a new `.mjs` or `.js` file before `check`.

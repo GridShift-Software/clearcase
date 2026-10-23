@@ -2,6 +2,9 @@
 # Creates, provisions, registers, reaches and destroys the ClearCase CI runner VM on pc1 from a workstation with root
 # SSH to pc1 and an admin `gh` login. See docs/ci-runner.md.
 set -euo pipefail
+# Git answers for this checkout whatever GIT_DIR, GIT_WORK_TREE or GIT_COMMON_DIR a hook or a calling script exported
+# (scripts/verify/evidence.sh does the same; scripts/browser-lock.mjs's gitEnv is the rule in JS).
+git() { (unset $(compgen -e GIT_); command git "$@"); }
 here=$(cd "${BASH_SOURCE[0]%/*}" && pwd)
 host=${CLEARCASE_CI_HOST:-root@ci-host.example.invalid}
 state=${CLEARCASE_CI_STATE:-$HOME/.config/clearcase-ci}

@@ -39,6 +39,7 @@ async function main() {
 	const dir = mkdtempSync(path.join(parent, 'live-'));
 	mkdirSync(path.join(dir, 'logs'));
 	const prefix = `cc201-${randomBytes(10).toString('hex')}-`;
+	writeFileSync(path.join(dir, 'run.json'), JSON.stringify({ sourceSha: sha, prefix, instances: INSTANCES, evidence: false }));
 	const ports = await freePorts(4);
 	const origins = { a: `http://127.0.0.1:${ports[0]}`, c: `http://127.0.0.1:${ports[2]}` };
 	const staffOrigins = { a: `http://127.0.0.1:${ports[1]}`, c: `http://127.0.0.1:${ports[3]}` };
@@ -55,7 +56,8 @@ async function main() {
 	let cleanupOkay = false;
 	try {
 		stage = 'build';
-		build(node, dir, sha, bun);
+		const buildLog = build(node, dir, sha, bun);
+		if (!buildLog.includes(`[probe build host] {"bun":"${pins.packageManager.slice(4)}"`)) throw new Error('build was not hosted by pinned Bun');
 		stage = 'instance inspection';
 		for (const inst of Object.values(INSTANCES)) {
 			const res = await fetch(`${inst.issuer}/v1/environment`, { signal: AbortSignal.timeout(30_000) });
@@ -74,6 +76,10 @@ async function main() {
 			const selected = new Map([['CLIENT_A_PK', keys.get(`${prefixes[name]}_PK`)], ['CLIENT_A_SK', keys.get(`${prefixes[name]}_SK`)], ['STAFF_PK', keys.get('STAFF_PK')], ['STAFF_SK', keys.get('STAFF_SK')]]);
 			const w = await world({ node, dir: path.join(dir, name), ports: ports.slice(i * 2, i * 2 + 2), keys: selected, clientSubject: people[name].subject, staffSubject: people[`staff-${name}`].subject, sha });
 			worlds[name] = w;
+			for (const [key, expected] of Object.entries(ENVIRONMENT)) if (key.startsWith('WRANGLER_') || key.startsWith('CLOUDFLARE_')) {
+				if (w.env[key] !== expected) throw new Error('local runtime environment differs');
+			}
+			if (w.config.jwtKeys || w.config.apiUrl || w.config.mfaRequired || worlds.a?.config.persist === worlds.c?.config.persist) throw new Error('invalid local topology');
 			const other = name === 'a' ? 'c' : 'a';
 			w.token = async (actor, staff) => {
 				const p = actor === 'own' ? people[name] : actor === 'operator' ? people[`staff-${name}`] : actor === 'foreign' ? people[`${other}-other-party`] : staff ? people[`staff-${other}`] : people[`${name}-other-party`];
@@ -113,11 +119,14 @@ async function main() {
 		finish();
 		unregister();
 	}
-	if (failure || interrupted || !cleanupOkay) throw new Error('run or cleanup failed');
+	if (failure || interrupted || !cleanupOkay) {
+		writeFileSync(path.join(dir, 'failure.json'), JSON.stringify({ sourceSha: sha, stage, interrupted, cleanupOkay, cleanup, evidence: false }));
+		throw new Error('run or cleanup failed');
+	}
 	stage = 'evidence and credential scan';
 	const summary = { schema: SCHEMA, sourceSha: sha, inputs: { paths: INPUTS, digest: digest(sha) }, treeClean: git(['rev-parse', 'HEAD']) === sha && !git(['status', '--porcelain']),
 		mode: 'live-clerk-development', environment: ENVIRONMENT, instances: INSTANCES, served: { a: sha, c: sha }, ...data,
-		lifecycle: LIFECYCLE.map((assertion) => ({ assertion, pass: true })), cleanup, scan: { files: 0, hits: 0 }, hold: HOLD, evidence: true };
+		lifecycle: LIFECYCLE.map((assertion) => ({ assertion, pass: true })), cleanup, scan: { files: 0, hits: 0 }, hold: HOLD, evidence: false };
 	const output = path.join(dir, 'summary.json');
 	writeFileSync(output, JSON.stringify(summary, null, 2));
 	// Exclude only Bun's installed-code transpiler cache, as the existing identity runner does.
@@ -130,7 +139,8 @@ async function main() {
 	}
 	const scanned = scanPaths({ roots: [...scanRoots(dir), path.join(HERE, '.svelte-kit')], canaries: [...canaries] });
 	summary.scan = { files: scanned.files, hits: scanned.hits.length };
-	summary.evidence = problems(summary, { head: sha }).length === 0;
+	summary.treeClean = summary.treeClean && git(['rev-parse', 'HEAD']) === sha && !git(['status', '--porcelain']);
+	summary.evidence = problems({ ...summary, evidence: true }, { head: sha }).length === 0;
 	writeFileSync(output, JSON.stringify(summary, null, 2) + '\n');
 	console.log(`ISOLATION ${summary.evidence ? 'PASS' : 'FAIL'} ${sha}; summary ${path.relative(ROOT, output)}`);
 	if (!summary.evidence) process.exitCode = 1;

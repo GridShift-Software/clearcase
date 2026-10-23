@@ -1,10 +1,18 @@
 // The existing app/harness is read-only. Each world gets its own local stores and process group.
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { appEnv, seed, startServe, stopServe, persistOf, run, wranglerArgs, fetchApp } from '../identity/harness.ts';
 import { TABLES } from './transcript.mjs';
 
 const id = (v) => { if (!/^user_[A-Za-z0-9_-]+$/.test(v)) throw new Error('unexpected synthetic subject ID'); return v; };
+function nativeWorkers(group) {
+	return readdirSync('/proc').filter((n) => /^\d+$/.test(n)).filter((n) => {
+		try {
+			const stat = readFileSync(`/proc/${n}/stat`, 'utf8');
+			return stat.slice(stat.indexOf('(') + 1, stat.lastIndexOf(')')) === 'workerd' && Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[2]) === group;
+		} catch { return false; }
+	}).length;
+}
 export async function world({ node, dir, ports, keys, clientSubject, staffSubject, sha, apiUrl }) {
 	const logs = path.join(dir, 'logs');
 	mkdirSync(logs, { recursive: true });
@@ -21,6 +29,7 @@ INSERT INTO operator_grants VALUES ('grs201','staff','${id(staffSubject)}','case
 	const config = { persist, logs, mfaRequired: false, jwtKeys: Boolean(apiUrl), client, staff, ...(apiUrl ? { apiUrl } : {}) };
 	const server = await startServe(node, env, config, keys, logs);
 	try {
+		if (nativeWorkers(server.pid) < 2) throw new Error('native workerd processes not found');
 		const stamp = await fetchApp(client.origin, '/_app/version.json');
 		if (stamp.status !== 200 || JSON.parse(stamp.body).version !== sha) throw new Error('served build stamp mismatch');
 	} catch (e) { await stopServe(server); throw e; }

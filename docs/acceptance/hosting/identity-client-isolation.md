@@ -1,6 +1,6 @@
 # Two-client development identity proof (GRS-201)
 
-Status: implementation pending; real Clerk acceptance UNRUN. Base: `6a61e6500310431f851d79a6ed464028a59c9d57`. This extension reuses the GRS-108 identity app without changing it. It does not certify the hosted product, production sessions, sibling-subdomain cookies, CSP or Cloudflare deployment.
+Status: implemented, awaiting independent review and real Clerk acceptance (UNRUN). Base: `6a61e6500310431f851d79a6ed464028a59c9d57`. This extension reuses the GRS-108 identity app without changing it. It does not certify the hosted product, production sessions, sibling-subdomain cookies, CSP or Cloudflare deployment.
 
 ## Test plan (committed before implementation)
 
@@ -29,3 +29,24 @@ Credentials must enter through the existing private secrets reader. Never put va
 Native doctor on this Windows host cannot start because `/bin/bash` is absent. The available Linux Docker host lacks external tooling admission and private v5 fixtures. Record these limitations separately from each command's result.
 
 References: [Clerk request verification](https://clerk.com/docs/reference/backend/authenticate-request), [Clerk synthetic email addresses](https://clerk.com/docs/guides/development/testing/test-emails-and-phones), [Wrangler local runtime API](https://developers.cloudflare.com/workers/testing/unstable_startworker/).
+
+## Run and inspect
+
+Use a dedicated Linux checkout with real Node 24 or newer and Bun 1.4.2. Install the existing identity workspace with `bun install --frozen-lockfile` in `tests/hosting-probe/identity`; no new dependencies are introduced. The probe builds that workspace, so do not run another identity build in the same checkout. Both clients and their staff frontends use distinct free loopback ports and four separate local stores. Four synthetic users, four invitations and six sessions are expected. Invitations use `notify: false`; all email-code sign-ins use `+clerk_test@example.com`.
+
+From the repository root, wrap these commands with `scripts/agent-tools/receipt --base 6a61e6500310431f851d79a6ed464028a59c9d57 --name NAME --` (use the absolute real Node path if `node` resolves to Bun's shim):
+
+```sh
+node --test tests/hosting-probe/identity-client-isolation/check.test.mjs
+PROBE_BUN=/absolute/path/to/bun node --test tests/hosting-probe/identity-client-isolation/runtime.test.mjs
+bun tests/hosting-probe/identity-client-isolation/live.mjs
+node tests/hosting-probe/identity-client-isolation/check.mjs .local/hosting-probe/identity-client-isolation/live-RUN/summary.json
+```
+
+The live launcher selects `CLIENT_A_PK`, `CLIENT_A_SK`, `CLIENT_C_PK`, `CLIENT_C_SK`, `STAFF_PK`, `STAFF_SK` from the existing private `clerk-dev` secrets file through `deploy/probes/secrets.ts`. C means the second client, not the existing B/staff app. Only the existing reader opens this file; the runner and Workers receive values through fd 3. Production keys and an unexpected issuer are refused before any identity is created.
+
+The checker accepts only the exact clean source SHA; it includes the reused app, harness and secret-reader files in its input digest. It compares every request's command, assertion and observation to `transcript.mjs`. The runner verifies installed pins, the build host and stamp, native workerd processes, local environment settings, instance settings, session claims, non-audit store snapshots, cleanup counts and credential scan. The initial summary always says `evidence: false`; it becomes true only after these checks. Offline crafted controls cannot emit a live summary.
+
+On a failed run, inspect the ignored run directory's `failure.json` and `run.json`. They contain the stage, cleanup counts and this run's exact random prefix, without credentials. SIGINT/SIGTERM/SIGHUP halt new creations and wait for the in-flight call before cleanup. SIGKILL cannot execute cleanup; its remaining identities require a run-prefix-scoped recovery on the execution host. There is no broad janitor or account-wide deletion.
+
+Initial deterministic results at `adc1aefe`: 23 checker controls and the native-workerd reciprocal sweep passed through receipts. This is historical local evidence only; later revisions need fresh checks. Real Clerk and full local/hosted gates remain UNRUN. GRS-189 still owns strengthening the five existing probe summaries; this new checker does not replace that work.

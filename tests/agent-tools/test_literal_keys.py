@@ -32,6 +32,16 @@ class LiteralKeys(controls.GuardCase):
                 ('destructured rest', "const [a, ...K] = ['unused', 'constructor'];", 'K[0]')):
             self.reject_key(label, setup, key)
 
+    def test_destructured_container_alternatives_keep_fixed_keys(self):
+        local = ("const pick = true; const { k = 'constructor' } = "
+                 "(pick ? { k: 'constructor' } : []) as any;")
+        self.reject_key('conditional object-or-array destructuring', local, 'k')
+
+        exported = ("import { k } from './keys';")
+        self.reject_key('exported conditional destructuring', exported, 'k', {
+            'src/keys.ts': "const pick = true; export const { k = 'constructor' } = "
+                           "(pick ? { k: 'constructor' } : []) as any;"})
+
     def test_imported_literal_members_refuse(self):
         for label, declaration, imported, key in (
                 ('named object', "export const K = { k: 'constructor' };", "import { K } from './keys';", 'K.k'),

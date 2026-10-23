@@ -19,6 +19,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
+import { gitEnv } from '../browser-lock.mjs';
 import { canonical, checkOutput, locatorInputs } from './lib/outdir.mjs';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
@@ -56,7 +57,7 @@ try { at = checkOutput(out, locatorInputs(cfg), ['mutation-proof.json', ...selec
 const local = canonical(join(REPO, '.local')), rel = relative(local, canonical(out));
 if (!(out + '/').startsWith(join(REPO, '.local') + '/') || rel === '..' || rel.startsWith('../') || isAbsolute(rel)) die(`--out must lie inside ${join(REPO, '.local')}/, symlinks resolved (mutants and diffs are local evidence)`);
 const results = [];
-const HEAD = execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+const HEAD = execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8', env: gitEnv() }).trim();
 const RUN_MS = 20 * 60_000, BUILD_MS = 15 * 60_000;
 const run = (args, cwd = REPO) => spawnSync(process.execPath, args, { cwd, encoding: 'utf8', maxBuffer: 1 << 26, env: process.env, timeout: RUN_MS, killSignal: 'SIGTERM' });
 const replaceOnce = (text, find, repl, where) => {
@@ -83,7 +84,7 @@ for (const m of selected) {
 	} else {
 		const src = at(m.id, 'src');
 		mkdirSync(src);
-		execFileSync('bash', ['-c', 'git -C "$0" archive --format=tar HEAD | tar -x -C "$1"', REPO, src]);
+		execFileSync('bash', ['-c', 'git -C "$0" archive --format=tar HEAD | tar -x -C "$1"', REPO, src], { env: gitEnv() });
 		for (const [file, find, repl] of m.edits) writeFileSync(join(src, file), replaceOnce(readFileSync(join(src, file), 'utf8'), find, repl, file));
 		const cp = spawnSync('cp', ['-a', '--reflink=auto', join(REPO, 'node_modules'), join(src, 'node_modules')]);
 		if (cp.status !== 0) die(`copying node_modules failed: ${cp.stderr}`);

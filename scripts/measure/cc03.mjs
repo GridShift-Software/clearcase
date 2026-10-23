@@ -42,6 +42,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { bunIdentity, chromiumIdentity, ensureOffline, gitIdentity, hostIdentity, PORTS, REPO, stats } from '../../tests/e2e/pilot/v5/env.mjs';
+import { gitEnv } from '../browser-lock.mjs';
 
 const { values: a } = parseArgs({ options: {
 	ticket: { type: 'string' }, baseline: { type: 'string' }, candidate: { type: 'string' }, samples: { type: 'string' }, warmup: { type: 'string' },
@@ -81,8 +82,8 @@ rmSync(work, { recursive: true, force: true });
 mkdirSync(work, { recursive: true });
 
 const git = gitIdentity();
-const rev = (r) => { const p = spawnSync('git', ['-C', REPO, 'rev-parse', '--verify', `${r}^{commit}`], { encoding: 'utf8' }); if (p.status !== 0) usage(`unknown revision ${r}`); return p.stdout.trim(); };
-const hasApp = (full) => spawnSync('git', ['-C', REPO, 'cat-file', '-e', `${full}:scripts/pilot/start.ts`]).status === 0;
+const rev = (r) => { const p = spawnSync('git', ['-C', REPO, 'rev-parse', '--verify', `${r}^{commit}`], { encoding: 'utf8', env: gitEnv() }); if (p.status !== 0) usage(`unknown revision ${r}`); return p.stdout.trim(); };
+const hasApp = (full) => spawnSync('git', ['-C', REPO, 'cat-file', '-e', `${full}:scripts/pilot/start.ts`], { env: gitEnv() }).status === 0;
 const RV = fx.accepted.resultsVersion;
 const N = fx.summary.mainHtml.docCount;
 const NTEXT = N.toLocaleString('en');

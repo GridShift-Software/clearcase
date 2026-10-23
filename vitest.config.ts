@@ -48,6 +48,7 @@ export default defineConfig({
       'tests/acceptance/CC-25/*.test.ts',
     ],
     pool: 'forks',
+    setupFiles: ['tests/setup/strip-git-env.ts'], // no test sees an inherited GIT_* variable
     sequence: { sequencer: SlowFirst },
     testTimeout: 60_000,
     // each test's line in the JSON report, so scripts/ci/summary.ts can point at a failing test

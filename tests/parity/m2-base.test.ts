@@ -27,6 +27,7 @@ describe('measure dispatcher', () => {
 	put(join(copy, 'scripts', 'measure', 'cc4.mjs'), echo('cc4'));
 	put(join(copy, 'scripts', 'measure', 'cc100.mjs'), echo('cc100'));
 	copyFileSync(join(REPO, 'scripts', 'measure', 'index.ts'), join(copy, 'scripts', 'measure', 'index.ts'));
+	copyFileSync(join(REPO, 'scripts', 'browser-lock.mjs'), join(copy, 'scripts', 'browser-lock.mjs'));
 	put(join(copy, 'tests', 'e2e', 'pilot', 'lib', 'fresh-build.ts'), readFileSync(join(REPO, 'tests', 'e2e', 'pilot', 'lib', 'fresh-build.ts'), 'utf8'));
 	// the copy is no git checkout, so its build is never fresh: the dispatch tests run with the documented override
 	const run = (env: Record<string, string>, args: string[]) => spawnSync(BUN, [join(copy, 'scripts', 'measure', 'index.ts'), ...args], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, CLEARCASE_REPORT_DIR: join(copy, 'report'), ...env } });
@@ -78,6 +79,7 @@ describe('measure dispatcher', () => {
 			put(join(repo, 'scripts', 'measure', 'cc99.mjs'), echo('cc99'));
 			put(join(repo, 'scripts', 'measure', 'index.ts'), readFileSync(join(REPO, 'scripts', 'measure', 'index.ts'), 'utf8'));
 			put(join(repo, 'tests', 'e2e', 'pilot', 'lib', 'fresh-build.ts'), readFileSync(join(REPO, 'tests', 'e2e', 'pilot', 'lib', 'fresh-build.ts'), 'utf8'));
+			put(join(repo, 'scripts', 'browser-lock.mjs'), readFileSync(join(REPO, 'scripts', 'browser-lock.mjs'), 'utf8'));
 			put(join(repo, '.gitignore'), 'build/\nreport/\n');
 			git(repo, 'init', '-q');
 			git(repo, 'add', '.');

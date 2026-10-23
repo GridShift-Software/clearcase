@@ -36,6 +36,14 @@ class LiteralKeys(controls.GuardCase):
         local = ("const pick = true; const { k = 'constructor' } = "
                  "(pick ? { k: 'constructor' } : []) as any;")
         self.reject_key('conditional object-or-array destructuring', local, 'k')
+        self.reject_key('aliased conditional container',
+                        "const pick = true; const source = pick ? { k: 'constructor' } : {}; "
+                        "const { k } = source;", 'k')
+        self.reject_key('nested conditional destructuring with default',
+                        "const pick = true; const source = pick ? { a: [{ k: 'constructor' }] } : []; "
+                        "const { a: [{ k = 'constructor' } = []] = [] } = source;", 'k')
+        self.route('scalar alternatives are not container origins', {'src/api.ts':
+                   "const pick = true; const { length: k } = pick ? 'x' : 'yy';\n" + self.weakened})
 
         exported = ("import { k } from './keys';")
         self.reject_key('exported conditional destructuring', exported, 'k', {

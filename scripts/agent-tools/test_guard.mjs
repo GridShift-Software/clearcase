@@ -706,7 +706,10 @@ const analysisOf = (file, text, exporter) => {
         } finally { seen.delete(target); }
       }
       const value = keyValue(owner.initializer, seen);
-      return isContainer(value) || value === UNRESOLVED_KEY ? UNRESOLVED_KEY : undefined;
+      // A join of fixed container origins is still fixed-origin. Do not turn its Set into a runtime value just because
+      // destructuring cannot safely select one member across every alternative.
+      return isContainer(value) || value instanceof Set && [...value].some(isContainer)
+        || value === UNRESOLVED_KEY ? UNRESOLVED_KEY : undefined;
     }
     return ts.isVariableDeclaration(declaration) && ts.isIdentifier(declaration.name) && declaration.initializer
       && declaration.parent.flags & ts.NodeFlags.Const ? keyValue(declaration.initializer, seen) : undefined;

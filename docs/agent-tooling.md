@@ -594,7 +594,9 @@ and handlers, with a component that does not parse or compile failing closed) re
   pattern key or element-read key refuses as unresolved when its static resolution cannot finish: an alias cycle, an
   unavailable import or export, an unresolved static key, or a fixed member of a literal object, array or enum. GRS-190
   keeps literal-container origin through `const` aliases, imports/re-exports and literal destructuring, including
-  nested and default bindings. It refuses these member keys conservatively, even a safe initial member: containers
+  nested/default bindings and joined alternatives of multiple fixed containers. When a member cannot be resolved across
+  every fixed origin, the computed key is unresolved and refuses rather than becoming a runtime value. It refuses these
+  member keys conservatively, even a safe initial member: containers
   can mutate or escape, so their initial members are not trusted. This includes inline reads
   (`['constructor'][0]`, `({ k: 'constructor' }).k`) and plain or `const` enums. Scalar `??`, `||` and `&&` fold
   literal operands with their actual nullishness and truthiness, including unshadowed `undefined`; a selected

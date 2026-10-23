@@ -417,9 +417,11 @@ try {
 				const after = S.rows('payments');
 				const values = await qk.values(draft.map(([sel]) => sel));
 				const rowShown = await qk.exists(row);
-				const error = await qk.text('#pay-error, [data-delete-error], #reload-error');
-				return { pass: addBlocked && rowGone && !rowShown && J(after) === J(before) && J(values) === J(draft.map(([, value]) => value)) && error === null,
-					evidence: { half, add, addBlocked, rowGone, rowShown, before: before.map((r) => r.id), target: target.id, after: after.map((r) => r.id), values, error } };
+				const addNotice = await qk.text('#pay-error > span');
+				const deleteError = await qk.text('[data-delete-error], #reload-error');
+				const expectedAddNotice = scripts ? null : 'The entry in the form is not saved yet: press Add to save it.';
+				return { pass: addBlocked && rowGone && !rowShown && J(after) === J(before) && J(values) === J(draft.map(([, value]) => value)) && deleteError === null && addNotice === expectedAddNotice,
+					evidence: { half, add, addBlocked, rowGone, rowShown, before: before.map((r) => r.id), target: target.id, after: after.map((r) => r.id), values, addNotice, deleteError } };
 			} finally { await q.close(); }
 		});
 	}

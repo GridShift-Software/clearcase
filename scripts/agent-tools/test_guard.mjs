@@ -1193,10 +1193,9 @@ function main() {
     }
     return files.get(file);
   };
-  const treeEntry = (revision, file) => {
-    const entry = trackedEntry(revision, file);
-    return entry && `${entry.mode} ${entry.id}`;
-  };
+  const entryIdentity = entry => entry && `${entry.mode} ${entry.id}`;
+  const treeEntry = (revision, file) => entryIdentity(tracked(revision).get(file));
+  const arrivalEntry = (revision, file) => entryIdentity(trackedEntry(revision, file));
   // A key neither HEAD nor the fix base tracks (a derived entry whose origin was not mapped, a typo) is nobody's change:
   // undefined === undefined must not read as "the base's copy".
   const fromBase = file => merged && (treeEntry(tip, file) !== undefined || treeEntry(base, file) !== undefined)
@@ -1226,12 +1225,12 @@ function main() {
         .filter(Boolean).map(row => row.split(' '));
       let introduced = false;
       for (const [revision, ...parents] of arrivalHistory) {
-        const after = treeEntry(revision, file);
+        const after = arrivalEntry(revision, file);
         const [first, second, ...rest] = parents;
-        if (after === (first ? treeEntry(first, file) : undefined)) continue;
+        if (after === (first ? arrivalEntry(first, file) : undefined)) continue;
         if (!first || !second || rest.length || !REGULAR.includes(trackedEntry(revision, file)?.mode)
-            || after !== treeEntry(second, file) || !fromTrusted(second)) return false;
-        if (treeEntry(first, file) === undefined) introduced = true;
+            || after !== arrivalEntry(second, file) || !fromTrusted(second)) return false;
+        if (arrivalEntry(first, file) === undefined) introduced = true;
       }
       return introduced;
     };

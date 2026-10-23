@@ -12,6 +12,7 @@ const TOOLS = join(ROOT, 'scripts/agent-tools');
 const MANIFEST = 'docs/acceptance/fix-rounds/synthetic.json';
 const REVIEW = 'docs/acceptance/file-reviews/synthetic.json';
 const PYTHON = 'tests/custom/test_probe.py';
+const TYPESCRIPT = 'tests/custom/probe.test.ts';
 const INPUT = 'tests/custom/schema.sql';
 const named = (extension: string) => `tests/other.test.${extension}`;
 const originalTest = "test('keeps its assertion', () => { expect(1).toBe(1); });\n";
@@ -59,13 +60,16 @@ class Fixture {
 		this.git('init', '-q', '-b', 'dev');
 		this.git('config', 'core.fileMode', 'true');
 		this.probe = probe;
-		this.write(probe, probe.endsWith('.py') ? 'import unittest\n\nclass Probe(unittest.TestCase):\n    def test_original(self):\n        self.assertEqual(1, 1)\n' : '#!/bin/sh\ntest 1 = 1\n');
+		const supportedProbe = probe === TYPESCRIPT;
+		this.write(probe, supportedProbe ? originalTest : probe.endsWith('.py')
+			? 'import unittest\n\nclass Probe(unittest.TestCase):\n    def test_original(self):\n        self.assertEqual(1, 1)\n' : '#!/bin/sh\ntest 1 = 1\n');
 		this.write(INPUT, 'CREATE TABLE cases (id TEXT PRIMARY KEY);\n');
 		for (const extension of ['js', 'ts']) this.write(named(extension), originalTest);
 		this.write('src/app.ts', 'export const value = 1;\n');
 		this.base = this.commit('original runtime review');
-		this.write(probe, readFileSync(join(this.repo, probe), 'utf8') + (probe.endsWith('.py')
-			? '\n    def test_new_regression(self):\n        self.assertEqual(2, 2)\n' : 'test 2 = 2\n'));
+		this.write(probe, readFileSync(join(this.repo, probe), 'utf8') + (supportedProbe
+			? "test('new regression', () => { expect(2).toBe(2); });\n" : probe.endsWith('.py')
+				? '\n    def test_new_regression(self):\n        self.assertEqual(2, 2)\n' : 'test 2 = 2\n'));
 		this.write('src/app.ts', 'export const value = 2;\n');
 		if (weakenBeforeSnapshot) this.write(weakenBeforeSnapshot, "test('keeps its assertion', () => {});\n");
 		this.snapshot = this.commit('fixed runtime and complete custom probe reviewed independently');
@@ -127,8 +131,8 @@ class Fixture {
 		return { status: result.status, output, receipt: records[0] };
 	}
 
-	refuse(caller: Caller, reason: string) {
-		const result = this.call(caller);
+	refuse(caller: Caller, reason: string, old = false) {
+		const result = this.call(caller, old);
 		expect(result.status, result.output).toBe(1);
 		expect(result.output).toContain(`test-guard: FAIL`);
 		expect(result.output).toContain(reason);
@@ -151,7 +155,8 @@ describe.each<Caller>(['test-guard', 'fix-round-guard'])('%s reviewed Python who
 
 	it.each(['bytes', 'mode', 'deleted', 'snapshot-file-missing', 'snapshot-missing', 'snapshot-short', 'unlisted-python'])(
 		'refuses %s instead of treating a frozen list as a waiver', variant => {
-			const f = new Fixture();
+			// Keep the unlisted-Python boundary independent of admission of a different frozen Python file.
+			const f = new Fixture(variant === 'unlisted-python' ? TYPESCRIPT : PYTHON);
 			if (variant === 'snapshot-file-missing') {
 				f.manifest.protection!.files[0].file = 'tests/custom/missing.py';
 				f.provenance.files[0].file = 'tests/custom/missing.py';
@@ -166,7 +171,10 @@ describe.each<Caller>(['test-guard', 'fix-round-guard'])('%s reviewed Python who
 			if (variant === 'deleted') rmSync(join(f.repo, PYTHON));
 			if (variant === 'unlisted-python') f.write('tests/custom/test_unlisted.py', 'assert True\n');
 			if (['bytes', 'mode', 'deleted', 'unlisted-python'].includes(variant)) f.commit('unreviewed test change');
-			f.refuse(caller, variant === 'unlisted-python' ? 'unsupported changed test syntax: tests/custom/test_unlisted.py' : 'file protection');
+			const reason = variant === 'unlisted-python'
+				? 'unsupported changed test syntax: tests/custom/test_unlisted.py; guard refuses to infer assertion counts' : 'file protection';
+			if (variant === 'unlisted-python') f.refuse(caller, reason, true);
+			f.refuse(caller, reason);
 		});
 
 	it.each(['fresh', 'actor', 'verdict', 'fix-base', 'findings', 'reviewed-head', 'short-list', 'wrong-list', 'reordered-list', 'nonancestor', 'before-base'])(
@@ -190,7 +198,8 @@ describe.each<Caller>(['test-guard', 'fix-round-guard'])('%s reviewed Python who
 			if (variant === 'before-base') {
 				// A valid commit and matching review are not sufficient: snapshots must descend from fixBase.
 				f.git('switch', '-q', '--orphan', 'unrelated');
-				f.git('rm', '-q', '-rf', '.');
+				// switch --orphan already removes tracked files; an empty index is the intended setup.
+				expect(f.git('ls-files')).toBe('');
 				f.write(PYTHON, 'assert True\n');
 				const outside = f.commit('unrelated snapshot');
 				f.git('switch', '-q', '--detach', f.snapshot);
@@ -198,7 +207,9 @@ describe.each<Caller>(['test-guard', 'fix-round-guard'])('%s reviewed Python who
 				f.provenance.files[0].revision = outside;
 			}
 			f.finish();
-			f.refuse(caller, 'file protection');
+			f.refuse(caller, variant === 'before-base'
+				? 'file protection files must be unique repository paths and full ancestor revisions identical to the separate review'
+				: 'file protection');
 		});
 
 	it.each(['hash', 'missing-review', 'review-bytes'])('refuses %s after the snapshot binding', variant => {
@@ -235,9 +246,11 @@ describe.each<Caller>(['test-guard', 'fix-round-guard'])('%s reviewed Python who
 	});
 
 	it.each(['js', 'ts'])('retains %s assertion floors even for separately frozen files', extension => {
-		const f = new Fixture(PYTHON, named(extension));
+		// No changed Python source may shadow the supported-language assertion floor in either reader.
+		const f = new Fixture(TYPESCRIPT, named(extension));
 		f.finish();
-		f.refuse(caller, `assertion count fell in ${named(extension)}`);
+		f.refuse(caller, `assertion count fell in ${named(extension)}: 1 -> 0`, true);
+		f.refuse(caller, `assertion count fell in ${named(extension)}: 1 -> 0`);
 	});
 
 	it.each(['js', 'ts'])('retains named %s test protection independently of Python support', extension => {
@@ -254,6 +267,6 @@ describe.each<Caller>(['test-guard', 'fix-round-guard'])('%s reviewed Python who
 		if (variant === 'configuration') f.write('vitest.config.ts', 'export default {};\n');
 		else f.write('src/app.ts', 'globalThis.expect = () => true;\n');
 		f.finish();
-		f.refuse(caller, variant === 'configuration' ? 'configuration' : 'reaches the test framework');
+		f.refuse(caller, variant === 'configuration' ? 'protected dependency added/deleted: vitest.config.ts' : 'reaches the test framework');
 	});
 });

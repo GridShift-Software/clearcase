@@ -16,7 +16,7 @@
 // committed copy; --table FILE overrides that copy for a synthetic test. --check exits 1 when the register or table differs, and (also without --check) when a
 // defect of defects.md or view-checklist.md has no entry naming it, a disposition names a defect that is no longer
 // listed, a defects.md row does not parse, or an evidence pattern is empty. --reference DIR reads docs/reference from DIR instead (the tests'
-// synthetic copy); evidence files are always read from the repository.
+// synthetic copy), including the --check defects-table generation; evidence files are always read from the repository.
 // scripts/verify/dispositions.mjs then reports every defect as registered.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -349,7 +349,7 @@ let tableDrift = 0;
 if (process.argv.includes('--check')) {
 	const tableAt = process.argv.indexOf('--table');
 	const table = tableAt > 0 ? resolve(process.argv[tableAt + 1]) : join(ROOT, 'docs', 'acceptance', 'CC-11', 'defects-table.md');
-	const generated = spawnSync(process.execPath, [join(ROOT, 'scripts', 'verify', 'dispositions.mjs')], { encoding: 'utf8' });
+	const generated = spawnSync(process.execPath, [join(ROOT, 'scripts', 'verify', 'dispositions.mjs'), ...(referenceAt > 0 ? ['--reference', REF] : [])], { encoding: 'utf8' });
 	if (generated.status !== 0) { console.error(generated.stderr); tableDrift = 1; }
 	else if (generated.stdout !== readFileSync(table, 'utf8')) { console.error(`register-dispositions: ${table} differs from generated defects table`); tableDrift = 1; }
 }

@@ -1020,6 +1020,15 @@ try {
 			return { pass: ev.kills === 1 && ev.settled && now?.saving === false && now.saveDisabled === false && /could not reload/.test(now.error) && now.alert === 'alert' && stored === 1 && after.listed === true && after.removed === true, evidence: { ...ev, now, stored, after } };
 		} finally { await q.close(); }
 	});
+	await S('CB-HEADER-NOJS-CONFIRM', 'court_bundle_tab', 'without JavaScript the Court Bundle header offers no confirmation or Add form', async () => {
+		await p.s('Emulation.setScriptExecutionDisabled', { value: true });
+		try {
+			await p.navigate(A.origin + B, { timeout: 30000 });
+			await p.waitFor('document.querySelector(\'main[data-ready="court_bundle_tab"]\')', 30000);
+			const ev = await p.evaluate(`({ hydrated: !!document.querySelector('main[data-hydrated]'), fieldDisabled: document.getElementById('cbh_court')?.disabled === true, clearDisabled: document.getElementById('cb-clear')?.disabled === true, restoreDisabled: document.getElementById('cb-restore')?.disabled === true, asking: !!document.querySelector('#cb-header [data-confirming]'), addForm: !!document.querySelector('#cb-header form') })`);
+			return { pass: !ev.hydrated && ev.fieldDisabled && ev.clearDisabled && ev.restoreDisabled && !ev.asking && !ev.addForm, evidence: ev };
+		} finally { await p.s('Emulation.setScriptExecutionDisabled', { value: false }); }
+	});
 	await S('NOJS', 'discovery_tab', 'D4: without JavaScript no control of the three views looks usable, and each view says saving needs JavaScript; the bundle builder says it needs JavaScript', async () => {
 		const out = {};
 		await p.s('Emulation.setScriptExecutionDisabled', { value: true });

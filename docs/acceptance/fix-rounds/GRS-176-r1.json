@@ -1,0 +1,60 @@
+{
+  "schema": "clearcase-fix-round/1",
+  "unit": "GRS-176/implementation",
+  "fixBase": "a61eee15d17965c98b62bb2f69c71b60585cac2d",
+  "reviewFindingsSha256": "8ec4c94c2011820eb1a375f2c37cd2a8a8a57598dbd50b3277a07faa294ff705",
+  "review": {
+    "issue": "GRS-176",
+    "round": "review-r1",
+    "reviewer": "internal diff review",
+    "reviewedHead": "08494615b8d08b11bb5271ced1fa60e0a7dccf5d",
+    "waveBase": "225b7e00578319d16383678a8d1ae6efb362a0ba",
+    "note": "Red commit bdd08d20 adds the three failing adverse tests. fixBase is the later commit that expresses the same two list tests as individually named tests for the guard. reviewFindingsSha256 is the SHA-256 of .orchestration/reports/GRS-176/review.md."
+  },
+  "findings": [
+    {
+      "file": "docs/reference/parity/intentional-differences.json",
+      "line": 195,
+      "severity": "medium",
+      "comment": "IDR-053",
+      "text": "The waived saved-note count and item wildcard accept an extra rendered note.",
+      "tests": [
+        { "file": "tests/parity/pending-coverage.test.ts", "name": "an extra saved-note item is refused despite its register wildcard" },
+        { "file": "tests/parity/pending-coverage.test.ts", "name": "the pending register entries cover only their observed structures" }
+      ]
+    },
+    {
+      "file": "docs/reference/parity/intentional-differences.json",
+      "line": 230,
+      "severity": "medium",
+      "comment": "IDR-055",
+      "text": "The bundle option item wildcard accepts a wrong existing option.",
+      "tests": [
+        { "file": "tests/parity/pending-coverage.test.ts", "name": "a changed existing bundle option is refused despite its register wildcard" },
+        { "file": "src/lib/local-case/chronology.test.ts", "name": "orders every imported bundle in a synthetic six-bundle case" }
+      ]
+    },
+    {
+      "file": "docs/reference/parity/register/CC-10.json",
+      "line": 237,
+      "severity": "medium",
+      "comment": "IDR-414",
+      "text": "The backup inventory heading and row wildcards accept a phantom table.",
+      "tests": [
+        { "file": "tests/parity/pending-coverage.test.ts", "name": "a phantom backup table is refused despite the inventory wildcard" },
+        { "file": "tests/system/backup.test.ts", "name": "replacement round trip restores the earlier saved work and its pre-restore copy" }
+      ]
+    }
+  ],
+  "assertionCountReasons": {
+    "tests/ci/pc1-vm-verify.test.ts": "GRS-165 moved the original PC1 verification monolith into tests/ci/pc1-vm-provision-registration.test.ts, tests/ci/pc1-vm-verification.test.ts, tests/ci/pc1-vm-stored-verdicts.test.ts, and tests/ci/pc1-vm-github-lifecycle.test.ts. The GRS-165 recheck found all 64 original test-bearing statements token-for-token in order and all 115 original runtime test names preserved in order; tests/ci/pc1-vm-split-inventory.test.ts checks the four suites against tests/ci/pc1-vm-test-inventory.json. The old path's 356 assertions moved with those tests; this reason records that free-test move and does not excuse edits to protected tests, helpers, or runner configuration."
+  },
+  "tests": [
+    { "file": "tests/parity/pending-coverage.test.ts", "name": "an extra saved-note item is refused despite its register wildcard" },
+    { "file": "tests/parity/pending-coverage.test.ts", "name": "the pending register entries cover only their observed structures" },
+    { "file": "tests/parity/pending-coverage.test.ts", "name": "a changed existing bundle option is refused despite its register wildcard" },
+    { "file": "src/lib/local-case/chronology.test.ts", "name": "orders every imported bundle in a synthetic six-bundle case" },
+    { "file": "tests/parity/pending-coverage.test.ts", "name": "a phantom backup table is refused despite the inventory wildcard" },
+    { "file": "tests/system/backup.test.ts", "name": "replacement round trip restores the earlier saved work and its pre-restore copy" }
+  ]
+}

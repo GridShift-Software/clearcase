@@ -640,11 +640,11 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-disbursements_tab-2",
-      "reason": "v5's CSV export writes free-text fields unprotected, so a cell starting with a formula character can run as a formula in a spreadsheet. ClearCase passes every exported user cell through a neutraliser that prefixes such cells, and formula segments after a separator, with an apostrophe. The exception is a validated amount in a signed-money field (Disbursements Amount): it is written as a plain two-decimal number, credits included, with R and grouping removed, where v5 writes what the user typed. Evidence: tests/registers/logic.test.ts:90.",
+      "reason": "v5's CSV export writes free-text fields unprotected, so a cell starting with a formula character can run as a formula in a spreadsheet. ClearCase passes every exported user cell through a neutraliser that prefixes such cells, and formula segments after a separator, with an apostrophe. The exception is a validated amount in a signed-money field (Disbursements Amount): it is written as a plain two-decimal number, credits included, with R and grouping removed, where v5 writes what the user typed. Evidence: tests/registers/logic.test.ts:99.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": "Vaperizer2",
-      "approvedOn": "2026-10-21"
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
       "id": "IDR-287",
@@ -653,11 +653,11 @@
       "type": "known-gap",
       "source": "S-timesheet_tab-2",
       "owner": "GRS-17",
-      "reason": "v5 exports only the stored fields, so the derived Value is missing from the CSV. ClearCase writes the same stored field keys and rows and does not add the Value column; an app change is needed to export it. Evidence: src/lib/views/registers/logic.ts:93.",
+      "reason": "v5 exports only the stored fields, so the derived Value is missing from the CSV. ClearCase writes the same stored field keys and rows and does not add the Value column; an app change is needed to export it. Evidence: src/lib/views/registers/logic.ts:90.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": "Vaperizer2",
-      "approvedOn": "2026-10-21"
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
       "id": "IDR-288",
@@ -666,7 +666,7 @@
       "type": "known-gap",
       "source": "S-deadlines_tab-3",
       "owner": "GRS-17",
-      "reason": "v5 has no edit, keeps the category after Add and deletes without asking. ClearCase adds a per-row Edit and deletes by stable row id only once confirmed: Delete shows Confirm delete and Cancel inline, and the server deletes nothing unless the request names the confirmed row. The same question also appears on Cross-examination and the other six generic registers. One of the three parts remains: the category still stays after Add. Closing it would need an app change. Evidence: src/lib/views/registers/page.server.ts:130.",
+      "reason": "v5 has no edit, keeps the category after Add and deletes without asking. ClearCase adds a per-row Edit and deletes by stable row id only once confirmed: Delete shows Confirm delete and Cancel inline, and the server deletes nothing unless the request names the confirmed row. The same question also appears on Cross-examination and the other six generic registers. One of the three parts remains: the category still stays after Add. Closing it would need an app change. Evidence: src/lib/views/registers/page.server.ts:133.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

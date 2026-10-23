@@ -71,5 +71,5 @@ export function safeExternalHref(raw: string): string | null {
   return c.kind === 'external' ? c.href : null;
 }
 
-/** CSV export guard against formula injection, for every text cell (imported or typed): a `'` at position 0 when the text starts with spaces, if any, and then `=`, `+`, `-`, `@`, TAB or CR (a "Trim spaces" import runs ` =1+1`). Same start rule as the segment rule in csv.ts. */
+/** CSV export guard against formula injection at the start of a cell: prefix `'` when spaces, if any, are followed by `=`, `+`, `-`, `@`, TAB or CR (a "Trim spaces" import runs ` =1+1`). The segment rule in csv.ts also protects after separators. */
 export const exportCell = (s: string): string => (/^ *[=+\-@\t\r]/.test(s) ? `'${s}` : s);

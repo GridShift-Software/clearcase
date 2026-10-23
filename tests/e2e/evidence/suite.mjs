@@ -12,7 +12,8 @@ const { join, resolve } = await import('node:path');
 const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { launch, sleep } = await import('../pilot/lib/cdp.mjs');
-const { asking, cancelIfAsked, confirmPressed, describedBy, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { asking, cancelIfAsked, confirmPressed, describedBy, draftThroughDeleteWithoutJs, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { draftThroughDeleteWithHalfDate, halfTypeDate } = await import('../pilot/lib/half-date.mjs');
 const { bunIdentity } = await import('../pilot/lib/server.mjs');
 const { outDir } = await import('../pilot/lib/record.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
@@ -895,6 +896,57 @@ try {
 		const ev = { key, shown: (await regRows()).some((r) => r.key === key), stored: storedFilings().some((r) => `row:${r.id}` === key), focus: await p.evaluate(`document.activeElement?.hasAttribute('data-delete-confirm') ?? false`), cancel: await p.evaluate(`!!document.querySelector(${J(`${row} [data-delete-cancel]`)})`) };
 		return { pass: ev.shown && ev.stored && ev.focus && ev.cancel, evidence: ev };
 	});
+	await scenario('E-FILINGS-NOJS-CONFIRM-DRAFT', 'filings_tab', 'without JavaScript, Delete then Cancel or Confirm keeps text typed into Add', async () => {
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		const n = (await regRows()).length;
+		await setFields(p, { fl_filing: 'Synthetic no-JS target filing' });
+		await p.click('#register-add');
+		await p.waitFor(`document.querySelectorAll('#filing-register tbody tr[data-key]').length === ${n + 1} && !document.getElementById('register-status')`, 20000);
+		const key = (await regRows()).find((r) => r.filing === 'Synthetic no-JS target filing')?.key;
+		const row = `#filing-register tr[data-key=${J(key)}]`;
+		const round = await draftThroughDeleteWithoutJs(p, { url: `${V}/evidence/filings_tab`, ready: `document.querySelector('main#main')?.dataset.ready === 'filings_tab'`, draft: '#fl_filing', text: 'Synthetic unsaved filing', row, opener: `${row} [data-delete]` });
+		const checks = { askKeeps: round.askedBeforeCancel.value === 'Synthetic unsaved filing' && round.askedBeforeCancel.row && round.askedBeforeCancel.asking,
+			cancelKeeps: round.cancelled.value === 'Synthetic unsaved filing' && round.cancelled.row && !round.cancelled.asking,
+			confirmKeeps: round.askedBeforeConfirm.value === 'Synthetic unsaved filing' && round.confirmed.value === 'Synthetic unsaved filing' && !round.confirmed.row && !storedFilings().some((r) => `row:${r.id}` === key) };
+		return { pass: Object.values(checks).every(Boolean), evidence: { checks, round } };
+	});
+	await scenario('E-FILINGS-HALFDATE-JS', 'filings_tab', 'GRS-181: with JavaScript, a half-typed Add date does not stop Delete then Confirm delete: the row is deleted and the Add draft stays', async () => {
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		const n = (await regRows()).length;
+		await setFields(p, { fl_filing: 'Synthetic half-date target filing' });
+		await p.click('#register-add');
+		await p.waitFor(`document.querySelectorAll('#filing-register tbody tr[data-key]').length === ${n + 1} && !document.getElementById('register-status')`, 20000);
+		const key = (await regRows()).find((r) => r.filing === 'Synthetic half-date target filing')?.key;
+		const row = `#filing-register tr[data-key=${J(key)}]`;
+		const before = storedFilings().length;
+		await setFields(p, { fl_filing: 'Synthetic unsaved filing' });
+		const half = await halfTypeDate(p, '#fl_fdate');
+		await p.click(`${row} [data-delete]`);
+		await confirmPressed(p, row);
+		await p.waitFor(`!document.querySelector(${J(row)})`, 5000).catch(() => false);
+		await sleep(300);
+		const ev = { half, rowShown: (await regRows()).some((r) => r.key === key), stored: storedFilings().length, before, draft: await p.evaluate(`document.getElementById('fl_filing').value`) };
+		await setFields(p, { fl_filing: '' });
+		const checks = { rowGone: !ev.rowShown && !storedFilings().some((r) => `row:${r.id}` === key), onlyThatRow: ev.stored === before - 1, draftStays: ev.draft === 'Synthetic unsaved filing' };
+		return { pass: Object.values(checks).every(Boolean), evidence: { checks, ev } };
+	});
+	await scenario('E-FILINGS-HALFDATE-NOJS', 'filings_tab', 'GRS-181: without JavaScript, a half-typed Add date does not stop Delete, Cancel or Confirm delete: Cancel keeps the row and the Add draft, Confirm deletes the row and keeps the draft', async () => {
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		const n = (await regRows()).length;
+		await setFields(p, { fl_filing: 'Synthetic no-JS half-date target filing' });
+		await p.click('#register-add');
+		await p.waitFor(`document.querySelectorAll('#filing-register tbody tr[data-key]').length === ${n + 1} && !document.getElementById('register-status')`, 20000);
+		const key = (await regRows()).find((r) => r.filing === 'Synthetic no-JS half-date target filing')?.key;
+		const row = `#filing-register tr[data-key=${J(key)}]`;
+		const before = storedFilings().length;
+		const fill = async () => { await p.type('#fl_filing', 'Synthetic unsaved filing'); await halfTypeDate(p, '#fl_fdate'); };
+		const round = await draftThroughDeleteWithHalfDate(p, { url: `${V}/evidence/filings_tab`, ready: `document.querySelector('main#main')?.dataset.ready === 'filings_tab'`, fill, draft: '#fl_filing', row, opener: `${row} [data-delete]` });
+		const checks = { askMoves: round.askedBeforeCancel.moved && round.askedBeforeCancel.asking && round.askedBeforeCancel.value === 'Synthetic unsaved filing',
+			cancelMoves: round.cancelled.moved && round.cancelled.row && !round.cancelled.asking && round.cancelled.value === 'Synthetic unsaved filing',
+			confirmMoves: round.askedBeforeConfirm.moved && round.confirmed.moved && !round.confirmed.row && round.confirmed.value === 'Synthetic unsaved filing',
+			onlyThatRow: storedFilings().length === before - 1 && !storedFilings().some((r) => `row:${r.id}` === key) };
+		return { pass: Object.values(checks).every(Boolean), evidence: { checks, round } };
+	});
 	await scenario('E-FILINGS-CONFIRM-CASES', 'filings_tab', "GRS-175: Cancel and Escape keep the row and return focus to its Delete; a second row's Delete moves the question and deletes nothing; a reload drops the question and keeps both rows; a POST without the row's confirmation is refused; Confirm delete deletes exactly that row", async () => {
 		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
 		const n = (await regRows()).length;
@@ -1007,6 +1059,31 @@ try {
 		};
 		return { pass: Object.values(checks).every(Boolean), evidence: { checks, nav: nav.got, pair, reloaded, pick, general, optionsN: options.length } };
 	});
+	await scenario('E-FILINGS-RELOAD-LOST', 'filings_tab', 'a stored filing survives a failed reload with a URL fragment, clears busy, reports the stale page and allows leaving', async () => {
+		const q = await openPage(b, { initScript: INIT });
+		let killed = false, handlerError = null;
+		const off = b.on((m) => {
+			if (m.sessionId !== q.sessionId || m.method !== 'Fetch.requestPaused') return;
+			(async () => {
+				if (!killed) { killed = true; const srv = A.srv; A.srv = null; await srv.stop('SIGKILL'); }
+				await q.s('Fetch.continueRequest', { requestId: m.params.requestId });
+			})().catch((e) => { handlerError = String(e); });
+		});
+		try {
+			await q.goto(`${V}/evidence/filings_tab#main`, R('filings_tab'));
+			await q.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json?*x-sveltekit-invalidated=*', requestStage: 'Request' }] });
+			await q.evaluate(`(() => { for (const [id, value] of Object.entries({ fl_filing: 'Synthetic reload filing', fl_fdate: '1997-07-08', fl_fparty: 'Synthetic party', fl_response: 'Synthetic response', fl_rdate: '1997-08-09', fl_ref: 'OD-002' })) { const e = document.getElementById(id); e.value = value; e.dispatchEvent(new Event('input', { bubbles: true })); } })()`);
+			await q.click('#register-add');
+			await q.waitFor(`!document.getElementById('register-status')`, 10000).catch(() => null);
+			const state = await q.evaluate(`({ busy: !!document.getElementById('register-status'), error: document.getElementById('reload-error')?.textContent ?? '', alert: document.getElementById('reload-error')?.getAttribute('role'), enabled: !document.querySelector('#register-form fieldset')?.disabled })`);
+			const stored = A.work("SELECT fields FROM register_row WHERE store = 'filings-register'").some((r) => JSON.parse(r.fields).filing === 'Synthetic reload filing');
+			await A.start();
+			await q.click('#nav-documents');
+			const left = await q.waitFor(`document.querySelector('main#main')?.dataset.ready === 'documents'`, 3000).then(() => true, () => false);
+			return { pass: killed && stored && !state.busy && state.enabled && state.alert === 'alert' && /could not reload/.test(state.error) && left && !handlerError, evidence: { killed, stored, state, left, handlerError } };
+		} finally { off(); await q.s('Fetch.disable').catch(() => {}); if (!A.srv) await A.start(); await q.close(); }
+	});
+
 	exitOk = true;
 } catch (e) {
 	scenarios.push({ id: 'HARNESS', view: 'none', title: 'evidence suite harness', pass: false, evidence: { error: String(e?.stack ?? e).slice(0, 4000) } });

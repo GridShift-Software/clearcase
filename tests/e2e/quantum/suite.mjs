@@ -399,7 +399,7 @@ try {
 				const before = S.rows('payments');
 				const note = `Synthetic half-date target ${mode}`;
 				await qk.fill([['#pay_date', '2089-06-30'], ['#pay_amount', '5.00'], ['#pay_method', 'Synthetic EFT'], ['#pay_note', note]]);
-				await q.click('#pay-add');
+				await qk.click('#pay-add');
 				await q.waitFor(`(${loaded}) && [...document.querySelectorAll('#payments tbody tr[data-row-id]')].some((r) => r.cells[3].textContent.trim() === ${J(note)}) && document.getElementById('pay_date').value === ''`, 15000);
 				const created = S.rows('payments');
 				const target = created.find((r) => r.fields.note === note && !before.some((old) => old.id === r.id));
@@ -409,10 +409,10 @@ try {
 				await qk.fill(draft);
 				const half = await halfTypeDate(q, '#pay_date');
 				await q.evaluate('window.__halfDateRound = true');
-				await q.click('#pay-add');
+				await qk.click('#pay-add');
 				const add = await q.evaluate(`({ sameDocument: window.__halfDateRound === true, bad: document.getElementById('pay_date').validity.badInput, value: document.getElementById('pay_date').value })`);
 				const addBlocked = add.sameDocument && add.bad && add.value === '' && J(S.rows('payments')) === J(created);
-				await q.click(`${row} [data-delete]`);
+				await qk.click(`${row} [data-delete]`);
 				const rowGone = await q.waitFor(`(${loaded}) && !document.querySelector(${J(row)})`, 4000).then(() => true, () => false);
 				const after = S.rows('payments');
 				const values = await qk.values(draft.map(([sel]) => sel));

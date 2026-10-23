@@ -1189,6 +1189,33 @@ function main() {
   const fromBase = file => merged && (treeEntry(tip, file) !== undefined || treeEntry(base, file) !== undefined)
     && treeEntry(tip, file) === treeEntry(trusted, file)
     && forks.every(fork => treeEntry(fork, file) === treeEntry(base, file));
+  // Equality alone cannot establish arrival: the candidate could have copied the helper before merging the base.
+  // Every change on its first-parent line must come through a two-parent merge of a trusted ancestor, with the
+  // received mode/blob intact. Inspect the whole line, so editing then restoring or deleting then remerging refuses.
+  let arrivalLine;
+  const arrivals = new Map();
+  const trustedArrival = file => {
+    if (arrivals.has(file)) return arrivals.get(file);
+    const prove = () => {
+      if (treeEntry(base, file) !== undefined || !fromBase(file)) return false;
+      arrivalLine ??= git('rev-list', '--first-parent', '--parents', tip, `^${base}`).trim().split('\n')
+        .filter(Boolean).map(row => row.split(' ')).reverse();
+      let introduced = false;
+      for (const [revision, first, second, ...rest] of arrivalLine) {
+        const before = first && treeEntry(first, file);
+        const after = treeEntry(revision, file);
+        if (before === after) continue;
+        if (!first || !second || rest.length || !REGULAR.includes(tracked(revision).get(file)?.mode)
+            || after !== treeEntry(second, file)
+            || spawnSync('git', ['-C', root, 'merge-base', '--is-ancestor', second, trusted], { env }).status !== 0) return false;
+        if (before === undefined) introduced = true;
+      }
+      return introduced;
+    };
+    const proven = prove();
+    arrivals.set(file, proven);
+    return proven;
+  };
   // A path the base added, changed or deleted after the review is one whose copy at a base commit HEAD holds differs from
   // the copy at every merge base of that commit with the fix base, and from the fix base's. The fix base's copy is no
   // reference for it (an addition's absence least of all, a rename's new path included): the base's copy HEAD received
@@ -1987,11 +2014,11 @@ function main() {
   // reference's closure protects that path. No reason excuses a change there.
   const dependency = (file, origin, oldText, newText, reference) => {
     // A runner configuration or derived package entry can be absent at review because the merged base added its file.
-    // Protected test/setup code keeps refusal precedence when an origin also belongs to the runner; equality for an
-    // accepted inherited origin includes its full blob and mode.
+    // Protected membership takes precedence over runner membership: those origins need a genuine arrival, even
+    // through transitive/cyclic runner imports. Both rules require the full trusted origin's blob and mode.
     if (oldText === undefined && newText !== undefined && !oldClosure.ids.has(origin)
-        && !currentClosure.protectedDeps.has(origin)
-        && (currentClosure.runner.has(origin) || file !== origin) && fromBase(origin)) {
+        && (currentClosure.protectedDeps.has(origin) ? trustedArrival(origin)
+          : (currentClosure.runner.has(origin) || file !== origin) && fromBase(origin))) {
       inherited.push(file);
       return;
     }

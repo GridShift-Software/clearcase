@@ -364,7 +364,7 @@ branch's own change again. The named tests are still compared token for token wh
 the base holds. Everything else refuses with the messages above: a branch edit after a merge or on top of a base change,
 an edit inside the merge commit, a revert of a reviewed change to the base's older copy, a path both sides changed (a
 hand-resolved union, which is a branch-side choice: PR #75's `vitest.config.ts` was one, and even Git's 3-way merge of it
-conflicts), an added setup/helper dependency or a deleted protected dependency, a symlink, a mode change on top, a base HEAD has not merged
+conflicts), a setup/helper addition without trusted arrival provenance or a deleted protected dependency, a symlink, a mode change on top, a base HEAD has not merged
 (including one that moved on after the merge: merge it again), an unreadable base, and no `--base` (the default base sets
 the range only). A key that neither HEAD nor the fix base tracks, such as a derived entry whose file is not mapped, is never the base's
 change. A criss-cross history also refuses falsely: if the fix base merged a `dev` config change Q and `dev` merged the branch's P, the
@@ -414,13 +414,26 @@ the path. Per kind of path:
   after a base change counts as changed.
 
 An unchanged branch merging a base change to an existing test, runtime file, fixture, helper or runner configuration
-passes. Additions can still refuse: a protected fixture or setup/helper dependency the base adds or deletes remains
-protected, including when the same origin is imported by a new runner configuration. GRS-195's exception applies to a
+passes. A protected fixture addition or a protected dependency deletion still refuses. GRS-195's exception applies to a
 runner configuration, a module it imports or a derived package entry (test scripts or resolution fields) absent at review
 only when that origin is not also a protected setup/helper dependency, the merged trusted base added its origin file and
-HEAD holds that origin's full blob and mode unchanged. Protected
-test/setup traversal follows every shared, transitive or cyclic dependency even
+HEAD holds that origin's full blob and mode unchanged.
+
+GRS-196 admits a new protected setup/helper dependency when its origin was absent at the original `fixBase` and every
+merge base with the trusted base, HEAD has merged the current explicit trusted base, and HEAD holds that base's full
+mode and blob. Equality alone does not prove arrival. On HEAD's first-parent line after `fixBase`, the origin must first
+appear in a two-parent merge whose second parent is an ancestor of the trusted base and holds the merge's exact copy.
+Every later change to that origin must satisfy the same merge rule. An ordinary candidate commit that adds, edits,
+deletes or changes its mode refuses, even if a later commit restores the trusted bytes. A deletion through a merge
+also refuses. Copied files, unmerged or moved-on bases, octopus arrivals, and unsupported mixed or cyclic origins refuse.
+This rule applies to both named-test and files protection modes. The original findings, `fixBase`, named tests and
+approved file snapshots keep their bindings.
+
+Protected test/setup traversal follows every shared, transitive or cyclic dependency even
 when the runner already visited the file. Protected membership takes precedence over runner membership for every origin.
+An origin with both roles needs the protected arrival proof. Each new protected descendant needs its own proof, so one
+trusted root cannot excuse a candidate-created leaf. A graph whose origins all prove trusted arrival can pass even with
+shared or cyclic edges. An existing file that only gains protected membership cannot claim to be a new trusted arrival.
 Import, re-export, dynamic import and require specifiers, including explicit extensions and TypeScript import-equals,
 belong to the runner import graph; setup entries and other path expressions still create protected setup membership.
 The rule is based on closure provenance, not filenames. Candidate additions, edits or deletions,
@@ -430,6 +443,14 @@ changed after HEAD's last merge, and a later base change to a path HEAD already 
 reference for a path it had not changed when it and the fix base parted, such as a test the branch added before a
 criss-cross merge. Without a trusted base nothing changes, and a weakening under a base rename then refuses at the old
 path, which counts as the branch's.
+
+The synthetic controls in `tests/agent-tools/test_trusted_setup_arrivals.py` exercise both modes. GRS-196 supersedes the
+earlier refusal expectations for unchanged trusted setup additions in `FixRoundMergedBase` and
+`FixRoundConfigurationAdditions`: direct setup, helper/runner overlap, shared/transitive/cyclic traversal, and explicit
+or generic setup paths. Each now passes the genuine arrival first and still refuses the corresponding candidate edit.
+All other adversarial expectations remain. The new controls also refuse pre-arrival copies, later restoration, deletion,
+mode changes, symlinks, untrusted side merges, and unsupported overlapping origins. Guard-tooling changes use the existing
+no-self-manifest procedure: no fabricated fix-round manifest, label, or `--fix-round` protection claim.
 
 A path that the branch added in the reviewed commit and the base added with other content is a hand-resolved union. Git
 cannot merge the two copies, since both sides added the path, so there is no unchanged merge to count, and the floor is

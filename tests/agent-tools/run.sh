@@ -1401,6 +1401,7 @@ run "unattended controls synthetic CLI suite" 0 python3 -I "$HERE/test_controls.
 run "docs-only fix round controls (GRS-156)" 0 python3 -I "$HERE/test_docs_only.py"
 
 run "custom-file protection controls (GRS-193)" 0 python3 -I "$HERE/test_file_protection.py"
+run "literal member key controls (GRS-190)" 0 python3 -I -m unittest discover -s "$HERE" -p test_literal_keys.py
 
 run "trusted setup arrival controls (GRS-196)" 0 python3 -I "$HERE/test_trusted_setup_arrivals.py"
 

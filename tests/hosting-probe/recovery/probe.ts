@@ -22,7 +22,7 @@ import { DESCRIPTOR_SIZE, type Entry, crc32, descriptor, localHeader, trailer } 
 const HERE = import.meta.dirname;
 const STORAGE = path.join(HERE, '../storage');
 const SCHEMA = 'clearcase.recovery-probe/1';
-const LEGS = ['build', 'provision', 'crossed-recovery', 'seed', 'rollback', 'copies', 'deletion-flow', 'deletion-reapply', 'restore-from-copy', 'retention', 'restore-leftovers', 'ledger-guards', 'warm-isolate', 'interrupted-erasure'] as const;
+const LEGS = ['build', 'provision', 'crossed-recovery', 'seed', 'rollback', 'copies', 'deletion-flow', 'deletion-reapply', 'restore-from-copy', 'retention', 'restore-leftovers', 'ledger-guards', 'warm-isolate', 'interrupted-erasure', 'restore-removal-race', 'dead-intent'] as const;
 type LegName = (typeof LEGS)[number];
 type Measure = Record<string, number | string | boolean>;
 type Leg = { status: 'PASS' | 'FAIL' | 'NOT RUN'; commands: string[]; asserted: string[]; measured: Measure; failure?: string };
@@ -75,6 +75,8 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	'ledger-guards': [4, 4],
 	'warm-isolate': [5, 6],
 	'interrupted-erasure': [9, 16],
+	'restore-removal-race': [10, 12],
+	'dead-intent': [7, 9],
 };
 type Spec = null | boolean | number | string | RegExp | ((v: unknown) => boolean) | Spec[] | { [key: string]: Spec };
 const NONEMPTY = (v: unknown) => typeof v === 'string' && v.length > 0;
@@ -82,6 +84,9 @@ const POSITIVE = (v: unknown) => Number.isSafeInteger(v) && (v as number) > 0;
 const MS = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0; // a local wall time; zero would hide a zeroed field
 const RETRIES = (v: unknown) => isObject(v) && Object.keys(v).sort().join() === 'count,requests' && Array.isArray(v.requests) && v.requests.every(NONEMPTY) && v.count === v.requests.length;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+/** D1's limit on the queries of one Worker invocation on Workers Paid (storage.md's numeric envelope). Local workerd enforces none. */
+const D1_QUERY_LIMIT = 1000;
+const WITHIN_D1 = (v: unknown) => POSITIVE(v) && (v as number) <= D1_QUERY_LIMIT;
 /** What each leg measures, and what each value must be. Counts the legs fix are literals; timings are local only. */
 const MEASURES: Record<LegName, Record<string, Spec>> = {
 	build: { workerBytes: POSITIVE },
@@ -98,6 +103,8 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 	'ledger-guards': { refusedRequests: 3 },
 	'warm-isolate': { routesGone: 9, repeatedRemovals: 1, residueRows: 0 },
 	'interrupted-erasure': { interruptedRemovals: 2, finishedByRoute: 1, finishedByNewIsolate: 1, objectsLeftAfterFinish: 0, residueRows: 0, failedErasuresIsolated: 1, otherCasesServed: 1, staleErrorsAfterCopyBack: 0 },
+	'restore-removal-race': { lateWrites: 0, residueRows: 0, lateFinishRows: 0, pendingHeld: 1 },
+	'dead-intent': { deadIntents: 1, liveLeaseStatements: WITHIN_D1, expiredLeaseStatements: WITHIN_D1, objectsLeft: 0, residueRows: 0 },
 };
 const ENV_KEYS = ['CI', 'CLOUDFLARE_CF_FETCH_ENABLED', 'CLOUDFLARE_INCLUDE_PROCESS_ENV', 'CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV', 'HOME', 'PATH', 'WRANGLER_HIDE_BANNER', 'WRANGLER_LOG_PATH', 'WRANGLER_SEND_ERROR_REPORTS', 'WRANGLER_SEND_METRICS', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME'];
 
@@ -1079,6 +1086,167 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			const direct = wrangler('d1', 'execute', 'DB', '--local', '--env', 'client-a', '--command', `UPDATE case_deletion SET erase_error = 'probe write' WHERE case_id = '${a6.caseId}'`);
 			check(direct.code !== 0 && errorOf(a6) === null && row(a6).erased_at === erasedAt6, "the schema itself refuses an erase_error on an erased case: a direct write to A6's row fails and changes nothing");
 			Object.assign(m, { interruptedRemovals: 2, finishedByRoute: left5.length === 0 ? 1 : 0, finishedByNewIsolate: left6.length === 0 ? 1 : 0, objectsLeftAfterFinish: left5.length + left6.length, residueRows: res[0]!.left.length + res[1]!.left.length, failedErasuresIsolated: other.status === 200 && left7.length === 0 ? 1 : 0, otherCasesServed: other.status === 200 ? 1 : 0, staleErrorsAfterCopyBack: staleErrors });
+		});
+		await leg('restore-removal-race', ['POST /restore/packets, PUT …/1, POST …/complete, POST …/open for a synthetic backup', 'POST …/step with x-probe-hold: restore-late, GET /probe/hold/restore-late', 'seed the same case, activate a different version and seal an export', 'POST /cases/<case>/deletion/{request,approve,offer,remove}', 'POST /probe/hold/restore-late/release, GET /recovery/head/live/orig/<sha>', wcmd('d1 execute DB --local --env client-a --command "SELECT erased_at FROM case_deletion; SELECT * FROM restore_object"'), 'POST a complete backup …/open, …/step, then …/finish with x-probe-finish-hold: restore-finish-late', wcmd('r2 object put {recovery-a,recovery-copies-a}/deletion/<case>.json --local') + ', GET /cases/<case>/documents/<ref>, POST /probe/storage-hold/restore-finish-late/release', 'POST a simple backup …/step with x-probe-write-hold: restore-write-late, GET /probe/storage-hold/restore-write-late', wcmd('r2 object put both deletion/<case>.json --local') + ', GET /probe/erasure/<case> while held, POST /probe/storage-hold/restore-write-late/release, GET /cases/<case>/documents/<ref>'], async (check, m) => {
+			const caseId = 'case-recovery-late';
+			const bytes = synthetic('recovery probe late restore original', 60);
+			const sha = sha256(bytes);
+			const v = versionOf('late restore');
+			const packet = await upload(backupZip(caseId, v, [{ path: `originals/${sha}`, kind: 'original', bytes }]));
+			check((await post(`/restore/packets/${packet}/open`, { caseId })).status === 200, 'the synthetic restore packet is open before the case exists');
+			const late = http(`/restore/packets/${packet}/step`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-probe-hold': 'restore-late' }, body: JSON.stringify({ caseId, from: 1 }), timeout: 60_000 });
+			let waiting = false;
+			for (let i = 0; i < 200 && !waiting; i++) {
+				waiting = (await http('/probe/hold/restore-late')).json().waiting === true;
+				if (!waiting) await sleep(50);
+			}
+			check(waiting, 'the step passed the recovery deletion gate and is held before delegation');
+			const seeded = original('late-seed', 'recovery probe late case seed', 60);
+			await putOriginal(caseId, seeded);
+			await importVersion(caseId, versionOf('late seed'), ['S-0001'], [seeded]);
+			check((await post(`/cases/${caseId}/activate`, { version: versionOf('late seed'), expected: null })).status === 200, 'the case is live with a different results version while the restore is held');
+			const offered = await exportCase(caseId);
+			const FA = { role: 'firm-admin', id: 'fa-1' };
+			const GA = { role: 'global-admin', id: 'ga-1' };
+			for (const [name, data] of [['request', { actor: FA }], ['approve', { actor: GA }], ['offer', { actor: GA, exportId: offered.exportId }], ['remove', { actor: GA }]] as const) {
+				const r = await post(`/cases/${caseId}/deletion/${name}`, data);
+				if (r.status !== 200) throw new Error(`removal ${name}: ${r.status} ${r.text}`);
+			}
+			await post('/probe/hold/restore-late/release', {});
+			const resumed = await late;
+			const object = await held('live', `orig/${sha}`);
+			const res = residue('client-a', caseId, [v, versionOf('late seed')], [offered.exportId]);
+			const erased = d1('client-a', `SELECT erased_at FROM case_deletion WHERE case_id = '${caseId}'`)[0]?.erased_at;
+			check(code(resumed, 409, 'case-deleted') && !!erased && !object && res.left.length === 0, `the late step is refused after erasure and leaves no original or case row (step ${resumed.status}, object ${!!object}, rows ${res.left.join(', ')})`);
+			const finishCase = 'case-recovery-finish-late';
+			const finishVersion = versionOf('late finish');
+			const finishOriginal = synthetic('recovery probe late finish original', 60);
+			const finishFile = enc.encode('{"synthetic":true,"lateFinish":true}');
+			const finishList = enc.encode('[{"ref":"S-0001"}]');
+			const finishResults = {
+				version: { version_id: finishVersion, case_id: finishCase, state: 'stored', expected_documents: 1, expected_assets: 0, expected_seeds: 0, expected_files: 1, list_sha256: sha256(finishList), list_size: finishList.length },
+				packageFiles: [{ path: 'datasets/late.json', sha256: sha256(finishFile), size: finishFile.length }],
+				originals: [{ asset_id: 'late-original', sha256: sha256(finishOriginal), size: finishOriginal.length, filename: 'late.pdf', media_type: 'application/pdf' }],
+			};
+			const packed = (value: unknown) => enc.encode(JSON.stringify(value));
+			const finishPacket = await upload(backupZip(finishCase, finishVersion, [
+				{ path: 'user-work.json', kind: 'user-work', bytes: packed(await json(`/cases/${finishCase}/work`)) },
+				{ path: 'read-model/document.json', kind: 'read-model', bytes: packed([{ ref: 'S-0001', row_json: '{"name":"synthetic"}' }]) },
+				{ path: 'read-model/asset.json', kind: 'read-model', bytes: packed([]) },
+				{ path: 'read-model/seed.json', kind: 'read-model', bytes: packed([]) },
+				{ path: 'results/version.json', kind: 'results', bytes: packed(finishResults) },
+				{ path: 'package/datasets/late.json', kind: 'package', bytes: finishFile },
+				{ path: 'list/chronology.json', kind: 'list', bytes: finishList },
+				{ path: `originals/${sha256(finishOriginal)}`, kind: 'original', bytes: finishOriginal },
+			]));
+			const opened = await post(`/restore/packets/${finishPacket}/open`, { caseId: finishCase });
+			const stepped = await post(`/restore/packets/${finishPacket}/step`, { caseId: finishCase, from: 1 });
+			check(opened.status === 200 && stepped.status === 200, `a complete backup is opened and its objects stepped before finish (${opened.status}, ${stepped.status})`);
+			const finish = http(`/restore/packets/${finishPacket}/finish`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-probe-finish-hold': 'restore-finish-late' }, body: JSON.stringify({ caseId: finishCase }), timeout: 60_000 });
+			let finishWaiting = false;
+			for (let i = 0; i < 200 && !finishWaiting; i++) {
+				finishWaiting = (await http('/probe/storage-hold/restore-finish-late')).json().waiting === true;
+				if (!finishWaiting) await sleep(50);
+			}
+			if (!finishWaiting) {
+				const answer = await finish;
+				throw new Error(`finish never reached its hold: ${answer.status} ${answer.text.slice(0, 300)}`);
+			}
+			check(finishWaiting, 'finish has verified every backup object and is held before its first D1 write');
+			const stamp = new Date().toISOString();
+			const record = { format: 'clearcase.deletion-record/1', client: 'client-a', caseId: finishCase, requestedBy: 'firm-admin:fa-1', requestedAt: stamp, approvedBy: 'global-admin:ga-1', approvedAt: stamp, offeredExport: { exportId: crypto.randomUUID(), sha256: '0'.repeat(64), size: 1, offeredAt: stamp }, removedBy: 'global-admin:ga-1', removedAt: stamp };
+			const recordFile = path.join(scratch, 'late-finish-record.json');
+			writeFileSync(recordFile, JSON.stringify(record));
+			const liveRecord = r2put('client-a', 'recovery-a', `deletion/${finishCase}.json`, recordFile);
+			const copyRecord = r2put('client-a', 'recovery-copies-a', `deletion/${finishCase}.json`, recordFile);
+			const removedFinish = await http(`/cases/${finishCase}/documents/S-0001`);
+			check(liveRecord.code === 0 && copyRecord.code === 0 && code(removedFinish, 410, 'case-deleted'), 'the deletion record removes and erases the case while finish is held');
+			await post('/probe/storage-hold/restore-finish-late/release', {});
+			const finishedLate = await finish;
+			const finishResidue = residue('client-a', finishCase, [finishVersion], []);
+			const finishErased = d1('client-a', `SELECT erased_at, erase_error FROM case_deletion WHERE case_id = '${finishCase}'`)[0] as { erased_at: string | null; erase_error: string | null };
+			check(code(finishedLate, 409, 'case-deleted') && !!finishErased.erased_at && finishErased.erase_error === null && finishResidue.left.length === 0 && !(await held('live', `orig/${sha256(finishOriginal)}`)), `the late finish is refused after erasure and leaves no case row or original (finish ${finishedLate.status}, rows ${finishResidue.left.join(', ')})`);
+			const pendingCase = 'case-recovery-pending';
+			const pendingOriginal = synthetic('recovery probe pending restore original', 60);
+			const pendingSha = sha256(pendingOriginal);
+			const pendingVersion = versionOf('pending restore');
+			const pendingPacket = await upload(backupZip(pendingCase, pendingVersion, [{ path: `originals/${pendingSha}`, kind: 'original', bytes: pendingOriginal }]));
+			const pendingOpen = await post(`/restore/packets/${pendingPacket}/open`, { caseId: pendingCase });
+			check(pendingOpen.status === 200, 'the pending-write backup opens for a case without live results');
+			const pendingStep = http(`/restore/packets/${pendingPacket}/step`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-probe-write-hold': 'restore-write-late' }, body: JSON.stringify({ caseId: pendingCase, from: 1 }), timeout: 60_000 });
+			let writeWaiting = false;
+			for (let i = 0; i < 200 && !writeWaiting; i++) {
+				writeWaiting = (await http('/probe/storage-hold/restore-write-late')).json().waiting === true;
+				if (!writeWaiting) await sleep(50);
+			}
+			const pendingBefore = (await json(`/probe/erasure/${pendingCase}`) as { pending: number }).pending;
+			check(writeWaiting && pendingBefore === 1 && !(await held('live', `orig/${pendingSha}`)), 'the restore intent is pending in D1 before its original is published to R2');
+			const pendingRecord = { ...record, caseId: pendingCase, offeredExport: { ...record.offeredExport, exportId: crypto.randomUUID() } };
+			const pendingRecordFile = path.join(scratch, 'pending-record.json');
+			writeFileSync(pendingRecordFile, JSON.stringify(pendingRecord));
+			const pendingLiveRecord = r2put('client-a', 'recovery-a', `deletion/${pendingCase}.json`, pendingRecordFile);
+			const pendingCopyRecord = r2put('client-a', 'recovery-copies-a', `deletion/${pendingCase}.json`, pendingRecordFile);
+			const removingPending = http(`/cases/${pendingCase}/documents/S-0001`, { timeout: 60_000 });
+			let pendingRemoved = false;
+			for (let i = 0; i < 40 && !pendingRemoved; i++) {
+				pendingRemoved = (await json(`/probe/erasure/${pendingCase}`) as { state: string | null }).state === 'removed';
+				if (!pendingRemoved) await sleep(50);
+			}
+			const midErase = await json(`/probe/erasure/${pendingCase}`) as { state: string | null; erasedAt: string | null; pending: number };
+			check(pendingLiveRecord.code === 0 && pendingCopyRecord.code === 0 && midErase.state === 'removed' && midErase.erasedAt === null && midErase.pending === 1, 'removal records the case as removed but leaves erased_at unset while the restore write is pending');
+			await post('/probe/storage-hold/restore-write-late/release', {});
+			const pendingAnswer = await pendingStep;
+			const removedAnswer = await removingPending;
+			// The removal never waits for the write: the next request for the case reconciles it once the write has settled.
+			const settledAnswer = await http(`/cases/${pendingCase}/documents/S-0001`);
+			const pendingResidue = residue('client-a', pendingCase, [pendingVersion], []);
+			const pendingAfter = d1('client-a', `SELECT erased_at, erase_error FROM case_deletion WHERE case_id = '${pendingCase}'`)[0] as { erased_at: string | null; erase_error: string | null };
+			check(code(pendingAnswer, 409, 'case-deleted') && code(removedAnswer, 410, 'case-deleted') && code(settledAnswer, 410, 'case-deleted') && !!pendingAfter.erased_at && pendingAfter.erase_error === null && pendingResidue.left.length === 0 && !(await held('live', `orig/${pendingSha}`)), `the late R2 write is cleaned before erased_at is set (step ${pendingAnswer.status}, removal ${removedAnswer.status}, rows ${pendingResidue.left.join(', ')})`);
+			Object.assign(m, { lateWrites: object ? 1 : 0, residueRows: res.left.length, lateFinishRows: finishResidue.left.length, pendingHeld: pendingBefore });
+		});
+		await leg('dead-intent', ['POST /restore/packets, PUT …/1, POST …/complete, POST …/open for a synthetic backup', 'POST …/step with x-probe-published-hold: dead-write, GET /probe/storage-hold/dead-write, GET /probe/erasure/<case>, GET /recovery/head/live/orig/<sha>', wcmd('r2 object put {recovery-a,recovery-copies-a}/deletion/<case>.json --local'), `SIGKILL to workerd while the step is held, then ${serveCmd('client-a')} (a new isolate)`, 'GET /cases/<case>/documents/<ref> (x-probe-d1-statements), GET /probe/erasure/<case>, ' + wcmd('d1 execute DB --local --env client-a --command "SELECT erased_at, erase_error FROM case_deletion"') + ', POST /cases/<case>/deletion/remove (a repeat)', wcmd('d1 execute DB --local --env client-a --command "UPDATE restore_object SET expires_at = <past>"') + ' (the lease runs out)', 'GET /cases/<case>/documents/<ref> (x-probe-d1-statements), GET /probe/erasure/<case>, GET /recovery/head/live/orig/<sha>, the residue through Wrangler'], async (check, m) => {
+			const caseId = 'case-recovery-dead-intent';
+			const bytes = synthetic('recovery probe dead restore original', 60);
+			const sha = sha256(bytes);
+			const v = versionOf('dead restore');
+			const packet = await upload(backupZip(caseId, v, [{ path: `originals/${sha}`, kind: 'original', bytes }]));
+			check((await post(`/restore/packets/${packet}/open`, { caseId })).status === 200, 'the dead-step backup opens for a case without live results');
+			const dying = http(`/restore/packets/${packet}/step`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-probe-published-hold': 'dead-write' }, body: JSON.stringify({ caseId, from: 1 }), timeout: 60_000 }).then((r) => r.status, () => null);
+			let waiting = false;
+			for (let i = 0; i < 200 && !waiting; i++) {
+				waiting = (await http('/probe/storage-hold/dead-write')).json().waiting === true;
+				if (!waiting) await sleep(50);
+			}
+			const before = (await json(`/probe/erasure/${caseId}`)) as { pending: number };
+			check(waiting && before.pending === 1 && (await held('live', `orig/${sha}`)), 'the step has published its original and is held before it clears its pending intent');
+			const stamp = new Date().toISOString();
+			const record = { format: 'clearcase.deletion-record/1', client: 'client-a', caseId, requestedBy: 'firm-admin:fa-1', requestedAt: stamp, approvedBy: 'global-admin:ga-1', approvedAt: stamp, offeredExport: { exportId: crypto.randomUUID(), sha256: '0'.repeat(64), size: 1, offeredAt: stamp }, removedBy: 'global-admin:ga-1', removedAt: stamp };
+			const recordFile = path.join(scratch, 'dead-intent-record.json');
+			writeFileSync(recordFile, JSON.stringify(record));
+			check(r2put('client-a', 'recovery-a', `deletion/${caseId}.json`, recordFile).code === 0 && r2put('client-a', 'recovery-copies-a', `deletion/${caseId}.json`, recordFile).code === 0, 'both buckets hold the case\'s deletion record while the step is held');
+			// The Worker dies mid-step, as an evicted isolate does: nothing runs the step's catch or its clear.
+			const workerd = (server as Server | null)?.tree.filter((p) => p.exe === 'workerd') ?? [];
+			for (const p of workerd) process.kill(p.pid, 'SIGKILL');
+			const died = await dying;
+			await serve('client-a');
+			check(workerd.length > 0 && died !== 200, `the step dies with its Worker (answer ${died ?? 'none'})`);
+			const statements = (r: Res) => Number(r.headers.get('x-probe-d1-statements'));
+			const liveLease = await http(`/cases/${caseId}/documents/S-0001`);
+			const during = (await json(`/probe/erasure/${caseId}`)) as { state: string | null; erasedAt: string | null; pending: number };
+			const duringRow = d1('client-a', `SELECT erased_at, erase_error FROM case_deletion WHERE case_id = '${caseId}'`)[0] as { erased_at: string | null; erase_error: string | null } | undefined;
+			check(code(liveLease, 410, 'case-deleted') && WITHIN_D1(statements(liveLease)), `a new isolate reconciles the removal within D1's per-invocation limit while the dead intent's lease runs (${statements(liveLease)} statements, limit ${D1_QUERY_LIMIT}, answer ${liveLease.status})`);
+			check(during.state === 'removed' && during.erasedAt === null && during.pending === 1 && typeof duringRow?.erase_error === 'string', `erasure stays unfinished, with erase_error set, while the lease runs (erase_error ${duringRow?.erase_error ?? null})`);
+			const repeat = await post(`/cases/${caseId}/deletion/remove`, { actor: { role: 'global-admin', id: 'ga-1' } });
+			check(repeat.status === 202 && repeat.json().state === 'removed' && repeat.json().erasure === 'pending' && ISO.test(String(repeat.json().leaseUntil)) && WITHIN_D1(statements(repeat)), `a repeated removal answers 202 with the erasure pending until the lease runs out, without waiting (${repeat.status}, ${statements(repeat)} statements)`);
+			d1('client-a', `UPDATE restore_object SET expires_at = '2000-01-01T00:00:00.000Z' WHERE case_id = '${caseId}' AND in_progress = 1`);
+			const expiredLease = await http(`/cases/${caseId}/documents/S-0001`);
+			check(code(expiredLease, 410, 'case-deleted') && WITHIN_D1(statements(expiredLease)), `once the lease has run out the next reconcile stays within D1's per-invocation limit (${statements(expiredLease)} statements)`);
+			const after = (await json(`/probe/erasure/${caseId}`)) as { state: string | null; erasedAt: string | null; pending: number };
+			const afterRow = d1('client-a', `SELECT erased_at, erase_error FROM case_deletion WHERE case_id = '${caseId}'`)[0] as { erased_at: string | null; erase_error: string | null };
+			const left = await held('live', `orig/${sha}`);
+			const res = residue('client-a', caseId, [v], []);
+			check(!!after.erasedAt && after.pending === 0 && afterRow.erase_error === null && !left && res.left.length === 0, `it treats the intent as dead, erases the original the dead step published, and clears the intent before erased_at (object ${left}, rows ${res.left.join(', ')})`);
+			Object.assign(m, { deadIntents: before.pending, liveLeaseStatements: statements(liveLease), expiredLeaseStatements: statements(expiredLease), objectsLeft: left ? 1 : 0, residueRows: res.left.length });
 		});
 	} catch (e) {
 		failure = e instanceof Error ? e.message : String(e);

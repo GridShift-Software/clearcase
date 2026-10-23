@@ -41,6 +41,22 @@ const SINGLE_PUT_MAX = 64 * MiB; // larger uploads go through multipart parts, e
 const BUFFER_MAX = 32 * MiB; // a verified original up to this size, or a range up to it, is served from one hashing pass; larger ones from two
 const PART = 8 * MiB; // an export step writes one multipart part of exactly this size; only the packet's last part is shorter
 const RESTORE_STEP_BYTES = 64 * MiB;
+/**
+ * A restore write's deadline and its intent's lease. The writer starts RESTORE_WRITE_MS before it records its restore_object
+ * intent and aborts its PUT's body when it runs out, so R2 stores nothing from it after that. D1 sets expires_at RESTORE_LEASE_MS
+ * after it records the intent, in its own clock, the one the erasure compares it with; the minute between covers R2's commit
+ * after the last byte. Ten minutes carries 5 GiB, a single PUT's ceiling, at about 8.5 MiB/s.
+ */
+const RESTORE_WRITE_MS = 10 * 60_000;
+const RESTORE_LEASE_MS = RESTORE_WRITE_MS + 60_000;
+const intent = (caseId: string, key: string): [string, D1Value[]] => ["INSERT INTO restore_object (case_id, object_key, written_at, in_progress, expires_at) VALUES (?, ?, ?, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)) ON CONFLICT (case_id, object_key) DO UPDATE SET written_at = excluded.written_at, in_progress = 1, expires_at = excluded.expires_at", [caseId, key, new Date().toISOString(), `+${RESTORE_LEASE_MS / 1000} seconds`]];
+const settled = (caseId: string, key: string): [string, D1Value[]] => ['UPDATE restore_object SET in_progress = 0 WHERE case_id = ? AND object_key = ?', [caseId, key]];
+/** `bytes` as a PUT body that errors, so R2 stores nothing, once `deadline` aborts. */
+function deadlineBody(deadline: AbortSignal, bytes: Uint8Array<ArrayBuffer>): ReadableStream<Uint8Array> {
+	const fls = fixedLength(bytes.length);
+	void new Response(bytes).body!.pipeTo(fls.writable, { signal: deadline }).catch(() => undefined);
+	return fls.readable;
+}
 const BACKUP_FORMAT = 'clearcase.case-backup/1'; // a case backup: user work too, so not GLOSSARY.md's Complete case export
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA = /^[0-9a-f]{64}$/;
@@ -93,8 +109,19 @@ function counted(bucket: R2, c: Counts): R2 {
 	});
 }
 
-type Ctx = { client: string; db: Sql; bucket: R2; counts: Counts };
+type Ctx = { client: string; db: Sql; bucket: R2; counts: Counts; deletionGuard: boolean; probeHooks: boolean };
 let verifiedClient: string | null = null; // per isolate: bindings cannot change under a running isolate
+
+/** On a recovery deployment, every restore batch checks deletion in the transaction that writes its rows. */
+async function restoreBatch(ctx: Ctx, caseId: string, statements: [string, D1Value[]][]) {
+	if (!ctx.deletionGuard) return statements.length ? ctx.db.batch(statements) : [];
+	try {
+		return await ctx.db.batch([guard("NOT EXISTS (SELECT 1 FROM case_deletion WHERE case_id = ? AND state = 'removed')", caseId), ...statements, CLEAR]);
+	} catch (e) {
+		if (e instanceof GuardFailed && (await ctx.db.first("SELECT 1 FROM case_deletion WHERE case_id = ? AND state = 'removed'", caseId))) refuse(409, 'case-deleted', { caseId });
+		throw e;
+	}
+}
 
 const isBinding = (v: unknown, ...methods: string[]) => typeof v === 'object' && v !== null && methods.every((m) => typeof (v as Row)[m] === 'function');
 
@@ -103,7 +130,7 @@ async function open(env: Env): Promise<Ctx> {
 	if (!isBinding(env.DB, 'prepare', 'batch')) refuse(503, 'missing-binding', { binding: 'DB' });
 	if (!isBinding(env.BUCKET, 'get', 'put', 'head')) refuse(503, 'missing-binding', { binding: 'BUCKET' });
 	const counts: Counts = { statements: 0, batches: 0, r2: 0, rowsRead: 0, rowsWritten: 0 };
-	const ctx: Ctx = { client, db: sql(env.DB as D1, counts), bucket: counted(env.BUCKET as R2, counts), counts };
+	const ctx: Ctx = { client, db: sql(env.DB as D1, counts), bucket: counted(env.BUCKET as R2, counts), counts, deletionGuard: env.CASE_DELETION_GUARD === '1', probeHooks: env.PROBE_HOOKS === '1' };
 	if (verifiedClient !== client) {
 		// The other client's identifier is never echoed: a crossed deployment learns only that its binding is wrong.
 		const row = await ctx.db.first<{ client_id: unknown }>('SELECT client_id FROM storage_identity WHERE singleton = 1').catch(() => null);
@@ -257,7 +284,8 @@ async function putOriginal(ctx: Ctx, request: Request, sha: string): Promise<Res
 	const existing = await ctx.bucket.head(key);
 	if (existing) return checksum(existing) === sha && existing.size === length ? json(ctx, { stored: true, repeated: true }) : refuse(409, 'conflicting-object');
 	try {
-		await ctx.bucket.put(key, request.body!, { sha256: sha, customMetadata: { client: ctx.client } });
+		const stored = await ctx.bucket.put(key, request.body!, { sha256: sha, customMetadata: { client: ctx.client }, onlyIf: { etagDoesNotMatch: '*' } });
+		if (!stored) refuse(409, 'conflicting-object');
 	} catch (e) {
 		if (/SHA-256/i.test(String(e))) refuse(422, 'digest-mismatch');
 		throw e;
@@ -376,7 +404,8 @@ async function putPackageObject(ctx: Ctx, request: Request, caseId: string, v: s
 	if (existing && checksum(existing) !== sha) refuse(409, 'conflicting-object');
 	if (!existing) {
 		try {
-			await ctx.bucket.put(key, request.body!, { sha256: sha, customMetadata: { client: ctx.client } });
+			const stored = await ctx.bucket.put(key, request.body!, { sha256: sha, customMetadata: { client: ctx.client }, onlyIf: { etagDoesNotMatch: '*' } });
+			if (!stored) refuse(409, 'conflicting-object');
 		} catch (e) {
 			if (/SHA-256/i.test(String(e))) refuse(422, 'digest-mismatch');
 			throw e;
@@ -501,6 +530,20 @@ const holdHere = (token: string) => async () => {
 	}
 };
 
+/** The public upload id carries the random staging key and R2's private multipart id across Worker isolates. */
+function originalUpload(sha: string, publicId: string) {
+	if (!/^[A-Za-z0-9_-]{1,1500}$/.test(publicId)) refuse(404, 'not-found');
+	let pair: unknown;
+	try {
+		pair = JSON.parse(atob(publicId.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(publicId.length / 4) * 4, '=')));
+	} catch {
+		refuse(404, 'not-found');
+	}
+	if (!Array.isArray(pair) || pair.length !== 2 || !isText(/^[0-9a-f-]{36}$/)(pair[0]) || !isText(/^.{1,1000}$/)(pair[1])) refuse(404, 'not-found');
+	const [nonce, uploadId] = pair as [string, string];
+	return { stage: `staging/orig/${sha}/${nonce}`, uploadId };
+}
+
 /** The case's user work and its revision in one read: one D1 batch runs as one transaction, so the revision names exactly the rows read with it. */
 async function snapshot(ctx: Ctx, caseId: string, between?: () => Promise<void>) {
 	const names = await uwTables(ctx);
@@ -516,11 +559,28 @@ async function snapshot(ctx: Ctx, caseId: string, between?: () => Promise<void>)
 	return { format: 'clearcase.user-work/1', caseId, rev, tables };
 }
 
-async function backup(ctx: Ctx, caseId: string, label: string, snap: Awaited<ReturnType<typeof snapshot>>) {
+async function backup(ctx: Ctx, caseId: string, label: string, snap: Awaited<ReturnType<typeof snapshot>>, restoreIntent = false) {
 	const text = JSON.stringify(snap);
 	const sha = await sha256Hex(text);
 	const key = `backup/${caseId}/${label}-${snap.rev}-${sha}.json`;
-	await ctx.bucket.put(key, text, { sha256: sha, customMetadata: { client: ctx.client } });
+	const deadline = restoreIntent ? AbortSignal.timeout(RESTORE_WRITE_MS) : null;
+	if (restoreIntent) await restoreBatch(ctx, caseId, [intent(caseId, key)]);
+	let published = false;
+	try {
+		const stored = await ctx.bucket.put(key, deadline ? deadlineBody(deadline, new TextEncoder().encode(text)) : text, { sha256: sha, customMetadata: { client: ctx.client }, onlyIf: { etagDoesNotMatch: '*' } });
+		published = !!stored;
+		if (!stored) {
+			const existing = await ctx.bucket.head(key);
+			if (!existing || !(await isStored(ctx, key, existing, sha, new TextEncoder().encode(text).length))) refuse(409, 'conflicting-object');
+		}
+		if (restoreIntent) await restoreBatch(ctx, caseId, [settled(caseId, key)]);
+	} catch (err) {
+		if (restoreIntent) {
+			if (ctx.deletionGuard && err instanceof Refused && err.code === 'case-deleted' && published) await ctx.bucket.delete(key);
+			await ctx.db.batch([settled(caseId, key)]);
+		}
+		throw err;
+	}
 	return { key, sha256: sha, size: new TextEncoder().encode(text).length };
 }
 
@@ -634,7 +694,7 @@ async function startExport(ctx: Ctx, caseId: string): Promise<Response> {
 	const entries: PlanEntry[] = [];
 	for (const [path, kind, text] of generated) {
 		const sha = await sha256Hex(text);
-		await ctx.bucket.put(`${base}/gen/${path}`, text, { sha256: sha });
+		if (!(await ctx.bucket.put(`${base}/gen/${path}`, text, { sha256: sha, onlyIf: { etagDoesNotMatch: '*' } }))) refuse(409, 'conflicting-object');
 		entries.push({ path, source: `${base}/gen/${path}`, sha256: sha, size: new TextEncoder().encode(text).length, kind });
 	}
 	for (const f of s.files) entries.push({ path: `package/${f.path}`, source: `pkg/${s.v}/${f.path}`, sha256: f.sha256, size: f.size, kind: 'package' });
@@ -643,7 +703,7 @@ async function startExport(ctx: Ctx, caseId: string): Promise<Response> {
 	for (const o of s.originals) if (!seen.has(o.sha256)) (seen.add(o.sha256), entries.push({ path: `originals/${o.sha256}`, source: `orig/${o.sha256}`, sha256: o.sha256, size: o.size, kind: 'original' }));
 	const manifest = JSON.stringify({ format: BACKUP_FORMAT, client: ctx.client, caseId, resultsVersion: s.v, entries: entries.map(({ source: _, ...e }) => e) });
 	const manifestSha = await sha256Hex(manifest);
-	await ctx.bucket.put(`${base}/gen/manifest.json`, manifest, { sha256: manifestSha });
+	if (!(await ctx.bucket.put(`${base}/gen/manifest.json`, manifest, { sha256: manifestSha, onlyIf: { etagDoesNotMatch: '*' } }))) refuse(409, 'conflicting-object');
 	entries.unshift({ path: 'manifest.json', source: `${base}/gen/manifest.json`, sha256: manifestSha, size: new TextEncoder().encode(manifest).length, kind: 'manifest' });
 	const upload = await ctx.bucket.createMultipartUpload(`${base}.zip`, { customMetadata: { client: ctx.client } });
 	await ctx.db.batch([["INSERT INTO export_job (export_id, case_id, version_id, state, object_key, upload_id, next_entry, next_offset, parts, plan) VALUES (?, ?, ?, 'building', ?, ?, 0, 0, '[]', ?)", [exportId, caseId, s.v, `${base}.zip`, upload.uploadId, JSON.stringify(entries)]]]);
@@ -872,9 +932,9 @@ const restoreTarget = (m: Omit<PlanEntry, 'source'>, resultsVersion: string) =>
 	m.kind === 'original' ? `orig/${m.sha256}` : m.kind === 'package' ? `pkg/${resultsVersion}/${m.path.slice('package/'.length)}` : m.kind === 'list' ? `rm/${resultsVersion}/chronology.json` : null;
 
 /**
- * Whether the object stored under a restore target is the one the manifest names. R2 keeps a SHA-256 for a single PUT and
- * none for a multipart object, so for an `orig/` key without one an `original` row with this SHA-256 and size stands in:
- * finalize hashes the whole object before it writes that row. An unrecorded object, or one of another size, is not it.
+ * Whether the object stored under a restore target is the one the manifest names. Current multipart originals are verified
+ * in staging and published with a SHA-256 PUT. For an older multipart `orig/` object without an R2 checksum, a verified
+ * `original` row with this SHA-256 and size stands in. An unrecorded object, or one of another size, is not it.
  */
 async function isStored(ctx: Ctx, target: string, o: R2Object, sha: string, size: number): Promise<boolean> {
 	if (o.size !== size) return false;
@@ -926,22 +986,51 @@ async function restoreStep(ctx: Ctx, request: Request, packetId: string): Promis
 		}
 		i++;
 	}
-	// The record comes first: a step that stops after it leaves a row for an object that is not there, never an object no row names.
-	if (toWrite.length) await ctx.db.batch(toWrite.map(({ target }): [string, D1Value[]] => ['INSERT INTO restore_object (case_id, object_key, written_at) VALUES (?, ?, ?) ON CONFLICT (case_id, object_key) DO UPDATE SET written_at = excluded.written_at', [caseId, target, new Date().toISOString()]]));
+	// The intent comes first and remains pending until the R2 PUT finishes, or its lease runs out. Erasure cannot mark
+	// erased_at while one may still publish an object; on a recovery deployment the intent also checks deletion atomically.
 	for (const { e, m, target } of toWrite) {
+		const deadline = AbortSignal.timeout(RESTORE_WRITE_MS);
+		await restoreBatch(ctx, caseId, [intent(caseId, target)]);
 		const n = new TextEncoder().encode(e.path).length;
-		const data = await ctx.bucket.get(key, { range: { offset: e.offset + 30 + n, length: e.size } });
-		if (!hasBody(data)) refuse(410, 'integrity');
-		const fls = fixedLength(e.size);
-		const piped = (data as R2ObjectBody).body.pipeTo(fls.writable);
+		let published = false;
 		try {
-			// R2 refuses the PUT, and stores nothing, unless the bytes match the manifest's SHA-256
-			await Promise.all([ctx.bucket.put(target, fls.readable, { sha256: m.sha256, customMetadata: { client: ctx.client } }), piped]);
+			const writeHold = ctx.probeHooks ? request.headers.get('x-probe-write-hold') : null;
+			if (writeHold !== null) {
+				if (!HOLD_TOKEN.test(writeHold)) refuse(400, 'invalid-field', { field: 'x-probe-write-hold' });
+				await holdHere(writeHold)();
+			}
+			const data = await ctx.bucket.get(key, { range: { offset: e.offset + 30 + n, length: e.size } });
+			if (!hasBody(data)) refuse(410, 'integrity');
+			const fls = fixedLength(e.size);
+			const piped = (data as R2ObjectBody).body.pipeTo(fls.writable, { signal: deadline });
+			try {
+				// R2 refuses the PUT, and stores nothing, unless the bytes match the manifest's SHA-256 and arrive before the deadline.
+				const [stored] = await Promise.all([ctx.bucket.put(target, fls.readable, { sha256: m.sha256, customMetadata: { client: ctx.client }, onlyIf: { etagDoesNotMatch: '*' } }), piped]);
+				published = !!stored;
+				if (!stored) {
+					const existing = await ctx.bucket.head(target);
+					if (!existing || !(await isStored(ctx, target, existing, m.sha256, m.size))) refuse(409, 'conflicting-object', { entry: e.path });
+				}
+			} catch (err) {
+				if (/SHA-256/i.test(String(err))) refuse(422, 'digest-mismatch', { entry: e.path });
+				throw err;
+			}
+			const publishedHold = ctx.probeHooks ? request.headers.get('x-probe-published-hold') : null;
+			if (publishedHold !== null) {
+				if (!HOLD_TOKEN.test(publishedHold)) refuse(400, 'invalid-field', { field: 'x-probe-published-hold' });
+				await holdHere(publishedHold)();
+			}
+			await restoreBatch(ctx, caseId, [settled(caseId, target)]);
 		} catch (err) {
-			if (/SHA-256/i.test(String(err))) refuse(422, 'digest-mismatch', { entry: e.path });
+			if (ctx.deletionGuard && err instanceof Refused && err.code === 'case-deleted' && published) {
+				const shared = target.startsWith('orig/') && (await ctx.db.first('SELECT 1 FROM original WHERE sha256 = ? UNION ALL SELECT 1 FROM case_original WHERE sha256 = ?', target.slice(5), target.slice(5)));
+				if (!shared) await ctx.bucket.delete(target);
+			}
+			await ctx.db.batch([settled(caseId, target)]);
 			throw err;
 		}
 	}
+	if (!toWrite.length) await restoreBatch(ctx, caseId, []);
 	return json(ctx, { next: i, of: entries.length });
 }
 
@@ -1028,7 +1117,12 @@ async function restoreFinish(ctx: Ctx, request: Request, packetId: string): Prom
 	const rev = (await ctx.db.first<{ rev: number }>('SELECT rev FROM case_rev WHERE case_id = ?', caseId))?.rev ?? 0;
 	const userWork = await restoreStatements(ctx, caseId, await readObject('user-work.json'), rev, false, 'invalid-packet');
 
-	const pre = await backup(ctx, caseId, 'pre-restore', await snapshot(ctx, caseId)); // durable before any D1 write
+	const pre = await backup(ctx, caseId, 'pre-restore', await snapshot(ctx, caseId), true); // durable before the results writes
+	const finishHold = ctx.probeHooks ? request.headers.get('x-probe-finish-hold') : null;
+	if (finishHold !== null) {
+		if (!HOLD_TOKEN.test(finishHold)) refuse(400, 'invalid-field', { field: 'x-probe-finish-hold' });
+		await holdHere(finishHold)();
+	}
 	// The same staged path as an import. The version flips to stored, and the case to active, last and in one batch: a
 	// refusal or a crash before it leaves a staging version that a retry of this call rebuilds. The first batch holds the
 	// user work's revision, and the user-work batch holds it and that no version is live, so a concurrent change is refused
@@ -1036,14 +1130,15 @@ async function restoreFinish(ctx: Ctx, request: Request, packetId: string): Prom
 	// are bound: the flip then answers 409 case-live, the user work stays replaced (the pre-restore backup keeps the old),
 	// the originals stay bound, and a retry answers 409 case-live too.
 	try {
-		await ctx.db.batch([guard('coalesce((SELECT rev FROM case_rev WHERE case_id = ?), 0) = ?', caseId, rev), ["INSERT INTO results_version (version_id, case_id, state, attempt, expected_documents, expected_assets, expected_seeds, expected_files, list_sha256, list_size) VALUES (?, ?, 'staging', 1, ?, ?, ?, ?, ?, ?) ON CONFLICT (version_id) DO UPDATE SET expected_documents = excluded.expected_documents, expected_assets = excluded.expected_assets, expected_seeds = excluded.expected_seeds, expected_files = excluded.expected_files, list_sha256 = excluded.list_sha256, list_size = excluded.list_size WHERE results_version.state = 'staging' AND results_version.case_id = excluded.case_id", [v, caseId, stage.documents, stage.assets, stage.seeds, stage.files, stage.list.sha256, stage.list.size]], CLEAR]);
+		await restoreBatch(ctx, caseId, [guard('coalesce((SELECT rev FROM case_rev WHERE case_id = ?), 0) = ?', caseId, rev), ["INSERT INTO results_version (version_id, case_id, state, attempt, expected_documents, expected_assets, expected_seeds, expected_files, list_sha256, list_size) VALUES (?, ?, 'staging', 1, ?, ?, ?, ?, ?, ?) ON CONFLICT (version_id) DO UPDATE SET expected_documents = excluded.expected_documents, expected_assets = excluded.expected_assets, expected_seeds = excluded.expected_seeds, expected_files = excluded.expected_files, list_sha256 = excluded.list_sha256, list_size = excluded.list_size WHERE results_version.state = 'staging' AND results_version.case_id = excluded.case_id", [v, caseId, stage.documents, stage.assets, stage.seeds, stage.files, stage.list.sha256, stage.list.size]], CLEAR]);
 	} catch (e) {
+		if (e instanceof Refused && e.code === 'case-deleted') await ctx.bucket.delete(pre.key);
 		if (e instanceof GuardFailed) refuse(409, 'stale');
 		throw e;
 	}
 	try {
-		for (const t of Object.keys(TABLES) as Table[]) await ctx.db.batch([staging(v, caseId), [`DELETE FROM ${t} WHERE version_id = ?`, [v]], ...inserts(t, TABLES[t], model[t], 'json', { column: 'version_id', value: v }), CLEAR]);
-		await ctx.db.batch([staging(v, caseId), ['DELETE FROM package_file WHERE version_id = ?', [v]], ...inserts('package_file', ['path', 'sha256', 'size'], files, 'json', { column: 'version_id', value: v }), CLEAR]);
+		for (const t of Object.keys(TABLES) as Table[]) await restoreBatch(ctx, caseId, [staging(v, caseId), [`DELETE FROM ${t} WHERE version_id = ?`, [v]], ...inserts(t, TABLES[t], model[t], 'json', { column: 'version_id', value: v }), CLEAR]);
+		await restoreBatch(ctx, caseId, [staging(v, caseId), ['DELETE FROM package_file WHERE version_id = ?', [v]], ...inserts('package_file', ['path', 'sha256', 'size'], files, 'json', { column: 'version_id', value: v }), CLEAR]);
 	} catch (e) {
 		if (e instanceof GuardFailed) refuse(409, 'not-staging');
 		throw e;
@@ -1052,15 +1147,15 @@ async function restoreFinish(ctx: Ctx, request: Request, packetId: string): Prom
 	const originalRows = [...ignoring(inserts('original', ['sha256', 'size'], originals, 'json', null)), ...ignoring(inserts('case_original', ['case_id', 'asset_id', 'sha256', 'filename', 'media_type'], originals.map((o) => ({ asset_id: o.asset_id, sha256: o.sha256, filename: o.filename, media_type: o.media_type, case_id: caseId })), 'json', null))];
 	try {
 		// The user work replaces the case's own only while no version is live: a case activated since the first batch is refused here, before it.
-		await ctx.db.batch([userWork[0]!, guard('NOT EXISTS (SELECT 1 FROM active WHERE case_id = ?)', caseId), ...userWork.slice(1)]);
+		await restoreBatch(ctx, caseId, [userWork[0]!, guard('NOT EXISTS (SELECT 1 FROM active WHERE case_id = ?)', caseId), ...userWork.slice(1)]);
 	} catch (e) {
 		if (!(e instanceof GuardFailed)) throw e;
 		return (await activeVersion(ctx, caseId)) ? json(ctx, { code: 'case-live' }, 409) : refuse(409, 'stale');
 	}
 	// The originals are bound after the user work: a stale revision refuses before it, and binds nothing.
-	if (originalRows.length) await ctx.db.batch(originalRows);
+	if (originalRows.length) await restoreBatch(ctx, caseId, originalRows);
 	try {
-		await ctx.db.batch([
+		await restoreBatch(ctx, caseId, [
 			hasEveryRow(v, caseId),
 			guard('NOT EXISTS (SELECT 1 FROM active WHERE case_id = ?)', caseId),
 			["UPDATE results_version SET state = 'stored' WHERE version_id = ?", [v]],
@@ -1109,7 +1204,7 @@ async function route(request: Request, env: Env): Promise<Response> {
 	// Read-only introspection for the runner: what an R2 key holds, and what a case holds in D1.
 	if (m === 'GET' && seg[0] === 'probe' && seg[1] === 'head' && seg.length > 2) {
 		const key = seg.slice(2).join('/');
-		const o = /^(orig|pkg|rm|backup|preview)\//.test(key) ? await ctx.bucket.head(key) : null;
+		const o = /^(orig|pkg|rm|backup|preview|staging)\//.test(key) ? await ctx.bucket.head(key) : null;
 		return o ? json(ctx, { key, size: o.size, sha256: checksum(o), etag: o.etag }) : json(ctx, { code: 'not-found' }, 404);
 	}
 	if (m === 'GET' && seg[0] === 'probe' && seg[1] === 'live' && seg.length === 3 && isText(ID)(seg[2])) return liveState(ctx, seg[2]);
@@ -1126,24 +1221,58 @@ async function route(request: Request, env: Env): Promise<Response> {
 		const key = `orig/${sha}`;
 		if (m === 'POST' && seg.length === 3 && seg[2] === 'uploads') {
 			if (await ctx.bucket.head(key)) refuse(409, 'conflicting-object');
-			const u = await ctx.bucket.createMultipartUpload(key, { customMetadata: { client: ctx.client } });
-			return json(ctx, { uploadId: u.uploadId });
+			const stage = `staging/orig/${sha}/${crypto.randomUUID()}`;
+			const u = await ctx.bucket.createMultipartUpload(stage, { customMetadata: { client: ctx.client } });
+			return json(ctx, { uploadId: btoa(JSON.stringify([stage.slice(stage.lastIndexOf('/') + 1), u.uploadId])).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') });
 		}
 		if (seg.length === 5 && seg[2] === 'uploads' && m === 'PUT') {
 			const length = Number(request.headers.get('content-length'));
 			if (!request.body || !Number.isSafeInteger(length) || length > SINGLE_PUT_MAX) refuse(413, 'part-too-large');
-			return json(ctx, await ctx.bucket.resumeMultipartUpload(key, seg[3]!).uploadPart(Number(seg[4]), request.body!));
+			const u = originalUpload(sha, seg[3]!);
+			return json(ctx, await ctx.bucket.resumeMultipartUpload(u.stage, u.uploadId).uploadPart(Number(seg[4]), request.body!));
 		}
 		if (seg.length === 5 && seg[2] === 'uploads' && seg[4] === 'complete' && m === 'POST') {
 			const b = await body(request);
-			const upload = ctx.bucket.resumeMultipartUpload(key, seg[3]!);
+			const u = originalUpload(sha, seg[3]!);
+			const upload = ctx.bucket.resumeMultipartUpload(u.stage, u.uploadId);
 			// orig/<sha> is write-once: a complete would replace whatever a racing upload put there since this one began.
 			if (await ctx.bucket.head(key)) {
 				await upload.abort().catch(() => undefined);
 				refuse(409, 'conflicting-object');
 			}
+			const token = env.PROBE_HOOKS === '1' ? request.headers.get('x-probe-hold') : null;
+			if (token !== null) {
+				if (!HOLD_TOKEN.test(token)) refuse(400, 'invalid-field', { field: 'x-probe-hold' });
+				await holdHere(token)();
+			}
+			if (await ctx.bucket.head(key)) {
+				await upload.abort().catch(() => undefined);
+				refuse(409, 'conflicting-object');
+			}
 			const o = await upload.complete(field(b, 'parts', (x): x is R2UploadedPart[] => Array.isArray(x)));
-			return json(ctx, { size: o.size });
+			try {
+				try {
+					await hashWhole(ctx, u.stage, sha, o.size);
+				} catch (e) {
+					if (e instanceof Refused && e.code === 'changed-original') refuse(422, 'digest-mismatch');
+					throw e;
+				}
+				// A multipart complete cannot be conditional. Publish only its verified staging object with R2's atomic
+				// If-None-Match: * PUT, which also checks the SHA-256 while streaming to the canonical key.
+				const staged = await ctx.bucket.get(u.stage);
+				if (!hasBody(staged)) refuse(410, 'missing-original', { key: u.stage });
+				let published: R2Object | null;
+				try {
+					published = await ctx.bucket.put(key, (staged as R2ObjectBody).body, { sha256: sha, customMetadata: { client: ctx.client }, onlyIf: { etagDoesNotMatch: '*' } });
+				} catch (e) {
+					if (/SHA-256/i.test(String(e))) refuse(422, 'digest-mismatch');
+					throw e;
+				}
+				if (!published) refuse(409, 'conflicting-object');
+				return json(ctx, { size: (published as R2Object).size });
+			} finally {
+				await ctx.bucket.delete(u.stage);
+			}
 		}
 	}
 	if (seg[0] === 'restore' && seg[1] === 'packets') {

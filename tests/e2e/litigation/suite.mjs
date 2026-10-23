@@ -14,7 +14,7 @@ const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { outDir } = await import('../pilot/lib/record.mjs');
 const { CHROME, launch } = await import('../pilot/lib/cdp.mjs');
-const { asking, cancelIfAsked, confirmPressed, describedBy, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { asking, cancelIfAsked, confirmPressed, describedBy, draftThroughDeleteWithoutJs, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
 const { bunIdentity } = await import('../pilot/lib/server.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
 const { INIT, openPage, sleep } = await import('../pilot/suite/browser.mjs');
@@ -646,6 +646,24 @@ try {
 		const shown = await p.evaluate(`[...document.querySelectorAll('#heads-table tbody tr[data-row]')].some((t) => t.cells[1].textContent.trim() === 'Confirm kept')`);
 		return all({ shown, stored: rowsWhere('heads', 'head', 'Confirm kept').length === 1, focus: await p.evaluate(`document.activeElement?.hasAttribute('data-delete-confirm') ?? false`), cancel: (await count(p, '#heads-table [data-delete-cancel]')) === 1 });
 	});
+	await scenario('CONFIRM-nojs-draft', 'heads_tab', 'without JavaScript, Delete then Cancel or Confirm keeps text typed into Add', async () => {
+		await A.c.form(`${at('heads_tab')}?/add`, { head: 'Synthetic no-JS target head', sub: 'x', auth: '', ref: '' });
+		const id = rowsWhere('heads', 'head', 'Synthetic no-JS target head')[0]?.row_id;
+		const row = `#heads-table tr[data-row=${J(id)}]`;
+		const round = await draftThroughDeleteWithoutJs(p, { url: `${V}${route('heads_tab')}`, ready: ready('heads_tab'), draft: '#hd_head', text: 'Synthetic unsaved head', row, opener: `${row} [data-delete]` });
+		return all({ askKeeps: round.askedBeforeCancel.value === 'Synthetic unsaved head' && round.askedBeforeCancel.row && round.askedBeforeCancel.asking,
+			cancelKeeps: round.cancelled.value === 'Synthetic unsaved head' && round.cancelled.row && !round.cancelled.asking,
+			confirmKeeps: round.askedBeforeConfirm.value === 'Synthetic unsaved head' && round.confirmed.value === 'Synthetic unsaved head' && !round.confirmed.row && !savedRows().some((r) => r.store === 'heads' && r.row_id === id), evidence: round });
+	});
+	await scenario('CONFIRM-nojs-draft-crossexam', 'crossexam_tab', 'GRS-181: without JavaScript, Delete then Cancel or Confirm keeps text typed into Add on Cross-Exam Prep', async () => {
+		await A.c.form(`${at('crossexam_tab')}?/add`, { witness: 'Synthetic no-JS target witness', topic: 'x', put: 'x', docs: '' });
+		const id = rowsWhere('crossexam', 'witness', 'Synthetic no-JS target witness')[0]?.row_id;
+		const row = `#cx-table tr[data-row=${J(`row:${id}`)}]`;
+		const round = await draftThroughDeleteWithoutJs(p, { url: `${V}${route('crossexam_tab')}`, ready: ready('crossexam_tab'), draft: '#cx_w', text: 'Synthetic unsaved witness', row, opener: `${row} [data-delete]` });
+		return all({ askKeeps: round.askedBeforeCancel.value === 'Synthetic unsaved witness' && round.askedBeforeCancel.row && round.askedBeforeCancel.asking,
+			cancelKeeps: round.cancelled.value === 'Synthetic unsaved witness' && round.cancelled.row && !round.cancelled.asking,
+			confirmKeeps: round.askedBeforeConfirm.value === 'Synthetic unsaved witness' && round.confirmed.value === 'Synthetic unsaved witness' && !round.confirmed.row && !savedRows().some((r) => r.store === 'crossexam' && r.row_id === id), evidence: round });
+	});
 	await scenario('CONFIRM-delete-cases', 'heads_tab', "GRS-175: Cancel and Escape keep the submission and return focus to its Delete; a second row's Delete moves the question and deletes nothing; a reload drops the question and keeps both; a POST without the row's confirmation is refused; Confirm delete deletes exactly that submission", async () => {
 		await A.c.form(`${at('heads_tab')}?/add`, { head: 'Confirm second', sub: 'x', auth: '', ref: '' });
 		await p.goto(`${V}${route('heads_tab')}`, ready('heads_tab'));
@@ -904,6 +922,33 @@ try {
 		} finally { await p.s('Emulation.clearDeviceMetricsOverride').catch(() => {}); }
 		return { pass: Object.keys(layouts).length === 2 * LIT.length && Object.values(layouts).every((x) => x.ok), evidence: layouts };
 	});
+
+	const reloadDies = async (view, prepare, trigger, busy, enabled, stored) => {
+		const q = await openPage(b, { initScript: INIT });
+		let killed = false, handlerError = null;
+		const off = b.on((m) => {
+			if (m.sessionId !== q.sessionId || m.method !== 'Fetch.requestPaused') return;
+			(async () => {
+				if (!killed) { killed = true; const srv = A.srv; A.srv = null; await srv.stop('SIGKILL'); }
+				await q.s('Fetch.continueRequest', { requestId: m.params.requestId });
+			})().catch((e) => { handlerError = String(e); });
+		});
+		try {
+			await q.goto(`${V}${route(view)}#main`, ready(view));
+			await q.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json?*x-sveltekit-invalidated=*', requestStage: 'Request' }] });
+			const sent = await prepare(q);
+			await trigger(q);
+			await q.waitFor(`!(${busy})`, 10000).catch(() => null);
+			const state = await q.evaluate(`({ busy: ${busy}, enabled: ${enabled}, error: document.getElementById('reload-error')?.textContent ?? '', alert: document.getElementById('reload-error')?.getAttribute('role') })`);
+			const persisted = stored(sent);
+			await A.start();
+			await q.click('#nav-overview');
+			const left = await q.waitFor(ready('overview'), 3000).then(() => true, () => false);
+			return all({ killed, persisted, idle: !state.busy, enabled: state.enabled, alert: state.alert === 'alert' && /could not reload/.test(state.error), left, handler: !handlerError, evidence: { state, handlerError } });
+		} finally { off(); await q.s('Fetch.disable').catch(() => {}); if (!A.srv) await A.start(); await q.close(); }
+	};
+	await scenario('L-HEADS-RELOAD-LOST', 'heads_tab', 'a stored Heads of Argument entry survives a failed reload with a URL fragment, clears busy, reports the stale page and allows leaving', () => reloadDies('heads_tab', async (q) => { await q.type('#hd_head', 'Synthetic reload head'); await q.type('#hd_sub', 'Synthetic reload submission'); }, (q) => q.click('#hd-add-button'), `!!document.querySelector('#hd-add [data-saving]') || document.querySelector('#hd-add')?.getAttribute('aria-busy') === 'true'`, `!document.getElementById('hd-add-button')?.disabled`, () => rowsWhere('heads', 'head', 'Synthetic reload head').length === 1));
+	await scenario('L-ENFORCEMENT-RELOAD-LOST', 'enforcement_tab', 'a stored enforcement status survives a failed reload with a URL fragment, clears busy, reports the stale page and allows leaving', () => reloadDies('enforcement_tab', async (q) => q.evaluate(`(() => { const s = document.querySelector('#enf-form tr[data-step] select'); const value = [...s.options].find((o) => o.value !== s.value).value; s.value = value; s.dispatchEvent(new Event('change', { bubbles: true })); return { key: s.closest('tr').dataset.step, value }; })()`), async () => {}, `!!document.querySelector('#enf-form [data-saving]')`, `!!document.querySelector('#enf-form tr[data-step] select')`, (sent) => savedRows().some((r) => r.store === 'enforcement-status' && JSON.parse(r.fields).stepKey === sent.key && JSON.parse(r.fields).status === sent.value)));
 
 	offLoopback = b.events.requests.filter((r) => r.ttype === 'page' && !/^(https?:\/\/(127\.0\.0\.1|[a-z0-9-]+\.localhost)(:\d+)?\/|data:|blob:|about:|chrome-error:)/.test(r.url)).map((r) => r.url.slice(0, 120));
 	await scenario('NET-loopback', 'conflict_tab', 'no page of the run requested anything off loopback', async () => ({ pass: offLoopback.length === 0, evidence: { offLoopback } }));

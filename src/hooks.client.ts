@@ -1,5 +1,5 @@
 import type { HandleClientError } from '@sveltejs/kit/hooks';
-import { reloadFailed } from '$lib/views/bundles/reload.svelte';
+import { reloadFailed } from '$lib/components/reload.svelte';
 
 // Kit 3 hands a failed enhanced-form fetch (the server unreachable mid-save) to handleError, whose default logs it to the
 // console; Kit 2 passed it to the form's callback silently, and each view shows its own save-failed state. That network

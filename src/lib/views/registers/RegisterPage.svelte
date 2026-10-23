@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
 	import { applyAction, enhance } from '$app/forms';
-	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { SubmitFunction } from '$app/forms';
 	import CitationLink from '$lib/components/CitationLink.svelte';
@@ -11,6 +11,7 @@
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	import { now } from '$lib/components/clock';
 	import { download } from '$lib/components/csv';
+	import { RELOAD_UNAVAILABLE, reloader } from '$lib/components/reload.svelte';
 	import type { FieldDef } from './defs';
 	import { deadlineCalendar, registerCsv, unsavable, type Entry } from './logic';
 	import type { ShownRow } from './page.server';
@@ -30,7 +31,7 @@
 
 	const blank = (): Entry => Object.fromEntries(reg.fields.map((f) => [f.k, f.type === 'select' && f.placeholder === undefined ? f.opts![0]! : '']));
 	const saved = untrack(() => (form?.op === 'save' && form.message ? form : null));
-	let values = $state<Entry>(untrack(() => ({ ...blank(), ...saved?.values })));
+	let values = $state<Entry>(untrack(() => ({ ...blank(), ...form?.values })));
 	let editing = $state<string | null>(saved?.rowId ?? null);
 	let version = $state<string | null>(saved?.version ?? null);
 	let base = $state<Entry>(untrack(() => blank()));
@@ -38,6 +39,7 @@
 	let saveError = $state<{ message: string; retry: boolean; stale?: boolean; draft?: Draft } | null>(saved ? { message: saved.message!, retry: saved.retry === true } : null);
 	let deleteError = $state<{ rowId: string | null; message: string } | null>(untrack(() => (form?.op === 'delete' && form.message ? { rowId: form.rowId ?? null, message: form.message } : null)));
 	let busy = $state(false);
+	const rl = reloader();
 	let deleting = $state<string | null>(null);
 	// the row whose Delete awaits Confirm; without JavaScript the server's refusal names it
 	let confirming = $state<string | null>(untrack(() => (form?.op === 'delete' ? (form.confirm ?? null) : null)));
@@ -80,7 +82,7 @@
 			try {
 				const holds = editing === sent.rowId && reg.fields.every((f) => (values[f.k] ?? '') === (sent.values[f.k] ?? ''));
 				if (result.type === 'success') {
-					await invalidateAll();
+					await rl.reload();
 					if (holds) reset(sent.rowId ? {} : Object.fromEntries(reg.keepAfterAdd.map((k) => [k, sent.values[k]!])));
 				} else if (result.type === 'redirect') await applyAction(result);
 				else {
@@ -88,17 +90,17 @@
 						? { message: String(result.data?.message ?? 'The entry was not saved. Your input is kept; try again.'), retry: result.data?.retry === true, stale: result.status === 409 }
 						: { message: lost(sent.rowId ? 'The change' : 'The entry', result.status), retry: result.status !== 413 };
 					saveError = holds ? failed : { ...failed, retry: false, draft: sent };
-					if (result.status === 404 || result.status === 409) await invalidateAll();
+					if (result.status === 404 || result.status === 409) await rl.reload();
 				}
 			} finally { busy = false; }
 		};
 	};
-	const remove: SubmitFunction = ({ formData, cancel, formElement }) => {
-		const id = String(formData.get('rowId'));
+	const remove: SubmitFunction = ({ formData, cancel, formElement, submitter }) => {
+		const id = String(formData.get('delete'));
 		const step = deleteStep(formData, id);
 		if (step !== 'confirm') { cancel(); confirming = step === 'ask' ? id : null; return; }
 		const typed = reg.fields.some((f) => values[f.k] && !(f.type === 'select' && f.placeholder === undefined));
-		if (id === editing && unsaved && typed) { cancel(); ask = { what: question(), go: () => { reset(); formElement.requestSubmit(); } }; return; }
+		if (id === editing && unsaved && typed) { cancel(); ask = { what: question(), go: () => { reset(); if (submitter instanceof HTMLButtonElement) formElement.requestSubmit(submitter); } }; return; }
 		confirming = null;
 		deleting = id;
 		return async ({ result }) => {
@@ -106,13 +108,14 @@
 				if (result.type === 'success') {
 					if (deleteError && (deleteError.rowId === id || deleteError.rowId === null)) deleteError = null;
 					if (editing === id) reset();
-					await invalidateAll();
+					await rl.reload();
 				} else if (result.type === 'failure') deleteError = { rowId: id, message: String(result.data?.message ?? 'The deletion did not happen; try again.') };
 				else if (result.type === 'redirect') await applyAction(result);
 				else deleteError = { rowId: id, message: lost('The deletion', result.status).replace('may not have been saved', 'may not have happened').replace('was not saved', 'did not happen') };
 			} finally { deleting = null; }
 		};
 	};
+	const submit: SubmitFunction = (input) => input.action.search.includes('/delete') ? remove(input) : save(input);
 
 	function edit(r: ShownRow) {
 		guard(async () => {
@@ -205,8 +208,9 @@
 			{#if editing}<button type="button" id="register-cancel" onclick={cancelEdit} disabled={locked}>Cancel</button>{/if}
 		{/snippet}
 	</PageHeader>
+	{#if rl.lost}<p class="error" role="alert" id="reload-error">{RELOAD_UNAVAILABLE}</p>{/if}
 
-	<form id="register-form" class="entry" method="POST" action="?/save" enctype="multipart/form-data" use:enhance={save} data-editing={editing ?? undefined} aria-busy={locked}>
+	<form id="register-form" class="entry" method="POST" action="?/save" enctype="multipart/form-data" use:enhance={submit} data-editing={editing ?? undefined} aria-busy={locked}>
 		{#if editing}<input type="hidden" name="rowId" value={editing} /><input type="hidden" name="version" value={version ?? ''} />{/if}
 		<fieldset class="fields" disabled={locked}>
 			<legend class="visually-hidden">{editing ? 'Edit the entry' : 'New entry'}</legend>
@@ -270,7 +274,7 @@
 						<td class="row-actions">
 							{#if !r.intact}<span class="altered">this entry was altered on disk since it was saved</span>{/if}
 							<button type="button" data-edit onclick={() => edit(r)} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)}>Edit</button>
-							<form method="POST" action="?/delete" use:enhance={remove}><input type="hidden" name="rowId" value={r.rowId} /><ConfirmDelete bind:pending={confirming} target={r.rowId} question="Delete this entry?" data-delete aria-describedby={deleteError?.rowId === r.rowId ? 'register-delete-message' : undefined} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)} /></form>
+							<ConfirmDelete bind:pending={confirming} target={r.rowId} question="Delete this entry?" form="register-form" formaction="?/delete" name="delete" data-delete aria-describedby={deleteError?.rowId === r.rowId ? 'register-delete-message' : undefined} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)} />
 						</td>
 					</tr>
 				{/each}
@@ -293,5 +297,4 @@
 	td.end, th.end { text-align: end; }
 	tr.editing { outline: 2px solid currentColor; }
 	.row-actions { white-space: nowrap; }
-	.row-actions form { display: inline; }
 </style>

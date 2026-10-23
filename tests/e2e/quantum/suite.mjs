@@ -13,6 +13,7 @@ const { join, resolve } = await import('node:path');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { launch, newPage, sleep } = await import('../pilot/lib/cdp.mjs');
 const { client, vpath } = await import('../pilot/lib/client.mjs');
+const { halfTypeDate } = await import('../pilot/lib/half-date.mjs');
 const { outDir } = await import('../pilot/lib/record.mjs');
 const { CAPTURE, CLOCK, J, holdStore, pageKit, quantumCase, ready, server, takeDownloads } = await import('./lib.mjs');
 const { r2 } = await import('./r2.mjs');
@@ -357,6 +358,73 @@ try {
 	});
 	// ---- CC-06 r2: lost edits, limits, dates, URL values, links (r2.mjs) ----------------------------------------------------
 	await r2({ b, S, sc, c, scenario, base, route });
+
+	await scenario('Q-PAYMENT-RELOAD-LOST', 'payments_tab', 'a stored payment survives a failed reload with a URL fragment, clears busy, reports the stale page and allows leaving', async () => {
+		const q = await newPage(b, { initScript: CAPTURE });
+		const qk = pageKit(q, base);
+		let killed = false, handlerError = null;
+		const off = b.on((m) => {
+			if (m.sessionId !== q.sessionId || m.method !== 'Fetch.requestPaused') return;
+			(async () => {
+				if (!killed) { killed = true; await S.stop('SIGKILL'); }
+				await q.s('Fetch.continueRequest', { requestId: m.params.requestId });
+			})().catch((e) => { handlerError = String(e); });
+		});
+		try {
+			await q.navigate(`${base}${route('payments_tab')}#main`);
+			await q.waitFor(ready('payments_tab'), 15000);
+			await q.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json?*x-sveltekit-invalidated=*', requestStage: 'Request' }] });
+			await q.evaluate(`(() => { for (const [id, value] of Object.entries({ pay_date: '2089-04-01', pay_amount: 'R 25.00', pay_method: 'Synthetic EFT', pay_note: 'Synthetic reload payment' })) { const e = document.getElementById(id); e.value = value; e.dispatchEvent(new Event('input', { bubbles: true })); } })()`);
+			await qk.click('#pay-add');
+			await q.waitFor(`!document.getElementById('pay-status')`, 10000).catch(() => null);
+			const state = await q.evaluate(`({ busy: !!document.getElementById('pay-status'), error: document.getElementById('reload-error')?.textContent ?? '', alert: document.getElementById('reload-error')?.getAttribute('role'), enabled: !document.getElementById('pay-add')?.disabled })`);
+			const stored = S.rows('payments').some((r) => r.fields.note === 'Synthetic reload payment');
+			await S.start();
+			await qk.click('#nav-overview');
+			const left = await q.waitFor(ready('overview'), 3000).then(() => true, () => false);
+			return { pass: killed && stored && !state.busy && state.enabled && state.alert === 'alert' && /could not reload/.test(state.error) && left && !handlerError, evidence: { killed, stored, state, left, handlerError } };
+		} finally { off(); await q.s('Fetch.disable').catch(() => {}); if (!S.srv) await S.start(); await q.close(); }
+	});
+
+	for (const scripts of [true, false]) {
+		const mode = scripts ? 'js' : 'nojs';
+		await scenario(`Q-PAYMENT-HALFDATE-${mode}`, 'payments_tab', `GRS-192: ${mode}, a half-typed Add date blocks Add but allows Delete; only the stored target is removed and the unsaved text stays`, async () => {
+			const q = await newPage(b, { fresh: true });
+			const qk = pageKit(q, base);
+			const loaded = scripts ? ready('payments_tab') : `!!document.querySelector('[data-ready="payments_tab"]') && document.readyState === 'complete'`;
+			try {
+				if (!scripts) await q.s('Emulation.setScriptExecutionDisabled', { value: true });
+				await q.navigate(`${base}${route('payments_tab')}`);
+				await q.waitFor(loaded, 20000);
+				const before = S.rows('payments');
+				const note = `Synthetic half-date target ${mode}`;
+				await qk.fill([['#pay_date', '2089-06-30'], ['#pay_amount', '5.00'], ['#pay_method', 'Synthetic EFT'], ['#pay_note', note]]);
+				await qk.click('#pay-add');
+				await q.waitFor(`(${loaded}) && [...document.querySelectorAll('#payments tbody tr[data-row-id]')].some((r) => r.cells[3].textContent.trim() === ${J(note)}) && document.getElementById('pay_date').value === ''`, 15000);
+				const created = S.rows('payments');
+				const target = created.find((r) => r.fields.note === note && !before.some((old) => old.id === r.id));
+				if (!target || created.length !== before.length + 1) throw new Error('payment was not created through Add');
+				const row = `#payments tr[data-row-id=${J(target.id)}]`;
+				const draft = [['#pay_amount', '7.00'], ['#pay_method', 'Synthetic unsaved method'], ['#pay_note', 'Synthetic unsaved payment']];
+				await qk.fill(draft);
+				const half = await halfTypeDate(q, '#pay_date');
+				await q.evaluate('window.__halfDateRound = true');
+				await qk.click('#pay-add');
+				const add = await q.evaluate(`({ sameDocument: window.__halfDateRound === true, bad: document.getElementById('pay_date').validity.badInput, value: document.getElementById('pay_date').value })`);
+				const addBlocked = add.sameDocument && add.bad && add.value === '' && J(S.rows('payments')) === J(created);
+				await qk.click(`${row} [data-delete]`);
+				const rowGone = await q.waitFor(`(${loaded}) && !document.querySelector(${J(row)})`, 4000).then(() => true, () => false);
+				const after = S.rows('payments');
+				const values = await qk.values(draft.map(([sel]) => sel));
+				const rowShown = await qk.exists(row);
+				const addNotice = await qk.text('#pay-error > span');
+				const deleteError = await qk.text('[data-delete-error], #reload-error');
+				const expectedAddNotice = scripts ? null : 'The entry in the form is not saved yet: press Add to save it.';
+				return { pass: addBlocked && rowGone && !rowShown && J(after) === J(before) && J(values) === J(draft.map(([, value]) => value)) && deleteError === null && addNotice === expectedAddNotice,
+					evidence: { half, add, addBlocked, rowGone, rowShown, before: before.map((r) => r.id), target: target.id, after: after.map((r) => r.id), values, addNotice, deleteError } };
+			} finally { await q.close(); }
+		});
+	}
 
 	// ---- optional: synthetic screenshots of the product-visible changes (QUANTUM_SCREENS=<dir>; not a scenario) ---------
 	if (process.env.QUANTUM_SCREENS) {

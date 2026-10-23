@@ -34,6 +34,10 @@ describe('chronology', () => {
 	it('offers every imported bundle, including non-standard ones', () => {
 		expect(optionsOf(rows, 'bundle')).toEqual(['Additional', 'Original']);
 	});
+	it('orders every imported bundle in a synthetic six-bundle case', () => {
+		const six = ['Witness', 'Original', 'Claims', 'Pleadings', 'Correspondence', 'Additional'].map((bundle, i) => r(`S-${i}`, i, { bundle }));
+		expect(optionsOf([...six, r('S-repeat', 6, { bundle: 'Claims' })], 'bundle')).toEqual(['Additional', 'Claims', 'Correspondence', 'Original', 'Pleadings', 'Witness']);
+	});
 	it('offers the whole text-status vocabulary in v5 order, even statuses no row has, then any other status', () => {
 		expect(statusOptions(rows)).toEqual(['extracted', 'ocr', 'none', 'pending']);
 		expect(statusOptions([...rows, r('F-6', 5, { textStatus: 'unsupported' })])).toEqual([...TEXT_STATUSES, 'unsupported']);

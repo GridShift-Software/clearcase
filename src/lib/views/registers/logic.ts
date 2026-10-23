@@ -1,4 +1,4 @@
-import { daysBetween, saDate } from '../../calculations/dates.ts';
+import { dateProblem, daysBetween, saDate, ymd } from '../../calculations/dates.ts';
 import { centsText } from '../../calculations/money.ts';
 import { fmtR } from '../../components/format.ts';
 import { toCSV, userCell } from '../../components/csv.ts';
@@ -8,9 +8,6 @@ import type { RegisterDef } from './defs.ts';
 export type Entry = Record<string, string>;
 export type Shape = Pick<RegisterDef, 'fields'> & { required?: readonly string[] | null };
 export interface Row { rowId: string; values: Entry }
-
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const realDate = (s: string) => { const [y, m, d] = s.split('-').map(Number) as [number, number, number]; return new Date(Date.UTC(y, m - 1, d)).getUTCDate() === d && m >= 1 && m <= 12; };
 
 /**
  * Every field of the register as text, from form input (a missing or non-text value is ''). A form submission sends a
@@ -36,7 +33,7 @@ export function unsavable(def: Shape, e: Entry, editing: boolean): string | null
 export function invalidReason(def: Shape, e: Entry): string | null {
 	for (const x of def.fields) {
 		const v = e[x.k] ?? '';
-		if (x.type === 'date' && v !== '' && !(DATE.test(v) && realDate(v))) return `${x.label} must be a date (YYYY-MM-DD).`;
+		if (x.type === 'date' && v !== '' && !ymd(v)) return dateProblem(x.label, v);
 		if (x.type === 'select' && !(x.opts!.includes(v) || (x.placeholder !== undefined && v === ''))) return `${x.label} must be one of the listed options.`;
 		if (x.amount) { const p = parseAmount(v, x.amount); if (p.kind === 'bad') return `${x.label} ${p.why}. Nothing was saved; your input is kept.`; }
 	}

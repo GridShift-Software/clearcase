@@ -14,7 +14,8 @@ const { join, resolve } = await import('node:path');
 const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { launch, sleep } = await import('../pilot/lib/cdp.mjs');
-const { asking, cancelIfAsked, confirmPressed, describedBy, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { asking, cancelIfAsked, confirmPressed, describedBy, draftThroughDeleteWithoutJs, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { draftThroughDeleteWithHalfDate, halfTypeDate } = await import('../pilot/lib/half-date.mjs');
 const { INIT, openPage } = await import('../pilot/suite/browser.mjs');
 const { appServer, vpath } = await import('../pilot/suite/context.mjs');
 const { startServer } = await import('../pilot/lib/server.mjs');
@@ -752,6 +753,48 @@ try {
 		const ev = { id: r.id, shown: (await rows()).some((x) => x.id === r.id), stored: stored('deadlines').some((x) => x.id === r.id), focus: await p.evaluate(`document.activeElement?.hasAttribute('data-delete-confirm') ?? false`), cancel: await p.evaluate(`!!document.querySelector(${J(`${row} [data-delete-cancel]`)})`) };
 		return { evidence: ev, checks: { shown: ev.shown, stored: ev.stored, focus: ev.focus, cancel: ev.cancel } };
 	});
+	await scenario('SC26-nojs-draft', 'deadlines_tab', 'without JavaScript, Delete then Cancel or Confirm keeps text typed into Add', async () => {
+		await openView('deadlines_tab');
+		await add({ title: 'Synthetic no-JS target', date: '2026-11-04', note: '' });
+		const r = (await rows()).find((x) => x.cells.some((c) => c.includes('Synthetic no-JS target')));
+		const row = `#register-table tr[data-row-id=${J(r.id)}]`;
+		const round = await draftThroughDeleteWithoutJs(p, { url: `${base()}/registers/deadlines_tab`, ready: ready('deadlines_tab'), draft: '#in-title', text: 'Synthetic unsaved deadline', row, opener: `${row} [data-delete]` });
+		const checks = { askKeeps: round.askedBeforeCancel.value === 'Synthetic unsaved deadline' && round.askedBeforeCancel.row && round.askedBeforeCancel.asking,
+			cancelKeeps: round.cancelled.value === 'Synthetic unsaved deadline' && round.cancelled.row && !round.cancelled.asking,
+			confirmKeeps: round.askedBeforeConfirm.value === 'Synthetic unsaved deadline' && round.confirmed.value === 'Synthetic unsaved deadline' && !round.confirmed.row && !stored('deadlines').some((x) => x.id === r.id) };
+		return { evidence: { checks, round }, checks };
+	});
+	await scenario('SC26-halfdate-js', 'deadlines_tab', 'GRS-181: with JavaScript, a half-typed Add date does not stop Delete then Confirm delete: the row is deleted, nothing is saved and the Add draft stays', async () => {
+		await openView('deadlines_tab');
+		await add({ title: 'Synthetic half-date target', date: '2026-11-05', note: '' });
+		const r = (await rows()).find((x) => x.cells.some((c) => c.includes('Synthetic half-date target')));
+		const row = `#register-table tr[data-row-id=${J(r.id)}]`;
+		const before = stored('deadlines').length;
+		await p.type('#in-title', 'Synthetic unsaved deadline');
+		const half = await halfTypeDate(p, '#in-date');
+		await p.click(`${row} [data-delete]`);
+		await confirmPressed(p, row);
+		await p.waitFor(`!document.querySelector(${J(row)})`, 5000).catch(() => false);
+		await sleep(300);
+		const ev = { half, rowShown: (await rows()).some((x) => x.id === r.id), stored: stored('deadlines').length, before, draft: await p.evaluate(`document.getElementById('in-title').value`), error: await errorText() };
+		// drop the draft so the next page load is not held by the leave guard
+		await p.evaluate(`(() => { const e = document.getElementById('in-title'); e.value = ''; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+		return { evidence: ev, checks: { rowGone: !ev.rowShown && !stored('deadlines').some((x) => x.id === r.id), onlyThatRow: ev.stored === before - 1, draftStays: ev.draft === 'Synthetic unsaved deadline', noError: ev.error === null } };
+	});
+	await scenario('SC26-halfdate-nojs', 'deadlines_tab', 'GRS-181: without JavaScript, a half-typed Add date does not stop Delete, Cancel or Confirm delete: Cancel keeps the row and the Add draft, Confirm deletes the row and keeps the draft', async () => {
+		await openView('deadlines_tab');
+		await add({ title: 'Synthetic no-JS half-date target', date: '2026-11-06', note: '' });
+		const r = (await rows()).find((x) => x.cells.some((c) => c.includes('Synthetic no-JS half-date target')));
+		const row = `#register-table tr[data-row-id=${J(r.id)}]`;
+		const before = stored('deadlines').length;
+		const fillDraft = async () => { await p.type('#in-title', 'Synthetic unsaved deadline'); await halfTypeDate(p, '#in-date'); };
+		const round = await draftThroughDeleteWithHalfDate(p, { url: `${base()}/registers/deadlines_tab`, ready: ready('deadlines_tab'), fill: fillDraft, draft: '#in-title', row, opener: `${row} [data-delete]` });
+		const checks = { askMoves: round.askedBeforeCancel.moved && round.askedBeforeCancel.asking && round.askedBeforeCancel.value === 'Synthetic unsaved deadline',
+			cancelMoves: round.cancelled.moved && round.cancelled.row && !round.cancelled.asking && round.cancelled.value === 'Synthetic unsaved deadline',
+			confirmMoves: round.askedBeforeConfirm.moved && round.confirmed.moved && !round.confirmed.row && round.confirmed.value === 'Synthetic unsaved deadline',
+			onlyThatRow: stored('deadlines').length === before - 1 && !stored('deadlines').some((x) => x.id === r.id) };
+		return { evidence: { checks, round }, checks };
+	});
 	await scenario('SC27-delete-confirm-cases', 'deadlines_tab', "GRS-175: Cancel and Escape keep the row and return focus to its Delete; a second row's Delete moves the question and deletes nothing; a reload drops the question and keeps both rows; a POST without the row's confirmation is refused; Confirm delete deletes exactly that row", async () => {
 		await openView('deadlines_tab');
 		const [r] = await rows();
@@ -852,6 +895,31 @@ try {
 			checks: { noField: fields.exportFileName === undefined && fields.icsProductId === undefined, neutralName: x?.name === 'deadlines.ics', note: J(note.texts) === J([EXPORT_NAME_NOTE]) && note.beside,
 				neutralProdid: (x?.text ?? '').split('\r\n').includes('PRODID:-//ClearCase//Deadlines//EN') } };
 	});
+	await scenario('SC-RELOAD-LOST', 'disbursements_tab', 'a stored register entry survives a failed reload with a URL fragment, clears busy, reports the stale page and allows leaving', async () => {
+		const q = await openPage(b, { initScript: INIT });
+		let killed = false, handlerError = null;
+		const off = b.on((m) => {
+			if (m.sessionId !== q.sessionId || m.method !== 'Fetch.requestPaused') return;
+			(async () => {
+				if (!killed) { killed = true; const srv = A.srv; A.srv = null; await srv.stop('SIGKILL'); }
+				await q.s('Fetch.continueRequest', { requestId: m.params.requestId });
+			})().catch((e) => { handlerError = String(e); });
+		});
+		try {
+			await q.goto(`${base()}/registers/disbursements_tab#main`, ready('disbursements_tab'));
+			await q.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json?*x-sveltekit-invalidated=*', requestStage: 'Request' }] });
+			await q.evaluate(`(() => { for (const [key, value] of Object.entries({ date: '2026-10-09', desc: 'Synthetic reload courier', payee: 'Synthetic Couriers', amount: '25' })) { const e = document.getElementById('in-' + key); e.value = value; e.dispatchEvent(new Event('input', { bubbles: true })); } })()`);
+			await q.click('#register-save');
+			await q.waitFor(`!document.getElementById('register-status')`, 10000).catch(() => null);
+			const state = await q.evaluate(`({ busy: !!document.getElementById('register-status'), error: document.getElementById('reload-error')?.textContent ?? '', alert: document.getElementById('reload-error')?.getAttribute('role'), enabled: !document.getElementById('register-save')?.disabled })`);
+			const persisted = stored('disbursements').some((r) => r.fields.desc === 'Synthetic reload courier');
+			await A.start();
+			await q.click('#nav-overview');
+			const left = await q.waitFor(ready('overview'), 3000).then(() => true, () => false);
+			return { checks: { killed, persisted, idle: !state.busy, enabled: state.enabled, alert: state.alert === 'alert' && /could not reload/.test(state.error), left, handler: !handlerError }, evidence: { state, handlerError } };
+		} finally { off(); await q.s('Fetch.disable').catch(() => {}); if (!A.srv) await A.start(); await q.close(); }
+	});
+
 	ok = results.length > 0 && results.every((r) => r.pass);
 } catch (e) {
 	results.push({ id: 'HARNESS', view: '-', pass: false });

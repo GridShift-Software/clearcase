@@ -26,8 +26,16 @@ export function requests() {
 			out.push({ target, method: r.method, path: pathOf(r), actor, status: 401, marker: null,
 				denial: actor === 'foreign' ? 'token-invalid' : 'wrong-party', staff: ownInstance(r) === 'staff' });
 		}
+		for (const r of protectedRows().filter((r) => ownInstance(r) === 'staff')) out.push({ target, method: r.method, path: pathOf(r), actor: 'own-client', status: 401, marker: null, denial: 'token-invalid', staff: true });
 	}
 	return out;
+}
+// A session slot fixes both the issuing identity and the party at which it signs in.
+export function tokenSlot(target, actor, staff = false) {
+	const other = target === 'a' ? 'c' : 'a';
+	if (actor === 'operator') return { person: `staff-${target}`, party: `staff-${target}` };
+	if (actor === 'wrong-party') return { person: staff ? `staff-${other}` : target, party: `${staff ? 'staff' : 'client'}-${other}` };
+	return { person: actor === 'foreign' ? other : target, party: `${staff ? 'staff' : 'client'}-${target}` };
 }
 export function transcript() {
 	return requests().map((r) => ({ command: `${r.target}: ${r.actor} ${r.method} ${r.path}`,

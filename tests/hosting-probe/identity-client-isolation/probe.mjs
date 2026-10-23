@@ -1,14 +1,15 @@
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, mkdtempSync, writeFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { takeSecrets } from '../../../deploy/probes/secrets-child.mjs';
-import { scanPaths } from '../../../deploy/probes/scan.ts';
-import { Backend, Browser, Pace, claimsOf, frontendApi, ticketOf, halt, ClerkError } from '../identity/clerk.ts';
+import { Backend, Browser, Pace, claimsOf, frontendApi, ticketOf, halt } from '../identity/clerk.ts';
 import { HERE, build, realNode, checkInstalled, freePorts, onInterrupt, run } from '../identity/harness.ts';
-import { CLIENTS, INSTANCES, HOLD, LIFECYCLE } from './transcript.mjs';
-import { ROOT, SCHEMA, INPUTS, ENVIRONMENT, git, digest, pins, problems } from './check.mjs';
+import { CLIENTS, INSTANCES, HOLD, LIFECYCLE, tokenSlot } from './transcript.mjs';
+import { ROOT, SCHEMA, INPUTS, ENVIRONMENT, git, digest, pins } from './check.mjs';
 import { world } from './world.mjs';
 import { sweep } from './scenario.mjs';
+import { cleanupRun } from './cleanup.mjs';
+import { finishRun } from './report.mjs';
 
 // Do not expose exception strings from SDK, build or child-process boundaries: they can carry secrets.
 let stage = 'preflight';
@@ -45,6 +46,9 @@ async function main() {
 	const staffOrigins = { a: `http://127.0.0.1:${ports[1]}`, c: `http://127.0.0.1:${ports[3]}` };
 	const worlds = {};
 	const people = {};
+	const signedIn = {};
+	const parties = { 'client-a': origins.a, 'client-c': origins.c, 'staff-a': staffOrigins.a, 'staff-c': staffOrigins.c };
+	const owned = { users: [], invitations: [] };
 	const sessions = [];
 	const cleanup = { usersCreated: 0, usersDeleted: 0, invitationsCreated: 0, invitationsDeleted: 0, sessionsCreated: 0, sessionsEnded: 0, remaining: 0 };
 	let interrupted = false;
@@ -68,8 +72,9 @@ async function main() {
 		stage = 'synthetic sessions';
 		for (const name of CLIENTS) {
 			people[name] = await person(name, name, origins[name]);
-			people[`${name}-other-party`] = await otherParty(name, people[name], origins[name === 'a' ? 'c' : 'a']);
+			for (const [party, origin] of Object.entries(parties)) signedIn[`${name}@${party}`] = party === `client-${name}` ? people[name] : await otherParty(name, people[name], origin);
 			people[`staff-${name}`] = await person('staff', `staff-${name}`, staffOrigins[name]);
+			signedIn[`staff-${name}@staff-${name}`] = people[`staff-${name}`];
 		}
 		stage = 'local workers';
 		for (const [i, name] of CLIENTS.entries()) {
@@ -80,13 +85,13 @@ async function main() {
 				if (w.env[key] !== expected) throw new Error('local runtime environment differs');
 			}
 			if (w.config.jwtKeys || w.config.apiUrl || w.config.mfaRequired || worlds.a?.config.persist === worlds.c?.config.persist) throw new Error('invalid local topology');
-			const other = name === 'a' ? 'c' : 'a';
 			w.token = async (actor, staff) => {
-				const p = actor === 'own' ? people[name] : actor === 'operator' ? people[`staff-${name}`] : actor === 'foreign' ? people[`${other}-other-party`] : staff ? people[`staff-${other}`] : people[`${name}-other-party`];
+				const slot = tokenSlot(name, actor, staff);
+				const p = signedIn[`${slot.person}@${slot.party}`];
 				await pace.take();
 				const token = secret(await p.browser.token(p.session));
 				const claims = claimsOf(token);
-				if (claims.iss !== INSTANCES[p.instance].issuer || claims.azp !== p.browser.origin || claims.sub !== p.subject || claims.sid !== p.session || claims.exp <= Date.now() / 1000) throw new Error('unexpected session claims');
+				if (claims.iss !== INSTANCES[p.instance].issuer || claims.azp !== parties[slot.party] || claims.azp !== p.browser.origin || claims.sub !== p.subject || claims.sid !== p.session || claims.exp <= Date.now() / 1000) throw new Error('unexpected session claims');
 				return token;
 			};
 		}
@@ -96,54 +101,17 @@ async function main() {
 	finally {
 		// A signal only halts creation; cleanup starts after the in-flight operation settles.
 		halt.on = true;
-		let errors = 0;
-		const attempt = async (fn) => { try { await fn(); } catch { errors++; } };
-		for (const w of Object.values(worlds)) await attempt(() => w.stop());
-		for (const [name, backend] of Object.entries(backends)) {
-			await attempt(async () => { for (const inv of await backend.invitations(prefix)) { await backend.call('DELETE', `/invitations/${inv.id}`); cleanup.invitationsDeleted++; } });
-			await attempt(async () => { for (const u of await backend.users(prefix)) {
-				// Include sessions created by a call whose response was lost.
-				for (const s of await backend.sessions(u.id)) if (!sessions.some((x) => x.instance === name && x.id === s.id)) sessions.push({ instance: name, id: s.id });
-				await backend.deleteUser(u.id); cleanup.usersDeleted++;
-			} });
-			await attempt(async () => { cleanup.remaining += (await backend.users(prefix)).length + (await backend.invitations(prefix)).length; });
-		}
-		for (const s of sessions) await attempt(async () => {
-			let status;
-			try { status = (await backends[s.instance].getSession(s.id)).status; }
-			catch (e) { if (e instanceof ClerkError && e.status === 404) status = 'gone'; else throw e; }
-			if (!['ended', 'revoked', 'abandoned', 'expired', 'gone'].includes(status)) throw new Error('session not ended');
-			cleanup.sessionsEnded++;
-		});
-		cleanupOkay = errors === 0;
-		finish();
-		unregister();
+		cleanupOkay = await cleanupRun({ backends, prefix, sessions, owned, worlds, counts: cleanup });
 	}
-	if (failure || interrupted || !cleanupOkay) {
-		writeFileSync(path.join(dir, 'failure.json'), JSON.stringify({ sourceSha: sha, stage, interrupted, cleanupOkay, cleanup, evidence: false }));
-		throw new Error('run or cleanup failed');
-	}
-	stage = 'evidence and credential scan';
-	const summary = { schema: SCHEMA, sourceSha: sha, inputs: { paths: INPUTS, digest: digest(sha) }, treeClean: git(['rev-parse', 'HEAD']) === sha && !git(['status', '--porcelain']),
-		mode: 'live-clerk-development', environment: ENVIRONMENT, instances: INSTANCES, served: { a: sha, c: sha }, ...data,
-		lifecycle: LIFECYCLE.map((assertion) => ({ assertion, pass: true })), cleanup, scan: { files: 0, hits: 0 }, hold: HOLD, evidence: false };
-	const output = path.join(dir, 'summary.json');
-	writeFileSync(output, JSON.stringify(summary, null, 2));
-	// Exclude only Bun's installed-code transpiler cache, as the existing identity runner does.
-	function scanRoots(root) {
-		return readdirSync(root, { withFileTypes: true }).flatMap((e) => {
-			const p = path.join(root, e.name);
-			if (e.name === 'cache' && e.isDirectory()) return readdirSync(p).filter((n) => n !== 'bun').map((n) => path.join(p, n));
-			return e.isDirectory() ? scanRoots(p) : [p];
-		});
-	}
-	const scanned = scanPaths({ roots: [...scanRoots(dir), path.join(HERE, '.svelte-kit')], canaries: [...canaries] });
-	summary.scan = { files: scanned.files, hits: scanned.hits.length };
-	summary.treeClean = summary.treeClean && git(['rev-parse', 'HEAD']) === sha && !git(['status', '--porcelain']);
-	summary.evidence = problems({ ...summary, evidence: true }, { head: sha }).length === 0;
-	writeFileSync(output, JSON.stringify(summary, null, 2) + '\n');
-	console.log(`ISOLATION ${summary.evidence ? 'PASS' : 'FAIL'} ${sha}; summary ${path.relative(ROOT, output)}`);
-	if (!summary.evidence) process.exitCode = 1;
+	// Failed and interrupted runs take the same scan path; the signal hook waits through it.
+	try {
+		const summary = { schema: SCHEMA, sourceSha: sha, inputs: { paths: INPUTS, digest: digest(sha) }, treeClean: git(['rev-parse', 'HEAD']) === sha && !git(['status', '--porcelain']),
+			mode: 'live-clerk-development', runDir: path.relative(ROOT, dir).split(path.sep).join('/'), environment: ENVIRONMENT, instances: INSTANCES, served: { a: sha, c: sha }, ...data,
+			lifecycle: LIFECYCLE.map((assertion) => ({ assertion, pass: !failure && !interrupted && cleanupOkay })), cleanup, scan: { files: 0, hits: 0, manifest: [] }, hold: HOLD, evidence: false };
+		finishRun({ summary, dir, buildDir: path.join(HERE, '.svelte-kit'), canaries: [...canaries], failure: { failed: failure, interrupted, cleanupOkay, stage } });
+		console.log(`ISOLATION ${summary.evidence ? 'PASS' : 'FAIL'} ${sha}; summary ${path.relative(ROOT, dir)}/summary.json`);
+		if (!summary.evidence) process.exitCode = 1;
+	} finally { finish(); unregister(); }
 
 	async function browser(instance, origin) {
 		const testing = secret(await backends[instance].testingToken());
@@ -155,6 +123,7 @@ async function main() {
 		const email = `${prefix}${name}+clerk_test@example.com`;
 		const password = secret(`Cc201!${randomBytes(24).toString('hex')}`);
 		const inv = await backends[instance].createInvitation(email, origin + '/invite/accept');
+		owned.invitations.push({ instance, id: inv.id });
 		cleanup.invitationsCreated++;
 		const b = await browser(instance, origin);
 		const session = await b.signUpWithTicket(secret(ticketOf(inv.url)), password);
@@ -162,6 +131,7 @@ async function main() {
 		sessions.push({ instance, id: session });
 		const token = secret(await b.token(session));
 		const subject = claimsOf(token).sub;
+		owned.users.push({ instance, id: subject });
 		return { instance, subject, email, session, browser: b };
 	}
 	async function otherParty(instance, p, origin) {

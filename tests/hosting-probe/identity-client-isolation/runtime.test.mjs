@@ -1,14 +1,15 @@
 // Real app/workerd/D1/R2; crafted RSA issuers and a loopback session-status double. Never Clerk evidence.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { craftedIssuer, statusDouble } from '../identity/crafted.ts';
 import { realNode, freePorts, build, checkInstalled } from '../identity/harness.ts';
 import { ROOT, git } from './check.mjs';
-import { CLIENTS, transcript } from './transcript.mjs';
+import { CLIENTS, transcript, tokenSlot } from './transcript.mjs';
 import { world } from './world.mjs';
 import { sweep } from './scenario.mjs';
+import { scanArtifacts, completeCoverage } from './artifacts.mjs';
 
 test('same reciprocal sweep exercises separate native workerd client stores', { timeout: 600_000 }, async () => {
 	const node = realNode();
@@ -31,10 +32,11 @@ test('same reciprocal sweep exercises separate native workerd client stores', { 
 				['STAFF_PK', issuers.staff.publishableKey], ['STAFF_SK', 'sk_test_synthetic-placeholder-not-a-key'], ['STAFF_JWT_KEY', issuers.staff.jwtKey]]);
 			worlds[name] = await world({ node, dir: path.join(dir, name), ports: ports.slice(i * 2, i * 2 + 2), keys, clientSubject: `user_${name}`, staffSubject: `user_staff_${name}`, sha, apiUrl: status.url });
 			worlds[name].token = async (actor, staff) => {
-				const other = name === 'a' ? 'c' : 'a';
-				const issuer = actor === 'operator' || (actor === 'wrong-party' && staff) ? 'staff' : actor === 'foreign' ? other : name;
-				const azp = actor === 'operator' ? staffOrigins[name] : actor === 'wrong-party' ? (staff ? staffOrigins[other] : origins[other]) : origins[name];
-				const sub = issuer === 'staff' ? `user_staff_${name}` : `user_${issuer}`;
+				const slot = tokenSlot(name, actor, staff);
+				const issuer = slot.person.startsWith('staff-') ? 'staff' : slot.person;
+				const [kind, client] = slot.party.split('-');
+				const azp = kind === 'staff' ? staffOrigins[client] : origins[client];
+				const sub = `user_${slot.person.replace('-', '_')}`;
 				const sid = `sess_${sub}`;
 				status.set(sid, sub);
 				const now = Math.floor(Date.now() / 1000);
@@ -49,4 +51,8 @@ test('same reciprocal sweep exercises separate native workerd client stores', { 
 		try { for (const w of Object.values(worlds)) await w.stop(); }
 		finally { await status.close(); }
 	}
+	writeFileSync(path.join(dir, 'summary-scan.json'), JSON.stringify({ mode: 'crafted', evidence: false }));
+	const scanned = scanArtifacts(dir, path.join(ROOT, 'tests/hosting-probe/identity/.svelte-kit'), []);
+	assert.equal(scanned.hits, 0);
+	assert.equal(completeCoverage(scanned.manifest), true);
 });

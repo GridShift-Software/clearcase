@@ -32,13 +32,14 @@ References: [Clerk request verification](https://clerk.com/docs/reference/backen
 
 ## Run and inspect
 
-Use a dedicated Linux checkout with real Node 24 or newer and Bun 1.4.2. Install the existing identity workspace with `bun install --frozen-lockfile` in `tests/hosting-probe/identity`; no new dependencies are introduced. The probe builds that workspace, so do not run another identity build in the same checkout. Both clients and their staff frontends use distinct free loopback ports and four separate local stores. Four synthetic users, four invitations and six sessions are expected. Invitations use `notify: false`; all email-code sign-ins use `+clerk_test@example.com`.
+Use a dedicated Linux checkout with real Node 24 or newer and Bun 1.4.2. Install the existing identity workspace with `bun install --frozen-lockfile` in `tests/hosting-probe/identity`; no new dependencies are introduced. The probe builds that workspace, so do not run another identity build in the same checkout. Both clients and their staff frontends use distinct free loopback ports and four separate local stores. Four synthetic users, four invitations and ten sessions are expected: each client signs in at all four origins, plus one staff operator per world. Invitations use `notify: false`; all email-code sign-ins use `+clerk_test@example.com`.
 
 From the repository root, wrap these commands with `scripts/agent-tools/receipt --base 6a61e6500310431f851d79a6ed464028a59c9d57 --name NAME --` (use the absolute real Node path if `node` resolves to Bun's shim):
 
 ```sh
 node --test tests/hosting-probe/identity-client-isolation/check.test.mjs
-PROBE_BUN=/absolute/path/to/bun node --test tests/hosting-probe/identity-client-isolation/runtime.test.mjs
+node --test tests/hosting-probe/identity-client-isolation/cleanup.test.mjs tests/hosting-probe/identity-client-isolation/report.test.mjs
+env PROBE_BUN=/absolute/path/to/bun node --test tests/hosting-probe/identity-client-isolation/runtime.test.mjs
 bun tests/hosting-probe/identity-client-isolation/live.mjs
 node tests/hosting-probe/identity-client-isolation/check.mjs .local/hosting-probe/identity-client-isolation/live-RUN/summary.json
 ```
@@ -46,6 +47,10 @@ node tests/hosting-probe/identity-client-isolation/check.mjs .local/hosting-prob
 The live launcher selects `CLIENT_A_PK`, `CLIENT_A_SK`, `CLIENT_C_PK`, `CLIENT_C_SK`, `STAFF_PK`, `STAFF_SK` from the existing private `clerk-dev` secrets file through `deploy/probes/secrets.ts`. C means the second client, not the existing B/staff app. Only the existing reader opens this file; the runner and Workers receive values through fd 3. Production keys and an unexpected issuer are refused before any identity is created.
 
 The checker accepts only the exact clean source SHA; it includes the reused app, harness and secret-reader files in its input digest. It compares every request's command, assertion and observation to `transcript.mjs`. The runner verifies installed pins, the build host and stamp, native workerd processes, local environment settings, instance settings, session claims, non-audit store snapshots, cleanup counts and credential scan. The initial summary always says `evidence: false`; it becomes true only after these checks. Offline crafted controls cannot emit a live summary.
+
+Issuer controls use the recipient gate's origin: client origin for client gates, staff origin for staff gates. Both the foreign client and the target's own client attempt every staff gate. The scanner runs after unsuccessful and interrupted attempts too. Cleanup attempts each identity independently and falls back to known created IDs when enumeration fails; any incomplete operation keeps the run failed.
+
+Scan evidence includes a SHA-256 manifest of the actual files under the run directory and reused build. The checker re-enumerates and hashes them, requires logs, both clients' and staff stores, the build entry and immutable `summary-scan.json`, and refuses missing or altered coverage. Keep these ignored artifacts on the execution host; the summary alone is insufficient. Only final self-referencing reports and the known Bun transpiler-cache directories are excluded. This is a local evidence-integrity check, not a cryptographic attestation of an external provider run.
 
 On a failed run, inspect the ignored run directory's `failure.json` and `run.json`. They contain the stage, cleanup counts and this run's exact random prefix, without credentials. SIGINT/SIGTERM/SIGHUP halt new creations and wait for the in-flight call before cleanup. SIGKILL cannot execute cleanup; its remaining identities require a run-prefix-scoped recovery on the execution host. There is no broad janitor or account-wide deletion.
 

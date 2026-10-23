@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { transcript, INSTANCES, HOLD, LIFECYCLE } from './transcript.mjs';
+import { artifacts, completeCoverage } from './artifacts.mjs';
 
 export const ROOT = path.resolve(import.meta.dirname, '../../..');
 export const INPUTS = ['tests/hosting-probe/identity-client-isolation', 'tests/hosting-probe/identity', 'deploy/probes/secrets.ts', 'deploy/probes/secrets-child.mjs', 'deploy/probes/secrets-env.mjs', 'deploy/probes/secrets-fd.mjs', 'deploy/probes/scan.ts'];
@@ -30,10 +31,10 @@ export function expectedResults() {
 	return transcript().map((r) => ({ ...r, observed: { status: r.status, denial: r.denial, marker: Boolean(r.marker), leaked: false }, pass: true }));
 }
 // Strict top-level and nested structure: extra or missing observations cannot silently become evidence.
-export function problems(s, { head, digestAt = digest } = {}) {
+export function problems(s, { head, digestAt = digest, coverageAt = (runDir) => artifacts(path.join(ROOT, runDir), path.join(ROOT, 'tests/hosting-probe/identity/.svelte-kit')) } = {}) {
 	const errors = [];
 	const eq = (name, actual, expected) => { if (!isDeepStrictEqual(actual, expected)) errors.push(name); };
-	const keys = ['schema', 'sourceSha', 'inputs', 'treeClean', 'mode', 'environment', 'instances', 'served', 'results', 'lifecycle', 'storesUnchanged', 'cleanup', 'scan', 'hold', 'evidence'];
+	const keys = ['schema', 'sourceSha', 'inputs', 'treeClean', 'mode', 'runDir', 'environment', 'instances', 'served', 'results', 'lifecycle', 'storesUnchanged', 'cleanup', 'scan', 'hold', 'evidence'];
 	if (!s || typeof s !== 'object' || Array.isArray(s)) return ['summary is not an object'];
 	eq('summary fields', Object.keys(s).sort(), keys.sort());
 	eq('schema', s.schema, SCHEMA);
@@ -47,10 +48,14 @@ export function problems(s, { head, digestAt = digest } = {}) {
 	eq('results', s.results, expectedResults());
 	eq('lifecycle', s.lifecycle, LIFECYCLE.map((assertion) => ({ assertion, pass: true })));
 	eq('storesUnchanged', s.storesUnchanged, { a: true, c: true });
-	// Four users: two clients and one staff operator per world. Each client signs in at both origins.
-	eq('cleanup', s.cleanup, { usersCreated: 4, usersDeleted: 4, invitationsCreated: 4, invitationsDeleted: 4, sessionsCreated: 6, sessionsEnded: 6, remaining: 0 });
-	if (!s.scan || !Number.isSafeInteger(s.scan.files) || s.scan.files < 1) errors.push('scan files');
-	eq('scan', s.scan, { files: s.scan?.files, hits: 0 });
+	// Four users: clients sign in at both client origins and both staff origins (eight sessions), plus two operators.
+	eq('cleanup', s.cleanup, { usersCreated: 4, usersDeleted: 4, invitationsCreated: 4, invitationsDeleted: 4, sessionsCreated: 10, sessionsEnded: 10, remaining: 0 });
+	if (typeof s.runDir !== 'string' || !/^\.local\/hosting-probe\/identity-client-isolation\/live-[A-Za-z0-9]+$/.test(s.runDir)) errors.push('run directory');
+	else try {
+		const manifest = coverageAt(s.runDir);
+		if (!completeCoverage(manifest)) errors.push('incomplete scan coverage');
+		eq('scan', s.scan, { files: manifest.length, hits: 0, manifest });
+	} catch { errors.push('unreadable scan artifacts'); }
 	eq('hold', s.hold, HOLD);
 	eq('evidence', s.evidence, true);
 	return errors;

@@ -13,6 +13,7 @@ const { join, resolve } = await import('node:path');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { launch, newPage, sleep } = await import('../pilot/lib/cdp.mjs');
 const { client, vpath } = await import('../pilot/lib/client.mjs');
+const { halfTypeDate } = await import('../pilot/lib/half-date.mjs');
 const { outDir } = await import('../pilot/lib/record.mjs');
 const { CAPTURE, CLOCK, J, holdStore, pageKit, quantumCase, ready, server, takeDownloads } = await import('./lib.mjs');
 const { r2 } = await import('./r2.mjs');
@@ -384,6 +385,44 @@ try {
 			return { pass: killed && stored && !state.busy && state.enabled && state.alert === 'alert' && /could not reload/.test(state.error) && left && !handlerError, evidence: { killed, stored, state, left, handlerError } };
 		} finally { off(); await q.s('Fetch.disable').catch(() => {}); if (!S.srv) await S.start(); await q.close(); }
 	});
+
+	for (const scripts of [true, false]) {
+		const mode = scripts ? 'js' : 'nojs';
+		await scenario(`Q-PAYMENT-HALFDATE-${mode}`, 'payments_tab', `GRS-192: ${mode}, a half-typed Add date blocks Add but allows Delete; only the stored target is removed and the unsaved text stays`, async () => {
+			const q = await newPage(b, { fresh: true });
+			const qk = pageKit(q, base);
+			const loaded = scripts ? ready('payments_tab') : `!!document.querySelector('[data-ready="payments_tab"]') && document.readyState === 'complete'`;
+			try {
+				if (!scripts) await q.s('Emulation.setScriptExecutionDisabled', { value: true });
+				await q.navigate(`${base}${route('payments_tab')}`);
+				await q.waitFor(loaded, 20000);
+				const before = S.rows('payments');
+				const note = `Synthetic half-date target ${mode}`;
+				await qk.fill([['#pay_date', '2089-06-30'], ['#pay_amount', '5.00'], ['#pay_method', 'Synthetic EFT'], ['#pay_note', note]]);
+				await q.click('#pay-add');
+				await q.waitFor(`(${loaded}) && [...document.querySelectorAll('#payments tbody tr[data-row-id]')].some((r) => r.cells[3].textContent.trim() === ${J(note)}) && document.getElementById('pay_date').value === ''`, 15000);
+				const created = S.rows('payments');
+				const target = created.find((r) => r.fields.note === note && !before.some((old) => old.id === r.id));
+				if (!target || created.length !== before.length + 1) throw new Error('payment was not created through Add');
+				const row = `#payments tr[data-row-id=${J(target.id)}]`;
+				const draft = [['#pay_amount', '7.00'], ['#pay_method', 'Synthetic unsaved method'], ['#pay_note', 'Synthetic unsaved payment']];
+				await qk.fill(draft);
+				const half = await halfTypeDate(q, '#pay_date');
+				await q.evaluate('window.__halfDateRound = true');
+				await q.click('#pay-add');
+				const add = await q.evaluate(`({ sameDocument: window.__halfDateRound === true, bad: document.getElementById('pay_date').validity.badInput, value: document.getElementById('pay_date').value })`);
+				const addBlocked = add.sameDocument && add.bad && add.value === '' && J(S.rows('payments')) === J(created);
+				await q.click(`${row} [data-delete]`);
+				const rowGone = await q.waitFor(`(${loaded}) && !document.querySelector(${J(row)})`, 4000).then(() => true, () => false);
+				const after = S.rows('payments');
+				const values = await qk.values(draft.map(([sel]) => sel));
+				const rowShown = await qk.exists(row);
+				const error = await qk.text('#pay-error, [data-delete-error], #reload-error');
+				return { pass: addBlocked && rowGone && !rowShown && J(after) === J(before) && J(values) === J(draft.map(([, value]) => value)) && error === null,
+					evidence: { half, add, addBlocked, rowGone, rowShown, before: before.map((r) => r.id), target: target.id, after: after.map((r) => r.id), values, error } };
+			} finally { await q.close(); }
+		});
+	}
 
 	// ---- optional: synthetic screenshots of the product-visible changes (QUANTUM_SCREENS=<dir>; not a scenario) ---------
 	if (process.env.QUANTUM_SCREENS) {

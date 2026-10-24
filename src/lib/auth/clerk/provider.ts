@@ -24,10 +24,11 @@ import { createClerkClient, verifyToken } from '@clerk/backend';
 import type { CaseId, CaseOperation, Identity, IdentityProvider, Principal, SessionId } from '../../server/runtime/contracts.ts';
 import { codeOf, contractError } from '../../server/runtime/errors.ts';
 import { id } from '../../server/runtime/ids.ts';
-import { presentedToken } from './session.ts';
+import { revokeClerkSession } from './flow.ts';
+import { inspectToken, presentedToken } from './session.ts';
 import { readClerkIdentityConfig, rsaJwkOf, type ClerkIdentityConfig, type ClerkInstanceConfig } from './config.ts';
 
-export { presentedToken };
+export { inspectToken, presentedToken };
 
 /** The case decision GRS-114 owns. Resolves to allow; throws a contract error (forbidden, ...) to refuse. */
 export type CaseAuthorizer = (a: { principal: Principal; sessionId: SessionId; caseId: CaseId; operation: CaseOperation }) => Promise<void>;
@@ -35,53 +36,23 @@ export type CaseAuthorizer = (a: { principal: Principal; sessionId: SessionId; c
 // verifyToken reasons that mean the key or configuration is at fault, not the token: a 503. Every other reason is the
 // token's own (expired, wrong issuer, bad signature, ...): a 401.
 const FAULT_REASONS = new Set(['secret-key-invalid', 'jwk-local-missing', 'jwk-remote-failed-to-load', 'jwk-remote-invalid', 'jwk-failed-to-resolve']);
-const FORBIDDEN_HEADERS = ['jku', 'x5u', 'x5c', 'x5t', 'x5t#S256', 'jwk', 'crit'];
 
 type Refusal = 'unauthenticated' | 'invalid-session';
 type Verified = { instance: ClerkInstanceConfig; subject: string; session: string; expiresAt: number };
 const unavailable = () => contractError('identity-unavailable', true);
-
-const plain = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const decodePart = (part: string): unknown => {
-	const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
-	const bytes = Uint8Array.from(atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
-	return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-};
-const finite = (v: unknown) => v === undefined || (typeof v === 'number' && Number.isFinite(v));
-const text = (v: unknown) => v === undefined || typeof v === 'string';
-
-/**
- * The shape gate in front of the SDK: true only for a three-part base64url token with an RS256 header and an object
- * payload whose registered claims have their registered types. A token that fails is refused as invalid-session, with no
- * SDK call and no network. It decides shape, never validity: signature and claims are verified afterwards.
- */
-export function inspectToken(token: string): boolean {
-	const parts = token.split('.');
-	if (parts.length !== 3 || !parts.every((p) => /^[A-Za-z0-9_-]+$/.test(p))) return false;
-	try {
-		const header = decodePart(parts[0]!), payload = decodePart(parts[1]!);
-		if (!plain(header) || !plain(payload)) return false;
-		if (header.alg !== 'RS256' || (header.typ !== undefined && header.typ !== 'JWT') || !(header.kid === undefined || (typeof header.kid === 'string' && header.kid.length <= 200))) return false;
-		if (FORBIDDEN_HEADERS.some((h) => h in header) || header.cat !== undefined) return false;
-		const aud = payload.aud;
-		return text(payload.iss) && text(payload.sub) && text(payload.sid) && text(payload.azp) && text(payload.sts) && finite(payload.exp) && finite(payload.nbf) && finite(payload.iat)
-			&& (aud === undefined || typeof aud === 'string' || (Array.isArray(aud) && aud.every((a) => typeof a === 'string')));
-	} catch {
-		return false;
-	}
-}
 
 /** The contract's IdentityProvider plus sign-out: revoking the session at the instance that issued it. */
 export interface ClerkIdentityProvider extends IdentityProvider {
 	signOut(a: { principal: Principal; sessionId: SessionId }): Promise<void>;
 }
 
+const backendsOf = (config: ClerkIdentityConfig) =>
+	new Map([config.client, config.staff].map((i) => [i, createClerkClient({ secretKey: i.secretKey, publishableKey: i.publishableKey, apiUrl: config.apiUrl ?? undefined, telemetry: { disabled: true } })]));
+
 export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; authorizeCase: CaseAuthorizer }): ClerkIdentityProvider {
 	const { config, authorizeCase } = a;
 	if (typeof authorizeCase !== 'function') throw new TypeError('createClerkIdentityProvider needs the case authorizer');
-	const backends = new Map(
-		[config.client, config.staff].map((i) => [i, createClerkClient({ secretKey: i.secretKey, publishableKey: i.publishableKey, apiUrl: config.apiUrl ?? undefined, telemetry: { disabled: true } })]),
-	);
+	const backends = backendsOf(config);
 
 	// The configured keys are RSA-2048 PEMs by construction; this proves the platform can also import them, once. A key
 	// that cannot be imported is a configuration fault (every request unavailable), never a verdict on one token.
@@ -141,16 +112,7 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 	}
 
 	return {
-		async signOut({ principal, sessionId }) {
-			const instance = [config.client, config.staff].find((i) => i.issuer === principal.issuer && i.kind === principal.kind);
-			if (!instance) throw contractError('invalid-session');
-			try {
-				await backends.get(instance)!.sessions.revokeSession(sessionId);
-			} catch (e) {
-				if (e instanceof Error && 'status' in e && (e as { status: unknown }).status === 404) return; // already gone
-				throw unavailable();
-			}
-		},
+		signOut: ({ principal, sessionId }) => revokeClerkSession({ config, principal, sessionId }),
 		async authenticate({ request }) {
 			const token = presentedToken(request);
 			if (token === null) return refusedIdentity('unauthenticated');

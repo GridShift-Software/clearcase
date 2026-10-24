@@ -68,8 +68,8 @@ describe('/sign-out with a Clerk session', () => {
 describe('/sign-in as one browser session per origin', () => {
 	it('signs a staff session out before sending the browser to the client instance, and never reuses the old cookie', async () => {
 		status.set('sess_sw1', 'user_b1');
-		const l = await locals(B.token({ sub: 'user_b1', sid: 'sess_sw1', azp: ORIGIN })), c = jar();
-		const r = await outcome(() => signIn.actions.default!({ locals: l, request: new Request(`${ORIGIN}/sign-in`, { method: 'POST', headers: { cookie: '__session=x' } }), url: new URL(`${ORIGIN}/sign-in`), cookies: c.cookies } as never));
+		const token = B.token({ sub: 'user_b1', sid: 'sess_sw1', azp: ORIGIN }), l = await locals(token), c = jar();
+		const r = await outcome(() => signIn.actions.default!({ locals: l, request: new Request(`${ORIGIN}/sign-in`, { method: 'POST', headers: { cookie: `__session=${token}` } }), url: new URL(`${ORIGIN}/sign-in`), cookies: c.cookies } as never));
 		expect(status.calls.some((x) => x.includes('POST /v1/sessions/sess_sw1/revoke'))).toBe(true);
 		expect(c.deleted).toContain('__session');
 		expect(r.thrown).toMatchObject({ status: 303 });

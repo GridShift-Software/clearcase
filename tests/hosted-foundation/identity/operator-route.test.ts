@@ -41,9 +41,10 @@ describe('/sign-in/operator', () => {
 	it('signs a client session out first, then sends the browser to the staff instance', async () => {
 		const made = clerkIdentityProviderFromEnv(configured(), { authorizeCase: async () => {} });
 		if (!made.ok) throw new Error(made.reason);
-		const identity = await made.provider.authenticate({ request: new Request(`${ORIGIN}/cases`, { headers: { authorization: `Bearer ${A.token({ sub: 'user_a1', sid: 'sess_op1', azp: ORIGIN })}` } }) });
+		const token = A.token({ sub: 'user_a1', sid: 'sess_op1', azp: ORIGIN });
+		const identity = await made.provider.authenticate({ request: new Request(`${ORIGIN}/cases`, { headers: { authorization: `Bearer ${token}` } }) });
 		const deleted: string[] = [];
-		const r = await outcome(() => operator.actions.default!({ locals: { ...production, identity } as App.Locals, request: new Request(`${ORIGIN}/sign-in/operator`, { method: 'POST', headers: { cookie: '__session=x' } }), url: new URL(`${ORIGIN}/sign-in/operator`), cookies: { delete: (n: string) => deleted.push(n) } } as never));
+		const r = await outcome(() => operator.actions.default!({ locals: { ...production, identity } as App.Locals, request: new Request(`${ORIGIN}/sign-in/operator`, { method: 'POST', headers: { cookie: `__session=${token}` } }), url: new URL(`${ORIGIN}/sign-in/operator`), cookies: { delete: (n: string) => deleted.push(n) } } as never));
 		expect(status.calls.some((c) => c.includes('POST /v1/sessions/sess_op1/revoke'))).toBe(true);
 		expect(deleted).toContain('__session');
 		expect(r.thrown).toMatchObject({ status: 303 });

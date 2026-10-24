@@ -37,3 +37,35 @@ export function presentedToken(request: Request): string | null | 'malformed' {
 	if (values.size > 1) return 'malformed';
 	return [...values][0] ?? null;
 }
+
+const FORBIDDEN_HEADERS = ['jku', 'x5u', 'x5c', 'x5t', 'x5t#S256', 'jwk', 'crit'];
+const plain = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const decodePart = (part: string): unknown => {
+	const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+	const bytes = Uint8Array.from(atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
+	return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+};
+const finite = (v: unknown) => v === undefined || (typeof v === 'number' && Number.isFinite(v));
+const text = (v: unknown) => v === undefined || typeof v === 'string';
+
+/**
+ * The shape gate in front of the SDK: true only for a three-part base64url token with an RS256 header and an object
+ * payload whose registered claims have their registered types. A token that fails is refused as invalid-session, with no
+ * SDK call and no network. It decides shape, never validity: signature and claims are verified afterwards.
+ */
+export function inspectToken(token: string): boolean {
+	const parts = token.split('.');
+	if (parts.length !== 3 || !parts.every((p) => /^[A-Za-z0-9_-]+$/.test(p))) return false;
+	try {
+		const header = decodePart(parts[0]!), payload = decodePart(parts[1]!);
+		if (!plain(header) || !plain(payload)) return false;
+		if (header.alg !== 'RS256' || (header.typ !== undefined && header.typ !== 'JWT') || !(header.kid === undefined || (typeof header.kid === 'string' && header.kid.length <= 200))) return false;
+		if (FORBIDDEN_HEADERS.some((h) => h in header) || header.cat !== undefined) return false;
+		const aud = payload.aud;
+		return text(payload.iss) && text(payload.sub) && text(payload.sid) && text(payload.azp) && text(payload.sts) && finite(payload.exp) && finite(payload.nbf) && finite(payload.iat)
+			&& (aud === undefined || typeof aud === 'string' || (Array.isArray(aud) && aud.every((a) => typeof a === 'string')));
+	} catch {
+		return false;
+	}
+}
+

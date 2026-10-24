@@ -39,6 +39,27 @@ export interface GrantRecord {
 export type PrincipalKey = { issuer: string; subject: string };
 export type NewGrant = Omit<GrantRecord, 'state' | 'version' | 'revokedOperationId' | 'revokedAt'>;
 
+/** Who performed a management operation: a verified principal, or the trusted control plane (bootstrap only). */
+export type OperationActor = { issuer: string; subject: string; kind: Principal['kind'] | 'control-plane' };
+export type OperationType = 'create' | 'update' | 'revoke' | 'bootstrap';
+/**
+ * The ledger row of one management operation. It is bound to its client, actor, type and canonical request, and it fixes
+ * the audit event (canonical JSON and SHA-256 digest) the operation must persist. `recorded` means that event is not yet
+ * confirmed persisted; `audited` means it is, and the operation never appends again.
+ */
+export interface GrantOperation {
+  readonly operationId: string;
+  readonly operation: OperationType;
+  readonly actor: OperationActor;
+  readonly request: string;
+  readonly grantId: string;
+  readonly event: string;
+  readonly eventDigest: string;
+  readonly state: 'recorded' | 'audited';
+  readonly recordedAt: string;
+}
+export type NewOperation = Omit<GrantOperation, 'state'>;
+
 /**
  * The grant store of one client instance. Every method is scoped by clientId; a row of another client never answers.
  * Writes are compare-and-set on the grant version and keyed by the management operation id.
@@ -47,16 +68,21 @@ export interface GrantRepository {
   /** Active and pending grants of one principal for one case or for the client; the caller decides what counts. */
   grantsOf(a: { clientId: ClientId; principal: PrincipalKey; scope: GrantScope }): Promise<readonly GrantRecord[]>;
   get(a: { clientId: ClientId; grantId: string }): Promise<GrantRecord | null>;
-  /** The grant an operation created, or the grant it revoked. */
-  byOperation(a: { clientId: ClientId; operationId: string }): Promise<GrantRecord | null>;
-  /** Inserts a pending grant unless a live grant holds its slot or the operation id is used; returns the stored row. */
-  insertPending(a: { grant: NewGrant }): Promise<GrantRecord | null>;
-  /** Revokes the active grant at expectedVersion and, in the same batch, inserts its pending replacement. */
-  supersede(a: { clientId: ClientId; grantId: string; expectedVersion: number; replacement: NewGrant; at: string }): Promise<GrantRecord | null>;
+  /** The ledger row of an operation id, whatever its type or actor; the caller compares them. */
+  operationOf(a: { clientId: ClientId; operationId: string }): Promise<GrantOperation | null>;
+  /**
+   * Inserts a pending grant and its operation row in one batch, unless a live grant holds its slot or the operation id is
+   * used (null). A storage failure rejects; it is never reported as a lost race.
+   */
+  insertPending(a: { grant: NewGrant; operation: NewOperation }): Promise<GrantRecord | null>;
+  /** Revokes the active grant at expectedVersion and, in the same batch, inserts its pending replacement and the operation row. */
+  supersede(a: { clientId: ClientId; grantId: string; expectedVersion: number; replacement: NewGrant; operation: NewOperation; at: string }): Promise<GrantRecord | null>;
   /** Moves a pending grant to active; returns the active row, or null when it is no longer pending. */
   activate(a: { clientId: ClientId; grantId: string; version: number }): Promise<GrantRecord | null>;
-  /** Revokes a pending or active grant at expectedVersion; returns the revoked row, or null when the CAS lost. */
-  revoke(a: { clientId: ClientId; grantId: string; expectedVersion: number; operationId: string; at: string }): Promise<GrantRecord | null>;
+  /** Revokes a pending or active grant at expectedVersion and records the operation in one batch; null when the CAS lost. */
+  revoke(a: { clientId: ClientId; grantId: string; expectedVersion: number; operation: NewOperation; at: string }): Promise<GrantRecord | null>;
+  /** Marks the operation's audit event as confirmed persisted; true when the row is now `audited`. */
+  settle(a: { clientId: ClientId; operationId: string }): Promise<boolean>;
 }
 
 /** Whether a case exists in this client instance, before or after any publication. Owned by storage (GRS-115). */

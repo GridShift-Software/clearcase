@@ -9,10 +9,11 @@ import { id } from '../../../src/lib/server/runtime/ids.ts';
 import { createCaseAuthorizer } from '../../../src/lib/tenancy/authorizer.ts';
 import { d1GrantRepository } from '../../../src/lib/tenancy/d1-grants.ts';
 import type { GrantRole } from '../../../src/lib/tenancy/grants.ts';
-import { createGrantManagement } from '../../../src/lib/tenancy/management.ts';
-import { resolveDeployment, validateClientManifest } from '../../../src/lib/tenancy/manifest.ts';
+import { createGrantManagement, createManagerBootstrap } from '../../../src/lib/tenancy/management.ts';
+import { resolveExactDeployment, validateClientManifest } from '../../../src/lib/tenancy/manifest.ts';
 
-export const MIGRATION = readFileSync(new URL('../../../src/lib/tenancy/migrations/0001_tenant_case_grants.sql', import.meta.url), 'utf8');
+export const MIGRATIONS = ['0001_tenant_case_grants.sql', '0002_tenant_grant_operations.sql'].map((f) => readFileSync(new URL(`../../../src/lib/tenancy/migrations/${f}`, import.meta.url), 'utf8'));
+export const MIGRATION = MIGRATIONS.join('\n');
 export const ISSUER_A = 'https://client-a.example.test', ISSUER_C = 'https://client-c.example.test', ISSUER_STAFF = 'https://staff.example.test';
 export const MANIFEST = {
   staffIssuer: ISSUER_STAFF,
@@ -27,7 +28,7 @@ export const staff = (subject: string, issuer = ISSUER_STAFF): Principal => ({ i
 export const SESSION = id('session', 'session-1') as SessionId;
 export const SESSION_2 = id('session', 'session-2') as SessionId;
 
-export function d1(db: DatabaseSync): D1 {
+export function d1(db: DatabaseSync, batchFails: () => boolean = () => false): D1 {
   const statement = (sql: string, values: (string | number | null)[] = []): D1Statement => ({
     bind: (...next) => statement(sql, next),
     first: async <T>() => (db.prepare(sql).get(...values) as T | undefined) ?? null,
@@ -37,6 +38,7 @@ export function d1(db: DatabaseSync): D1 {
   return {
     prepare: (sql) => statement(sql),
     async batch(all) {
+      if (batchFails()) throw new Error('D1_ERROR: network connection lost');
       db.exec('BEGIN');
       try { const out = []; for (const s of all) out.push(await s.run()); db.exec('COMMIT'); return out; } catch (e) { db.exec('ROLLBACK'); throw e; }
     },
@@ -48,7 +50,7 @@ export function world(o: { cases?: CaseId[] } = {}) {
   db.exec(MIGRATION);
   let clock = new Date('2026-10-24T12:00:00.000Z');
   const events: AuditEvent[] = [];
-  const state = { auditFails: false, casesFail: false, grantsFail: false, lostAck: false, findFails: false, appends: 0 };
+  const state = { auditFails: false, casesFail: false, grantsFail: false, lostAck: false, findFails: false, batchFails: false, appends: 0 };
   // The audit stand-in follows the gate's contract: event_id is a primary key, so a repeated append is refused. It can
   // fail before persisting (auditFails), persist and then lose the acknowledgement (lostAck), and answer a lookup by
   // event id (findFails makes that lookup unavailable).
@@ -70,13 +72,14 @@ export function world(o: { cases?: CaseId[] } = {}) {
   };
   const known = new Set<string>(o.cases ?? [CASE_1, CASE_2]);
   const cases = { exists: async (a: { clientId: string; caseId: string }) => { if (state.casesFail) throw new Error('down'); return a.clientId === CLIENT_A && known.has(a.caseId); } };
-  const deployment = resolveDeployment(validateClientManifest(MANIFEST), { clientId: 'client-a', worker: 'clearcase-client-a', d1DatabaseId: '00000000-0000-4000-8000-00000000000a', r2Bucket: 'clearcase-client-a' });
-  const repo = d1GrantRepository(d1(db));
+  const deployment = resolveExactDeployment(validateClientManifest(MANIFEST), { clientId: 'client-a', hostname: 'a.clearcase.example.test', d1DatabaseName: 'clearcase-client-a', worker: 'clearcase-client-a', d1DatabaseId: '00000000-0000-4000-8000-00000000000a', r2Bucket: 'clearcase-client-a' });
+  const repo = d1GrantRepository(d1(db, () => state.batchFails));
   const grants: typeof repo = { ...repo, grantsOf: (a) => (state.grantsFail ? Promise.reject(new Error('down')) : repo.grantsOf(a)) };
   const now = () => new Date(clock);
   let n = 0;
   const { authorizeCase, authorizeCapability } = createCaseAuthorizer({ deployment, grants, cases, audit, now });
   const manage = createGrantManagement({ deployment, grants, cases, audit, now, newGrantId: () => `grant-${++n}` });
+  const bootstrap = createManagerBootstrap({ deployment, grants, audit, now, newGrantId: () => `boot-${++n}` });
   /** Provisioning seed: an active grant written straight to the table (the bootstrap path is a parent handoff). */
   function seed(p: Principal, role: GrantRole, caseId: string | null, extra: { clientId?: string; expiresAt?: string | null; state?: string } = {}) {
     const grantId = `seed-${++n}`;
@@ -88,5 +91,5 @@ export function world(o: { cases?: CaseId[] } = {}) {
   }
   const rows = () => db.prepare('SELECT grant_id, role, state, version FROM tenant_case_grants ORDER BY grant_id').all();
   const actor = (p: Principal, sessionId: SessionId = SESSION) => ({ principal: p, sessionId });
-  return { db, events, audit, state, authorizeCase, authorizeCapability, manage, seed, rows, actor, advance: (ms: number) => { clock = new Date(clock.getTime() + ms); } };
+  return { db, events, audit, state, authorizeCase, authorizeCapability, manage, bootstrap, seed, rows, actor, advance: (ms: number) => { clock = new Date(clock.getTime() + ms); } };
 }

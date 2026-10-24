@@ -33,7 +33,7 @@ describe('H1: management authority is not mintable by a manager', () => {
     await expect(create(b, 'op-2', admin, 'editor')).rejects.toMatchObject({ code: 'forbidden' });
     expect(await can(admin, 'write-user-work')).toBe('forbidden');
     expect(w.rows()).toHaveLength(2); // the two seeds only
-    expect(w.events.filter((e) => e.outcome === 'denied').map((e) => e.action)).toEqual(['grant.create', 'grant.create', 'grant.create']);
+    expect(w.events.filter((e) => e.outcome === 'denied' && e.action.startsWith('grant.')).map((e) => e.action)).toEqual(['grant.create', 'grant.create', 'grant.create']);
   });
   it('an update cannot mint or extend management authority either: no role transition into grant-admin, no change of a grant-admin grant', async () => {
     const { w, create, can } = setup();
@@ -60,10 +60,10 @@ describe('M1: an operation id is bound to its original actor', () => {
     expect(await can(alice)).toBe('forbidden');
     expect(w.events.filter((e) => e.eventId === 'grant-op:op-1')).toEqual([]);
     expect(w.rows().find((r) => (r as { grant_id: string }).grant_id === pending.grantId)).toMatchObject({ state: 'pending' });
-    expect(await create(admin, 'op-1')).toMatchObject({ kind: 'applied', repeated: true, grant: { createdBy: admin } }); // the original actor resumes
+    expect(await create(admin, 'op-1')).toMatchObject({ kind: 'applied', repeated: true, grant: { createdBy: { issuer: admin.issuer, subject: admin.subject } } }); // the original actor resumes
   });
-  it('another manager cannot resume or read the result of a pending update or revoke', async () => {
-    const { w, create, revokeOf } = setup();
+  it('another manager cannot resume or read the result of a pending update', async () => {
+    const { w, create } = setup();
     const made = await create(admin, 'op-1');
     if (made.kind !== 'applied') throw new Error('setup');
     w.state.auditFails = true;
@@ -72,11 +72,18 @@ describe('M1: an operation id is bound to its original actor', () => {
     w.state.auditFails = false;
     expect(await up(other)).toEqual({ kind: 'conflict', reason: 'operation-reused' });
     expect(w.events.filter((e) => e.eventId === 'grant-op:op-up')).toEqual([]);
+    expect(await up(admin)).toMatchObject({ kind: 'applied', repeated: true, grant: { role: 'editor', state: 'active' } });
+  });
+  it('another manager cannot resume or read the result of a pending revoke', async () => {
+    const { w, create, revokeOf } = setup();
+    const made = await create(admin, 'op-1');
+    if (made.kind !== 'applied') throw new Error('setup');
     w.state.auditFails = true;
-    expect(await revokeOf(admin, 'op-r', made.grant.grantId, 2)).toBeDefined();
+    expect(await revokeOf(admin, 'op-r', made.grant.grantId, 2)).toMatchObject({ kind: 'audit-pending' });
     w.state.auditFails = false;
     expect(await revokeOf(other, 'op-r', made.grant.grantId, 2)).toEqual({ kind: 'conflict', reason: 'operation-reused' });
     expect(w.events.filter((e) => e.eventId === 'grant-op:op-r')).toEqual([]);
+    expect(await revokeOf(admin, 'op-r', made.grant.grantId, 2)).toMatchObject({ kind: 'applied', repeated: true });
   });
   it('the same principal on a new session resumes with the stable original event: same actor, session and instant', async () => {
     const s = setup(), { w, create } = s;

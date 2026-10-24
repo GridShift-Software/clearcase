@@ -24,6 +24,7 @@ export interface CaseAuthorizerOptions {
 
 const OPERATIONS = new Set<CaseOperation>(['read', 'read-original', 'read-preview', 'write-user-work']);
 const CAPABILITIES = new Set<CaseCapability>(['operate', 'publish']);
+const CASE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const unavailable = () => contractError('identity-unavailable', true);
 
 /** A principal belongs to this deployment only through its kind's own issuer: the client's application or staff's. */
@@ -32,22 +33,30 @@ export function belongs(deployment: ClientResourceIdentity, principal: Principal
 }
 
 /**
- * Case authorization from explicit grants only. Client membership, a management role or staff membership grant no
- * case content; staff reach a case through an explicit grant, and each staff access appends an audit event that must
- * persist. A missing grant and an unknown case refuse identically, so a refusal reveals no case metadata.
+ * Case authorization from explicit grants only. Client membership, a management role or staff membership grant no case
+ * content. Every allowed access, client or staff, appends a `succeeded` event with the verified actor, and is allowed only
+ * once that append is acknowledged: with the log unavailable no case is reachable (audit-unavailable). Every denial of a
+ * verified principal appends a best-effort `denied` event; the refusal stands whether or not it persists.
+ *
+ * A denial event is scoped to the case (object.caseId) only when the principal holds an effective grant on a case that
+ * exists, so a caller can neither plant events in a case's audit scope nor tell an unknown case from a case it has no
+ * grant on. object.id carries the requested id only when it is a well-formed id. A missing grant and an unknown case refuse
+ * identically.
  */
 export function createCaseAuthorizer(o: CaseAuthorizerOptions): { authorizeCase: AuthorizeCase; authorizeCapability: AuthorizeCapability } {
+  if (typeof o?.audit?.append !== 'function' || typeof o.grants?.grantsOf !== 'function' || typeof o.cases?.exists !== 'function') throw new TypeError('the case authorizer needs a grant store, a case directory and an audit sink');
   const { deployment } = o, clientId = deployment.clientId, eventId = o.newEventId ?? (() => crypto.randomUUID());
   const actor = (principal: Principal | null, sessionId: SessionId | null): IdentityState =>
     principal && sessionId ? { kind: 'verified', principal: { issuer: principal.issuer, subject: principal.subject, kind: principal.kind }, sessionId } : { kind: 'anonymous', principal: null, sessionId: null };
-  const event = (who: IdentityState, action: string, caseId: CaseId, outcome: 'succeeded' | 'denied') =>
-    o.audit.append({ eventId: eventId(), actor: who, action, object: { kind: 'case', id: caseId, caseId }, version: null, outcome, at: o.now().toISOString() });
+  const event = (who: IdentityState, action: string, objectId: string, scoped: CaseId | null, outcome: 'succeeded' | 'denied') =>
+    o.audit.append({ eventId: eventId(), actor: who, action, object: { kind: 'case', id: objectId, caseId: scoped }, version: null, outcome, at: o.now().toISOString() });
 
   async function check(a: { principal: Principal; sessionId: SessionId; caseId: CaseId }, allowed: (g: GrantRecord) => boolean, action: string) {
     const principal = a?.principal ?? null, sessionId = a?.sessionId ?? null, who = actor(principal, sessionId);
-    const deny = async (code: 'unauthenticated' | 'wrong-client' | 'forbidden') => {
+    const objectId = typeof a?.caseId === 'string' && CASE_LABEL.test(a.caseId) ? a.caseId : 'invalid';
+    const deny = async (code: 'unauthenticated' | 'wrong-client' | 'forbidden', scoped: CaseId | null = null) => {
       // The refusal stands whether or not its event persists.
-      if (code !== 'unauthenticated' && typeof a.caseId === 'string') await event(who, action, a.caseId, 'denied').catch(() => undefined);
+      if (code !== 'unauthenticated') await event(who, action, objectId, scoped, 'denied').catch(() => undefined);
       throw contractError(code);
     };
     if (!principal || !sessionId || typeof principal.issuer !== 'string' || typeof principal.subject !== 'string' || !principal.subject) return deny('unauthenticated');
@@ -55,10 +64,12 @@ export function createCaseAuthorizer(o: CaseAuthorizerOptions): { authorizeCase:
     if (typeof a.caseId !== 'string' || !a.caseId) return deny('forbidden');
     const scope = { kind: 'case', caseId: a.caseId } as const, now = o.now();
     const rows = await o.grants.grantsOf({ clientId, principal: { issuer: principal.issuer, subject: principal.subject }, scope }).catch(() => { throw unavailable(); });
-    if (!rows.some((g) => effective(g, { clientId, principal, scope, now }) && allowed(g))) return deny('forbidden');
-    const exists = await o.cases.exists({ clientId, caseId: a.caseId }).catch(() => { throw unavailable(); });
-    if (exists !== true) return deny('forbidden');
-    if (principal.kind === 'staff') await event(who, action, a.caseId, 'succeeded').catch(() => { throw contractError('audit-unavailable', true); });
+    const held = rows.filter((g) => effective(g, { clientId, principal, scope, now }));
+    const exists = async () => (await o.cases.exists({ clientId, caseId: a.caseId }).catch(() => undefined)) === true;
+    if (!held.some(allowed)) return deny('forbidden', held.length > 0 && (await exists()) ? a.caseId : null);
+    const known = await o.cases.exists({ clientId, caseId: a.caseId }).catch(() => { throw unavailable(); });
+    if (known !== true) return deny('forbidden');
+    await event(who, action, objectId, a.caseId, 'succeeded').catch(() => { throw contractError('audit-unavailable', true); });
   }
 
   return {

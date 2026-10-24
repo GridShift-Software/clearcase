@@ -12,7 +12,7 @@ The GRS-203 stop sends only `POST /accounts/<account>/workers/scripts/<worker>/s
 | --- | --- | --- |
 | LOCAL-PLAN-VERIFIED | The private unit tests pass at an exact SHA, with injected data only | This module |
 | `UNIT-CONTRACT-ONLY` | Canary data satisfies the contract shape, but at least one observation is injected | `checkNegativeProof` |
-| `NEGATIVE-PROOF-CONTRACT-SATISFIED` | Observations labelled `network` satisfy the contract. They are still data until the parent binds them to receipts | `checkNegativeProof` |
+| `NEGATIVE-PROOF-CONTRACT-SATISFIED` | **Structural only.** Every observation is labelled `network` and carries a well-formed `provenance`, and the contract shape holds. The label and the provenance are self-asserted data: this validator runs over injected data, so it cannot certify remote proof, and the name must not be read as proof. The result carries `remoteProof:false` and `structuralOnly:true` | `checkNegativeProof` |
 | REMOTE CONTROL-READY | The parent has a funded manifest, a scoped apply, a fresh provider readback and authenticated real negative canaries at an exact SHA | Parent only, not run |
 | FUNDED | An all-in allocation within USD 10, with retention accepted by the user | User/parent only, not decided |
 
@@ -51,14 +51,19 @@ The paths come from the official `cloudflare-typescript` SDK 5.2.0 resources, wh
 - **Re-attach plan** (not run): `PUT /accounts/{a}/workers/domains {environment, hostname, service, zone_id}` (`workers.domains.update`).
 - **Fresh readback**, GET only:
   - the account's unfiltered `workers/domains`
-  - the zone's `workers/routes`
+  - the approved zone's `workers/routes` (single page in the SDK)
+  - the account's complete zone list, `GET /zones?account.id=<account>` with page pagination (`zones.list`, `V4PagePaginationArray`: read pages until `page * per_page >= total_count`; the `account.id` filter is the one wrangler 4.151.1 itself sends, because the vendored SDK JS has no parameter types), then `GET /zones/{zone}/workers/routes` for every other listed zone (`zoneRoutesReadOperation`)
   - per Worker: `subdomain`, `versions`, `deployments` and `secrets`
   - `d1/database/{id}`
   - `r2/buckets/{bucket}`, plus its `domains/managed` and `domains/custom`, each with `cf-r2-jurisdiction: eu`
 
 ### Unverified side effects
 
-Detaching a domain may also remove its DNS record or certificate. The SDK text does not state these effects, so they are an open gap. Real re-attach timing is also unverified. Wrangler internally reads `workers/domains/records` and posts `scripts/{name}/domains/changeset`, and its records carry `enabled` and `previews_enabled`. That could allow a non-delete domain disable, but these endpoints are absent from the SDK, so they are not used. Workers routes have no reviewed non-destructive disable. Any route that runs on an owned Worker or covers an owned hostname therefore causes a HOLD; routes are never deleted.
+Detaching a domain may also remove its DNS record or certificate. This is why the stop now refuses to dispatch it without a reviewed KNOWN policy (see the domain detach gate). The SDK text does not state these effects, so they are an open gap. Real re-attach timing is also unverified. Wrangler internally reads `workers/domains/records` and posts `scripts/{name}/domains/changeset`, and its records carry `enabled` and `previews_enabled`. That could allow a non-delete domain disable, but these endpoints are absent from the SDK, so they are not used. Workers routes have no reviewed non-destructive disable. Any route that runs on an owned Worker or covers an owned hostname therefore causes a HOLD; routes are never deleted. Hostnames and patterns are matched ignoring case, a trailing dot and the `http(s)://` scheme. `*` matches any run of characters, so `a.sandbox.gridshift.co.za*` and `*/*` cover the host. A wildcard custom-domain hostname, a pattern with any other syntax (another scheme, a port, a query, a backslash, a leading space or a non-string) and a route to an owned Worker named in another case all fail closed.
+
+### Complete route inventory (M3)
+
+A route in another zone of the same account that runs an owned Worker would keep serving after the stop. A readback therefore carries `routesComplete`, `accountZones {complete, items}` and `otherZoneRoutes [{zoneId, complete, routes}]`. The approved zone must be in the inventory, and every other listed zone needs exactly one complete route list. An incomplete, missing or truncated inventory, an unlisted zone or an unreadable pattern is a HOLD. These are boolean claims by whoever assembled the readback. They are not proof of the provider's response, and the actual read adapter (with its pagination loop) is still owed by the parent. No account-wide routes endpoint is used, and nothing is mutated in a foreign zone.
 
 ## Stop orchestration (`stopNativeAlpha`)
 
@@ -68,17 +73,32 @@ The caller injects `now`, `stopOwnerRequests`, `readState` and `dispatch`. There
 2. New owner requests are stopped first.
 3. The before-state must be complete, fresh (no more than 60 s old) and exact, with each reviewed domain bound once and no other domain or route exposure.
 4. Each planned operation is dispatched once, with no retry and no fallback.
-5. The after-state is read fresh, and its timestamp must be later than the dispatch. It must show no owned domain bound, workers.dev and previews both false, and identical retained versions, secret names, EU D1 and private EU R2.
-6. A missing callback, failed dispatch, partial disable, stale or unknown state, unreadable after-state or throwing clock ends in a HOLD. The result records what was dispatched, and the uncertain liability is retained. Comparisons ignore the provider's key order.
+5. The after-state is read fresh, and it must be observed **strictly after the completion of the LAST dispatched action**, not after the start of dispatch. It must show no owned domain bound, workers.dev and previews both false, identical retained versions, secret names, EU D1 and private EU R2, and the complete route inventory below.
+6. A missing callback, failed dispatch, partial disable, stale or unknown state, unreadable after-state, throwing clock or non-monotonic clock ends in a HOLD. The result records what was dispatched, and the uncertain liability is retained. Comparisons ignore the provider's key order.
+
+### Clock and records (H1)
+
+Every clock reading must be finite and not earlier than the one before it. Each dispatched record is `{op, outcome, startedAt, completedAt}`, with the completion read after that action's await. The result also records `dispatchedAt` (the first start), `completedAt` (the last completion), `beforeCheckedAt` and `afterCheckedAt`. A clock fault during dispatch does not stop the frozen plan (each action is still sent once, never retried), but the stop is then untimed and ends in a HOLD. The manifest, the policy and the plan are fixed before the first await.
+
+### Domain detach gate (M4)
+
+The domain DELETE is dispatched only when the caller supplies a `domainDetachPolicy` whose `status` is `KNOWN`. A missing or `UNKNOWN` policy (`UNKNOWN_DOMAIN_DETACH_POLICY` is the default) is a HOLD **before any dispatch**: nothing is sent to the provider, including the workers.dev disable. A KNOWN policy must have the schema `clearcase.native-domain-detach-policy/1`; apply to exactly this account, zone and these domains; state `dnsRecord` and `certificate` as `retained` or `removed`; have `newPaidCertificate:false` and `otherDnsRecordsTouched:false`; and name a primary source (https document, section, excerpt digest). `domainDetachPolicyProblems` checks this shape only. It is **not** owner approval or provider proof, and the code never creates a KNOWN policy. Today no reviewed KNOWN policy exists, because the SDK does not state the DNS or certificate effect. The parent needs primary Cloudflare documentation before any apply.
 
 ## Negative-proof contract (`checkNegativeProof`)
 
-The contract needs, for each client's custom domain, both an app canary and an original-asset canary:
+The contract needs, for each client's custom domain, both an app canary and an original-asset canary. Each observation has `requestedAt` and `respondedAt` (never earlier than the request):
 
-- **Before**: an authenticated request as that client, resolved through public DNS with a matching TLS hostname, returns 200. The app canary must serve the deployed `sourceSha`, and the asset canary the deployed `assetSha256`.
+- **Before**: an authenticated request as that client, resolved through public DNS with a matching TLS hostname, returns 200 and a cache miss. It is no older than `READBACK_MAX_AGE_MS` before the before-readback, starts before the first action and finishes by then. The app canary must serve the deployed `sourceSha`, and the asset canary the deployed `assetSha256`. A canary is not required to follow the before-readback; the before-readback is what verifies the binding immediately before the dispatch.
 - **After**: a request taken after the after-readback ends in a classified network error, or in an error response that carries no build, no app or asset bytes, and is a cache miss.
 
-`checkNegativeProof` re-parses the manifest and re-checks the stop's after-state. The contract refuses:
+`checkNegativeProof` re-parses the manifest and **re-validates the StopResult from its own records (H2)** instead of trusting its labels:
+
+- It must be a result that `stopNativeAlpha` issued in this process. Issued results are frozen and registered privately. A copy, a persisted file or a hand-built result is refused. This stops forgery, but it proves no provider origin.
+- Its before-state must pass the readback checks at its recorded check time, and its after-state the after checks.
+- Its dispatched records must be exactly the reviewed stop plan, once each, in order, all accepted, with valid ordered start and completion times.
+- Every time must be on one non-decreasing clock, and the after-state must follow the last completion.
+
+A `network` label with no valid `provenance` (receipt digest, `public-dns` resolver, verified-TLS result) is a HOLD. With a valid provenance it is still self-asserted data. The contract refuses:
 
 - redirects and auth denials (401, 403, 407)
 - nonexistent hosts, anonymous requests and host-header emulation
@@ -97,6 +117,12 @@ Run the private list only. It is not part of the root or deployment Vitest inclu
 scripts/agent-tools/receipt --name native-controls -- bun x vitest run --config tests/hosting-probe/deployment/native-alpha-controls/vitest.config.ts
 scripts/agent-tools/receipt --name native-controls-types -- bun x tsc -p tests/hosting-probe/deployment/native-alpha-controls/tsconfig.json
 ```
+
+## Fix round r1: fixture format changes to the existing tests
+
+The 81 existing tests keep their names and assertions. Only their fixture helpers changed, because the new checks need data the old format could not carry: the readback helper gained `routesComplete`, `accountZones` and `otherZoneRoutes` (one synthetic zone); the stop harness gained a synthetic KNOWN `domainDetachPolicy`; and the canary helper gained `respondedAt` on every observation and `provenance` on `network` ones. The new adverse tests are in `controls-fix-r1.test.ts` (private include list). They failed first on the unchanged module (receipt `native-controls-fix-r1-red2`).
+
+**Review decision needed:** an existing test asserts that network-labelled data reaches `NEGATIVE-PROOF-CONTRACT-SATISFIED`. The name was kept so the assertion stays unchanged, and it now needs provenance and states `structuralOnly:true` and `remoteProof:false`. The name still reads stronger than the evidence. Renaming it (for example to `STRUCTURALLY-CONSISTENT`) needs a reviewed edit to that assertion, so this round did not do it.
 
 ## Not run
 

@@ -51,6 +51,10 @@ function readback(m: NativeManifest, observedAt: number, phase: 'before' | 'afte
 		observedAt,
 		domains: phase === 'before' ? m.clients.map((c) => ({ ...c.domain })) : [],
 		routes: [],
+		// Fix round r1 fixture format: the complete account zone inventory (this synthetic account has one zone) and route-list completeness.
+		routesComplete: true,
+		accountZones: { complete: true, items: [{ id: m.zone.id, name: m.zone.name }] },
+		otherZoneRoutes: [],
 		workers: m.clients.map((c) => ({ worker: c.worker, workersDev: phase === 'before', previews: phase === 'before', versionIds: [...c.versionIds], secretNames: [...c.secretNames] })),
 		d1: m.clients.map((c) => ({ id: c.d1.id, name: c.d1.name, jurisdiction: 'eu' })),
 		r2: m.clients.map((c) => ({ bucket: c.r2.bucket, jurisdiction: 'eu', managedDomainEnabled: false, customDomains: [] })),
@@ -67,6 +71,17 @@ function harness(opts: { after?: (s: ProviderReadback) => void; before?: (s: Pro
 	let reads = 0;
 	const t = {
 		manifest: m,
+		// Fix round r1 fixture format: the reviewed KNOWN domain-detach side-effect policy (synthetic; absent means UNKNOWN = HOLD).
+		domainDetachPolicy: {
+			schema: 'clearcase.native-domain-detach-policy/1',
+			status: 'KNOWN',
+			appliesTo: { accountId: m.accountId, zoneId: m.zone.id, domains: m.clients.map((c) => ({ id: c.domain.id, hostname: c.domain.hostname })) },
+			dnsRecord: 'retained',
+			certificate: 'retained',
+			newPaidCertificate: false,
+			otherDnsRecordsTouched: false,
+			source: { document: 'https://example.invalid/synthetic-primary-doc', section: 'synthetic section', excerptSha256: `sha256:${hex('c', 64)}` },
+		},
 		now: () => clock,
 		stopOwnerRequests: async () => {
 			calls.push('stop-owner');
@@ -363,10 +378,12 @@ describe('the post-stop negative proof contract', () => {
 		return m.clients.flatMap((c) =>
 			(['app', 'asset'] as const).flatMap((kind) => {
 				const path = kind === 'app' ? c.canary.appPath : c.canary.assetPath;
-				const base = { client: c.client, hostname: c.domain.hostname, path, kind, transport, route: 'public-dns' as const, identity: { authenticated: true, client: c.client } };
+				// Fix round r1 fixture format: a network-labelled observation carries provenance, and every observation an end time.
+				const provenance = transport === 'network' ? { provenance: { receiptSha256: `sha256:${hex('9', 64)}`, resolver: 'public-dns' as const, tlsVerified: true } } : {};
+				const base = { client: c.client, hostname: c.domain.hostname, path, kind, transport, route: 'public-dns' as const, identity: { authenticated: true, client: c.client }, ...provenance };
 				return [
-					{ ...base, phase: 'before' as const, requestedAt: r.dispatchedAt! - 5, outcome: { type: 'response' as const, status: 200, tlsHostname: c.domain.hostname, servedSourceSha: kind === 'app' ? c.release.sourceSha : null, bodySha256: kind === 'asset' ? c.canary.assetSha256 : `sha256:${hex('a', 64)}`, cache: 'miss' as const } },
-					{ ...base, phase: 'after' as const, requestedAt: r.after!.observedAt + 5, outcome: { type: 'network-error' as const, code: 'dns-nxdomain' as const } },
+					{ ...base, phase: 'before' as const, requestedAt: r.dispatchedAt! - 5, respondedAt: r.dispatchedAt! - 4, outcome: { type: 'response' as const, status: 200, tlsHostname: c.domain.hostname, servedSourceSha: kind === 'app' ? c.release.sourceSha : null, bodySha256: kind === 'asset' ? c.canary.assetSha256 : `sha256:${hex('a', 64)}`, cache: 'miss' as const } },
+					{ ...base, phase: 'after' as const, requestedAt: r.after!.observedAt + 5, respondedAt: r.after!.observedAt + 6, outcome: { type: 'network-error' as const, code: 'dns-nxdomain' as const } },
 				];
 			}),
 		);

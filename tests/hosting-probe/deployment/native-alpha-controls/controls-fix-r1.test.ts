@@ -56,8 +56,12 @@ function knownPolicy(m: NativeManifest) {
 }
 
 /** The complete account inventory that a native readback carries besides the approved zone's routes. */
-function inventory(_m: NativeManifest, _extraZones: { id: string; name: string }[] = []): Record<string, unknown> {
-	return {};
+function inventory(m: NativeManifest, extraZones: { id: string; name: string }[] = []): Record<string, unknown> {
+	return {
+		routesComplete: true,
+		accountZones: { complete: true, items: [{ id: m.zone.id, name: m.zone.name }, ...extraZones] },
+		otherZoneRoutes: extraZones.map((z) => ({ zoneId: z.id, complete: true, routes: [] })),
+	};
 }
 
 function readback(m: NativeManifest, observedAt: number, phase: 'before' | 'after'): ProviderReadback {
@@ -71,7 +75,7 @@ function readback(m: NativeManifest, observedAt: number, phase: 'before' | 'afte
 		d1: m.clients.map((c) => ({ id: c.d1.id, name: c.d1.name, jurisdiction: 'eu' })),
 		r2: m.clients.map((c) => ({ bucket: c.r2.bucket, jurisdiction: 'eu', managedDomainEnabled: false, customDomains: [] })),
 		...inventory(m),
-	} as ProviderReadback;
+	} as unknown as ProviderReadback;
 }
 
 type Opts = {
@@ -263,7 +267,7 @@ describe('H2: a StopResult handed to checkNegativeProof is re-validated, never t
 		const { r, pm } = await stopped();
 		for (const edit of [(p: any) => (p.receiptSha256 = 'abc'), (p: any) => (p.tlsVerified = false), (p: any) => (p.resolver = 'host-header'), (p: any) => (p.extra = true)]) {
 			const o = observations(pm, r, { transport: 'network', provenance: true }) as any[];
-			edit(o[1].provenance);
+			edit(o[0].provenance);
 			expect(proof(pm, r, o).state).toBe('HOLD');
 		}
 	});
@@ -411,7 +415,7 @@ describe('M3: the readback carries a complete account zone inventory and every z
 		expect(probe((s) => (s.accountZones.items = []))).toMatch(/approved zone .*not .*inventory/);
 	});
 	test('a missing, duplicated or unknown per-zone route entry is refused', () => {
-		expect(probe((s) => withOther(s) || delete s.otherZoneRoutes)).toMatch(/other-zone routes .*missing/);
+		expect(probe((s) => (withOther(s), delete s.otherZoneRoutes))).toMatch(/other-zone routes .*missing/);
 		expect(probe((s) => (withOther(s), (s.otherZoneRoutes = [])))).toMatch(/zone e+ .*no route list/);
 		expect(probe((s) => (withOther(s), s.otherZoneRoutes.push({ zoneId: OTHER_ZONE, complete: true, routes: [] })))).toMatch(/zone e+ .*(more than once|twice)/);
 		expect(probe((s) => (withOther(s), s.otherZoneRoutes.push({ zoneId: hex('f'), complete: true, routes: [] })))).toMatch(/zone f+ .*not in the inventory/);

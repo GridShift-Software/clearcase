@@ -4,7 +4,10 @@
 
 <h1>Sign in</h1>
 {#if data.href !== null}
-	<p data-auth-provider="clerk"><a id="sign-in-link" href={data.href}>Sign in to ClearCase</a></p>
+	<form method="POST" data-auth-provider="clerk">
+		<button id="sign-in-link" type="submit">Sign in to ClearCase</button>
+		{#if form?.message}<p role="alert">{form.message}</p>{/if}
+	</form>
 	<p>Accounts are by invitation only.</p>
 {:else}
 	<p data-auth-provider="double">Test identity double ({data.provider}): synthetic fixture identities only. A real identity provider replaces it.</p>

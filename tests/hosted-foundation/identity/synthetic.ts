@@ -16,16 +16,24 @@ export function craftedInstance(host: string) {
 		iss,
 		publishableKey: ['pk', 'test', Buffer.from(`${host}$`).toString('base64')].join('_'),
 		secretKey: ['sk', 'test', `synthetic${randomBytes(12).toString('hex')}`].join('_'),
+		kid,
 		jwtKey: publicKey.export({ type: 'spki', format: 'pem' }).toString().replace(/\n/g, ''),
+		/** Any JSON payload signed with this instance's key, e.g. a Clerk handshake token carrying cookie directives. */
+		sign(payload: unknown, header: Claims = {}) {
+			const body = `${b64({ alg: 'RS256', typ: 'JWT', kid, ...header })}.${b64(payload)}`;
+			return `${body}.${createSign('RSA-SHA256').update(body).sign(privateKey).toString('base64url')}`;
+		},
 		/** A Clerk v2-shaped session token signed with this instance's key; `claims` override the defaults. */
-		token(a: { sub: string; sid: string; azp: string; now?: number; claims?: Claims }) {
+		token(a: { sub: string; sid: string; azp: string; now?: number; claims?: Claims; header?: Claims }) {
 			const now = Math.floor((a.now ?? Date.now()) / 1000);
 			const claims = { azp: a.azp, exp: now + 60, fva: [0, -1], iat: now - 5, iss, nbf: now - 5, sid: a.sid, sts: 'active', sub: a.sub, v: 2, ...a.claims };
-			const body = `${b64({ alg: 'RS256', typ: 'JWT', kid })}.${b64(claims)}`;
+			const body = `${b64({ alg: 'RS256', typ: 'JWT', kid, ...a.header })}.${b64(claims)}`;
 			return `${body}.${createSign('RSA-SHA256').update(body).sign(privateKey).toString('base64url')}`;
 		},
 	};
 }
+/** A token from raw JSON parts, for shapes a signer would never produce (null header, array payload, ...). */
+export const forgedToken = (header: unknown, payload: unknown, signature = 'c2lnbmF0dXJl') => `${b64(header)}.${b64(payload)}.${signature}`;
 export type CraftedInstance = ReturnType<typeof craftedInstance>;
 
 /** Clerk's session lookup on loopback: a session's status is what the test sets; `outage` answers 503. */

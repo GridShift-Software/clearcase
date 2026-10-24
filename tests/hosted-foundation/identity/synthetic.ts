@@ -18,6 +18,11 @@ export function craftedInstance(host: string) {
 		secretKey: ['sk', 'test', `synthetic${randomBytes(12).toString('hex')}`].join('_'),
 		kid,
 		jwtKey: publicKey.export({ type: 'spki', format: 'pem' }).toString().replace(/\n/g, ''),
+		/** Any JSON payload signed with this instance's key, e.g. a Clerk handshake token carrying cookie directives. */
+		sign(payload: unknown, header: Claims = {}) {
+			const body = `${b64({ alg: 'RS256', typ: 'JWT', kid, ...header })}.${b64(payload)}`;
+			return `${body}.${createSign('RSA-SHA256').update(body).sign(privateKey).toString('base64url')}`;
+		},
 		/** A Clerk v2-shaped session token signed with this instance's key; `claims` override the defaults. */
 		token(a: { sub: string; sid: string; azp: string; now?: number; claims?: Claims; header?: Claims }) {
 			const now = Math.floor((a.now ?? Date.now()) / 1000);

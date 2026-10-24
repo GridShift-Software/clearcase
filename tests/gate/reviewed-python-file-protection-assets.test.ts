@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -87,4 +87,19 @@ it.each(['0002', '0077'])('accepts a true Git checkout of the fixture made under
 	materializeDev105Reader(target, SOURCE, source);
 	expect(lstatSync(join(target, 'test-guard')).mode & 0o777).toBe(0o755);
 	expect(lstatSync(join(target, 'agent_tools.py')).mode & 0o777).toBe(0o644);
+});
+
+it('stores Python and shell reader data under inert .fixture names and materializes the canonical names', () => {
+	const stored = readdirSync(FIXTURE);
+	expect(stored.filter(name => /\.(py|sh)$/.test(name))).toEqual([]);
+	for (const name of ['agent_tools.py', '_common.sh']) expect(stored).toContain(`${name}.fixture`);
+	const { source, target } = workspace();
+	materializeDev105Reader(target, SOURCE, source);
+	for (const name of ['agent_tools.py', '_common.sh']) {
+		const asset = JSON.parse(readFileSync(join(source, 'manifest.json'), 'utf8')).assets.find((a: { path: string }) => a.path.endsWith(`/${name}`));
+		const bytes = readFileSync(join(target, name));
+		expect(bytes.equals(readFileSync(join(source, `${name}.fixture`)))).toBe(true);
+		expect(createHash('sha256').update(bytes).digest('hex')).toBe(asset.sha256);
+		expect(lstatSync(join(target, name)).mode & 0o777).toBe(0o644);
+	}
 });

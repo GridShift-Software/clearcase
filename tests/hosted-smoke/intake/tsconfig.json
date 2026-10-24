@@ -1,0 +1,4 @@
+{
+  "extends": "../../../tsconfig.json",
+  "include": ["../../../src/lib/submissions/**/*.ts", "../../../deploy/client/routes/client/intake/**/*.ts", "./**/*.ts", "../../../src/app.d.ts"]
+}

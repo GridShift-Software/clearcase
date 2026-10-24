@@ -18,6 +18,49 @@ async function project(hooks: string, files: Record<string, string> = {}, opts: 
   return root;
 }
 describe('resolved hosted import boundary', () => {
+  describe.each(['production', 'hosted-gate'] as const)('audit construction boundary in %s', (profile) => {
+    const auditModules = {
+      'src/lib/audit/index.ts': "export { requestAuditSink } from './facades';",
+      'src/lib/audit/facades.ts': "export const requestAuditSink = () => ({ append: async () => ({ ok: true }) });",
+      'src/lib/audit/trusted.ts': "export { createD1AuditLog } from './d1-log';",
+      'src/lib/audit/d1-log.ts': "export const createD1AuditLog = () => ({ find: async () => ({ secret: 'synthetic-session' }) });",
+    };
+    async function auditProject(hooks: string, files: Record<string, string> = {}) {
+      return project(hooks, { ...auditModules, 'src/hosted/gate.server.ts': hooks, ...files });
+    }
+    it.each(['$lib/audit', '$lib/audit/facades', '$lib/audit/trusted', '$lib/audit/d1-log'])('rejects direct audit construction from a route: %s', async (specifier) => {
+      const root = await auditProject('export {};', {
+        'src/hosted/routes/audit/+server.ts': `export * from '${specifier}';`,
+      });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('audit construction is restricted to trusted hosted service composition');
+    });
+    it('rejects audit construction behind a re-export and literal dynamic import', async () => {
+      const root = await auditProject("import '$bridge';", {
+        'src/bridge.ts': "export * from './next';",
+        'src/next.ts': "export const forge = () => import('$lib/audit/trusted');",
+      });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('audit construction is restricted to trusted hosted service composition');
+    });
+    it('checks an untrusted audit edge even after trusted composition visited that module', async () => {
+      const root = await auditProject("import '$lib/server/runtime/hosted/services';", {
+        'src/lib/server/runtime/hosted/services.ts': "export { requestAuditSink } from '$lib/audit';",
+        'src/hosted/routes/audit/+server.ts': "export { requestAuditSink } from '$lib/audit';",
+      });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('routes/audit/+server.ts -> src/lib/audit/index.ts: audit construction is restricted to trusted hosted service composition');
+    });
+    it('allows trusted service composition and internal audit edges', async () => {
+      const root = await auditProject("import '$lib/server/runtime/hosted/services';", {
+        'src/lib/server/runtime/hosted/services.ts': "export { requestAuditSink } from '$lib/audit'; export { createD1AuditLog } from '$lib/audit/trusted';",
+      });
+      expect(checkHostedGraph({ root, profile }).errors).toEqual([]);
+    });
+    it('erases audit DTO type imports without giving routes construction power', async () => {
+      const root = await auditProject('export {};', {
+        'src/hosted/routes/audit/+server.ts': "import type { PublicAuditEvent } from '$lib/audit'; export const GET = () => new Response();",
+      });
+      expect(checkHostedGraph({ root, profile }).errors).toEqual([]);
+    });
+  });
   it('accepts the actual selected hosted graph and excludes host-only tooling', () => {
     const result = checkHostedGraph({ root: process.cwd() });
     expect(result.errors).toEqual([]);

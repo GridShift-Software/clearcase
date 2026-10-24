@@ -4,7 +4,7 @@ import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readF
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { materializeDev105Reader } from './fixtures/reviewed-python-dev105/materialize';
+import { materializeDev105Reader, storedName } from './fixtures/reviewed-python-dev105/materialize';
 
 const SOURCE = '105c4fa8ccf9e5850d082a502ef2705a85d70301';
 const FIXTURE = join(import.meta.dirname, 'fixtures/reviewed-python-dev105');
@@ -25,7 +25,7 @@ it('materializes exactly the canonical old reader bytes, Git blobs and executabl
 	for (const asset of manifest.assets) {
 		const name = asset.path.slice('scripts/agent-tools/'.length);
 		const bytes = readFileSync(join(target, name));
-		expect(bytes.equals(readFileSync(join(source, name)))).toBe(true);
+		expect(bytes.equals(readFileSync(join(source, storedName(name))))).toBe(true);
 		expect(createHash('sha256').update(bytes).digest('hex')).toBe(asset.sha256);
 		expect(createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex')).toBe(asset.blob);
 		expect(lstatSync(join(target, name)).mode & 0o777).toBe(Number.parseInt(asset.mode.slice(-3), 8));
@@ -82,7 +82,7 @@ it.each(['0002', '0077'])('accepts a true Git checkout of the fixture made under
 	run(root, `umask ${umask} && git clone -q file://${origin} checkout`);
 	const source = join(root, 'checkout/fx');
 	expect(lstatSync(join(source, 'test-guard')).mode & 0o111).not.toBe(0);
-	expect(lstatSync(join(source, 'agent_tools.py')).mode & 0o111).toBe(0);
+	expect(lstatSync(join(source, 'agent_tools.py.fixture')).mode & 0o111).toBe(0);
 	const target = join(root, 'trusted');
 	materializeDev105Reader(target, SOURCE, source);
 	expect(lstatSync(join(target, 'test-guard')).mode & 0o777).toBe(0o755);

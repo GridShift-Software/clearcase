@@ -6,6 +6,9 @@ import { basename, join } from 'node:path';
 const SOURCE = '105c4fa8ccf9e5850d082a502ef2705a85d70301';
 const MANIFEST_SHA256 = 'a918e058fbd538383467d73a4844a1bb8356bf58aad5c2ba71537902ba99d79e';
 const ASSETS = ['test_guard.mjs', 'agent_tools.py', '_common.sh', 'skills.lock.json', 'test-guard', 'fix-round-guard'];
+// Python/shell readers are stored as inert data under `<name>.fixture`; materialized under their original names.
+const INERT = new Set(['agent_tools.py', '_common.sh']);
+export const storedName = (name: string): string => INERT.has(name) ? `${name}.fixture` : name;
 const fail = (): never => { throw new Error('canonical DEV105 reader fixture integrity failure'); };
 
 // Input validation follows Git semantics: only the owner-executable bit is recorded (100644/100755);
@@ -34,7 +37,7 @@ export function materializeDev105Reader(destination: string, sourceCommit: strin
 		if (asset.path !== `scripts/agent-tools/${name}` || basename(asset.path) !== name
 			|| !['100644', '100755'].includes(asset.mode)) fail();
 		const mode = Number.parseInt(asset.mode.slice(-3), 8);
-		const bytes = regularFile(join(fixtureRoot, name), mode);
+		const bytes = regularFile(join(fixtureRoot, storedName(name)), mode);
 		if (createHash('sha256').update(bytes).digest('hex') !== asset.sha256
 			|| createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex') !== asset.blob) fail();
 		return { name, bytes, mode };

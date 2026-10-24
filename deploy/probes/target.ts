@@ -18,10 +18,40 @@
 // The digest covers regular files and directories only: a symlink, device, socket or FIFO anywhere in the artifact or
 // the migrations, or as either root, is refused. `prebuilt` checks the Build Output a credential-free `cf build` wrote in
 // that stage, because `cf deploy --prebuilt` uploads its bindings, not the cf config's, and refuses any file in it that the check does not read. Exit 0 PASS, 1 refused, 2 usage.
+//
+// Native profile (an explicit extension; without --profile every command above is the unchanged legacy /1 path):
+//
+//   bun deploy/probes/target.ts check <client> --profile native --clients DIR [--config FILE]
+//   bun deploy/probes/target.ts stage <client> --profile native --clients DIR --artifact DIR --digest sha256:<hex> --out DIR
+//   bun deploy/probes/target.ts prebuilt <client> --profile native --clients DIR --stage DIR
+//
+// The native target (`clearcase.deploy-target.native/1`, deploy/native-alpha/pipeline.ts) binds the approved account,
+// zone, custom domain, workers.dev/Preview URLs off, CPU limit, private EU R2, D1 UUID and the runtime/source/artifact/
+// migrations identity. Its clients directory is explicit (no committed default: real D1 UUIDs exist only after creation)
+// and may hold only target.json, wrangler.jsonc and migrations/. The one adapter is the checked Wrangler config; a cf
+// config is refused as a measured capability gap. `stage` copies and checks as the legacy stage does, also requires the
+// artifact and migrations digests that the target names and the artifact's _app/version.json to name its source commit,
+// and refuses the hosted-gate test-double marker. `prebuilt` re-verifies the whole stage just before an upload: only the
+// five staged entries, no symlink or special file anywhere, every hash and the stage record recomputed byte for byte.
+// It runs nothing: no Wrangler, no migrations, no credentials, no network.
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+	CF_NATIVE_GAP,
+	HOSTED_GATE_MARKER,
+	NATIVE_CLIENT_FILES,
+	NATIVE_CONFIG_FILE,
+	NATIVE_STAGE_SCHEMA,
+	NATIVE_STAGED,
+	checkNativeWrangler,
+	distinctNative,
+	nativeStageRecord,
+	parseNativeTarget,
+	versionProblems,
+	type NativeTarget,
+} from '../native-alpha/pipeline.ts';
 
 export const TARGET_SCHEMA = 'clearcase.deploy-target/1';
 export const CLIENTS_DIR = path.join(import.meta.dirname, 'clients');
@@ -356,17 +386,190 @@ export function stage(a: { client: string; artifact: string; digest: string; out
 	return [];
 }
 
+/** Every clients/<client>/target.json under the explicit native `dir`, each a native target bound to the approved scope. */
+export function loadNativeTargets(dir: string): NativeTarget[] {
+	const targets = readdirSync(dir, { withFileTypes: true })
+		.filter((e) => e.isDirectory())
+		.map((e) => {
+			const file = path.join(dir, e.name, 'target.json');
+			const t = parseNativeTarget(JSON.parse(readFileSync(file, 'utf8')), path.relative(process.cwd(), file));
+			if (t.client !== e.name) throw new Error(`${file}: client ${t.client} is not its directory's name ${e.name}`);
+			return t;
+		});
+	if (!targets.length) throw new Error(`${dir}: no native client targets`);
+	return distinctNative(targets);
+}
+
+/** Problems with a native client directory: only target.json, wrangler.jsonc (regular files) and migrations/ (a real directory). */
+function nativeClientDirProblems(dir: string): string[] {
+	const root = realDirectory(dir, 'native client directory');
+	if (root) return [root];
+	const problems: string[] = [];
+	const names = readdirSync(dir).sort();
+	for (const n of names) {
+		if (n === CONFIG_FILES.cf) problems.push(`${path.join(dir, n)}: ${CF_NATIVE_GAP}`);
+		else if (!(NATIVE_CLIENT_FILES as readonly string[]).includes(n) && n !== STAGED.migrations) problems.push(`${path.join(dir, n)} is not part of a native client directory (target.json, ${NATIVE_CONFIG_FILE}, ${STAGED.migrations}/)`);
+	}
+	for (const f of NATIVE_CLIENT_FILES) {
+		const st = existsSync(path.join(dir, f)) ? lstatSync(path.join(dir, f)) : null;
+		if (!st) problems.push(`${f} is missing`);
+		else if (!st.isFile()) problems.push(`${path.join(dir, f)} is not a regular file (a symlink or special file is refused)`);
+	}
+	return problems;
+}
+
+/** Every reason the native config `text` must not deploy `client`; `format` other than wrangler is the measured cf gap. */
+export function checkNative(a: { client: string; targets: NativeTarget[]; format?: Format | 'prebuilt'; text: string }): string[] {
+	if (a.format !== undefined && a.format !== 'wrangler') return [CF_NATIVE_GAP];
+	return checkNativeWrangler({ client: a.client, targets: a.targets, text: a.text });
+}
+
+/** Problems with the staged artifact `dir` (the stage's artifact/): its version file, its entry, and no hosted-gate test double anywhere. */
+function nativeArtifactProblems(stageDir: string, t: NativeTarget): string[] {
+	const problems: string[] = [];
+	const entry = path.join(stageDir, NATIVE_STAGED.entry);
+	if (!existsSync(entry) || !lstatSync(entry).isFile()) problems.push(`${NATIVE_STAGED.entry} is not a regular file in the staged artifact`);
+	const version = path.join(stageDir, NATIVE_STAGED.version);
+	problems.push(...versionProblems(existsSync(version) && lstatSync(version).isFile() ? readFileSync(version, 'utf8') : null, t));
+	for (const e of walk(path.join(stageDir, 'artifact'))) if (!e.dir && readFileSync(path.join(stageDir, 'artifact', e.rel)).includes(HOSTED_GATE_MARKER)) problems.push(`artifact/${e.rel} holds the hosted-gate test-double marker: not a production artifact`);
+	return problems;
+}
+
+/** The staged files' hashes, digests and identity checks shared by `stageNative` and `checkNativeStage`, read from the stage only. */
+function nativeStageFacts(out: string, client: string, sourceTargets: NativeTarget[]): { problems: string[]; target?: NativeTarget; record?: ReturnType<typeof nativeStageRecord> } {
+	const staged = Object.fromEntries(NATIVE_CLIENT_FILES.map((f) => [f, readFileSync(path.join(out, f))]));
+	let own: NativeTarget, targets: NativeTarget[];
+	try {
+		own = parseNativeTarget(JSON.parse(staged['target.json']!.toString('utf8')), 'target.json (staged)');
+		if (own.client !== client) throw new Error(`target.json (staged): client ${own.client} is not ${client}`);
+		targets = distinctNative([...sourceTargets.filter((t) => t.client !== client), own]);
+	} catch (e) {
+		return { problems: [(e as Error).message] };
+	}
+	const problems = checkNative({ client, targets, text: staged[NATIVE_CONFIG_FILE]!.toString('utf8') }).map((p) => `${NATIVE_CONFIG_FILE}: ${p}`);
+	if (problems.length) return { problems };
+	let artifact: string, migrations: string;
+	try {
+		artifact = digestDir(path.join(out, 'artifact'));
+		migrations = digestDir(path.join(out, STAGED.migrations));
+	} catch (e) {
+		return { problems: [(e as Error).message] };
+	}
+	if (artifact !== own.runtime.artifactSha256) problems.push(`the staged artifact is ${artifact}, not the target's ${own.runtime.artifactSha256}`);
+	if (migrations !== own.runtime.migrationsSha256) problems.push(`the staged migrations are ${migrations}, not the target's ${own.runtime.migrationsSha256}`);
+	problems.push(...nativeArtifactProblems(out, own));
+	if (problems.length) return { problems };
+	const sha = (f: string) => `sha256:${createHash('sha256').update(staged[f]!).digest('hex')}`;
+	return { problems, target: own, record: nativeStageRecord(own, { files: Object.fromEntries(NATIVE_CLIENT_FILES.map((f) => [f, sha(f)])), artifact, migrations }) };
+}
+
+const recordText = (r: object) => `${JSON.stringify(r, null, 2)}\n`;
+
+/**
+ * The native stage: copies the client's target.json, wrangler.jsonc and migrations/ and the artifact into `out` (which
+ * must not exist), then checks and digests the staged copy only and writes a native stage record. A refusal removes `out`.
+ */
+export function stageNative(a: { client: string; artifact: string; digest: string; out: string; clients: string }): string[] {
+	const dir = path.join(a.clients, a.client);
+	let sourceTargets: NativeTarget[];
+	try {
+		sourceTargets = loadNativeTargets(a.clients);
+	} catch (e) {
+		return [(e as Error).message];
+	}
+	const migrationsDir = path.join(dir, STAGED.migrations);
+	const problems = [...nativeClientDirProblems(dir), realDirectory(a.artifact, 'artifact'), realDirectory(migrationsDir, STAGED.migrations), existsSync(a.out) ? `${a.out} exists; a stage starts empty` : null].filter((p): p is string => p !== null);
+	if (problems.length) return problems;
+	mkdirSync(a.out, { recursive: true });
+	const refuse = (m: string[]) => (rmSync(a.out, { recursive: true, force: true }), m);
+	try {
+		walk(a.artifact);
+		walk(migrationsDir);
+		for (const f of NATIVE_CLIENT_FILES) cpSync(path.join(dir, f), path.join(a.out, f));
+		cpSync(a.artifact, path.join(a.out, 'artifact'), { recursive: true });
+		cpSync(migrationsDir, path.join(a.out, STAGED.migrations), { recursive: true });
+		walk(a.out);
+	} catch (e) {
+		return refuse([(e as Error).message]);
+	}
+	const facts = nativeStageFacts(a.out, a.client, sourceTargets);
+	if (facts.problems.length || !facts.record) return refuse(facts.problems);
+	if (facts.record.artifact !== a.digest) return refuse([`artifact ${a.artifact} is ${facts.record.artifact}, not the reviewed ${a.digest}`]);
+	writeFileSync(path.join(a.out, 'stage.json'), recordText(facts.record));
+	return [];
+}
+
+/**
+ * Every reason the native stage `stage` must not be uploaded for `client`: re-verified from the stage alone just before the
+ * parent's Wrangler upload, with the other clients' native targets from `clients` for the wrong-client comparison.
+ */
+export function checkNativeStage(a: { client: string; stage: string; clients: string }): string[] {
+	const root = realDirectory(a.stage, 'stage');
+	if (root) return [root];
+	let entries: { rel: string; dir: boolean }[];
+	try {
+		entries = walk(a.stage);
+	} catch (e) {
+		return [`the stage holds an entry that is not a regular file or directory: ${(e as Error).message}`];
+	}
+	const top = new Map(entries.filter((e) => !e.rel.includes(path.sep)).map((e) => [e.rel, e.dir]));
+	const expected = new Map<string, boolean>([...NATIVE_CLIENT_FILES.map((f) => [f, false] as const), ['stage.json', false], ['artifact', true], [STAGED.migrations, true]]);
+	const problems: string[] = [];
+	for (const [n, isDir] of top) if (expected.get(n) !== isDir) problems.push(`${n} is not part of a native stage (${[...expected.keys()].join(', ')}): ${n === CONFIG_FILES.cf || n === '.cloudflare' ? CF_NATIVE_GAP : 'the upload would read it and the check does not'}`);
+	for (const [n, isDir] of expected) if (top.get(n) !== isDir) problems.push(`${n} is missing from the stage`);
+	if (problems.length) return problems;
+	let sourceTargets: NativeTarget[];
+	try {
+		sourceTargets = loadNativeTargets(a.clients);
+	} catch (e) {
+		return [(e as Error).message];
+	}
+	const facts = nativeStageFacts(a.stage, a.client, sourceTargets);
+	if (facts.problems.length || !facts.record) return facts.problems;
+	const written = readFileSync(path.join(a.stage, 'stage.json'), 'utf8');
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(written);
+	} catch (e) {
+		return [`stage.json is not JSON: ${(e as Error).message}`];
+	}
+	if (typeof parsed !== 'object' || parsed === null || (parsed as { schema?: unknown }).schema !== NATIVE_STAGE_SCHEMA) return [`stage.json is not a ${NATIVE_STAGE_SCHEMA} record (a legacy stage is not a native one)`];
+	if (written !== recordText(facts.record)) return ['stage.json is not the record of these staged bytes: a file, digest, identity or claim flag differs from what the stage holds'];
+	return [];
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 	const [command, client, ...rest] = process.argv.slice(2);
 	const arg = (name: string) => {
 		const i = rest.indexOf(name);
 		return i < 0 ? undefined : rest[i + 1];
 	};
-	const usage = (): never => (console.error('usage: target.ts check <client> [--format wrangler|cf --config FILE] | stage <client> --artifact DIR --digest sha256:<hex> --out DIR | prebuilt <client> --stage DIR'), process.exit(2));
+	const usage = (): never => (console.error('usage: target.ts check <client> [--format wrangler|cf --config FILE] | stage <client> --artifact DIR --digest sha256:<hex> --out DIR | prebuilt <client> --stage DIR; native: add --profile native --clients DIR'), process.exit(2));
 	if (!client) usage();
+	const profile = arg('--profile');
+	if (rest.includes('--profile') && profile !== 'native') usage();
 	let problems: string[];
 	try {
-		if (command === 'check') {
+		if (profile === 'native') {
+			const clients = arg('--clients');
+			if (!clients) usage();
+			const dir = path.resolve(clients!);
+			if (command === 'check') {
+				const format = arg('--format'), config = arg('--config');
+				if (format !== undefined && config === undefined) usage();
+				const file = config ?? path.join(dir, client!, NATIVE_CONFIG_FILE);
+				const dirProblems = config === undefined ? nativeClientDirProblems(path.join(dir, client!)) : [];
+				problems = dirProblems.length ? dirProblems : checkNative({ client: client!, targets: loadNativeTargets(dir), format: format as Format | undefined, text: readFileSync(file, 'utf8') }).map((p) => `${path.basename(file)}: ${p}`);
+			} else if (command === 'stage') {
+				const artifact = arg('--artifact'), digest = arg('--digest'), out = arg('--out');
+				if (!artifact || !digest || !out) usage();
+				problems = stageNative({ client: client!, artifact: path.resolve(artifact!), digest: digest!, out: path.resolve(out!), clients: dir });
+			} else if (command === 'prebuilt') {
+				const stageDir = arg('--stage');
+				if (!stageDir) usage();
+				problems = checkNativeStage({ client: client!, stage: path.resolve(stageDir!), clients: dir });
+			} else problems = usage();
+		} else if (command === 'check') {
 			const format = arg('--format'), config = arg('--config');
 			if ((format === undefined) !== (config === undefined) || (format !== undefined && !(format in CONFIG_FILES))) usage();
 			const targets = loadTargets();
@@ -385,6 +588,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 		problems = [(e as Error).message];
 	}
 	for (const p of problems) console.error(`refused: ${p}`);
-	console.log(`TARGET ${problems.length ? 'REFUSED' : 'PASS'} ${command} ${client}`);
+	console.log(`TARGET ${problems.length ? 'REFUSED' : 'PASS'} ${command} ${client}${profile === 'native' ? ' profile=native' : ''}`);
 	process.exit(problems.length ? 1 : 0);
 }

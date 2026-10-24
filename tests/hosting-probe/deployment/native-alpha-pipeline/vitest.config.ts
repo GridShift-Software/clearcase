@@ -6,8 +6,9 @@ import { fileURLToPath } from 'node:url';
 // config, target, artifact and Build Output here is a synthetic fixture, never provider, deploy or funding evidence.
 export default defineConfig({
 	test: {
-		root: fileURLToPath(new URL('.', import.meta.url)),
-		include: ['native-pipeline-red.test.ts'],
+		// Rooted at the deployment probe so the frozen legacy target.test.ts (read only, unchanged) runs beside the native tests.
+		root: fileURLToPath(new URL('..', import.meta.url)),
+		include: ['target.test.ts', 'native-alpha-pipeline/native-pipeline-red.test.ts', 'native-alpha-pipeline/native-pipeline.test.ts'],
 		pool: 'forks',
 		testTimeout: 60_000,
 	},

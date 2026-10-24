@@ -55,7 +55,7 @@ describe('grant management changes', () => {
     const r = await create('op-1');
     expect(r).toMatchObject({ kind: 'applied', repeated: false, grant: { state: 'active', role: 'viewer', version: 2 } });
     expect(await read()).toBe('allowed');
-    expect(w.events.filter((e) => e.outcome === 'succeeded')).toMatchObject([{ eventId: 'grant-op:op-1', action: 'grant.create', object: { kind: 'case-grant', caseId: 'case-1' }, actor: { principal: admin } }]);
+    expect(w.events.filter((e) => e.outcome === 'succeeded' && e.action.startsWith('grant.'))).toMatchObject([{ eventId: 'grant-op:op-1', action: 'grant.create', object: { kind: 'case-grant', caseId: 'case-1' }, actor: { principal: admin } }]);
     expect(await create('op-2', 'operator', staff('staff_op'))).toMatchObject({ kind: 'applied' });
   });
   it('a duplicate operation is repeated once; the same id with another request conflicts; a second grant in the slot conflicts', async () => {

@@ -17,7 +17,9 @@ export interface ClientResources {
 }
 export interface ClientManifest { readonly staffIssuer: string; readonly clients: readonly ClientResources[] }
 /** What one Worker is configured with by its deployment; never read from a request. */
-export interface DeploymentTuple { clientId: string; worker: string; d1DatabaseId: string; r2Bucket: string }
+export interface DeploymentTuple { clientId: string; worker: string; d1DatabaseId: string; r2Bucket: string; hostname?: string; d1DatabaseName?: string }
+/** The full tuple a production deployment is configured with. resolveExactDeployment requires every field. */
+export interface ExactDeploymentTuple { clientId: string; hostname: string; worker: string; d1DatabaseId: string; d1DatabaseName: string; r2Bucket: string }
 /** The validated identity of the client instance this deployment serves. */
 export type ClientResourceIdentity = ClientResources & { readonly staffIssuer: string };
 
@@ -85,11 +87,37 @@ export function validateClientManifest(input: unknown): ClientManifest {
   return Object.freeze({ staffIssuer, clients: Object.freeze(clients) });
 }
 
-/** The manifest entry a deployment serves, only when its configured Worker, D1 and R2 are exactly that client's. */
+/**
+ * The manifest entry a deployment serves, only when its configured Worker, D1 and R2 are exactly that client's. A hostname
+ * or D1 name, when supplied, must match too; their absence is tolerated here only for callers that predate them.
+ * Production composition uses resolveExactDeployment, which fails closed on any missing resource.
+ */
 export function resolveDeployment(manifest: ClientManifest, tuple: DeploymentTuple): ClientResourceIdentity {
-  const entry = manifest.clients.find((c) => c.clientId === tuple.clientId);
+  const entry = manifest.clients.find((c) => c.clientId === tuple?.clientId);
   if (!entry) throw new ManifestError('unknown-client', 'the deployment client is not in the manifest');
   for (const key of ['worker', 'd1DatabaseId', 'r2Bucket'] as const) {
+    if (entry[key] !== tuple[key]) throw new ManifestError('resource-mismatch', `${key} is not this client's`);
+  }
+  for (const key of ['hostname', 'd1DatabaseName'] as const) {
+    if (tuple[key] !== undefined && entry[key] !== tuple[key]) throw new ManifestError('resource-mismatch', `${key} is not this client's`);
+  }
+  return Object.freeze({ ...entry, staffIssuer: manifest.staffIssuer });
+}
+
+const TUPLE_KEYS = ['clientId', 'hostname', 'worker', 'd1DatabaseId', 'd1DatabaseName', 'r2Bucket'] as const;
+/**
+ * The strict form: the deployment's own host, Worker, D1 id and name and R2 bucket, all required, compared exactly
+ * (no case folding or trimming; the caller passes configuration, never request data). A missing, extra, non-string or
+ * foreign resource refuses, so a half-configured deployment serves nobody. It names the bound resources but cannot prove
+ * the platform bound them; that needs a provider check this module does not make.
+ */
+export function resolveExactDeployment(manifest: ClientManifest, tuple: ExactDeploymentTuple): ClientResourceIdentity {
+  if (!record(tuple) || Object.keys(tuple).sort().join() !== [...TUPLE_KEYS].sort().join() || TUPLE_KEYS.some((k) => typeof tuple[k] !== 'string' || tuple[k] === '')) {
+    throw new ManifestError('resource-mismatch', `the deployment tuple must have exactly ${TUPLE_KEYS.join(', ')}`);
+  }
+  const entry = manifest.clients.find((c) => c.clientId === tuple.clientId);
+  if (!entry) throw new ManifestError('unknown-client', 'the deployment client is not in the manifest');
+  for (const key of TUPLE_KEYS) {
     if (entry[key] !== tuple[key]) throw new ManifestError('resource-mismatch', `${key} is not this client's`);
   }
   return Object.freeze({ ...entry, staffIssuer: manifest.staffIssuer });

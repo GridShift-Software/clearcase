@@ -45,12 +45,13 @@ it.each(['commit', 'path', 'order', 'hash', 'extra'])('refuses an altered %s man
 	expect(existsSync(target)).toBe(false);
 });
 
-it.each(['missing', 'bytes', 'mode', 'symlink'])('refuses a %s asset before writing any executable reader', variant => {
+it.each(['missing', 'bytes', 'mode', 'privileged-mode', 'symlink'])('refuses a %s asset before writing any executable reader', variant => {
 	const { source, target } = workspace();
 	const path = join(source, 'fix-round-guard');
 	if (variant === 'missing') rmSync(path);
 	if (variant === 'bytes') writeFileSync(path, readFileSync(path, 'utf8') + '\n');
 	if (variant === 'mode') chmodSync(path, 0o644);
+	if (variant === 'privileged-mode') chmodSync(path, 0o4755);
 	if (variant === 'symlink') { rmSync(path); symlinkSync(join(FIXTURE, 'fix-round-guard'), path); }
 	expect(() => materializeDev105Reader(target, SOURCE, source)).toThrow();
 	expect(existsSync(target)).toBe(false);

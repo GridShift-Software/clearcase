@@ -10,7 +10,7 @@ const fail = (): never => { throw new Error('canonical DEV105 reader fixture int
 
 function regularFile(path: string, mode: number): Buffer {
 	const stat = lstatSync(path);
-	if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o777) !== mode) fail();
+	if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o7777) !== mode) fail();
 	return readFileSync(path);
 }
 

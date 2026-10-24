@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 // Real CLI seams, synthetic repositories only. Neither fixture owns the judging tools or their dependencies.
@@ -19,8 +19,28 @@ const originalTest = "test('keeps its assertion', () => { expect(1).toBe(1); });
 // Runtime regression: these same 70 real-CLI cases must reach their guard oracles via
 // `env -u CLEARCASE_NODE bun run --bun test tests/gate/reviewed-python-file-protection.test.ts`.
 // A direct external .mjs launch does not reproduce that package launcher's node PATH stand-in.
-const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([key]) =>
-	!key.startsWith('GIT_') && !['CLEARCASE_BASE_REF', 'CLEARCASE_RECEIPTS_DIR', 'T3_PSTACK_HARNESS', 'CLAUDECODE', 'CODEX_THREAD_ID', 'CODEX_HOME'].includes(key)));
+function guardRuntime(): string {
+	// Keep explicit Node, Bun and trusted-wrapper selections verbatim; never replace a bad override with a fallback.
+	if (process.env.CLEARCASE_NODE) return process.env.CLEARCASE_NODE;
+	// As documented in development.md, inspect PATH past Bun's package-script stand-in for an actual Node.
+	for (const dir of (process.env.PATH ?? '').split(':')) {
+		const candidate = resolve(dir, 'node');
+		const probe = spawnSync(candidate, ['-p', 'JSON.stringify([process.versions.node, process.versions.bun ?? null])'], {
+			encoding: 'utf8', timeout: 5_000,
+		});
+		if (probe.status !== 0) continue;
+		try {
+			const [node, bun] = JSON.parse(probe.stdout);
+			if (typeof node === 'string' && bun === null) return candidate;
+		} catch { /* Not a verified Node; keep searching. */ }
+	}
+	throw new Error('reviewed Python CLI fixtures need a real Node on PATH past Bun\'s stand-in, or explicit CLEARCASE_NODE');
+}
+const GUARD_RUNTIME = guardRuntime();
+const cleanEnv = () => ({ ...Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+	!key.startsWith('GIT_') && !['CLEARCASE_BASE_REF', 'CLEARCASE_RECEIPTS_DIR', 'T3_PSTACK_HARNESS', 'CLAUDECODE', 'CODEX_THREAD_ID', 'CODEX_HOME'].includes(key))),
+	CLEARCASE_NODE: GUARD_RUNTIME,
+});
 const spaces: string[] = [];
 afterEach(() => { for (const ws of spaces.splice(0)) rmSync(ws, { recursive: true, force: true }); });
 type Caller = 'test-guard' | 'fix-round-guard';

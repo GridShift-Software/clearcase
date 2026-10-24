@@ -28,19 +28,26 @@ Every request is checked in this order. A write needs the exact Origin and the e
 ## Order of durable effects (PUT)
 
 1. `originals.put`: GRS-115 writes the bytes once and verifies them.
-2. `repository.markStored` records that the store acknowledged them.
-3. `originals.finalize` binds the original to the case. It can then be read at `/cases/[caseId]/originals/[assetId]`.
-4. `repository.commitRevision` records the revision and its file in one D1 batch, then reads them back.
+2. `repository.markStored` records that the store acknowledged them (upload state `stored`).
+3. `repository.reserveRevision` is the precommit: one D1 batch records the revision (its case sequence) and its file facts (path, size, sha256, asset id), and moves the upload to `reserved`. Nothing is visible yet and the submission is not shown as final.
+4. `originals.finalize` binds the original to the case. It can then be read at `/cases/[caseId]/originals/[assetId]`. By now the intake already owns a durable record that matches it.
+5. `repository.commitRevision` marks the revision final (upload state `finalized`). Only then does the PUT answer 201 with the manifest.
 
-Any fault answers 503 and never reports success. A fault in step 4 answers `manifest-unrecorded`. A retry with the same `operationId` and bytes recovers the same revision, because the revision id is derived from the operation (`subrev-<operationId>`). Changed bytes under an operation get 422; a changed declaration gets 409 `operation-reused`.
+A request body is read only while the upload is `received` (a first upload) or `finalized` (a replay, where changed bytes are still refused). A `stored` or `reserved` upload has bytes the store already verified and acknowledged, so a retry finishes steps 3 to 5 without reading or storing the file again: whatever fault interrupted it (the precommit, the finalize, the final mark), the same PUT with the same `operationId` resumes from the durable state and returns the one revision. Any fault answers 503 and never reports success; `manifest-unrecorded` means a D1 step failed. While an upload is `stored` or `reserved` it shows as `stored-not-finalized` with no manifest, even when step 4 has already run.
+
+Residual: if `put` succeeded but the acknowledgement of step 2 was lost, the upload is still `received` and the retry sends the file again (the store's `put` is idempotent). GRS-115's `OriginalIntake` has no status call to ask it instead; that is a parent contract question, not worked around here. A crash never forges a path, hash or owner, and nothing here deletes stored bytes.
+
+A request body that errors (a dropped connection) is an interrupted body: 400 `incomplete-body`, with nothing stored or acknowledged, for the declaration and for the file alike.
+
+Changed bytes under an operation get 422 while it is `received` or `finalized`; a changed declaration gets 409 `operation-reused`.
 
 ## Schema (`src/lib/submissions/migrations/0001_submissions_intake.sql`)
 
-Tables `submissions_upload`, `submissions_revision` and `submissions_file`. Triggers refuse any update or delete of a revision or file, any change to a declaration, any backward state move, and any delete of an upload. Sequences are per case. If two commits race for the same sequence, the batch fails and the retry takes the next one.
+Tables `submissions_upload`, `submissions_revision` and `submissions_file`. Triggers refuse any update or delete of a revision or file, any change to a declaration, any backward or skipping state move, any `reserved` or `finalized` state without a recorded revision, and any delete of an upload. `INSERT OR REPLACE` and the other conflict clauses delete a conflicting row without firing delete triggers, so `BEFORE INSERT` triggers refuse every insert that collides with an existing row on any unique key (primary key, case plus sequence, case plus operation, case plus asset, or the one file of a revision). A revision must take the next sequence from a stored upload and a file must match its upload's declaration. The request path never uses REPLACE; the triggers guard against an accidental statement or later change, not against an administrator who drops the schema. They are checked against SQLite here; D1 behaviour is not yet verified. The migration is unreleased and was corrected in place. Sequences are per case. If two reservations race for the same sequence, the batch fails and the client's retry takes the next one (the server does not retry).
 
 ## Stages shown
 
-`received` means declared, with no bytes stored. `stored-not-finalized` means the bytes are stored but finalization did not finish, so the client sends the file again. `finalized` means the submission is recorded; it has no results and is ready for the service team to process manually. `results` is always `none`. Nothing claims processing.
+`received` means declared, with no bytes stored. `stored-not-finalized` means the bytes are stored but finalization did not finish (the original may already be readable); the client repeats the same PUT, which needs no new file read. `finalized` means the submission is recorded; it has no results and is ready for the service team to process manually. `results` is always `none`. Nothing claims processing.
 
 ## Unresolved handshakes (parent or user decision)
 

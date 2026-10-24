@@ -88,7 +88,7 @@ export function createIntakeController(ports: IntakePorts | null) {
   const handle = (work: () => Promise<Response>) => work().catch((e) => { if (e instanceof Refusal) return e.response; throw e; });
   const view = (u: UploadRecord, m: SubmissionManifest | null): SubmissionView => ({
     operationId: u.operationId, path: u.path, size: u.size, results: 'none', manifest: m,
-    stage: m ? 'finalized' : u.state === 'received' ? 'received' : 'stored-not-finalized',
+    stage: m ? 'finalized' : u.state === 'received' ? 'received' : 'stored-not-finalized', // stored and reserved are both pending
     handoff: m ? m.files.map((f) => ({ path: f.path, href: `/cases/${encodeURIComponent(m.caseId)}/originals/${encodeURIComponent(f.assetId)}` })) : [],
   });
 
@@ -97,6 +97,7 @@ export function createIntakeController(ports: IntakePorts | null) {
     declare: (r: IntakeRequest) => handle(async () => {
       const a = await admit(r, { contentType: 'application/json' });
       const body = await readAtMost(r.request.body, a.budget.maxMetadataBytes);
+      if (body.kind === 'incomplete') return fail(400, 'incomplete-body', 'The request was interrupted. Send the declaration again.');
       if (body.kind !== 'ok') return fail(413, 'too-large', 'The declaration is too large.');
       let m: Record<string, unknown>;
       try {
@@ -129,25 +130,34 @@ export function createIntakeController(ports: IntakePorts | null) {
       const u = await storage(a.repository.upload({ ...a.scope, operationId }));
       if (!u) return fail(404, 'not-declared', 'Declare the file before sending it.');
       if (u.size > a.budget.maxFileBytes) return fail(413, 'too-large', 'The file is larger than this deployment accepts.');
-      const body = await readExactly(r.request.body, u.size);
-      if (body.kind === 'too-large') return fail(413, 'too-large', 'More bytes arrived than were declared.');
-      if (body.kind === 'incomplete') return fail(400, 'incomplete-body', 'The upload was interrupted. Send the whole file again with the same upload id.');
-      // The bytes decide, not the declaration: their own size and digest, then a PDF header and end marker.
-      if ((await digest(body.bytes)) !== u.sha256) return fail(422, 'digest-mismatch', 'The file received does not match the file declared.');
-      if (!looksLikePdf(body.bytes)) return fail(422, 'not-a-pdf', 'The file is not a PDF.');
-      const done = u.state === 'finalized' ? await storage(a.repository.revision({ ...a.scope, operationId })) : null;
-      if (done) return json(200, view(u, done));
-      // Store (the store re-verifies), record the acknowledged provenance, finalize the original, then record the manifest.
-      if (u.state === 'received') {
-        const put = await storage(a.originals.put({ caseId: a.caseId, operationId, bytes: body.bytes }));
-        if (put.kind === 'refused') storeRefusal(put);
-        await storage(a.repository.markStored({ ...a.scope, operationId, at: ports!.now().toISOString() }));
+      // A finalized replay and a first upload read the body: the bytes decide, not the declaration. A stored or reserved
+      // upload does not: its bytes were verified and acknowledged by the original store on an earlier request, so the retry
+      // finishes the remaining steps without reading or storing the file again.
+      if (u.state === 'received' || u.state === 'finalized') {
+        const body = await readExactly(r.request.body, u.size);
+        if (body.kind === 'too-large') return fail(413, 'too-large', 'More bytes arrived than were declared.');
+        if (body.kind === 'incomplete') return fail(400, 'incomplete-body', 'The upload was interrupted. Send the whole file again with the same upload id.');
+        // The bytes decide, not the declaration: their own size and digest, then a PDF header and end marker.
+        if ((await digest(body.bytes)) !== u.sha256) return fail(422, 'digest-mismatch', 'The file received does not match the file declared.');
+        if (!looksLikePdf(body.bytes)) return fail(422, 'not-a-pdf', 'The file is not a PDF.');
+        const done = u.state === 'finalized' ? await storage(a.repository.revision({ ...a.scope, operationId })) : null;
+        if (done) return json(200, view(u, done));
+        // Store (the store re-verifies), then record the acknowledged provenance.
+        if (u.state === 'received') {
+          const put = await storage(a.originals.put({ caseId: a.caseId, operationId, bytes: body.bytes }));
+          if (put.kind === 'refused') storeRefusal(put);
+          await storage(a.repository.markStored({ ...a.scope, operationId, at: ports!.now().toISOString() }));
+        }
       }
+      // Precommit the manifest facts durably, THEN make the original readable, THEN mark the submission final: the original
+      // is never visible without its owned record. A fault at any step answers 503 and a retry resumes from the durable state.
+      try { await a.repository.reserveRevision({ ...a.scope, operationId, at: ports!.now().toISOString() }); }
+      catch { return fail(503, 'manifest-unrecorded', 'The file is stored but its submission could not be recorded yet. Try again with the same upload id; the file need not be sent again.'); }
       const fin = await storage(a.originals.finalize({ caseId: a.caseId, operationId }));
       if (fin.kind === 'refused') storeRefusal(fin);
       let manifest: SubmissionManifest;
       try { manifest = await a.repository.commitRevision({ ...a.scope, operationId, at: ports!.now().toISOString() }); }
-      catch { return fail(503, 'manifest-unrecorded', 'The file is stored but its submission could not be recorded. Send it again with the same upload id.'); }
+      catch { return fail(503, 'manifest-unrecorded', 'The file is stored but its submission could not be marked final yet. Try again with the same upload id; the file need not be sent again.'); }
       const repeated = u.state === 'finalized';
       return json(repeated ? 200 : 201, view({ ...u, state: 'finalized' }, manifest));
     }),

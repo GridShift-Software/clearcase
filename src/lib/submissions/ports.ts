@@ -34,7 +34,11 @@ export interface OriginalIntakePort {
   finalize(a: { caseId: CaseId; operationId: string }): Promise<OriginalOutcome>;
 }
 
-export type UploadState = 'received' | 'stored' | 'finalized';
+/**
+ * received: declared; stored: the original store acknowledged the verified bytes; reserved: the revision and its file are
+ * durably recorded (the precommit) but the submission is not final; finalized: the original is bound and the revision is final.
+ */
+export type UploadState = 'received' | 'stored' | 'reserved' | 'finalized';
 export interface UploadDeclaration {
   clientId: ClientId; caseId: CaseId; operationId: string; assetId: string;
   path: string; filename: string; mediaType: 'application/pdf'; size: number; sha256: string;
@@ -57,15 +61,21 @@ export type Scoped = { clientId: ClientId; caseId: CaseId };
 
 /**
  * The intake's own durable records (namespace `submissions_*`). Every write is idempotent on its operation id and
- * refuses a different declaration under the same id; `commitRevision` records the manifest atomically and returns the
- * stored one, so a retry after an unknown outcome recovers the same revision. A fault rejects; it never reports success.
+ * refuses a different declaration under the same id; `reserveRevision` records the manifest atomically and returns the
+ * stored one, `commitRevision` then marks it final, so a retry after an unknown outcome recovers the same revision. A fault rejects; it never reports success.
  */
 export interface SubmissionRepository {
   declare(a: UploadDeclaration): Promise<{ kind: 'declared'; repeated: boolean } | { kind: 'operation-reused' }>;
   upload(a: Scoped & { operationId: string }): Promise<UploadRecord | null>;
   /** Records that the original store acknowledged this operation's verified bytes. */
   markStored(a: Scoped & { operationId: string; at: string }): Promise<void>;
-  /** Records the finalized revision for a stored (or already finalized) upload and returns the stored manifest. */
+  /**
+   * The precommit: durably records the revision (its case sequence) and its file facts for a stored upload, BEFORE the
+   * original store makes the original visible, and returns the stored manifest. Idempotent: a retry returns the same one.
+   * The upload is not final yet, so no reader shows it as a finalized submission.
+   */
+  reserveRevision(a: Scoped & { operationId: string; at: string }): Promise<SubmissionManifest>;
+  /** Marks a reserved (or stored: it reserves first) upload final and returns the stored manifest. Idempotent. */
   commitRevision(a: Scoped & { operationId: string; at: string }): Promise<SubmissionManifest>;
   revision(a: Scoped & { operationId: string }): Promise<SubmissionManifest | null>;
   list(a: Scoped): Promise<readonly { upload: UploadRecord; manifest: SubmissionManifest | null }[]>;

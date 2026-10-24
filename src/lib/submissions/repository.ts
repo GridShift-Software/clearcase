@@ -48,13 +48,46 @@ export function d1SubmissionRepository(db: IntakeD1): SubmissionRepository {
   const same = (r: UploadRow, a: Parameters<SubmissionRepository['declare']>[0]) =>
     r.asset_id === a.assetId && r.path === a.path && r.filename === a.filename && r.media_type === a.mediaType && r.size === a.size && r.sha256 === a.sha256;
 
+  const reserveRevision: SubmissionRepository['reserveRevision'] = async (a) => {
+    const existing = await revision(a, a.operationId);
+    if (existing) return existing;
+    const r = await upload(a, a.operationId);
+    if (!r || r.state === 'received') return unavailable();
+    const id = revisionIdOf(a.operationId);
+    try {
+      await db.batch([
+        // the revision takes the case's next sequence; the migration's triggers refuse a colliding sequence, operation or
+        // revision id, so a concurrent reservation that took the same sequence rolls the whole batch back and the
+        // caller's retry takes the next one
+        db.prepare(`INSERT INTO submissions_revision (client_id, case_id, revision_id, sequence, operation_id, file_count, finalized_at)
+          SELECT ?, ?, ?, (SELECT COALESCE(MAX(sequence), 0) + 1 FROM submissions_revision WHERE client_id = ? AND case_id = ?), ?, 1, ?
+          WHERE EXISTS (SELECT 1 FROM submissions_upload WHERE client_id = ? AND case_id = ? AND operation_id = ? AND state IN ('stored', 'reserved', 'finalized'))`)
+          .bind(a.clientId, a.caseId, id, a.clientId, a.caseId, a.operationId, a.at, a.clientId, a.caseId, a.operationId),
+        db.prepare(`INSERT INTO submissions_file (client_id, case_id, revision_id, path, path_key, filename, media_type, size, sha256, asset_id)
+          SELECT client_id, case_id, ?, path, ?, filename, media_type, size, sha256, asset_id FROM submissions_upload WHERE client_id = ? AND case_id = ? AND operation_id = ?`)
+          .bind(id, r.path.normalize('NFKC').toLowerCase(), a.clientId, a.caseId, a.operationId),
+        db.prepare("UPDATE submissions_upload SET state = 'reserved' WHERE client_id = ? AND case_id = ? AND operation_id = ? AND state = 'stored'")
+          .bind(a.clientId, a.caseId, a.operationId),
+      ]);
+    } catch {
+      // The outcome is unknown from here (a lost answer can follow a commit): read again; only a recorded revision is success.
+      const now = await revision(a, a.operationId);
+      if (now) return now;
+      return unavailable();
+    }
+    return (await revision(a, a.operationId)) ?? unavailable();
+  };
+
   return {
     async declare(a) {
       const prior = await upload(a, a.operationId);
       if (prior) return same(prior, a) ? { kind: 'declared', repeated: true } : { kind: 'operation-reused' };
+      // INSERT ... SELECT ... WHERE NOT EXISTS: a concurrent declaration of the same operation inserts nothing here (the
+      // migration's BEFORE INSERT trigger would refuse a colliding insert, even one with ON CONFLICT); a different operation
+      // that collides on the asset key is refused by that trigger and answers as unavailable, never by overwriting a row.
       await db.prepare(`INSERT INTO submissions_upload (client_id, case_id, operation_id, asset_id, path, filename, media_type, size, sha256, state, principal_issuer, principal_subject, declared_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, ?, ?) ON CONFLICT DO NOTHING`)
-        .bind(a.clientId, a.caseId, a.operationId, a.assetId, a.path, a.filename, a.mediaType, a.size, a.sha256, a.principal.issuer, a.principal.subject, a.at).run().catch(unavailable);
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM submissions_upload WHERE client_id = ? AND case_id = ? AND operation_id = ?)`)
+        .bind(a.clientId, a.caseId, a.operationId, a.assetId, a.path, a.filename, a.mediaType, a.size, a.sha256, a.principal.issuer, a.principal.subject, a.at, a.clientId, a.caseId, a.operationId).run().catch(unavailable);
       // Read back: a concurrent declaration of the same operation wins or matches; never two answers for one id.
       const row = await upload(a, a.operationId);
       if (!row) return unavailable();
@@ -70,33 +103,20 @@ export function d1SubmissionRepository(db: IntakeD1): SubmissionRepository {
       const r = await upload(a, a.operationId);
       if (!r || r.state === 'received') unavailable();
     },
+    reserveRevision,
     async commitRevision(a) {
-      const existing = await revision(a, a.operationId);
-      if (existing) return existing;
+      // Precommit if it is not recorded yet (idempotent), then mark the revision final. The mark moves only 'reserved' forward,
+      // and only the stored revision is ever returned.
+      const manifest = await reserveRevision(a);
       const r = await upload(a, a.operationId);
-      if (!r || r.state === 'received') return unavailable();
-      const id = revisionIdOf(a.operationId);
-      try {
-        await db.batch([
-          // the revision takes the case's next sequence; a concurrent commit of another operation that takes the same
-          // sequence fails the UNIQUE constraint, the whole batch rolls back and the caller's retry takes the next one
-          db.prepare(`INSERT INTO submissions_revision (client_id, case_id, revision_id, sequence, operation_id, file_count, finalized_at)
-            SELECT ?, ?, ?, (SELECT COALESCE(MAX(sequence), 0) + 1 FROM submissions_revision WHERE client_id = ? AND case_id = ?), ?, 1, ?
-            WHERE EXISTS (SELECT 1 FROM submissions_upload WHERE client_id = ? AND case_id = ? AND operation_id = ? AND state IN ('stored', 'finalized'))`)
-            .bind(a.clientId, a.caseId, id, a.clientId, a.caseId, a.operationId, a.at, a.clientId, a.caseId, a.operationId),
-          db.prepare(`INSERT INTO submissions_file (client_id, case_id, revision_id, path, path_key, filename, media_type, size, sha256, asset_id)
-            SELECT client_id, case_id, ?, path, ?, filename, media_type, size, sha256, asset_id FROM submissions_upload WHERE client_id = ? AND case_id = ? AND operation_id = ?`)
-            .bind(id, r.path.normalize('NFKC').toLowerCase(), a.clientId, a.caseId, a.operationId),
-          db.prepare("UPDATE submissions_upload SET state = 'finalized' WHERE client_id = ? AND case_id = ? AND operation_id = ? AND state = 'stored'")
-            .bind(a.clientId, a.caseId, a.operationId),
-        ]);
-      } catch {
-        // The outcome is unknown from here (a lost answer can follow a commit): read again; only a stored revision is success.
-        const now = await revision(a, a.operationId);
-        if (now) return now;
-        return unavailable();
+      if (!r) return unavailable();
+      if (r.state !== 'finalized') {
+        await db.prepare("UPDATE submissions_upload SET state = 'finalized' WHERE client_id = ? AND case_id = ? AND operation_id = ? AND state IN ('stored', 'reserved')")
+          .bind(a.clientId, a.caseId, a.operationId).run().catch(unavailable);
+        const now = await upload(a, a.operationId);
+        if (!now || now.state !== 'finalized') return unavailable();
       }
-      return (await revision(a, a.operationId)) ?? unavailable();
+      return manifest;
     },
     revision: (a) => revision(a, a.operationId),
     async list(a) {

@@ -1,0 +1,4 @@
+{
+  "extends": "../../../tsconfig.json",
+  "include": ["../../../src/lib/storage/cloud/**/*.ts", "../../../src/lib/results/hosted/**/*.ts", "./**/*.ts", "../../../src/app.d.ts"]
+}

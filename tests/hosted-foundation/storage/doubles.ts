@@ -1,7 +1,7 @@
-// UNIT TEST DOUBLES ONLY. A D1 stand-in over bun:sqlite and an in-memory R2 stand-in, so the storage adapters' SQL
+// UNIT TEST DOUBLES ONLY. A D1 stand-in over node:sqlite (as the local case store uses it) and an in-memory R2 stand-in, so the storage adapters' SQL
 // and integrity logic run against the real migration. They are not Cloudflare's D1 or R2: nothing here is evidence of
 // remote behaviour, limits or latency, and no production path can reach them.
-import { Database } from 'bun:sqlite';
+import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -11,7 +11,7 @@ const MIGRATION = path.join(import.meta.dirname, '../../../src/lib/storage/cloud
 const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 
 export class SqliteD1 implements CloudD1 {
-  readonly sqlite = new Database(':memory:', { strict: false });
+  readonly sqlite = new DatabaseSync(':memory:');
   statements = 0;
   failNext: RegExp | null = null;
   constructor() {
@@ -35,7 +35,12 @@ export class SqliteD1 implements CloudD1 {
     return make([]);
   }
   async batch(statements: CloudD1Statement[]) {
-    return this.sqlite.transaction(() => statements.map((s) => (s as unknown as { exec(): unknown }).exec()))();
+    this.sqlite.exec('BEGIN');
+    try {
+      const out = statements.map((s) => (s as unknown as { exec(): unknown }).exec());
+      this.sqlite.exec('COMMIT');
+      return out;
+    } catch (e) { this.sqlite.exec('ROLLBACK'); throw e; }
   }
   exec(sql: string, ...values: D1Value[]) { this.sqlite.prepare(sql).run(...values); }
   rows<T>(sql: string, ...values: D1Value[]) { return this.sqlite.prepare(sql).all(...values) as T[]; }

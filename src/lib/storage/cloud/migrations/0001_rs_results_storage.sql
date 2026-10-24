@@ -44,6 +44,8 @@ CREATE TABLE rs_results_version (
   expected_files INTEGER NOT NULL,
   read_model_sha256 TEXT NOT NULL,
   overview TEXT NOT NULL,
+  -- Bytes of the package files: reserved against the cumulative package quotas before the first object is written.
+  package_bytes INTEGER NOT NULL CHECK (package_bytes >= 0),
   -- Keep protects a version from pruning only. It never makes a withdrawn version readable.
   keep INTEGER NOT NULL DEFAULT 0 CHECK (keep IN (0, 1)),
   staged_at TEXT NOT NULL,
@@ -51,6 +53,7 @@ CREATE TABLE rs_results_version (
   import_seq INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX rs_results_version_import_seq ON rs_results_version (import_seq);
+CREATE INDEX rs_results_version_case ON rs_results_version (case_id);
 
 -- Exact package files: bytes in R2 under an opaque key, recorded size and SHA-256 checked on every load.
 CREATE TABLE rs_package_file (
@@ -137,8 +140,11 @@ CREATE TABLE rs_case_original (
   finalized_at TEXT NOT NULL,
   PRIMARY KEY (case_id, asset_id)
 );
--- Upload staging: declared before any byte is written, idempotent per operation, `finalized` only in the batch that
--- binds the original. A `declared` row is the durable trace of an object that never finalized (reaper input).
+-- Upload provenance and staging. `declared` before any byte is written (the row reserves the case's and the client's
+-- upload and byte quotas); `stored` once this operation's own `put` carried bytes that hash to the declaration and the
+-- object under `orig/<sha256>` matched; `finalized` only in the batch that binds the original. Finalize needs `stored`,
+-- so a case never binds an object it did not itself upload. `put_attempts` bounds the writes a retry can send to R2.
+-- A `declared` or `stored` row is the durable trace of an object that never finalized (reaper input).
 CREATE TABLE rs_original_upload (
   case_id TEXT NOT NULL REFERENCES rs_case,
   operation_id TEXT NOT NULL,
@@ -147,7 +153,9 @@ CREATE TABLE rs_original_upload (
   size INTEGER NOT NULL CHECK (size >= 0),
   filename TEXT NOT NULL,
   media_type TEXT NOT NULL,
-  state TEXT NOT NULL CHECK (state IN ('declared', 'finalized')),
+  state TEXT NOT NULL CHECK (state IN ('declared', 'stored', 'finalized')),
+  put_attempts INTEGER NOT NULL DEFAULT 0 CHECK (put_attempts >= 0),
   declared_at TEXT NOT NULL,
+  stored_at TEXT,
   PRIMARY KEY (case_id, operation_id)
 );

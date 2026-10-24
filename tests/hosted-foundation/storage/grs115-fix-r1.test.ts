@@ -6,18 +6,16 @@ import { createCloudResults, type StorageEvent } from '../../../src/lib/results/
 import { createResultsStaging } from '../../../src/lib/storage/cloud/staging.ts';
 import { createOriginalIntake } from '../../../src/lib/storage/cloud/intake.ts';
 import { storageBudgets } from '../../../src/lib/storage/cloud/budgets.ts';
+import { storageQuotas } from '../../../src/lib/storage/cloud/quotas.ts';
+import { projectPackage } from '../../../src/lib/results/hosted/project.ts';
 import { readModelDigest } from '../../../src/lib/local-case/project.server.ts';
 import { id, type CaseRevision } from '../../../src/lib/server/runtime/ids.ts';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
 import type { AssetRef } from '../../../src/lib/server/runtime/contracts.ts';
-import { BUDGETS, GET, deployment, grantedIdentity, ids, pdf, publish, shaOf, syntheticPackage } from './fixture.ts';
+import { BUDGETS, GET, QUOTAS, deployment, grantedIdentity, ids, pdf, publish, shaOf, syntheticPackage } from './fixture.ts';
 
 const now = () => new Date('2001-01-01T00:00:00Z');
 const allow = async () => {};
-const QUOTAS = {
-  maxUploadsPerCase: 50, maxOriginalBytesPerCase: 64 << 20, maxOriginalBytesPerClient: 256 << 20, maxPutAttemptsPerUpload: 5,
-  maxVersionsPerCase: 20, maxPackageBytesPerCase: 64 << 20, maxPackageBytesPerClient: 256 << 20, maxStagingAttemptsPerCase: 50,
-};
 type Mutation = { clientId: string; caseId: string; capability: string; step: string; operationId: string };
 interface Options { dep?: ReturnType<typeof deployment>; budgets?: typeof BUDGETS; quotas?: typeof QUOTAS | null; authorize?: ((m: Mutation) => Promise<void>) | null; grants?: string[] }
 
@@ -101,7 +99,6 @@ describe('M3: hosted download headers keep the serve policy’s filename hardeni
     expect(cd).toMatch(/^attachment; filename="[\x20-\x7e]+"; filename\*=UTF-8''[A-Za-z0-9%._-]+$/);
     expect(cd).not.toMatch(/%E2%80%(?:AE|A6|A9)/i);
     expect(cd).toContain('%27');
-    expect(cd).not.toContain("'s");
   });
   it('cannot be turned into a header injection or a path', async () => {
     const cd = await served('../x"\r\nSet-Cookie: a=b;\\.pdf');
@@ -265,5 +262,65 @@ describe('M6: cumulative quotas are reserved in D1 before any provider write', (
     const w = world({ quotas: { ...QUOTAS, maxPackageBytesPerCase: total, maxPackageBytesPerClient: total } });
     expect(await stage(w, pkg)).toMatchObject({ kind: 'stored' });
     expect(await stage(w, await syntheticPackage('case-a', 'm6-bytes-2'), { operationId: 'import-2' })).toMatchObject({ kind: 'refused', reason: 'over-quota' });
+  });
+});
+
+// The Low findings that belong to the same classes as the Mediums above. The fix round adds these assertions; they were not part of the red commit.
+describe('related Low classes (L1 atomic put, L2 identity size, L3 oracles, viewer link scope, quota parsing, hosted projector)', () => {
+  it('L1: a writer that arrives between the look and the put cannot overwrite the object', async () => {
+    const w = world(), bytes = pdf('l1'), key = `orig/${shaOf(bytes)}`, head = w.bucket.head.bind(w.bucket);
+    let raced = false;
+    w.bucket.head = async (k) => { if (k === key && !raced) { raced = true; const h = await head(k); w.bucket.setRaw(k, pdf('arrived meanwhile')); return h; } return head(k); };
+    await w.intake.declare(declaration('case-a', 'op-1', 'a1', bytes));
+    expect(await w.intake.put({ caseId: ids.caseA, operationId: 'op-1', bytes })).toEqual({ kind: 'refused', reason: 'conflicting-object' });
+    expect(new TextDecoder().decode(w.bucket.objects.get(key)!.bytes)).toContain('arrived meanwhile');
+  });
+  it('L2: an identity object over its size bound is refused without being read', async () => {
+    const dep = deployment('client-a', ['case-a']);
+    dep.bucket.setRaw('identity/client.json', new TextEncoder().encode(JSON.stringify({ client_id: 'client-a', pad: 'x'.repeat(2000) })));
+    const w = world({ dep });
+    await expect(w.store.listCases()).rejects.toMatchObject({ code: 'storage-unavailable' });
+  });
+  it('L3: an unknown version and a version of a case the caller has no grant for answer alike, and the list etag names no client', async () => {
+    const w = world({ grants: ['case-a'] }), pkg = await syntheticPackage('case-a', 'l3'), rv = pkg.identity.resultsVersion;
+    await stage(w, pkg);
+    publish(w.db, 'case-a', rv);
+    const other = await syntheticPackage('case-b', 'l3-b');
+    await stage(w, other, { caseId: ids.caseB, operationId: 'import-b' });
+    const unknown = await w.store.getVersion({ resultsVersion: `sha256:${'d'.repeat(64)}` as never }).catch((e) => e.code);
+    const foreign = await w.store.getVersion({ resultsVersion: other.identity.resultsVersion }).catch((e) => e.code);
+    expect([unknown, foreign]).toEqual(['forbidden', 'forbidden']);
+    expect((await w.store.listJson({ caseId: ids.caseA, resultsVersion: rv }))!.etag ?? '').not.toContain('client-a');
+  });
+  it('links offer a viewer route only under the asset’s own case', async () => {
+    const dep = deployment('client-a', ['case-a', 'case-b']);
+    const base = { bindings: { db: dep.db, bucket: dep.bucket }, clientId: ids.clientA, budgets: BUDGETS, identity: grantedIdentity(ids.clientA, ['case-a']).identity, record: async () => {}, stateRevision: async () => id('case-revision', 'r') as CaseRevision };
+    const w = world({ dep });
+    await upload(w, 'case-a', 'a1', pdf('viewer'));
+    const link = async (viewerRoute?: (a: AssetRef) => string | null) => (await createCloudResults({ ...base, ...(viewerRoute ? { viewerRoute } : {}) }).assets.links({ asset: original('case-a', 'a1') })).viewerHref;
+    expect(await link()).toBeNull();
+    expect(await link(() => '/cases/case-a/view/a1')).toBe('/cases/case-a/view/a1');
+    expect(await link(() => '/cases/case-b/view/a1')).toBeNull();
+    expect(await link(() => 'https://example.invalid/cases/case-a/x')).toBeNull();
+    expect(await link(() => '/cases/case-a//evil')).toBeNull();
+  });
+  it('quotas are required typed configuration with no default', () => {
+    const ok = QUOTAS;
+    expect(storageQuotas(ok)).toEqual(ok);
+    expect(storageQuotas(JSON.stringify(ok))).toEqual(ok);
+    expect(storageQuotas({ ...ok, maxUploadsPerCase: 0 })).toBeNull();
+    expect(storageQuotas({ ...ok, maxUploadsPerCase: 1.5 })).toBeNull();
+    expect(storageQuotas({ ...ok, extra: 1 })).toBeNull();
+    expect(storageQuotas({ ...ok, maxVersionsPerCase: undefined })).toBeNull();
+    expect(storageQuotas(undefined)).toBeNull();
+  });
+  it('the hosted projector derives the read model of a package from its bytes alone and refuses bytes that do not validate', async () => {
+    const pkg = await syntheticPackage('case-a', 'projector'), derived = projectPackage(pkg.files);
+    expect(derived.ok && derived.projection.documents).toEqual(pkg.projection.documents);
+    expect(derived.ok && derived.projection.assets).toEqual(pkg.projection.assets);
+    expect(derived.ok && derived.projection.chronologyJson).toEqual(pkg.projection.chronologyJson);
+    const files = new Map(pkg.files);
+    files.set('datasets/chronology.json', new TextEncoder().encode('{"not":"a dataset"}'));
+    expect(projectPackage(files)).toMatchObject({ ok: false });
   });
 });

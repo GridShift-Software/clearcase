@@ -18,6 +18,12 @@ export const shaOf = (b: Uint8Array) => createHash('sha256').update(b).digest('h
 
 export const BUDGETS = { maxPackageFiles: 64, maxPackageFileBytes: 1 << 20, maxPackageBytes: 4 << 20, maxDocuments: 1000, maxRowsPerBatch: 3, maxBufferedObjectBytes: 1 << 20, maxOriginalBytes: 1 << 20 };
 
+/** Cumulative quotas (storage/cloud/quotas.ts), generous enough that no test of the original behaviour meets one. */
+export const QUOTAS = {
+  maxUploadsPerCase: 50, maxOriginalBytesPerCase: 64 << 20, maxOriginalBytesPerClient: 256 << 20, maxPutAttemptsPerUpload: 5,
+  maxVersionsPerCase: 20, maxPackageBytesPerCase: 64 << 20, maxPackageBytesPerClient: 256 << 20, maxStagingAttemptsPerCase: 50,
+};
+
 /** A valid two-document results package for `caseId`, validated and projected through the case-package API. */
 export async function syntheticPackage(caseId: string, tag: string) {
   const docs = [{ ref: 'OD-001', path: 'DISCOVERY/OD-001 agreement.pdf', bytes: pdf(`${tag}-1`) }, { ref: 'OD-002', path: 'DISCOVERY/OD-002 letter.pdf', bytes: pdf(`${tag}-2`) }];

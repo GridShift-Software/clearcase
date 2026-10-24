@@ -8,7 +8,7 @@ import { createOriginalIntake } from '../../../src/lib/storage/cloud/intake.ts';
 import { storageBudgets } from '../../../src/lib/storage/cloud/budgets.ts';
 import { id, resultsVersion, type CaseRevision } from '../../../src/lib/server/runtime/ids.ts';
 import type { AssetRef } from '../../../src/lib/server/runtime/contracts.ts';
-import { BUDGETS, GET, deployment, grantedIdentity, ids, pdf, publish, shaOf, syntheticPackage, withdraw } from './fixture.ts';
+import { BUDGETS, GET, QUOTAS, deployment, grantedIdentity, ids, pdf, publish, shaOf, syntheticPackage, withdraw } from './fixture.ts';
 import type { MemoryR2, SqliteD1 } from './doubles.ts';
 
 const now = () => new Date('2001-01-01T00:00:00Z');
@@ -25,8 +25,9 @@ function world(a: { dep?: Dep; budgets?: typeof BUDGETS | null; grants?: string[
     record: async (e) => { events.push(e); },
     stateRevision: async () => id('case-revision', 'rev-1') as CaseRevision,
   });
-  const staging = createResultsStaging({ bindings, clientId: ids.clientA, budgets, now });
-  const intake = createOriginalIntake({ bindings, clientId: ids.clientA, budgets, now });
+  // Writers take the capability callback and the quotas; this world's caller is authorized for everything and no quota binds.
+  const staging = createResultsStaging({ bindings, clientId: ids.clientA, budgets, quotas: QUOTAS, authorize: async () => {}, now });
+  const intake = createOriginalIntake({ bindings, clientId: ids.clientA, budgets, quotas: QUOTAS, authorize: async () => {}, now });
   return { ...dep, ...results, staging, intake, who, events };
 }
 

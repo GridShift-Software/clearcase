@@ -1,5 +1,5 @@
 import type * as C from '../../server/runtime/contracts.ts';
-import { contractError, isDenial } from '../../server/runtime/errors.ts';
+import { codeOf, contractError, isDenial } from '../../server/runtime/errors.ts';
 import { freeze } from '../../server/runtime/data.ts';
 import { sha256 } from '../../server/runtime/ids.ts';
 import { providerProblem, validOriginal } from '../../server/runtime/provider-row.ts';
@@ -9,10 +9,12 @@ import { readViewContent } from '../../case-package/view-content.ts';
 import { verifyCandidateBytes } from '../../case-package/verify-bytes.ts';
 import type { OpenStorage } from '../../storage/cloud/access.ts';
 import { verifiedRead } from '../../storage/cloud/objects.ts';
+import { loadVerifiedModel, type LoadedModel } from './model.ts';
+import { projectPackage } from './project.ts';
+import { readModelDigest } from './read-model.ts';
 import type { StorageEvent } from './index.ts';
 import { caseOfVersion, caseRow, caseRows, requirePublished, unavailable, versionInfo } from './versions.ts';
 
-type DocRow = { ref: string; ord: number; row_json: string; state_json: string; list_json: string };
 type FileRow = { path: string; sha256: string; size: number; object_key: string };
 
 /**
@@ -23,6 +25,14 @@ type FileRow = { path: string; sha256: string; size: number; object_key: string 
 export function createCloudReader(a: { open: () => Promise<OpenStorage>; identity: C.Identity; record(e: StorageEvent): Promise<void>; stateRevision(s: C.Scope): Promise<C.CaseRevision> }): C.CaseReader {
   const { identity, open } = a;
   const providers = new Map<string, C.DocumentProvider>();
+  // A version's read model, loaded and checked against its stored digest once per reader. The rows are immutable once a
+  // version is stored, so one verified load serves every later read; publication and authority are rechecked on every call.
+  const models = new Map<string, Promise<LoadedModel>>();
+  function model(s: OpenStorage, rv: C.ResultsVersion): Promise<LoadedModel> {
+    let m = models.get(rv);
+    if (!m) { m = loadVerifiedModel(s.db, rv); models.set(rv, m); m.catch(() => models.delete(rv)); }
+    return m;
+  }
   async function authorized(scope: C.Scope) {
     try { await identity.authorize({ ...scope, operation: 'read' }); }
     catch (e) {
@@ -46,8 +56,7 @@ export function createCloudReader(a: { open: () => Promise<OpenStorage>; identit
   const fileRows = (s: OpenStorage, rv: C.ResultsVersion) => s.db.prepare('SELECT path, sha256, size, object_key FROM rs_package_file WHERE version_id = ? ORDER BY path').bind(rv).all<FileRow>().catch(unavailable);
   async function collect(scope: C.VersionScope) {
     const s = await version(scope);
-    const { results } = await s.db.prepare('SELECT ref, ord, row_json, state_json, list_json FROM rs_document WHERE version_id = ? ORDER BY ord').bind(scope.resultsVersion).all<DocRow>().catch(unavailable);
-    const rows: C.DocumentRow[] = results.map((d) => ({ ref: d.ref, ord: d.ord, source: 'results', row: JSON.parse(d.row_json), list: JSON.parse(d.list_json), state: JSON.parse(d.state_json) }));
+    const rows: C.DocumentRow[] = (await model(s, scope.resultsVersion)).docs.map((d) => ({ ref: d.ref, ord: d.ord, source: 'results', row: JSON.parse(d.row_json), list: JSON.parse(d.list_json), state: JSON.parse(d.state_json) }));
     const failed: C.DocumentRowsResult['failed'] = [], dropped: C.DocumentRowsResult['dropped'] = [], revisions: string[] = [];
     // Providers: the same rules as the memory reader (server/runtime/memory-reader.ts).
     for (const p of providers.values()) {
@@ -97,24 +106,36 @@ export function createCloudReader(a: { open: () => Promise<OpenStorage>; identit
     async getVersion(q) {
       const s = await open();
       await identity.checkRevocation();
+      // An unknown version answers as a version the caller may not read, so the answer does not tell the two apart.
       const caseId = await caseOfVersion(s.db, q.resultsVersion);
-      if (!caseId) return null;
+      if (!caseId) throw contractError('forbidden');
       await version({ caseId, resultsVersion: q.resultsVersion });
       return release(s, { caseId, resultsVersion: q.resultsVersion }, freeze(await versionInfo(s.db, q.resultsVersion)));
     },
     async versionsOf(scope) { const rv = await store.activeVersionId(scope); const v = rv ? await store.getVersion({ resultsVersion: rv }) : null; return v ? [v] : []; },
     async verifyVersion(scope) {
       const s = await version(scope), started = Date.now();
-      const v = await s.db.prepare('SELECT manifest_sha256 FROM rs_results_version WHERE version_id = ?').bind(scope.resultsVersion).first<{ manifest_sha256: string }>().catch(unavailable);
+      const v = await s.db.prepare('SELECT manifest_sha256, read_model_sha256 FROM rs_results_version WHERE version_id = ?').bind(scope.resultsVersion).first<{ manifest_sha256: string; read_model_sha256: string }>().catch(unavailable);
       const files = new Map<string, Uint8Array>();
       let ok = !!v;
       for (const f of (await fileRows(s, scope.resultsVersion)).results) {
         try { files.set(f.path, await file(s, scope, f)); } catch (e) { if (e instanceof Error && 'code' in e && e.code === 'integrity') { ok = false; break; } throw e; }
       }
       if (ok && v) ok = verifyCandidateBytes(files, { resultsVersion: scope.resultsVersion, manifestSha256: v.manifest_sha256 }).ok;
+      if (ok && v) {
+        // The authoritative check: the rows in D1 are the read model of these package bytes. Rows rewritten together with the
+        // stored digest pass the load check above; they do not pass this one.
+        try { await model(s, scope.resultsVersion); } catch (e) { if (codeOf(e) === 'integrity') ok = false; else throw e; }
+        if (ok) { const derived = projectPackage(files); ok = derived.ok && (await readModelDigest(derived.projection)) === v.read_model_sha256; }
+      }
       return release(s, scope, { ok, ms: Date.now() - started, ...(ok ? {} : { reason: 'integrity' }) });
     },
-    async activeVersionId(scope) { const s = await guard(scope); const c = await caseRow(s.db, scope.caseId); return c?.publication.kind === 'published' ? c.publication.resultsVersion : null; },
+    async activeVersionId(scope) {
+      const s = await guard(scope);
+      const c = await caseRow(s.db, scope.caseId);
+      await identity.authorize({ ...scope, operation: 'read' }); // authority read again after the read
+      return c?.publication.kind === 'published' ? c.publication.resultsVersion : null;
+    },
     async previousVersion(scope) {
       const s = await guard(scope);
       const r = await s.db.prepare(`SELECT p.previous_version_id AS v FROM rs_publication p JOIN rs_results_version v ON v.version_id = p.previous_version_id AND v.case_id = p.case_id AND v.state = 'stored'
@@ -132,7 +153,7 @@ export function createCloudReader(a: { open: () => Promise<OpenStorage>; identit
       const f = await s.db.prepare('SELECT path, sha256, size, object_key FROM rs_package_file WHERE version_id = ? AND path = ?').bind(q.resultsVersion, q.path).first<FileRow>().catch(unavailable);
       return f ? release(s, q, await file(s, q, f)) : null;
     },
-    async packageFilePaths(scope) { const s = await version(scope); return (await fileRows(s, scope.resultsVersion)).results.map((f) => f.path); },
+    async packageFilePaths(scope) { const s = await version(scope); return release(s, scope, (await fileRows(s, scope.resultsVersion)).results.map((f) => f.path)); },
     async datasetOf(q) {
       const bytes = await store.packageFile({ ...q, path: `datasets/${q.key}.json` });
       if (!bytes) return null;
@@ -145,7 +166,7 @@ export function createCloudReader(a: { open: () => Promise<OpenStorage>; identit
     async viewContentOf(scope) { return readViewContent(await store.datasetOf({ ...scope, key: 'view-content' })); },
     async seeds(scope) {
       const s = await version(scope);
-      const { results } = await s.db.prepare('SELECT dataset_key, seed_id, seed_sha256, record_json FROM rs_seed WHERE version_id = ? ORDER BY ord').bind(scope.resultsVersion).all<{ dataset_key: string; seed_id: string; seed_sha256: string; record_json: string }>().catch(unavailable);
+      const { seeds: results } = await model(s, scope.resultsVersion);
       return release(s, scope, freeze(results.map((r) => ({ datasetKey: r.dataset_key, seedId: r.seed_id, seedSha256: r.seed_sha256, record: JSON.parse(r.record_json) }))));
     },
     async documentRows(scope) { const { rows, failed, dropped } = await collect(scope); return { rows, failed, dropped }; },
@@ -156,8 +177,8 @@ export function createCloudReader(a: { open: () => Promise<OpenStorage>; identit
     async fingerprints(scope) { return (await collect(scope)).rows.flatMap((d) => d.state.original ? [{ ref: d.ref, sha256: sha256(d.state.original.sha256) }] : []); },
     async anyDateBasis(scope) { return (await collect(scope)).rows.some((d) => d.list.dateType !== null || d.list.dateSource !== null); },
     async listJson(scope) {
-      const s = await open(), d = await collect(scope);
-      return { json: JSON.stringify(d.rows.map((r) => r.list)), etag: `"${s.clientId}:${scope.caseId}:${scope.resultsVersion}:${d.revisions.join(';')}"`, failed: d.failed };
+      const d = await collect(scope);
+      return { json: JSON.stringify(d.rows.map((r) => r.list)), etag: `"${scope.caseId}:${scope.resultsVersion}:${d.revisions.join(';')}"`, failed: d.failed };
     },
     async activeDocumentRows(scope) { const rv = await store.activeVersionId(scope); return rv ? { resultsVersion: rv, ...await store.documentRows({ ...scope, resultsVersion: rv }) } : { resultsVersion: null, rows: [], failed: [], dropped: [] }; },
     providers: {

@@ -1,4 +1,4 @@
-import type { AssetsAccess, CaseId, CaseReader, CaseRevision, ClientId, Identity, ResultsVersion, Scope } from '../../server/runtime/contracts.ts';
+import type { AssetRef, AssetsAccess, CaseId, CaseReader, CaseRevision, ClientId, Identity, ResultsVersion, Scope } from '../../server/runtime/contracts.ts';
 import type { CloudBindings } from '../../storage/cloud/bindings.ts';
 import type { StorageBudgets } from '../../storage/cloud/budgets.ts';
 import { storageAccess } from '../../storage/cloud/access.ts';
@@ -20,6 +20,12 @@ export interface CloudResultsOptions {
   record(e: StorageEvent): Promise<void>;
   /** The user-work revision of a case, owned by GRS-117. */
   stateRevision(a: Scope): Promise<CaseRevision>;
+  /**
+   * The composing parent's in-app viewer route for an original or preview (for example the PDF view), or null. Storage serves
+   * every byte as a sandboxed attachment; an inline-safe view is the parent's route and proof. `links` offers the returned path
+   * only when it lies under the asset's own case (`/cases/<case>/...`), so a viewer link can never point at another case.
+   */
+  viewerRoute?(asset: AssetRef): string | null;
 }
 /**
  * The hosted results reader and asset access for one request. With a missing binding, client id or budget, or a
@@ -29,6 +35,6 @@ export interface CloudResultsOptions {
 export function createCloudResults(o: CloudResultsOptions): { store: CaseReader; assets: AssetsAccess } {
   return {
     store: createCloudReader({ open: storageAccess(o, 'storage-unavailable'), identity: o.identity, record: o.record, stateRevision: o.stateRevision }),
-    assets: createCloudAssets({ open: storageAccess(o, 'asset-unavailable'), identity: o.identity, record: o.record }),
+    assets: createCloudAssets({ open: storageAccess(o, 'asset-unavailable'), identity: o.identity, record: o.record, ...(o.viewerRoute ? { viewerRoute: o.viewerRoute } : {}) }),
   };
 }

@@ -26,13 +26,17 @@ export type WriteOnce = 'written' | 'present' | 'conflict' | 'unreachable';
 /**
  * Writes `bytes` under `key` once. A key already holding the same SHA-256 and size is a no-op; anything else (other
  * bytes, or an object R2 keeps no SHA-256 for) is a conflict and is never overwritten or deleted. R2 checks the
- * write against the SHA-256, so only bytes that hash to it are stored.
+ * write against the SHA-256, so only bytes that hash to it are stored. The write itself is conditional on the key being
+ * empty, so two writers racing past the first look cannot overwrite each other.
  */
 export async function writeOnce(bucket: CloudR2, key: string, bytes: Uint8Array, sha256: string): Promise<WriteOnce> {
+  const same = (head: { size: number; checksums: { sha256?: ArrayBuffer } }) => head.size === bytes.byteLength && hexOf(head.checksums.sha256) === sha256;
   try {
-    const head = await bucket.head(key);
-    if (head) return head.size === bytes.byteLength && hexOf(head.checksums.sha256) === sha256 ? 'present' : 'conflict';
-    const put = await bucket.put(key, bytes, { sha256 });
-    return put ? 'written' : 'conflict';
+    const first = await bucket.head(key);
+    if (first) return same(first) ? 'present' : 'conflict';
+    if (await bucket.put(key, bytes, { sha256, onlyIf: { etagDoesNotMatch: '*' } })) return 'written';
+    // The precondition failed: another writer's object is there now. Look again; never replace it.
+    const now = await bucket.head(key);
+    return now ? (same(now) ? 'present' : 'conflict') : 'unreachable';
   } catch { return 'unreachable'; }
 }

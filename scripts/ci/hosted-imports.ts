@@ -16,6 +16,11 @@ const virtualModules = /^(?:\$app\/(?:env|forms|navigation|paths|state)|cloudfla
 // Test doubles: the memory doubles serve unit tests only; the gate doubles exist only in the hosted-gate profile.
 const memoryDouble = /^src\/lib\/server\/runtime\/memory[^/]*\.ts$/;
 const gateDouble = /^src\/lib\/server\/runtime\/hosted\/gate\//;
+// Audit factories (including the public index) carry construction authority over the D1 binding,
+// requester and read gate. Only the request-service composer may import them at runtime.
+// Check each edge before the visited cache: an earlier trusted import cannot bless a route's edge.
+const auditImplementation = /^src\/lib\/audit\//;
+const auditComposer = 'src/lib/server/runtime/hosted/services.ts';
 export type HostedProfile = 'production' | 'hosted-gate';
 const packageOf = (specifier: string) => /^(?:@[^/]+\/)?[^/.$][^/]*/.exec(specifier)?.[0] ?? null;
 const extensions = ['.ts', '.js', '.mjs', '.svelte'];
@@ -130,6 +135,13 @@ export function checkHostedGraph(a: { root: string; profile?: HostedProfile }): 
     if (memoryDouble.test(name) || gateDouble.test(name) && profile !== 'hosted-gate') { visited.add(file); fail(chain, `forbidden test double in the ${profile} graph`); return; }
     // The local route tree (src/routes, the folder browser at src/routes/api/browse among it) never joins the hosted one.
     if (name.startsWith('src/routes/')) { visited.add(file); fail(chain, 'forbidden local route module'); return; }
+    if (auditImplementation.test(name)) {
+      const importer = prior.at(-1) ?? '';
+      if (importer !== auditComposer && !auditImplementation.test(importer)) {
+        fail(chain, 'audit construction is restricted to trusted hosted service composition');
+        return;
+      }
+    }
     if (visited.has(file)) return;
     visited.add(file);
     let text: string;

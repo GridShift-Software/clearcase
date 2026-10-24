@@ -19,10 +19,16 @@ export interface ClientUploadIntent {
  * Trusted composition supplies a real-grant-backed function, otherwise null means unavailable (503).
  * A verified client or staff identity needs both explicit case access and an explicit upload grant.
  * Unknown and ungranted cases both throw forbidden (403), without a case/manifest/asset lookup.
- * Authentication, revocation and backend failures retain their own uniform 401/503 semantics.
+ * A revoked or missing upload GRANT is indistinguishable from an unknown or ungranted one: the same
+ * uniform forbidden (403), no metadata. Only an unauthenticated, expired or revoked SESSION/identity is 401.
+ * Backend/verifier faults are 503, and so is an unconfigured authorizer (null); neither falls back to allow.
  */
 export type ClientUploadAuthorizer = ((intent: ClientUploadIntent) => Promise<void>) | null;
 
+/**
+ * Caveat: the inherited `manifest.finalizedAt` currently records RESERVE time, not the final mark. It is not
+ * proof of finalization or an SLA metric; trust `state: 'finalized'` from the reader. The property is unchanged.
+ */
 export type FrozenSubmissionManifest =
   Readonly<Omit<SubmissionManifest, 'files'>> & { readonly files: readonly Readonly<SubmissionFile>[] };
 
@@ -46,16 +52,35 @@ export interface PinnedPrivateCandidate {
   readonly packageInputRevisionId: Id<'input-revision'>;
 }
 
-export interface RequiredOriginalLink {
+/**
+ * Carrier for the EXISTING package warning ORIG_CASE_MISMATCH (case-package/codes.ts); this is not a new
+ * warning, algorithm or waiver. Fingerprints are the package diagnostics' own, copied unchanged.
+ */
+export interface PreservedCaseMismatchWarning {
+  readonly code: 'ORIG_CASE_MISMATCH';
+  /** Every existing ORIG_CASE_MISMATCH diagnostic fingerprint for this original's package refs. */
+  readonly fingerprints: readonly [string, ...string[]];
+}
+
+interface RequiredOriginalLinkBase {
   readonly packageRefs: readonly string[];
   readonly packagePath: string;
   readonly storedPath: string;
   readonly submissionAssetId: string;
   readonly sha256: Sha256;
   readonly size: number;
-  /** Canonical unique path resolution records both spellings and preserves the warning. */
-  readonly pathMatch: 'literal' | 'case-nfc-unique';
 }
+
+/**
+ * A literal match needs no warning and none is invented. A case/NFC unique match records both spellings
+ * and must carry the relevant existing ORIG_CASE_MISMATCH fingerprint(s); the link is not an acknowledgement.
+ */
+export type RequiredOriginalLink =
+  | (RequiredOriginalLinkBase & { readonly pathMatch: 'literal' })
+  | (RequiredOriginalLinkBase & {
+      readonly pathMatch: 'case-nfc-unique';
+      readonly preservedWarning: Readonly<PreservedCaseMismatchWarning>;
+    });
 
 export interface ImportLinkCoverage {
   readonly policy: 'exact-required-file-set/1';

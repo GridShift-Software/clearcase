@@ -7,7 +7,7 @@
 - Name: `case.upload-originals`, distinct from read, write-user-work, operate and publish. Client, staff and firm-admin identity alone never implies it.
 - Initial grant owner: the trusted **non-request provisioning entrypoint**, with an explicit client/case/principal grant and recorded revocation. No self-grant or request-driven bootstrap. This is a composition contract, **not permission to change held GRS114 policy/source**; that implementation needs separate authorization.
 - The real authorizer must check current explicit case access, the distinct upload grant and revocation before intake reads a body, submission or asset. Capture the verified principal/session and deployment client from trusted request services, never form fields.
-- Unknown and ungranted cases give the same 403 without metadata. An unconfigured authorizer stays null/503, not an allow-all or borrowed capability. Authentication and infrastructure failures remain uniformly 401/503 as applicable.
+- Unknown, ungranted and **revoked or missing upload-grant** cases all give the same uniform 403 without metadata. Only an unauthenticated, expired or revoked **session/identity** is 401. Backend or verifier faults are 503. An unconfigured authorizer stays null/503, not an allow-all or borrowed capability.
 - The intake port is structurally compatible. No adapter is wired by this document.
 
 ## Immutable import link
@@ -18,13 +18,13 @@ Accepted [ADR0009](../adr/0009-manual-queue-and-candidate-import-contract.md) re
 3. server candidate instance, supplied resultsVersion, exact package manifestSha256 and the **actual package inputRevision.id**;
 4. verified, explicitly case-authorized operator and server link time, recorded separately from package provenance.
 
-A reserved revision is not finalized: the reader must check the upload state, not just the existence of a revision row. The submission manifest's current reserve-time timestamp is not proof of final-mark time or an SLA metric.
+A reserved revision is not finalized: the reader must check the upload state, not just the existence of a revision row. The submission manifest's `finalizedAt` property (type `SubmissionManifest`, also caveated at `FrozenSubmissionManifest`) currently records reserve time; it is not proof of final-mark time or an SLA metric, and is unchanged and not recomputed.
 
 The converter inputRevision hashes its input HTML, not uploaded PDFs. Preserve all supplied package IDs and source hashes unchanged. The row is manual operator **attribution**, never proof that processing or the human-only recipe ran. No unknown package top-level fields or automatic combining of submissions.
 
 ## Original mapping and review
 
-- Initial exact-link policy: every required `kind:file` original maps to a finalized-submission file by path, SHA-256 and size, with verified case/client ownership. Record both literal paths for a canonical, unique case/NFC resolution; preserve its warning. Ref aliases may share the same verified file fact.
+- Initial exact-link policy: every required `kind:file` original maps to a finalized-submission file by path, SHA-256 and size, with verified case/client ownership. Record both literal paths for a canonical, unique case/NFC resolution. `RequiredOriginalLink` is a discriminated type: `pathMatch: 'literal'` carries no warning (none is invented); `'case-nfc-unique'` must carry `preservedWarning` with the existing `ORIG_CASE_MISMATCH` diagnostic fingerprint(s), copied unchanged. This is not a new warning algorithm or a waiver. Ref aliases may share the same verified file fact.
 - The distinct required file-fact set must equal the submission file-fact set. An unmatched required mapping, ambiguity, subset or extra submitted file leaves the candidate private and **unlinked**. There is no implicit subset permission.
 - Canonical `missing` and `embedded` entries remain explicit/unavailable. They gain no invented hash or verified-bytes claim. Existing warning acknowledgement, required-section and publication rules remain in force; this link is not a waiver.
 - Corrections require a new candidate instance, immutable link and exact sign-off. Matching a case slug, resultsVersion alone or an old approval cannot establish lineage. Sign-off also pins package manifestSha256 and the submission/link identity.

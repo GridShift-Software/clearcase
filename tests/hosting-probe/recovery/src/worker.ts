@@ -1,4 +1,4 @@
-// The recovery probe's Worker (GRS-110): GRS-109's storage Worker, imported whole and unchanged, behind the recovery and
+// The recovery probe's Worker (GRS-110): GRS-109's storage Worker, imported whole with its deletion guard enabled, behind the recovery and
 // deletion contracts. Every request first passes the storage Worker's own identity gate (GET /identity) and a check that
 // the RECOVERY bucket belongs to the same client; whatever this module does not route goes to the storage Worker as is.
 //
@@ -13,7 +13,7 @@
 //   (30 days) without touching live data or bundle history; rotation also ages out restore packets that name no case;
 // - bundle history, a stand-in for GRS-128's PDF bundle versions, so rotation can be shown to leave it alone.
 import storage from '../../storage/src/worker.ts';
-import { type D1, type D1Value, type Env, type R2, type R2Object, type R2ObjectBody, fixedLength, hasBody, hex, sha256Hex } from '../../storage/src/platform.ts';
+import { type D1, type D1Statement, type D1Value, type Env, type R2, type R2Object, type R2ObjectBody, fixedLength, hasBody, hex, sha256Hex } from '../../storage/src/platform.ts';
 
 class Refused extends Error {
 	readonly status: number;
@@ -30,6 +30,14 @@ const refuse = (status: number, code: string, detail: Record<string, unknown> = 
 	throw new Refused(status, code, detail);
 };
 class GuardFailed extends Error {}
+/** An erasure that a restore write's lease holds unfinished: the case is removed, and a reconcile after `until` finishes it. */
+class LeaseHeld extends Error {
+	readonly until: string;
+	constructor(until: string) {
+		super(`a restore write holds its lease until ${until}`);
+		this.until = until;
+	}
+}
 
 type Row = Record<string, unknown>;
 /**
@@ -39,8 +47,8 @@ type Row = Record<string, unknown>;
  * x-probe-fault: fail-copyback:<caseId> makes the copy of that case's deletion record back into the bucket that lost it fail.
  * Never bind either in production.
  */
-type RecoveryEnv = Env & { RECOVERY?: unknown; PROBE_CLOCK?: string; PROBE_FAULT?: string };
-type Ctx = { client: string; db: D1; bucket: R2; copies: R2; env: RecoveryEnv; fault: boolean; failErase: string | null; failCopyBack: string | null };
+type RecoveryEnv = Env & { RECOVERY?: unknown; PROBE_CLOCK?: string; PROBE_FAULT?: string; PROBE_HOOKS?: string };
+type Ctx = { client: string; db: D1; bucket: R2; copies: R2; env: RecoveryEnv; fault: boolean; failErase: string | null; failCopyBack: string | null; reconciled: boolean };
 /** What R2's list and head return beyond platform.ts's shape: the time R2 stored the object, which is what rotation ages. */
 type Stored = R2Object & { uploaded: Date };
 
@@ -95,7 +103,7 @@ async function open(env: RecoveryEnv, request: Request): Promise<Ctx | Response>
 	if (!isBinding(env.RECOVERY, 'get', 'put', 'head', 'list', 'delete')) refuse(503, 'missing-binding', { binding: 'RECOVERY' });
 	// The probe's faults are read before anything runs, so that they reach the reconcile of a new isolate as well.
 	const fault = env.PROBE_FAULT === '1' ? request.headers.get('x-probe-fault') : null;
-	const ctx: Ctx = { client, db: env.DB as D1, bucket: env.BUCKET as R2, copies: env.RECOVERY as R2, env, fault: fault === 'stop-after-d1', failErase: fault?.startsWith('fail-erase:') ? fault.slice('fail-erase:'.length) : null, failCopyBack: fault?.startsWith('fail-copyback:') ? fault.slice('fail-copyback:'.length) : null };
+	const ctx: Ctx = { client, db: env.DB as D1, bucket: env.BUCKET as R2, copies: env.RECOVERY as R2, env, fault: fault === 'stop-after-d1', failErase: fault?.startsWith('fail-erase:') ? fault.slice('fail-erase:'.length) : null, failCopyBack: fault?.startsWith('fail-copyback:') ? fault.slice('fail-copyback:'.length) : null, reconciled: false };
 	if (recoveryClient !== client) {
 		// The other client's identifier is never echoed, as in the storage gate.
 		const object = await ctx.copies.get('identity/client.json');
@@ -137,8 +145,11 @@ async function catalog(ctx: Ctx) {
 	const exportT = [...by('export_id')].filter((t) => !caseT.has(t));
 	// Children before their parents: results_version and export_job are referenced by rows in the other tables.
 	const parents = ['export_job', 'results_version'].filter((t) => caseT.has(t));
-	return { versionT, exportT, caseT: [...caseT].filter((t) => !parents.includes(t)), parents };
+	return { versionT, exportT, caseT: [...caseT].filter((t) => !parents.includes(t) && t !== 'restore_object'), parents };
 }
+
+/** A restore_object intent whose lease (GRS-109's RESTORE_LEASE_MS) still runs, in D1's clock, the one that set it. */
+const LEASED = "in_progress = 1 AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 
 type Plan = { versions: string[]; exports: string[]; originals: string[]; leftovers?: string[]; uploads?: { key: string; id: string }[] };
 const union = (a: string[], b: string[]) => [...new Set([...a, ...b])].sort();
@@ -190,6 +201,15 @@ async function eraseNow(ctx: Ctx, caseId: string, set: [string, D1Value[]], cond
 	];
 	await guarded(ctx.db, condition[0], condition[1], statements);
 	if (ctx.fault || ctx.failErase === caseId) throw new Error('probe fault: the Worker stopped after the D1 commit and before the R2 deletes');
+	// A restore that entered before the removal may have recorded an intent after the first scan. One whose lease runs may
+	// still publish its object: the case stays unfinished, checked once and never waited for, and a later reconcile tries again.
+	// One whose lease has run out is dead: its writer aborted its PUT by then, so its object is in R2 or never will be, and the
+	// sweep below takes every key the intents name.
+	const leased = await first<{ expires_at: string }>(ctx.db, `SELECT max(expires_at) AS expires_at FROM restore_object WHERE case_id = ? AND ${LEASED}`, caseId);
+	if (leased?.expires_at) throw new LeaseHeld(leased.expires_at);
+	const late = (await all<{ k: string }>(ctx.db, 'SELECT object_key AS k FROM restore_object WHERE case_id = ?', caseId)).map((r) => r.k);
+	plan.leftovers = union(plan.leftovers ?? [], late);
+	await ctx.db.prepare('UPDATE case_deletion SET erase_plan = ? WHERE case_id = ?').bind(JSON.stringify(plan), caseId).run();
 	// R2 after D1: once the rows are gone nothing serves these objects, and a repeat of this call deletes what is left.
 	const keys: string[] = [];
 	for (const prefix of [...plan.versions.flatMap((v) => [`pkg/${v}/`, `rm/${v}/`]), `export/${caseId}/`, `backup/${caseId}/`, `bundle/${caseId}/`]) {
@@ -206,7 +226,10 @@ async function eraseNow(ctx: Ctx, caseId: string, set: [string, D1Value[]], cond
 	for (const key of plan.leftovers ?? []) if (!keys.includes(key) && !(await named(ctx, key))) keys.push(key);
 	for (let i = 0; i < keys.length; i += 1000) await ctx.bucket.delete(keys.slice(i, i + 1000));
 	for (const u of plan.uploads ?? []) await ctx.bucket.resumeMultipartUpload(u.key, u.id).abort().catch(() => undefined); // an unsealed export's parts
-	await ctx.db.prepare("UPDATE case_deletion SET erased_at = coalesce(erased_at, ?), erase_error = NULL WHERE case_id = ? AND state = 'removed'").bind(new Date().toISOString(), caseId).run();
+	await guarded(ctx.db, `NOT EXISTS (SELECT 1 FROM restore_object WHERE case_id = ? AND ${LEASED})`, [caseId], [
+		['DELETE FROM restore_object WHERE case_id = ?', [caseId]],
+		["UPDATE case_deletion SET erased_at = coalesce(erased_at, ?), erase_error = NULL WHERE case_id = ? AND state = 'removed'", [new Date().toISOString(), caseId]],
+	]);
 	return { plan, objects: keys.length };
 }
 
@@ -310,6 +333,7 @@ async function readLedger(ctx: Ctx): Promise<Map<string, DeletionRecord>> {
  * is its own unit: one whose erasure fails stays removed and unfinished (its requests are refused) and the others go on.
  */
 async function reconcile(ctx: Ctx) {
+	ctx.reconciled = true;
 	const ledger = await readLedger(ctx);
 	const removed = await all<Deletion>(ctx.db, "SELECT * FROM case_deletion WHERE state = 'removed'");
 	for (const d of removed) {
@@ -339,7 +363,9 @@ const recordHeld = async (ctx: Ctx, caseId: string) => !!(await ctx.bucket.head(
 async function removedCase(ctx: Ctx, caseId: string): Promise<boolean> {
 	const d = await deletionOf(ctx, caseId);
 	if (d?.state === 'removed') {
-		if (d.erased_at === null) await reconcile(ctx); // an erasure that stopped part-way: finish it before the case is treated as erased
+		// An erasure that stopped part-way: finish it before the case is treated as erased, once a request; a new isolate's
+		// reconcile has already tried it in this one.
+		if (d.erased_at === null && !ctx.reconciled) await reconcile(ctx);
 		return true;
 	}
 	if (!(await recordHeld(ctx, caseId))) return false;
@@ -390,6 +416,8 @@ async function deletionStep(ctx: Ctx, request: Request, caseId: string, step: St
 		}
 	} catch (e) {
 		if (e instanceof GuardFailed) refuse(409, 'wrong-state', { step });
+		// Removed, its erasure left to the first reconcile after the lease (erase has written erase_error): never a wait.
+		if (e instanceof LeaseHeld) return json({ caseId, state: 'removed', erasure: 'pending', leaseUntil: e.until }, 202);
 		throw e;
 	}
 	return json({ caseId, ...(await deletionOf(ctx, caseId)) });
@@ -492,7 +520,7 @@ async function putBundle(ctx: Ctx, request: Request, caseId: string, bundleId: s
 	const key = `bundle/${caseId}/${bundleId}.pdf`;
 	if (await ctx.bucket.head(key)) refuse(409, 'bundle-version-exists'); // a bundle version is never overwritten
 	try {
-		await ctx.bucket.put(key, request.body!, { sha256: sha, customMetadata: { client: ctx.client } });
+		if (!(await ctx.bucket.put(key, request.body!, { sha256: sha, customMetadata: { client: ctx.client }, onlyIf: { etagDoesNotMatch: '*' } }))) refuse(409, 'bundle-version-exists');
 	} catch (e) {
 		if (/SHA-256/i.test(String(e))) refuse(422, 'digest-mismatch');
 		throw e;
@@ -504,6 +532,21 @@ async function putBundle(ctx: Ctx, request: Request, caseId: string, bundleId: s
 // ----- routing -----
 
 const INTROSPECT = /^(orig|pkg|rm|backup|export|bundle|recovery|deletion|import)\//;
+const HOLD_TOKEN = /^[a-z0-9-]{1,40}$/;
+const probeHolds = new Map<string, boolean>();
+async function holdHere(token: string) {
+	if (probeHolds.has(token)) refuse(409, 'hold-taken', { token });
+	probeHolds.set(token, true);
+	try {
+		const until = Date.now() + 30_000;
+		while (probeHolds.get(token)) {
+			if (Date.now() >= until) refuse(504, 'hold-timeout', { token });
+			await new Promise<void>((resolve) => setTimeout(resolve, 20));
+		}
+	} finally {
+		probeHolds.delete(token);
+	}
+}
 
 async function route(request: Request, env: RecoveryEnv): Promise<Response> {
 	const opened = await open(env, request);
@@ -512,6 +555,22 @@ async function route(request: Request, env: RecoveryEnv): Promise<Response> {
 	const url = new URL(request.url);
 	const seg = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
 	const m = request.method;
+	if (env.PROBE_HOOKS === '1' && seg[0] === 'probe' && seg[1] === 'hold' && HOLD_TOKEN.test(seg[2] ?? '')) {
+		if (m === 'GET' && seg.length === 3) return json({ waiting: probeHolds.get(seg[2]!) === true });
+		if (m === 'POST' && seg.length === 4 && seg[3] === 'release') {
+			if (probeHolds.has(seg[2]!)) probeHolds.set(seg[2]!, false);
+			return json({ released: true });
+		}
+	}
+	if (env.PROBE_HOOKS === '1' && seg[0] === 'probe' && seg[1] === 'storage-hold' && HOLD_TOKEN.test(seg[2] ?? '')) {
+		if (m === 'GET' && seg.length === 3) return inner(env, `/probe/hold/${seg[2]}`);
+		if (m === 'POST' && seg.length === 4 && seg[3] === 'release') return inner(env, `/probe/hold/${seg[2]}/release`, { method: 'POST' });
+	}
+	if (env.PROBE_HOOKS === '1' && m === 'GET' && seg[0] === 'probe' && seg[1] === 'erasure' && seg.length === 3 && isText(ID)(seg[2])) {
+		const d = await deletionOf(ctx, seg[2]);
+		const pending = await first<{ n: number }>(ctx.db, 'SELECT count(*) AS n FROM restore_object WHERE case_id = ? AND in_progress = 1', seg[2]);
+		return json({ state: d?.state ?? null, erasedAt: d?.erased_at ?? null, pending: pending?.n ?? 0 });
+	}
 	if (seg[0] === 'recovery') {
 		if (m === 'POST' && seg.length === 2 && seg[1] === 'copies') return makeCopy(ctx, request);
 		if (m === 'GET' && seg.length === 2 && seg[1] === 'copies') return json((await listed(ctx.copies, 'recovery/')).map((o) => ({ key: o.key, caseId: o.customMetadata?.caseId ?? null, sha256: o.customMetadata?.sha256 ?? null, size: o.size, uploaded: o.uploaded.toISOString() })));
@@ -532,6 +591,11 @@ async function route(request: Request, env: RecoveryEnv): Promise<Response> {
 		if (isText(ID)(caseId) && (await removedCase(ctx, caseId))) {
 			if (isText(UUID)(seg[2])) await ctx.bucket.delete(`import/${seg[2]}.zip`); // the packet holds the deleted case's data
 			return json({ code: 'case-deleted', caseId }, 409);
+		}
+		const token = env.PROBE_HOOKS === '1' ? request.headers.get('x-probe-hold') : null;
+		if (token !== null) {
+			if (!HOLD_TOKEN.test(token)) refuse(400, 'invalid-field', { field: 'x-probe-hold' });
+			await holdHere(token);
 		}
 		if (seg[3] === 'finish' && isText(UUID)(seg[2])) {
 			// A finished restore leaves the case's objects under their own keys; the packet, a second copy of the backup, goes.
@@ -561,15 +625,44 @@ async function route(request: Request, env: RecoveryEnv): Promise<Response> {
 	return storage.fetch(request, env);
 }
 
+/** The D1 binding, adding each statement it runs, alone or in a batch, to `count`: D1 limits the queries of one invocation. */
+function countedD1(db: D1, count: { statements: number }): D1 {
+	const raw = new WeakMap<D1Statement, D1Statement>();
+	const wrap = (s: D1Statement): D1Statement => {
+		const w: D1Statement = {
+			bind: (...values) => wrap(s.bind(...values)),
+			first: <T>() => (count.statements++, s.first<T>()),
+			all: <T>() => (count.statements++, s.all<T>()),
+			run: () => (count.statements++, s.run()),
+		};
+		raw.set(w, s);
+		return w;
+	};
+	return {
+		prepare: (text) => wrap(db.prepare(text)),
+		batch: <T>(statements: D1Statement[]) => ((count.statements += statements.length), db.batch<T>(statements.map((s) => raw.get(s) ?? s))),
+	};
+}
+
+async function answer(request: Request, env: RecoveryEnv): Promise<Response> {
+	try {
+		return await route(request, env);
+	} catch (e) {
+		if (e instanceof Refused) return json({ code: e.code, ...e.detail }, e.status);
+		return json({ code: 'internal', message: String(e instanceof Error ? e.message : e) }, 500);
+	} finally {
+		if (request.body && !request.bodyUsed) await request.body.pipeTo(new WritableStream()).catch(() => undefined);
+	}
+}
+
 export default {
 	async fetch(request: Request, env: RecoveryEnv): Promise<Response> {
-		try {
-			return await route(request, env);
-		} catch (e) {
-			if (e instanceof Refused) return json({ code: e.code, ...e.detail }, e.status);
-			return json({ code: 'internal', message: String(e instanceof Error ? e.message : e) }, 500);
-		} finally {
-			if (request.body && !request.bodyUsed) await request.body.pipeTo(new WritableStream()).catch(() => undefined);
-		}
+		if (env.PROBE_HOOKS !== '1' || !isBinding(env.DB, 'prepare', 'batch')) return answer(request, env);
+		// The probe's deployment answers with the number of D1 statements the whole request ran, the storage Worker's included.
+		const count = { statements: 0 };
+		const res = await answer(request, { ...env, DB: countedD1(env.DB as D1, count) });
+		const out = new Response(res.body, res);
+		out.headers.set('x-probe-d1-statements', String(count.statements));
+		return out;
 	},
 };

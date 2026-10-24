@@ -1,18 +1,18 @@
 {
   "schema": "clearcase.recovery-probe/1",
-  "sourceSha": "e3d1cacf1641eecc991ac2df799870db68fb431a",
+  "sourceSha": "b81e0bb23e2d070645d44d6c02249187560822dc",
   "inputs": {
-    "tests/hosting-probe/recovery": "d7216a0903ea721d99b51aa6cd62f63c6bf25a18",
-    "tests/hosting-probe/storage/src": "d252989d4feb722a9f32883b8d236499b17d8c1f",
-    "tests/hosting-probe/storage/schema.sql": "d3e1b6993acbfefe4645b4956b7de4b1c2f6861a",
+    "tests/hosting-probe/recovery": "0f1d8cce9fa8257b9481fc187ef9ed91ecc6180b",
+    "tests/hosting-probe/storage/src": "f72870bcc1d280bf6cc585599ae548d2fda994ee",
+    "tests/hosting-probe/storage/schema.sql": "3789c2cc8ae7f8ab753581445a38dba8119269b2",
     "tests/hosting-probe/storage/package.json": "68ce3647be995e5402a2992970b7d20409c08950",
     "tests/hosting-probe/storage/bun.lock": "989d9825ebd42b7e6e22432a4cabf695e7c24b0e",
     "tests/e2e/pilot/offline.sh": "f10ef9f0b803bb058b17fe456b0b27788b32dad6"
   },
   "treeClean": true,
-  "startedAt": "2026-10-22T06:23:41.610Z",
-  "finishedAt": "2026-10-22T06:25:03.166Z",
-  "runDir": ".local/hosting-probe/recovery/2026-10-22T06-23-41-610Z",
+  "startedAt": "2026-10-22T11:55:52.832Z",
+  "finishedAt": "2026-10-22T11:57:29.346Z",
+  "runDir": ".local/hosting-probe/recovery/2026-10-22T11-55-52-832Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -27,7 +27,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:29224786f575d66061a7cab738a51d8e271d13899872d3c9de470a69f8370285",
+  "artifact": "sha256:16867a09be590392e196da130d06e97bfca2b4d5ef05f99f645db9fb155f38d1",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [
@@ -57,7 +57,7 @@
         "the bundle imports no node:, bun: or CommonJS module"
       ],
       "measured": {
-        "workerBytes": 108722
+        "workerBytes": 119546
       }
     },
     "provision": {
@@ -268,10 +268,10 @@
       "measured": {
         "restoredOriginals": 2,
         "lostRowsAfterCopy": 2,
-        "stageMs": 7.5,
-        "restoreMs": 100.4,
-        "checksMs": 75.5,
-        "totalMs": 1731.5
+        "stageMs": 7.6,
+        "restoreMs": 116.8,
+        "checksMs": 66.2,
+        "totalMs": 1720.3
       }
     },
     "retention": {
@@ -416,6 +416,71 @@
         "otherCasesServed": 1,
         "staleErrorsAfterCopyBack": 0
       }
+    },
+    "restore-removal-race": {
+      "status": "PASS",
+      "commands": [
+        "POST /restore/packets, PUT …/1, POST …/complete, POST …/open for a synthetic backup",
+        "POST …/step with x-probe-hold: restore-late, GET /probe/hold/restore-late",
+        "seed the same case, activate a different version and seal an export",
+        "POST /cases/<case>/deletion/{request,approve,offer,remove}",
+        "POST /probe/hold/restore-late/release, GET /recovery/head/live/orig/<sha>",
+        "node ../storage/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-a --command \"SELECT erased_at FROM case_deletion; SELECT * FROM restore_object\" --persist-to <run>/persist",
+        "POST a complete backup …/open, …/step, then …/finish with x-probe-finish-hold: restore-finish-late",
+        "node ../storage/node_modules/wrangler/bin/wrangler.js r2 object put {recovery-a,recovery-copies-a}/deletion/<case>.json --local --persist-to <run>/persist, GET /cases/<case>/documents/<ref>, POST /probe/storage-hold/restore-finish-late/release",
+        "POST a simple backup …/step with x-probe-write-hold: restore-write-late, GET /probe/storage-hold/restore-write-late",
+        "node ../storage/node_modules/wrangler/bin/wrangler.js r2 object put both deletion/<case>.json --local --persist-to <run>/persist, GET /probe/erasure/<case> while held, POST /probe/storage-hold/restore-write-late/release, GET /cases/<case>/documents/<ref>"
+      ],
+      "asserted": [
+        "the synthetic restore packet is open before the case exists",
+        "the step passed the recovery deletion gate and is held before delegation",
+        "the case is live with a different results version while the restore is held",
+        "the late step is refused after erasure and leaves no original or case row (step 409, object false, rows )",
+        "a complete backup is opened and its objects stepped before finish (200, 200)",
+        "finish has verified every backup object and is held before its first D1 write",
+        "the deletion record removes and erases the case while finish is held",
+        "the late finish is refused after erasure and leaves no case row or original (finish 409, rows )",
+        "the pending-write backup opens for a case without live results",
+        "the restore intent is pending in D1 before its original is published to R2",
+        "removal records the case as removed but leaves erased_at unset while the restore write is pending",
+        "the late R2 write is cleaned before erased_at is set (step 409, removal 410, rows )"
+      ],
+      "measured": {
+        "lateWrites": 0,
+        "residueRows": 0,
+        "lateFinishRows": 0,
+        "pendingHeld": 1
+      }
+    },
+    "dead-intent": {
+      "status": "PASS",
+      "commands": [
+        "POST /restore/packets, PUT …/1, POST …/complete, POST …/open for a synthetic backup",
+        "POST …/step with x-probe-published-hold: dead-write, GET /probe/storage-hold/dead-write, GET /probe/erasure/<case>, GET /recovery/head/live/orig/<sha>",
+        "node ../storage/node_modules/wrangler/bin/wrangler.js r2 object put {recovery-a,recovery-copies-a}/deletion/<case>.json --local --persist-to <run>/persist",
+        "SIGKILL to workerd while the step is held, then node ../storage/node_modules/wrangler/bin/wrangler.js dev --local --env client-a --ip 127.0.0.1 --port 18810 --inspector-port 0 --persist-to <run>/persist (a new isolate)",
+        "GET /cases/<case>/documents/<ref> (x-probe-d1-statements), GET /probe/erasure/<case>, node ../storage/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-a --command \"SELECT erased_at, erase_error FROM case_deletion\" --persist-to <run>/persist, POST /cases/<case>/deletion/remove (a repeat)",
+        "node ../storage/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-a --command \"UPDATE restore_object SET expires_at = <past>\" --persist-to <run>/persist (the lease runs out)",
+        "GET /cases/<case>/documents/<ref> (x-probe-d1-statements), GET /probe/erasure/<case>, GET /recovery/head/live/orig/<sha>, the residue through Wrangler"
+      ],
+      "asserted": [
+        "the dead-step backup opens for a case without live results",
+        "the step has published its original and is held before it clears its pending intent",
+        "both buckets hold the case's deletion record while the step is held",
+        "the step dies with its Worker (answer none)",
+        "a new isolate reconciles the removal within D1's per-invocation limit while the dead intent's lease runs (33 statements, limit 1000, answer 410)",
+        "erasure stays unfinished, with erase_error set, while the lease runs (erase_error a restore write holds its lease until 2026-10-22T12:08:23.031Z)",
+        "a repeated removal answers 202 with the erasure pending until the lease runs out, without waiting (202, 63 statements)",
+        "once the lease has run out the next reconcile stays within D1's per-invocation limit (38 statements)",
+        "it treats the intent as dead, erases the original the dead step published, and clears the intent before erased_at (object false, rows )"
+      ],
+      "measured": {
+        "deadIntents": 1,
+        "liveLeaseStatements": 33,
+        "expiredLeaseStatements": 38,
+        "objectsLeft": 0,
+        "residueRows": 0
+      }
     }
   },
   "hold": [
@@ -430,7 +495,7 @@
   "failure": null,
   "evidence": true,
   "checker": {
-    "mutationsRefused": 1484,
+    "mutationsRefused": 1712,
     "accepted": null
   }
 }

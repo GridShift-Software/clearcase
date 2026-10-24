@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
-import { checkSummary, PROBE_INPUTS } from '../../../deploy/probes/summary-check.ts';
+import { checkSummary, DEPLOYMENT_BUN, DEPLOYMENT_HOLD, DEPLOYMENT_LEGS, DEPLOYMENT_PINS, DEPLOYMENT_TRANSCRIPT, PROBE_ENVIRONMENT, PROBE_INPUTS } from '../../../deploy/probes/summary-check.ts';
 
 const SCRATCH = path.join(import.meta.dirname, '../../../.local/hosting-probe/deployment', `summary-check-${process.pid}`);
 afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
@@ -27,7 +27,32 @@ function repo() {
 	git('commit', '-q', '-m', 'the probe');
 	const source = git('rev-parse', 'HEAD');
 	const inputs = Object.fromEntries(PROBE_INPUTS.map((p) => [p, git('rev-parse', `HEAD:${p}`)]));
-	const summary = { schema: 'clearcase.deployment-probe/1', sourceSha: source, treeClean: true, evidence: true, inputs, legs: { P1: { status: 'PASS' }, P2: { status: 'PASS' } } };
+	const artifact = `sha256:${'a'.repeat(64)}`;
+	const runName = `cc-107-w1-${source.slice(0, 7)}-00000000-0000-4000-8000-000000000107`;
+	const startedAt = '2026-10-22T00:00:00.000Z';
+	const values: Record<string, string> = { '<artifact>': artifact, '<sourceSha>': source, '<startedAt>': startedAt, '<voidFiles>': '43', '<files>': '611', '<runName>': runName };
+	const expand = (value: string) => Object.entries(values).reduce((text, [key, replacement]) => text.replaceAll(key, replacement), value);
+	const legs = Object.fromEntries(Object.entries(DEPLOYMENT_TRANSCRIPT).map(([name, expected]) => {
+		const observed: Record<string, unknown> = Object.fromEntries(DEPLOYMENT_LEGS[name as keyof typeof DEPLOYMENT_LEGS][2].map((key) => [key, 'synthetic']));
+		if (name === 'P3-build-workerd') observed.artifact = artifact;
+		if (name === 'P6-void-native-d1') observed.voidScanFiles = 43;
+		if (name === 'credential-scan') observed.files = 611;
+		if (name === 'janitor-dry-run') observed.runName = runName;
+		return [name, {
+			title: expected.title, status: 'PASS', observed,
+			steps: expected.steps.map((step) => ({ ...step, cmd: expand(step.cmd), ms: 1 })),
+			asserted: expected.asserted.map(expand),
+		}];
+	}));
+	const summary = {
+		schema: 'clearcase.deployment-probe/1', sourceSha: source, treeClean: true, evidence: true, inputs, legs,
+		startedAt, finishedAt: '2026-10-22T00:00:01.000Z',
+		runDir: '.local/hosting-probe/deployment/2026-10-22T00-00-00-000Z',
+		hosts: { bun: DEPLOYMENT_BUN, node: '26.10.0', runner: `Bun ${DEPLOYMENT_BUN}`, appBuild: `Bun ${DEPLOYMENT_BUN}`, tools: 'Node 26.10.0 (cf, Wrangler, Void, Vitest)', app: `workerd ${DEPLOYMENT_PINS.workerd} (native, local)` },
+		pins: DEPLOYMENT_PINS,
+		isolation: { network: 'own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden', env: PROBE_ENVIRONMENT },
+		hold: DEPLOYMENT_HOLD,
+	};
 	const record = (edit: (s: Record<string, unknown>) => void = () => {}, page = `PASS at ${source}\n`) => {
 		const s = structuredClone(summary) as Record<string, unknown>;
 		edit(s);
@@ -41,6 +66,40 @@ function repo() {
 }
 
 describe('the committed deployment summary is bound to an ancestor commit and to the probe own inputs', () => {
+	test('a PASS summary missing deployment legs is refused', () => {
+		const r = repo();
+		r.record((s) => (s.legs = { P1: { status: 'PASS' } }));
+		expect(r.check()).not.toEqual([]);
+	});
+
+	test('a PASS leg without its assertions is refused', () => {
+		const r = repo();
+		r.record((s) => (s.legs as Record<string, { asserted: string[] }>)['P1-discovery']!.asserted.pop());
+		expect(r.check().join('\n')).toMatch(/P1-discovery must hold 6 nonempty assertions/);
+	});
+
+	test('a PASS leg with an invented command and assertion is refused', () => {
+		const r = repo();
+		r.record((s) => {
+			const leg = (s.legs as Record<string, { steps: { cmd: string }[]; asserted: string[] }>)['P1-discovery']!;
+			leg.steps[0]!.cmd = 'invented deployment command';
+			leg.asserted[0] = 'invented deployment assertion';
+		});
+		expect(r.check().join('\n')).toMatch(/P1-discovery.*(steps|assertions)/);
+	});
+
+	test('an altered environment value is refused', () => {
+		const r = repo();
+		r.record((s) => ((s.isolation as { env: Record<string, string> }).env.WRANGLER_SEND_METRICS = 'true'));
+		expect(r.check().join('\n')).toMatch(/isolation does not describe the offline probe environment/);
+	});
+
+	test('a PASS summary without its run metadata is refused', () => {
+		const r = repo();
+		r.record((s) => delete s.runDir);
+		expect(r.check().join('\n')).toMatch(/summary has the wrong fields/);
+	});
+
 	test('a docs-only commit after the run passes, and the sha stays the run own', () => {
 		const r = repo();
 		r.record();

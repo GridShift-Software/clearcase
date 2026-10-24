@@ -66,5 +66,10 @@ export async function envelopeOf(event: unknown, config: AuditConfig): Promise<{
   return { event: copy, canonical: text, sha256: await sha256Hex(text), bytes };
 }
 
+/** The action only the audit log itself writes, for reads it served or refused. Producers cannot append it. */
+export const READ_ACTION = 'audit.read';
+/** A stable, non-secret key for one principal (issuer + subject, never the session) used to bound per-actor storage. */
+export const actorKey = (actor: IdentityState) => (actor.kind === 'verified' ? sha256Hex(canonical({ issuer: actor.principal.issuer, subject: actor.principal.subject })) : Promise.resolve(null));
+
 export const validEventId = (id: unknown): id is string => str(id, EVENT_ID);
 export const validCaseId = (id: unknown): id is string => str(id, CASE_ID);

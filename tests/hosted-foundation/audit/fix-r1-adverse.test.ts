@@ -3,6 +3,7 @@
 // First run against 97ff0e9f, where each assertion below failed. node:sqlite stand-in: unit results, not D1 evidence.
 import { describe, expect, it } from 'vitest';
 import * as publicSurface from '../../../src/lib/audit/index.ts';
+import type { IdentityState } from '../../../src/lib/server/runtime/contracts.ts';
 import { admin, event, gate, viewer, world, ISSUER_A } from './world.ts';
 
 const ZERO = '0'.repeat(64);
@@ -55,7 +56,7 @@ describe('M2 audited reads cannot use up the protected business append capacity'
     await expect(w.log().append(event())).rejects.toMatchObject({ code: 'audit-unavailable', retryable: false });
   });
   it('served reads that cannot be audited fail closed with no rows, and protected appends still work afterwards', async () => {
-    const w = world({ over: { maxRows: 30 } }); await w.ready;
+    const w = world({ over: { maxRows: 30, maxReadRows: 10 } }); await w.ready;
     const g = gate({ cases: { user_a1: ['case-a1'] } });
     await w.log().append(event());
     let refused = 0;
@@ -70,7 +71,7 @@ describe('M2 audited reads cannot use up the protected business append capacity'
 describe('M3 queries never return a session id', () => {
   it('no page (case, administration, own audit events) or error carries any session id, in any field', async () => {
     const w = world(); await w.ready;
-    const victim = { ...viewer, principal: { issuer: ISSUER_A, subject: 'user_victim', kind: 'client' as const }, sessionId: 'sess_victim_secret' as never };
+    const victim: IdentityState = { kind: 'verified', principal: { issuer: ISSUER_A, subject: 'user_victim', kind: 'client' }, sessionId: 'sess_victim_secret' as never };
     await w.log(victim).append(event({ eventId: 'victim-case' }, victim));
     await w.log(victim).append(event({ eventId: 'victim-admin', action: 'admin.invite', object: { kind: 'invitation', id: 'inv-9', caseId: null } }, victim));
     const g = gate({ cases: { user_a1: ['case-a1'] }, administrators: ['user_admin'] });

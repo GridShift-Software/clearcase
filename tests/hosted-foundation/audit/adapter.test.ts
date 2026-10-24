@@ -1,7 +1,8 @@
 // GRS-116 native D1 audit log: append idempotence and durability, find, binding, budgets and permission-scoped reads.
 // node:sqlite stand-in only; these are unit results, not D1, workerd or provider evidence.
 import { describe, expect, it } from 'vitest';
-import { auditConfig, createD1AuditLog, provisionAuditBinding } from '../../../src/lib/audit/index.ts';
+import { auditConfig } from '../../../src/lib/audit/index.ts';
+import { createD1AuditLog, provisionAuditBinding } from '../../../src/lib/audit/trusted.ts';
 import { admin, anonymous, config, event, gate, ISSUER_A, NOW, viewer, world } from './world.ts';
 
 describe('append and find', () => {

@@ -3,7 +3,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { AuditSink, Identity } from '../../../src/lib/server/runtime/contracts.ts';
 import type { D1 } from '../../../src/lib/server/runtime/hosted/bindings.ts';
-import { createD1AuditLog, provisionAuditBinding } from '../../../src/lib/audit/index.ts';
+import { createD1AuditLog, provisionAuditBinding } from '../../../src/lib/audit/trusted.ts';
 import { config, gate, MIGRATION, NOW } from './world.ts';
 
 export async function subject(a: { db: DatabaseSync; d1: D1; identity: Identity }): Promise<AuditSink> {

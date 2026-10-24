@@ -2,13 +2,26 @@ import type { ClientId } from '../server/runtime/contracts.ts';
 
 // Trusted deployment configuration for one client's audit log. It comes from the deployment (the parent composes it
 // from the resolved per-client resources), never from a request. Every limit is a finite bound under a hard ceiling; no
-// limit here is a spending cap, and none is global across clients.
+// limit here is a spending cap, and none is global across clients. Completeness limit: a denied read past its caps is
+// refused but unlogged, so the denial record is bounded evidence, not a full census of attempts.
 
 export interface AuditLimits {
   /** Largest canonical event envelope accepted, in UTF-8 bytes. */
   maxEventBytes: number;
-  /** Most events this client's table holds; at the bound every append refuses (and the protected action with it). */
+  /**
+   * Most protected events (the business events producers append) this client's table holds; at the bound every append
+   * refuses, and the protected action with it. Audit reads are never charged here.
+   */
   maxRows: number;
+  /** Most served-read audit events (audit.read, succeeded). At the bound, reads fail closed; protected appends continue. */
+  maxReadRows: number;
+  /**
+   * Most refused or failed read events kept across all actors, reserved apart from the two budgets above. Past the bound
+   * a refused read is still refused, uniformly, but its event is not stored (it is counted in denial_unlogged).
+   */
+  maxDenialRows: number;
+  /** Most refused or failed read events kept for one actor; the rest are refused, uniformly, and counted as unlogged. */
+  maxDenialsPerActor: number;
   /** Most events one query page returns. */
   maxPageRows: number;
   /** Most query pages one audit log instance (one request) serves. */
@@ -21,7 +34,7 @@ export interface AuditConfig {
   limits: AuditLimits;
 }
 
-export const CEILINGS: AuditLimits = { maxEventBytes: 4096, maxRows: 50_000_000, maxPageRows: 200, maxPagesPerRequest: 20 };
+export const CEILINGS: AuditLimits = { maxEventBytes: 4096, maxRows: 50_000_000, maxReadRows: 50_000_000, maxDenialRows: 1_000_000, maxDenialsPerActor: 1_000, maxPageRows: 200, maxPagesPerRequest: 20 };
 const CLIENT = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 const bounded = (v: unknown, max: number) => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= max;

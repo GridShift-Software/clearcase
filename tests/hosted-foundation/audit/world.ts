@@ -2,14 +2,15 @@
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import type { AuditEvent, IdentityState } from '../../../src/lib/server/runtime/contracts.ts';
-import { auditConfig, createD1AuditLog, provisionAuditBinding, type AuditReadGate } from '../../../src/lib/audit/index.ts';
+import { auditConfig, type AuditReadGate } from '../../../src/lib/audit/index.ts';
+import { createD1AuditLog, provisionAuditBinding } from '../../../src/lib/audit/trusted.ts';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
 import { d1, type Fault } from './d1.ts';
 
 export const MIGRATION = readFileSync(new URL('../../../src/lib/audit/migrations/0001_native_audit.sql', import.meta.url), 'utf8');
 export const ISSUER_A = 'https://clerk.client-a.example', ISSUER_STAFF = 'https://clerk.staff.example';
 export const NOW = () => new Date('2026-10-24T10:00:00.000Z');
-export const limits = { maxEventBytes: 2048, maxRows: 1000, maxPageRows: 50, maxPagesPerRequest: 5 };
+export const limits = { maxEventBytes: 2048, maxRows: 1000, maxReadRows: 1000, maxDenialRows: 100, maxDenialsPerActor: 8, maxPageRows: 50, maxPagesPerRequest: 5 };
 export const config = (clientId = 'client-a', over: Partial<typeof limits> = {}) => auditConfig({ clientId, trustedIssuers: [ISSUER_A, ISSUER_STAFF], limits: { ...limits, ...over } });
 
 export const viewer: IdentityState = { kind: 'verified', principal: { issuer: ISSUER_A, subject: 'user_a1', kind: 'client' }, sessionId: 'sess_a1' as never };

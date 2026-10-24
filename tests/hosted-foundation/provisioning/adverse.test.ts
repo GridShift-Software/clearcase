@@ -1,13 +1,13 @@
 // GRS-114 adverse outcomes, written first against the only case authority that exists at the accepted base: the
-// unavailable identity. A refusal must name its reason (wrong-client, forbidden), and an explicit viewer grant must
-// read; "identity-unavailable" for everything is not isolation.
+// unavailable identity (RED at b6e4ef39). The world below now supplies the GRS-114 authorizer; assertions are unchanged.
+// A refusal must name its reason (wrong-client, forbidden), and an explicit viewer grant must read; "identity-unavailable"
+// for everything is not isolation.
 import { describe, expect, it } from 'vitest';
 import type { CaseOperation, Principal, SessionId } from '../../../src/lib/server/runtime/contracts.ts';
 import { id } from '../../../src/lib/server/runtime/ids.ts';
-import { createUnavailableServices } from '../../../src/lib/server/runtime/unavailable.ts';
+import { world as grantsWorld, ISSUER_A, ISSUER_C } from './world.ts';
 
-const CLIENT_A = id('client', 'client-a'), CASE_1 = id('case', 'case-1');
-const ISSUER_A = 'https://client-a.example.test', ISSUER_C = 'https://client-c.example.test';
+const CASE_1 = id('case', 'case-1');
 const viewer: Principal = { issuer: ISSUER_A, subject: 'user_viewer', kind: 'client' };
 const admin: Principal = { issuer: ISSUER_A, subject: 'user_admin', kind: 'client' };
 const revoked: Principal = { issuer: ISSUER_A, subject: 'user_revoked', kind: 'client' };
@@ -17,8 +17,11 @@ const session = id('session', 'session-1') as SessionId;
 type AuthorizeCase = (a: { principal: Principal; sessionId: SessionId; caseId: typeof CASE_1; operation: CaseOperation }) => Promise<void>;
 /** The world: client A, case-1, viewer granted; admin holds only grant management; revoked lost its viewer grant. */
 async function world(): Promise<AuthorizeCase> {
-  const identity = createUnavailableServices({ clientId: CLIENT_A, now: () => new Date('2026-10-24T00:00:00Z') }).identity;
-  return (a) => identity.authorize({ caseId: a.caseId, operation: a.operation });
+  const w = grantsWorld();
+  w.seed(viewer, 'viewer', CASE_1);
+  w.seed(admin, 'grant-admin', null);
+  w.seed(revoked, 'viewer', CASE_1, { state: 'revoked' });
+  return w.authorizeCase;
 }
 
 describe('GRS-114 case authorization outcomes', () => {

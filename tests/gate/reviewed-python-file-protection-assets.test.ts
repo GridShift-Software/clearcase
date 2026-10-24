@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -68,4 +69,22 @@ it('refuses to overwrite an existing reader destination', () => {
 	mkdirSync(target); writeFileSync(join(target, 'test-guard'), 'sentinel');
 	expect(() => materializeDev105Reader(target, SOURCE, source)).toThrow();
 	expect(readFileSync(join(target, 'test-guard'), 'utf8')).toBe('sentinel');
+});
+
+it.each(['0002', '0077'])('accepts a true Git checkout of the fixture made under umask %s', umask => {
+	const root = mkdtempSync(join(tmpdir(), 'cc-dev105-umask-')); roots.push(root);
+	const run = (cwd: string, script: string) => execFileSync('sh', ['-c', script], {
+		cwd, stdio: 'pipe', env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: root, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
+	});
+	const origin = join(root, 'origin'); mkdirSync(origin);
+	cpSync(FIXTURE, join(origin, 'fx'), { recursive: true });
+	run(origin, 'git init -q . && git add -A && git -c user.name=t -c user.email=t@t -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -q -m fx');
+	run(root, `umask ${umask} && git clone -q file://${origin} checkout`);
+	const source = join(root, 'checkout/fx');
+	expect(lstatSync(join(source, 'test-guard')).mode & 0o111).not.toBe(0);
+	expect(lstatSync(join(source, 'agent_tools.py')).mode & 0o111).toBe(0);
+	const target = join(root, 'trusted');
+	materializeDev105Reader(target, SOURCE, source);
+	expect(lstatSync(join(target, 'test-guard')).mode & 0o777).toBe(0o755);
+	expect(lstatSync(join(target, 'agent_tools.py')).mode & 0o777).toBe(0o644);
 });

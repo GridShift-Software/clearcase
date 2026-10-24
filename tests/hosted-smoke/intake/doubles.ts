@@ -129,6 +129,6 @@ export function trackedBody(bytes: Uint8Array, o: { cutAt?: number; chunk?: numb
       c.enqueue(bytes.slice(at, next));
       at = next;
     },
-  });
+  }, { highWaterMark: 0 }); // pull only when a reader asks, so `pulled` counts what the server consumed, not a prefetch
   return { stream, state };
 }

@@ -69,7 +69,7 @@ The caller injects `now`, `stopOwnerRequests`, `readState` and `dispatch`. There
 3. The before-state must be complete, fresh (no more than 60 s old) and exact, with each reviewed domain bound once and no other domain or route exposure.
 4. Each planned operation is dispatched once, with no retry and no fallback.
 5. The after-state is read fresh, and its timestamp must be later than the dispatch. It must show no owned domain bound, workers.dev and previews both false, and identical retained versions, secret names, EU D1 and private EU R2.
-6. A missing callback, failed dispatch, partial disable, stale or unknown state, or unreadable after-state ends in a HOLD. The uncertain liability is retained.
+6. A missing callback, failed dispatch, partial disable, stale or unknown state, unreadable after-state or throwing clock ends in a HOLD. The result records what was dispatched, and the uncertain liability is retained. Comparisons ignore the provider's key order.
 
 ## Negative-proof contract (`checkNegativeProof`)
 
@@ -78,7 +78,7 @@ The contract needs, for each client's custom domain, both an app canary and an o
 - **Before**: an authenticated request as that client, resolved through public DNS with a matching TLS hostname, returns 200. The app canary must serve the deployed `sourceSha`, and the asset canary the deployed `assetSha256`.
 - **After**: a request taken after the after-readback ends in a classified network error, or in an error response that carries no build, no app or asset bytes, and is a cache miss.
 
-The contract refuses:
+`checkNegativeProof` re-parses the manifest and re-checks the stop's after-state. The contract refuses:
 
 - redirects and auth denials (401, 403, 407)
 - nonexistent hosts, anonymous requests and host-header emulation

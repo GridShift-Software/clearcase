@@ -114,6 +114,9 @@ const NETWORK_ERRORS = ['dns-nxdomain', 'connection-refused', 'connection-reset'
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const show = (v: unknown) => (v === undefined ? 'missing' : JSON.stringify(v));
+/** A canonical JSON string with object keys sorted, so provider key order never decides a comparison. */
+const canonical = (v: unknown): string =>
+	Array.isArray(v) ? `[${v.map(canonical).join(',')}]` : isObject(v) ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}` : JSON.stringify(v) ?? 'undefined';
 const sameSet = (a: unknown, b: readonly string[]) => Array.isArray(a) && a.length === b.length && JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
 
 function deepFreeze<T>(value: T): T {
@@ -282,7 +285,7 @@ export function readOperations(manifest: NativeManifest): readonly ReadOperation
 export function stopOperationProblems(manifest: NativeManifest, op: StopOperation): string[] {
 	const planned = buildStopPlan(manifest).find((p) => p.method === op?.method && p.path === op?.path);
 	if (!planned) return [`${show(op?.method)} ${show(op?.path)} is not a reviewed non-destructive stop operation`];
-	return JSON.stringify(snapshot(op)) === JSON.stringify(planned) ? [] : [`${op.method} ${op.path} differs from the reviewed operation`];
+	return canonical(snapshot(op)) === canonical(planned) ? [] : [`${op.method} ${op.path} differs from the reviewed operation`];
 }
 
 /** The hostname part of a Workers route pattern, and whether it covers `hostname` (a leading `*` matches any prefix). */
@@ -346,7 +349,7 @@ export function readbackProblems(manifest: NativeManifest, state: ProviderReadba
 	else {
 		for (const d of owned) {
 			const c = manifest.clients.find((x) => x.domain.id === d.id);
-			if (!c || JSON.stringify(snapshot(d)) !== JSON.stringify({ id: c.domain.id, hostname: c.domain.hostname, zoneId: c.domain.zoneId, service: c.domain.service, environment: c.domain.environment }))
+			if (!c || canonical(d) !== canonical({ id: c.domain.id, hostname: c.domain.hostname, zoneId: c.domain.zoneId, service: c.domain.service, environment: c.domain.environment }))
 				fail(`custom domain ${show(d.hostname)} -> ${show(d.service)} (${show(d.id)}) is not a reviewed binding`);
 		}
 		for (const c of manifest.clients) if (owned.filter((d) => d.id === c.domain.id).length !== 1) fail(`reviewed custom domain ${c.domain.hostname} is not bound exactly once`);
@@ -387,34 +390,46 @@ export async function stopNativeAlpha(a: Transport): Promise<StopResult> {
 		return result('HOLD', [`owner requests were not confirmed stopped: ${(e as Error).message}`]);
 	}
 	if (!manifest) return result('HOLD', [`manifest refused: ${invalid}`]);
-	const plan = buildStopPlan(manifest);
-	let before: ProviderReadback;
+	const progress: Partial<StopResult> = {};
 	try {
-		before = snapshot(await readState());
+		return await run(manifest, progress);
 	} catch (e) {
-		return result('HOLD', [`before-state unreadable: ${(e as Error).message}`]);
+		return result('HOLD', [`stop interrupted, outcome unknown: ${(e as Error).message}`], progress);
 	}
-	const initial = readbackProblems(manifest, before, now(), 'before');
-	if (initial.length) return result('HOLD', initial, { before });
-	const dispatchedAt = now();
-	for (const op of plan) {
+
+	async function run(manifest: NativeManifest, progress: Partial<StopResult>): Promise<StopResult> {
+		const plan = buildStopPlan(manifest);
+		let before: ProviderReadback;
 		try {
-			await dispatch(op);
-			dispatched.push({ op, outcome: 'accepted' });
-		} catch {
-			dispatched.push({ op, outcome: 'failed' });
+			before = snapshot(await readState());
+		} catch (e) {
+			return result('HOLD', [`before-state unreadable: ${(e as Error).message}`]);
 		}
+		progress.before = before;
+		const initial = readbackProblems(manifest, before, now(), 'before');
+		if (initial.length) return result('HOLD', initial, { before });
+		const dispatchedAt = now();
+		progress.dispatchedAt = dispatchedAt;
+		for (const op of plan) {
+			try {
+				await dispatch(op);
+				dispatched.push({ op, outcome: 'accepted' });
+			} catch {
+				dispatched.push({ op, outcome: 'failed' });
+			}
+		}
+		const problems = dispatched.filter((d) => d.outcome === 'failed').map((d) => `partial stop: ${d.op.method} ${d.op.path}${d.op.hostname ? ` (${d.op.hostname})` : ''} failed; liability retained, no fallback`);
+		let after: ProviderReadback;
+		try {
+			after = snapshot(await readState());
+		} catch (e) {
+			return result('HOLD', [...problems, `after-state unreadable, disable outcome unknown: ${(e as Error).message}`], { before, dispatchedAt });
+		}
+		problems.push(...readbackProblems(manifest, after, now(), 'after'));
+		if (!(after.observedAt > dispatchedAt) || !(after.observedAt > before.observedAt)) problems.push('after-state predates the dispatch');
+		progress.after = after;
+		return result(problems.length ? 'HOLD' : 'STOP-READBACK-CONSISTENT', problems, { before, after, dispatchedAt });
 	}
-	const problems = dispatched.filter((d) => d.outcome === 'failed').map((d) => `partial stop: ${d.op.method} ${d.op.path}${d.op.hostname ? ` (${d.op.hostname})` : ''} failed; liability retained, no fallback`);
-	let after: ProviderReadback;
-	try {
-		after = snapshot(await readState());
-	} catch (e) {
-		return result('HOLD', [...problems, `after-state unreadable, disable outcome unknown: ${(e as Error).message}`], { before, dispatchedAt });
-	}
-	problems.push(...readbackProblems(manifest, after, now(), 'after'));
-	if (!(after.observedAt > dispatchedAt) || !(after.observedAt > before.observedAt)) problems.push('after-state predates the dispatch');
-	return result(problems.length ? 'HOLD' : 'STOP-READBACK-CONSISTENT', problems, { before, after, dispatchedAt });
 }
 
 /**
@@ -433,7 +448,15 @@ export function checkNegativeProof(a: { manifest: NativeManifest; stop: StopResu
 		problems.push('the stop is not readback-consistent; canaries cannot upgrade a HOLD');
 		return done('HOLD');
 	}
-	const manifest = a.manifest;
+	let manifest: NativeManifest;
+	try {
+		manifest = parseNativeManifest(a.manifest);
+	} catch (e) {
+		problems.push(`manifest refused: ${(e as Error).message}`);
+		return done('HOLD');
+	}
+	problems.push(...readbackProblems(manifest, stop.after, stop.after.observedAt, 'after'));
+	if (!(stop.after.observedAt > stop.dispatchedAt)) problems.push('the stop after-state predates its dispatch');
 	const obs: CanaryObservation[] = Array.isArray(a.observations) ? snapshot(a.observations) : [];
 	const hosts = new Map(manifest.clients.map((c) => [c.domain.hostname, c]));
 	for (const o of obs) if (!hosts.has(o.hostname)) problems.push(`canary on ${show(o.hostname)} is not an owned custom domain`);

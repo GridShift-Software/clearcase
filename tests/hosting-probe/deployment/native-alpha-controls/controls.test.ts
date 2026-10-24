@@ -220,6 +220,11 @@ describe('readback checks', () => {
 		['a changed D1 identity', (s) => (s.d1[0].id = uuid('7')), /D1/],
 		['a foreign account', (s) => (s.accountId = hex('9')), /account/],
 	];
+	test('provider key order does not matter for an exact domain binding', () => {
+		const s = readback(m(), 100, 'before');
+		s.domains = s.domains.map(({ environment, service, zoneId, hostname, id }) => ({ environment, service, zoneId, hostname, id }));
+		expect(readbackProblems(m(), s, 110, 'before')).toEqual([]);
+	});
 	test.each(bad)('the before-state is refused when %s', (_n, mutate, why) => {
 		const s = readback(m(), 100, 'before') as any;
 		mutate(s);
@@ -327,6 +332,20 @@ describe('the injected stop orchestration', () => {
 		expect(r.problems.join()).toMatch(/unknown/);
 	});
 
+	test('a throwing clock after dispatch HOLDs with the dispatched record, never an escaped rejection', async () => {
+		const h = harness();
+		let n = 0;
+		const now = h.t.now;
+		h.t.now = () => {
+			if (++n === 3) throw new Error('clock gone');
+			return now();
+		};
+		const r = await stopNativeAlpha(h.t);
+		expect(r.state).toBe('HOLD');
+		expect(r.dispatched).toHaveLength(4);
+		expect(r.problems.join()).toMatch(/clock gone/);
+	});
+
 	test('the module source has no default network, credential, environment, timer or process access', () => {
 		const src = readFileSync(SOURCE, 'utf8');
 		for (const banned of [/\bfetch\s*\(/, /process\.env/, /\bsetTimeout\b/, /\bsetInterval\b/, /\bBun\./, /from ['"]node:/, /\brequire\(/, /\bDate\.now\b/, /cloud-run/, /\bimport\s*\(/]) expect(src).not.toMatch(banned);
@@ -387,6 +406,17 @@ describe('the post-stop negative proof contract', () => {
 		const v = checkNegativeProof({ manifest: m, stop: r, observations: o });
 		expect(v.state).toBe('HOLD');
 		expect(v.problems.join('\n')).toMatch(why);
+	});
+
+	test('an unparsed or foreign manifest, or a doctored after-state, cannot satisfy the contract', async () => {
+		const { r, m } = await stopped();
+		const o = observations(m, r, 'network');
+		const foreign = structuredClone(manifest()) as any;
+		foreign.accountId = hex('9');
+		expect(checkNegativeProof({ manifest: foreign, stop: r, observations: o }).state).toBe('HOLD');
+		const doctored = structuredClone(r);
+		doctored.after!.domains.push({ ...manifest().clients[0]!.domain });
+		expect(checkNegativeProof({ manifest: m, stop: doctored, observations: o }).problems.join()).toMatch(/still bound/);
 	});
 
 	test('a HOLD stop cannot be upgraded by canaries', async () => {

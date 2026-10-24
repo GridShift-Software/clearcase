@@ -1,10 +1,15 @@
-// The sink under test. At the RED commit this is the base's hosted-gate d1Audit double over its own audit_event table.
+// The sink under test. At the RED commit (5a089ff5) this was the base's hosted-gate d1Audit double; it is now the
+// GRS-116 native D1 audit log over its own migration, bound to the synthetic client by trusted provisioning.
 import type { DatabaseSync } from 'node:sqlite';
 import type { AuditSink, Identity } from '../../../src/lib/server/runtime/contracts.ts';
 import type { D1 } from '../../../src/lib/server/runtime/hosted/bindings.ts';
-import { d1Audit } from '../../../src/lib/server/runtime/hosted/gate/audit.ts';
+import { createD1AuditLog, provisionAuditBinding } from '../../../src/lib/audit/index.ts';
+import { config, gate, MIGRATION, NOW } from './world.ts';
 
 export async function subject(a: { db: DatabaseSync; d1: D1; identity: Identity }): Promise<AuditSink> {
-  a.db.exec("CREATE TABLE audit_event (event_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, object_kind TEXT NOT NULL, object_id TEXT NOT NULL, case_id TEXT, version TEXT, outcome TEXT NOT NULL CHECK (outcome IN ('succeeded', 'denied', 'failed', 'refused')), at TEXT NOT NULL)");
-  return d1Audit({ db: a.d1, clientId: 'client-a' as never, identity: a.identity, now: () => new Date('2026-10-24T10:00:00.000Z') }).sink;
+  a.db.exec(MIGRATION);
+  const cfg = config('client-a');
+  await provisionAuditBinding({ db: a.d1, config: cfg, now: NOW });
+  const requester = a.identity.kind === 'verified' ? { kind: 'verified' as const, principal: a.identity.principal, sessionId: a.identity.sessionId } : { kind: 'anonymous' as const, principal: null, sessionId: null };
+  return createD1AuditLog({ db: a.d1, config: cfg, requester, gate: gate(), now: NOW });
 }

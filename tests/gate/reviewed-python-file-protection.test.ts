@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { materializeDev105Reader } from './fixtures/reviewed-python-dev105/materialize';
 
 // Real CLI seams, synthetic repositories only. Neither fixture owns the judging tools or their dependencies.
 // DEV105 is the explicit old reader; running this file at the red commit must fail the admission expectations.
@@ -74,12 +75,7 @@ class Fixture {
 		mkdirSync(this.repo);
 		this.oldTools = join(this.ws, 'trusted/scripts/agent-tools');
 		mkdirSync(this.oldTools, { recursive: true });
-		for (const file of ['test_guard.mjs', 'agent_tools.py', '_common.sh', 'skills.lock.json', 'test-guard', 'fix-round-guard']) {
-			const result = spawnSync('git', ['-C', ROOT, 'show', `${DEV105}:scripts/agent-tools/${file}`], { encoding: 'utf8', env: cleanEnv() });
-			if (result.status !== 0) throw new Error(result.stderr);
-			writeFileSync(join(this.oldTools, file), result.stdout);
-			if (file.endsWith('-guard')) chmodSync(join(this.oldTools, file), 0o755);
-		}
+		materializeDev105Reader(this.oldTools, DEV105);
 		this.git('init', '-q', '-b', 'dev');
 		this.git('config', 'core.fileMode', 'true');
 		this.probe = probe;

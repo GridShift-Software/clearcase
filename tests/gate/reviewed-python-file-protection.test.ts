@@ -16,6 +16,9 @@ const TYPESCRIPT = 'tests/custom/probe.test.ts';
 const INPUT = 'tests/custom/schema.sql';
 const named = (extension: string) => `tests/other.test.${extension}`;
 const originalTest = "test('keeps its assertion', () => { expect(1).toBe(1); });\n";
+// Runtime regression: these same 70 real-CLI cases must reach their guard oracles via
+// `env -u CLEARCASE_NODE bun run --bun test tests/gate/reviewed-python-file-protection.test.ts`.
+// A direct external .mjs launch does not reproduce that package launcher's node PATH stand-in.
 const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([key]) =>
 	!key.startsWith('GIT_') && !['CLEARCASE_BASE_REF', 'CLEARCASE_RECEIPTS_DIR', 'T3_PSTACK_HARNESS', 'CLAUDECODE', 'CODEX_THREAD_ID', 'CODEX_HOME'].includes(key)));
 const spaces: string[] = [];

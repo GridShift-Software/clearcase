@@ -8,9 +8,12 @@ const MANIFEST_SHA256 = 'a918e058fbd538383467d73a4844a1bb8356bf58aad5c2ba7153790
 const ASSETS = ['test_guard.mjs', 'agent_tools.py', '_common.sh', 'skills.lock.json', 'test-guard', 'fix-round-guard'];
 const fail = (): never => { throw new Error('canonical DEV105 reader fixture integrity failure'); };
 
+// Input validation follows Git semantics: only the owner-executable bit is recorded (100644/100755);
+// group/other bits come from the cloner's umask. Special bits are always refused; owner must be able to read.
 function regularFile(path: string, mode: number): Buffer {
 	const stat = lstatSync(path);
-	if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o7777) !== mode) fail();
+	if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o7000) !== 0 || (stat.mode & 0o400) === 0
+		|| ((stat.mode & 0o100) !== 0) !== ((mode & 0o100) !== 0)) fail();
 	return readFileSync(path);
 }
 

@@ -1,0 +1,45 @@
+{
+  "schema": 2,
+  "provenance": {
+    "matt-pocock": {
+      "upstream": "https://github.com/mattpocock/skills",
+      "revision": "49dd158d1076134a641b33efb035946536778336",
+      "revisionDate": "2026-10-09T11:56:49+01:00",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2026 Matt Pocock",
+      "paths": {
+        "ask-matt": "skills/engineering/ask-matt",
+        "codebase-design": "skills/engineering/codebase-design",
+        "domain-modeling": "skills/engineering/domain-modeling"
+      },
+      "evidence": [
+        "~/.agents/.skill-lock.json records source mattpocock/skills for all three, with the skill paths above.",
+        "2026-10-15, archlinux: after `skills update -g`, each installed directory is byte-identical (diff -rq) to its path at 49dd158d1076 (main HEAD), and the tree hash the skills CLI recorded equals that path's Git tree."
+      ],
+      "reproduce": "git clone https://github.com/mattpocock/skills.git m && for n in ask-matt codebase-design domain-modeling; do git -C m archive 49dd158 skills/engineering/$n | tar -x -C /tmp && diff -rq /tmp/skills/engineering/$n ~/.agents/skills/$n; done"
+    }
+  },
+  "hashing": "Independent leaf skills only: sha256 over sorted relative paths and file sha256s (symlinks by target), excluding node_modules, __pycache__ and .DS_Store. Pstack identity comes from installed_plugins.json, not this content lock.",
+  "knownAbsent": [
+    "to-spec",
+    "to-tickets",
+    "implement-spec"
+  ],
+  "skills": {
+    "ask-matt": {
+      "group": "matt-pocock",
+      "files": 3,
+      "sha256": "ce22f792cd2b9d2e734c941bb60cfccb1327b480d03b6cc5f5305caa076f40ef"
+    },
+    "codebase-design": {
+      "group": "matt-pocock",
+      "files": 4,
+      "sha256": "4cb1dde9ff3be21db5722e2974343d29c759c3584d0f523adcfee5d418270f23"
+    },
+    "domain-modeling": {
+      "group": "matt-pocock",
+      "files": 4,
+      "sha256": "11db5d8ed787dea06cc9e3a36ace329c8ebac45e9a63b6ce2235bbed642d75ce"
+    }
+  }
+}

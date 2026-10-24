@@ -37,6 +37,13 @@ export async function statusDouble() {
 		calls.push(`${req.method} ${req.url} ${req.headers.authorization ? 'auth' : 'no-auth'}`);
 		const send = (status: number, body: unknown) => (res.writeHead(status, { 'content-type': 'application/json' }), res.end(JSON.stringify(body)));
 		if (outage) return send(503, { errors: [{ code: 'service_unavailable', message: 'synthetic outage' }] });
+		const revoke = /^\/v1\/sessions\/([^/?]+)\/revoke$/.exec(req.url ?? '');
+		if (revoke && req.method === 'POST') {
+			const row = sessions.get(revoke[1]!);
+			if (!row) return send(404, { errors: [{ code: 'resource_not_found', message: 'not found' }] });
+			row.status = 'revoked';
+			return send(200, { object: 'session', id: revoke[1], ...row, client_id: 'client_synthetic', last_active_at: 0, expire_at: 0, abandon_at: 0, created_at: 0, updated_at: 0 });
+		}
 		const m = /^\/v1\/sessions\/([^/?]+)$/.exec(req.url ?? '');
 		const row = m && req.method === 'GET' ? sessions.get(m[1]!) : undefined;
 		if (!row) return send(404, { errors: [{ code: 'resource_not_found', message: 'not found' }] });

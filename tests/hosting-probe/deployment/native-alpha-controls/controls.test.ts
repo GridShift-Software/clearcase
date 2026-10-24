@@ -60,6 +60,7 @@ function readback(m: NativeManifest, observedAt: number, phase: 'before' | 'afte
 /** An injected transport with a manual clock. `after` edits the after-state before it is returned. */
 function harness(opts: { after?: (s: ProviderReadback) => void; before?: (s: ProviderReadback) => void; failDispatch?: (op: StopOperation) => boolean; onDispatch?: (op: StopOperation) => void } = {}) {
 	const m = manifest();
+	const provider = manifest(); // the provider's state is independent of the caller's manifest object
 	let clock = 1_000_000;
 	const calls: string[] = [];
 	const dispatched: StopOperation[] = [];
@@ -74,7 +75,7 @@ function harness(opts: { after?: (s: ProviderReadback) => void; before?: (s: Pro
 		readState: async () => {
 			calls.push('read');
 			clock += 10;
-			const s = readback(m, clock, reads++ === 0 ? 'before' : 'after');
+			const s = readback(provider, clock, reads++ === 0 ? 'before' : 'after');
 			(reads === 1 ? opts.before : opts.after)?.(s);
 			return s;
 		},

@@ -31,7 +31,7 @@ export function singleRange(header: string, size: number): { start: number; end:
  * byte leaves, reauthorizes after the read, and is recorded before it is released; ranges are cut from verified bytes.
  * Objects over the buffered budget are refused, not streamed unverified.
  */
-export function createCloudAssets(a: { open: () => Promise<OpenStorage>; identity: C.Identity; record(e: StorageEvent): Promise<void> }): C.AssetsAccess {
+export function createCloudAssets(a: { open: () => Promise<OpenStorage>; identity: C.Identity; record(e: StorageEvent): Promise<void>; viewerRoute?: (asset: C.AssetRef) => string | null }): C.AssetsAccess {
   const { open, identity } = a;
   const versionOf = (asset: C.AssetRef) => (asset.kind === 'preview' ? asset.resultsVersion : null);
   async function authorize(s: OpenStorage, asset: C.AssetRef) {
@@ -84,7 +84,9 @@ export function createCloudAssets(a: { open: () => Promise<OpenStorage>; identit
       await located(asset);
       const base = `/cases/${encodeURIComponent(asset.caseId)}`;
       const href = asset.kind === 'original' ? `${base}/originals/${encodeURIComponent(asset.assetId)}` : `${base}/v/${encodeURIComponent(asset.resultsVersion)}/previews/${encodeURIComponent(asset.assetId)}`;
-      return { originalHref: href, downloadHref: `${href}?download=1`, viewerHref: null };
+      // The viewer is the composing parent's route (an inline-safe PDF view is not served from here). It is offered only as a path under this case.
+      const viewer = a.viewerRoute?.(asset) ?? null;
+      return { originalHref: href, downloadHref: `${href}?download=1`, viewerHref: viewer !== null && viewer.startsWith(`${base}/`) && !viewer.includes('//') ? viewer : null };
     }),
     async get({ asset, request }) {
       const action = `asset.${asset.kind === 'original' ? 'read-original' : 'read-preview'}`, object = { kind: 'asset', id: asset.assetId, caseId: asset.caseId }, version = versionOf(asset);
@@ -96,17 +98,20 @@ export function createCloudAssets(a: { open: () => Promise<OpenStorage>; identit
           await a.record({ action, object, version, outcome: 'refused' }).catch(() => undefined);
           return new Response(null, { status: 416, headers: { ...HEADERS, 'content-range': `bytes */${bytes.byteLength}` } });
         }
-        // Recorded before any byte leaves; an unrecorded delivery is no delivery.
-        try { await a.record({ action, object, version, outcome: 'succeeded' }); }
-        catch { return new Response(null, { status: 503, headers: { ...HEADERS, 'retry-after': '2' } }); }
+        // Built before the delivery is recorded, so a header that cannot be built never leaves a recorded delivery with no release.
+        // The disposition is the serve policy's own hardened `attachment` form (controls and bidi overrides replaced, a cut
+        // name, an ASCII fallback and an RFC 8187 `filename*` that encodes the apostrophe): never a raw encode of the stored name.
         const headers = new Headers(servePolicy(m.mediaType, m.filename).headers);
         for (const [name, value] of Object.entries(HEADERS)) headers.set(name, value);
-        headers.set('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(m.filename)}`);
+        headers.set('content-disposition', servePolicy(m.mediaType, m.filename, true).headers['Content-Disposition']!);
         headers.set('etag', m.etag);
         headers.set('accept-ranges', 'bytes');
         const body = new Uint8Array(range ? bytes.subarray(range.start, range.end + 1) : bytes);
         headers.set('content-length', String(body.byteLength));
         if (range) headers.set('content-range', `bytes ${range.start}-${range.end}/${bytes.byteLength}`);
+        // Recorded before any byte leaves; an unrecorded delivery is no delivery.
+        try { await a.record({ action, object, version, outcome: 'succeeded' }); }
+        catch { return new Response(null, { status: 503, headers: { ...HEADERS, 'retry-after': '2' } }); }
         return new Response(request.method === 'HEAD' ? null : body, { status: range ? 206 : 200, headers });
       } catch (e) {
         if (isDenial(e)) await a.record({ action, object, version, outcome: 'denied' }).catch(() => undefined);

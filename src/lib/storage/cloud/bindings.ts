@@ -25,8 +25,12 @@ export interface CloudR2Body extends CloudR2Head { arrayBuffer(): Promise<ArrayB
 export interface CloudR2 {
   head(key: string): Promise<CloudR2Head | null>;
   get(key: string): Promise<CloudR2Body | null>;
-  /** R2 refuses the write when the bytes do not hash to `sha256` (hex). */
-  put(key: string, value: Uint8Array, options: { sha256: string }): Promise<CloudR2Head | null>;
+  /**
+   * R2 refuses the write when the bytes do not hash to `sha256` (hex). With `onlyIf.etagDoesNotMatch: '*'` the write
+   * happens only when no object is under `key`, and the result is null when one is (R2's conditional put; its
+   * behaviour on the real service is not exercised by the unit doubles).
+   */
+  put(key: string, value: Uint8Array, options: { sha256: string; onlyIf?: { etagDoesNotMatch: '*' } }): Promise<CloudR2Head | null>;
 }
 export interface CloudBindings { db: CloudD1; bucket: CloudR2 }
 

@@ -22,6 +22,7 @@ export function storageGate(b: CloudBindings, clientId: ClientId): () => Promise
     if (!row || !object) return 'missing-identity';
     let named: unknown;
     try {
+      if (object.size > 1024) return 'crossed-binding'; // checked before the body is read
       const text = new TextDecoder('utf-8', { fatal: true }).decode(await object.arrayBuffer());
       if (text.length > 1024) return 'crossed-binding';
       named = (JSON.parse(text) as { client_id?: unknown }).client_id;

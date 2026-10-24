@@ -26,7 +26,7 @@ export class SqliteD1 implements CloudD1 {
         db.statements++;
         if (db.failNext?.test(sql)) { db.failNext = null; throw new Error('D1_ERROR: injected failure'); }
         const q = db.sqlite.prepare(sql);
-        return /^\s*(SELECT|WITH)/i.test(sql) ? q.all(...values) : (q.run(...values), []);
+        return /^\s*(SELECT|WITH)/i.test(sql) || /\bRETURNING\b/i.test(sql) ? q.all(...values) : (q.run(...values), []);
       },
       async first<T>() { return ((this.exec() as T[])[0] ?? null) as T | null; },
       async all<T>() { return { results: this.exec() as T[] }; },
@@ -64,7 +64,9 @@ export class MemoryR2 implements CloudR2 {
     const bytes = new Uint8Array(o.bytes);
     return { ...this.head_(key, o), arrayBuffer: async () => bytes.buffer };
   }
-  async put(key: string, value: Uint8Array, options: { sha256: string }) {
+  async put(key: string, value: Uint8Array, options: { sha256: string; onlyIf?: { etagDoesNotMatch: '*' } }) {
+    // R2's conditional put: with etagDoesNotMatch '*' an existing object makes the put a no-op that answers null.
+    if (options.onlyIf?.etagDoesNotMatch === '*' && this.objects.has(key)) return null;
     if (sha(value) !== options.sha256) throw new Error('put: The SHA-256 checksum you specified did not match what we received.');
     const o = { bytes: new Uint8Array(value), sha256: options.sha256, version: ++this.seq };
     this.objects.set(key, o);

@@ -133,6 +133,19 @@ describe('M1: the upload is the final, closed, prebundled module graph, bound by
 		refusedWith(prebuilt(out, clients, pinsFor(clients, artifact)), reason);
 	});
 
+	// Added after GREEN as extra guards (not part of the RED set): syntax-level cases a text scan would get wrong.
+	test.each([
+		['an import inside a template literal expression', 'export default { fetch() { return new Response(`${import("devalue")}`); } };\n', /dynamic import/],
+		['an export-from of a named binding', "export { parse } from 'devalue';\nexport default { fetch() { return new Response('x'); } };\n", /devalue/],
+		['a side-effect import', "import 'devalue';\nexport default { fetch() { return new Response('x'); } };\n", /devalue/],
+		['a namespace re-export', "export * as ns from './x.js';\nexport default { fetch() { return new Response('x'); } };\n", /\.\/x\.js/],
+		['module.require', "const x = module.require('devalue');\nexport default { fetch() { return new Response(String(x)); } };\n", /require/],
+	])('stage refuses %s', (_what, worker, reason) => refusedWith(stageWorker(worker).problems, reason));
+	test('import.meta, a regex and a string that look like imports, and a very long expression chain are accepted without a stack overflow', () => {
+		const chain = Array.from({ length: 30_000 }, () => 'a').join(' + ');
+		const worker = `const a = 1; const u = import.meta.url; const r = /import\\(['"]x['"]\\)/; const t = \`require('x')\`; const sum = ${chain};\nexport default { fetch() { return new Response(String([u, r, t, sum])); } };\n`;
+		expect(stageWorker(worker).problems).toEqual([]);
+	});
 	test('the documented host module (cloudflare:workers) in a closed bundle is accepted, and is recorded', () => {
 		const worker = "import { env } from 'cloudflare:workers';\nexport default { fetch() { return new Response(String(env)); } };\n";
 		const r = stageWorker(worker);

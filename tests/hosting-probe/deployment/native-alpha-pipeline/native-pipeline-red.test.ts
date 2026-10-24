@@ -2,6 +2,7 @@
 // accepted-D GRS-107 checker before the profile exists, through the CLI only, so each failure is an assertion about
 // behaviour, not a missing module. Synthetic fixtures; unit only: no provider, account, deploy or funding evidence.
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
@@ -36,7 +37,10 @@ describe('native profile: a supported native Wrangler config passes the checked 
 		expect({ status: s.status, stderr: s.stderr }).toEqual({ status: 0, stderr: '' });
 		const record = JSON.parse(readFileSync(path.join(out, 'stage.json'), 'utf8'));
 		expect(record).toMatchObject({ schema: 'clearcase.deploy-stage.native/1', profile: 'native', adapter: 'wrangler', client: 'client-a', artifact: DIGEST, state: 'STAGED-UNVERIFIED', fundedAdmission: false, deployed: false });
-		const p = cli('prebuilt', 'client-a', '--profile', 'native', '--clients', CLIENTS, '--stage', out);
+		// Fix r1 (M2): prebuilt now needs the external reviewed pins, computed from the reviewed fixtures and never from the stage.
+		const sha = (f: string) => `sha256:${createHash('sha256').update(readFileSync(f)).digest('hex')}`;
+		const pins = ['--pin-target', sha(path.join(CLIENTS, 'client-a/target.json')), '--pin-config', sha(path.join(CLIENTS, 'client-a/wrangler.jsonc')), '--pin-artifact', DIGEST, '--pin-migrations', JSON.parse(readFileSync(path.join(CLIENTS, 'client-a/target.json'), 'utf8')).runtime.migrationsSha256, '--pin-entry', sha(path.join(ARTIFACT, 'cloudflare/_worker.js')), '--pin-source', JSON.parse(readFileSync(path.join(CLIENTS, 'client-a/target.json'), 'utf8')).runtime.sourceSha];
+		const p = cli('prebuilt', 'client-a', '--profile', 'native', '--clients', CLIENTS, '--stage', out, ...pins);
 		expect({ status: p.status, stdout: p.stdout, stderr: p.stderr }).toEqual({ status: 0, stdout: 'TARGET PASS prebuilt client-a profile=native\n', stderr: '' });
 	});
 });

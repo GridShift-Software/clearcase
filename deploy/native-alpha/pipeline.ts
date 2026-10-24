@@ -26,6 +26,23 @@
 // gap, and the checked Wrangler config in the stage is the one adapter. This is not an unchecked config generator: the
 // parent writes the reviewed wrangler.jsonc, and this module only compares it with the target.
 //
+// Final upload bytes (fix r1, M1). The native config forbids upload-time bundling by REQUIRING `no_bundle: true` and
+// `find_additional_modules: false` (Wrangler 4.151.1 config-schema.json: `find_additional_modules` "Defaults to true if
+// `no_bundle` is true", so it is declared, not left to the default). Wrangler then uploads exactly the `main` module's
+// bytes plus the assets directory: nothing is resolved, bundled or shimmed at upload time. The module must therefore be
+// a closed, prebundled graph: a scan of its parsed syntax (target.ts, `scanModule`) must find no bare, relative,
+// outside-stage, computed or dynamic import, no `require` call and no host module beyond NATIVE_HOST_IMPORTS. The stage
+// record then names every uploaded file by its own sha256 and the entry by bytes and hash. A self-contained final
+// bundle is the initial native profile; producing it (the real SvelteKit production build and its final bundling) is
+// parent-only and was not run here.
+//
+// Reviewed pins (fix r1, M2). A stage record, the staged target.json and the staged hashes all come from the same
+// directory, so they can only agree with each other. `prebuilt` therefore also needs NativePins, supplied by the
+// credentialed caller from the reviewed record and never read from the stage: the sha256 of the reviewed target.json and
+// wrangler.jsonc bytes, the artifact, migrations and entry digests and the source commit. A reviewed `--clients`
+// directory must be a real directory outside the stage and must hold byte-identical target.json and wrangler.jsonc.
+// The pins are the root of trust: whoever chooses them chooses what may be uploaded. A file path is not a human approval.
+//
 // Evidence: a PASS here is LOCAL unit/structural only. It is not funded admission, a controls proof, a real EU
 // placement, an applied migration or a deploy.
 import { APPROVED_NATIVE_SCOPE } from './controls.ts';
@@ -72,6 +89,86 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 const show = (v: unknown) => (v === undefined ? 'missing' : JSON.stringify(v));
 const posInt = (v: unknown, max: number) => typeof v === 'number' && Number.isInteger(v) && v > 0 && v <= max;
 const sameKeys = (o: Record<string, unknown>, keys: readonly string[]) => Object.keys(o).length === keys.length && keys.every((k) => Object.hasOwn(o, k));
+
+/**
+ * `text` as data with a bounded strict parser: a duplicate key (JSON.parse keeps the last), nesting deeper than 32,
+ * trailing characters, a bare control character or a lone-surrogate-free violation of JSON syntax is refused. With
+ * `comments`, whole-line `//` comments are dropped first. A `__proto__` key becomes an inert own property. Never
+ * evaluated. This follows src/lib/case-package/strict-json.ts (GRS-10) but is self-contained: that module cannot be
+ * imported here, because the deployment probe's Vite transform would then resolve the app's `$app/tsconfig` (the same
+ * reason deploy/probes/tsconfig.json is standalone), which exists only after a SvelteKit sync.
+ */
+export function parseNativeJson(text: string, comments = false): unknown {
+	const src = comments ? text.split('\n').filter((l) => !l.trimStart().startsWith('//')).join('\n') : text;
+	let i = 0;
+	const err = (m: string): never => {
+		throw new Error(`${m} at offset ${i}`);
+	};
+	const ws = () => {
+		while (src[i] === ' ' || src[i] === '\t' || src[i] === '\n' || src[i] === '\r') i++;
+	};
+	const str = (): string => {
+		let j = i + 1;
+		while (j < src.length && src[j] !== '"') j += src[j] === '\\' ? 2 : 1;
+		if (j >= src.length) err('unterminated string');
+		const raw = src.slice(i, j + 1);
+		try {
+			const v: unknown = JSON.parse(raw);
+			i = j + 1;
+			return v as string;
+		} catch {
+			return err('invalid string');
+		}
+	};
+	const value = (depth: number): unknown => {
+		if (depth > 32) err('nesting is deeper than 32');
+		ws();
+		const c = src[i];
+		if (c === '{') {
+			i++;
+			const o: Record<string, unknown> = {};
+			ws();
+			if (src[i] === '}') return i++, o;
+			for (;;) {
+				ws();
+				if (src[i] !== '"') err('expected a string key');
+				const k = str();
+				if (Object.hasOwn(o, k)) err(`duplicate key ${JSON.stringify(k.slice(0, 64))}`);
+				ws();
+				if (src[i++] !== ':') err('expected ":"');
+				Object.defineProperty(o, k, { value: value(depth + 1), enumerable: true, writable: true, configurable: true });
+				ws();
+				const d = src[i++];
+				if (d === '}') return o;
+				if (d !== ',') err('expected "," or "}"');
+			}
+		}
+		if (c === '[') {
+			i++;
+			const a: unknown[] = [];
+			ws();
+			if (src[i] === ']') return i++, a;
+			for (;;) {
+				a.push(value(depth + 1));
+				ws();
+				const d = src[i++];
+				if (d === ']') return a;
+				if (d !== ',') err('expected "," or "]"');
+			}
+		}
+		if (c === '"') return str();
+		const lit = /true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+		lit.lastIndex = i;
+		const m = lit.exec(src);
+		if (!m) return err('unexpected token');
+		i += m[0].length;
+		return JSON.parse(m[0]);
+	};
+	const result = value(0);
+	ws();
+	if (i < src.length) err('trailing characters');
+	return result;
+}
 
 /** Every key of `value` outside `allowed`, and every allowed key that is missing, as problems: the native profile reads every key it allows. */
 function exactKeys(value: Record<string, unknown>, required: readonly string[], at: string, problems: string[], optional: readonly string[] = []) {
@@ -171,11 +268,11 @@ export function nativeOwners(targets: NativeTarget[]): Map<string, string> {
 	return owners;
 }
 
-const WRANGLER_KEYS = ['name', 'account_id', 'main', 'compatibility_date', 'compatibility_flags', 'send_metrics', 'workers_dev', 'preview_urls', 'routes', 'limits', 'assets', 'vars', 'secrets', 'd1_databases', 'r2_buckets'] as const;
+const WRANGLER_KEYS = ['name', 'account_id', 'main', 'no_bundle', 'find_additional_modules', 'compatibility_date', 'compatibility_flags', 'send_metrics', 'workers_dev', 'preview_urls', 'routes', 'limits', 'assets', 'vars', 'secrets', 'd1_databases', 'r2_buckets'] as const;
 
 /**
  * Every reason the native wrangler.jsonc `text` must not deploy `client`; empty means it names exactly the client's
- * native target. Read as data (JSON after whole-line `//` comments), never evaluated. Every key is required and
+ * native target. Read as data (strict JSON after whole-line `//` comments), never evaluated. Every key is required and
  * compared; an extra key, binding, route or setting is refused, as is any string equal (case-free) to another native
  * client's identifier.
  */
@@ -184,7 +281,7 @@ export function checkNativeWrangler(a: { client: string; targets: NativeTarget[]
 	if (!target) return [`no native target for ${a.client}`];
 	let config: unknown;
 	try {
-		config = JSON.parse(a.text.split('\n').filter((l) => !l.trimStart().startsWith('//')).join('\n'));
+		config = parseNativeJson(a.text, true);
 	} catch (e) {
 		return [`the native Wrangler config is not JSON with whole-line comments: ${(e as Error).message}`];
 	}
@@ -206,6 +303,9 @@ export function checkNativeWrangler(a: { client: string; targets: NativeTarget[]
 	expect('account id', config.account_id, target.accountId);
 	expect('worker', config.name, target.worker);
 	expect('the Worker entry', config.main, NATIVE_STAGED.entry);
+	// The upload must be the prebundled final module: no bundling at upload time, and no tree sweep for extra modules.
+	expect('no_bundle', config.no_bundle, true);
+	expect('find_additional_modules', config.find_additional_modules, false);
 	expect('compatibility_date', config.compatibility_date, target.runtime.compatibilityDate);
 	same('compatibility_flags', config.compatibility_flags, target.runtime.compatibilityFlags);
 	expect('send_metrics', config.send_metrics, false);
@@ -276,8 +376,89 @@ export function checkNativeWrangler(a: { client: string; targets: NativeTarget[]
 	return problems;
 }
 
+/** The exact upload command, run with the stage as its working directory: no override of any kind. */
+export const NATIVE_UPLOAD_ARGV = ['wrangler', 'deploy', '--config', NATIVE_CONFIG_FILE] as const;
+
+/** Problems with `argv` as the native upload command: it must be exactly NATIVE_UPLOAD_ARGV, so no flag can override the checked config. */
+export function nativeUploadInvocationProblems(argv: readonly string[]): string[] {
+	if (argv.length === NATIVE_UPLOAD_ARGV.length && NATIVE_UPLOAD_ARGV.every((x, i) => argv[i] === x)) return [];
+	return [`the upload command is ${JSON.stringify(argv)}, not exactly ${JSON.stringify(NATIVE_UPLOAD_ARGV)}: a CLI flag (--name, --env, --route, --var, --define, --compatibility-*, --keep-vars, --no-bundle, --minify, --config, --outdir, --dry-run) would override or bypass the checked config`];
+}
+
+/**
+ * The only host-runtime modules the final bundle may import statically: `cloudflare:workers` (the Worker environment, which
+ * the SvelteKit adapter-cloudflare worker.js imports) and `node:async_hooks` (AsyncLocalStorage under the target's
+ * `nodejs_als` flag). Every other specifier is refused; extending this list is a reviewed change to this file.
+ */
+export const NATIVE_HOST_IMPORTS = ['cloudflare:workers', 'node:async_hooks'] as const;
+
+/** What target.ts's parser found in the entry module's syntax (nothing here reads or runs the module). */
+export type ModuleFacts = { syntaxErrors: string[]; specifiers: string[]; computedSpecifiers: number; dynamicImports: number; requireCalls: number };
+
+/** Every reason the entry module is not a closed, prebundled graph that `no_bundle` may upload as it is. */
+export function uploadModuleProblems(f: ModuleFacts, entry: string = NATIVE_STAGED.entry): string[] {
+	const problems: string[] = [];
+	if (f.syntaxErrors.length) problems.push(`${entry} is not valid JavaScript, so its imports cannot be judged: ${f.syntaxErrors.slice(0, 3).join('; ')}`);
+	for (const spec of [...new Set(f.specifiers)].sort())
+		if (!(NATIVE_HOST_IMPORTS as readonly string[]).includes(spec))
+			problems.push(`${entry} imports ${JSON.stringify(spec)}: with no_bundle nothing resolves it at upload time, so the final bundle must be closed (only ${NATIVE_HOST_IMPORTS.join(', ')} may be imported as host modules; a bare, relative or outside-stage import is refused)`);
+	if (f.computedSpecifiers) problems.push(`${entry} has ${f.computedSpecifiers} import or export-from with a specifier that is not a string literal`);
+	if (f.dynamicImports) problems.push(`${entry} has ${f.dynamicImports} dynamic import() call(s): a dynamic import cannot be bound to the uploaded bytes (computed or not, it is refused)`);
+	if (f.requireCalls) problems.push(`${entry} has ${f.requireCalls} require() call(s): the final bundle must be a closed ES module graph`);
+	return problems;
+}
+
+/** The static host imports a closed bundle uses, sorted and distinct, for the stage record. */
+export const hostImportsOf = (f: ModuleFacts): string[] => [...new Set(f.specifiers)].sort();
+
+export type UploadFile = { path: string; bytes: number; sha256: string };
+export type NativeUpload = { mode: 'prebundled-no-bundle'; bundler: 'none'; entry: { path: string; sha256: string; bytes: number }; hostImports: string[]; additionalModules: false; files: UploadFile[]; invocation: string[] };
+
+/** The record of the ACTUAL final upload bytes: the entry by bytes and hash, every uploaded file by its own hash, and the exact command. */
+export function nativeUpload(a: { entry: { sha256: string; bytes: number }; hostImports: string[]; files: UploadFile[] }): NativeUpload {
+	return { mode: 'prebundled-no-bundle', bundler: 'none', entry: { path: NATIVE_STAGED.entry, ...a.entry }, hostImports: a.hostImports, additionalModules: false, files: a.files, invocation: [...NATIVE_UPLOAD_ARGV] };
+}
+
+/** The external pins a credentialed caller supplies to `prebuilt`, from the reviewed record and never from the stage. */
+export type NativePins = { target: string; config: string; artifact: string; migrations: string; entry: string; source: string };
+export const NATIVE_PIN_KEYS = ['target', 'config', 'artifact', 'migrations', 'entry', 'source'] as const;
+export const NATIVE_PIN_WHAT: Record<keyof NativePins, string> = {
+	target: 'sha256 of the reviewed target.json bytes',
+	config: 'sha256 of the reviewed wrangler.jsonc bytes',
+	artifact: 'artifact digest (sha256:<hex>)',
+	migrations: 'migrations digest (sha256:<hex>)',
+	entry: 'sha256 of the final Worker entry module bytes',
+	source: 'source commit (40 hex)',
+};
+const pinValid = (k: keyof NativePins, v: unknown) => typeof v === 'string' && (k === 'source' ? SHA40 : SHA256).test(v);
+
+/** `value` as NativePins, or the reasons it is not: every pin is required, well formed, and nothing else is read. */
+export function parseNativePins(value: unknown): { pins?: NativePins; problems: string[] } {
+	if (value === undefined || value === null) return { problems: [`the external pins are required (${NATIVE_PIN_KEYS.map((k) => `--pin-${k}`).join(', ')}) and are never read from the stage; none were given`] };
+	if (!isObject(value)) return { problems: ['the external pins are not an object'] };
+	const problems: string[] = [];
+	exactKeys(value, NATIVE_PIN_KEYS, 'pins', problems);
+	for (const k of NATIVE_PIN_KEYS) if (Object.hasOwn(value, k) && !pinValid(k, value[k])) problems.push(`pin ${k} ${show(value[k])} is not a ${NATIVE_PIN_WHAT[k]}`);
+	return problems.length ? { problems } : { pins: value as NativePins, problems };
+}
+
+/** Where each pinned quantity was observed, hashed from the stage (and the reviewed directory), never copied from the stage record. */
+export type ObservedPins = Partial<Record<keyof NativePins, string>>;
+
+/** Every pin that does not equal what was observed, plus every pin the reviewed target itself contradicts. */
+export function pinProblems(pins: NativePins, observed: ObservedPins, t: NativeTarget): string[] {
+	const problems: string[] = [];
+	for (const k of NATIVE_PIN_KEYS) {
+		const got = observed[k];
+		if (got !== undefined && got !== pins[k]) problems.push(`external pin ${k} (--pin-${k}) ${pins[k]} is not the staged ${NATIVE_PIN_WHAT[k]} ${got}`);
+	}
+	const reviewed: [keyof NativePins, string][] = [['artifact', t.runtime.artifactSha256], ['migrations', t.runtime.migrationsSha256], ['source', t.runtime.sourceSha]];
+	for (const [k, v] of reviewed) if (pins[k] !== v) problems.push(`external pin ${k} (--pin-${k}) ${pins[k]} is not the target's ${v}`);
+	return problems;
+}
+
 /** The record a native stage writes and its prebuilt check recomputes byte for byte. Every claim flag is constant false. */
-export function nativeStageRecord(t: NativeTarget, a: { files: Record<string, string>; artifact: string; migrations: string }) {
+export function nativeStageRecord(t: NativeTarget, a: { files: Record<string, string>; artifact: string; migrations: string; upload: NativeUpload }) {
 	return {
 		schema: NATIVE_STAGE_SCHEMA,
 		profile: 'native',
@@ -286,6 +467,7 @@ export function nativeStageRecord(t: NativeTarget, a: { files: Record<string, st
 		files: a.files,
 		artifact: a.artifact,
 		migrations: a.migrations,
+		upload: a.upload,
 		runtime: { profile: t.runtime.profile, sourceSha: t.runtime.sourceSha },
 		desired: { accountId: t.accountId, worker: t.worker, zoneId: t.zone.id, hostname: t.customDomain.hostname, d1Id: t.d1.id, r2Bucket: t.r2.bucket },
 		policy: { workersDev: false, previewUrls: false, d1Jurisdiction: t.d1.jurisdiction, r2Jurisdiction: t.r2.jurisdiction, r2PublicAccess: false, remoteMigrations: 'not-applied-by-stage' },
@@ -302,7 +484,7 @@ export function versionProblems(text: string | null, t: NativeTarget): string[] 
 	if (text === null) return [`${NATIVE_STAGED.version} is missing from the staged artifact`];
 	let v: unknown;
 	try {
-		v = JSON.parse(text);
+		v = parseNativeJson(text);
 	} catch (e) {
 		return [`${NATIVE_STAGED.version} is not JSON: ${(e as Error).message}`];
 	}

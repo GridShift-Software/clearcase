@@ -2,6 +2,7 @@
 // native Wrangler comparison, the native stage and its prebuilt re-verification. Every target, config, artifact and
 // stage is a synthetic fixture under .local/; a PASS here is structural only, never provider, EU, deploy or funding evidence.
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
@@ -22,6 +23,16 @@ const targets = loadNativeTargets(CLIENTS);
 const a = targets.find((t) => t.client === 'client-a')!;
 const b = targets.find((t) => t.client === 'client-b')!;
 const wrangler = (client: string) => readFileSync(path.join(CLIENTS, client, 'wrangler.jsonc'), 'utf8');
+// Fix r1 (M2): prebuilt needs external pins. They are computed here from the REVIEWED fixture files and the reviewed artifact, never from a stage.
+const sha = (bytes: Buffer) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+const PINS = {
+	target: sha(readFileSync(path.join(CLIENTS, 'client-a/target.json'))),
+	config: sha(readFileSync(path.join(CLIENTS, 'client-a/wrangler.jsonc'))),
+	artifact: DIGEST,
+	migrations: a.runtime.migrationsSha256,
+	entry: sha(readFileSync(path.join(ARTIFACT, 'cloudflare/_worker.js'))),
+	source: a.runtime.sourceSha,
+};
 const data = (text: string) => JSON.parse(text.split('\n').filter((l) => !l.trimStart().startsWith('//')).join('\n'));
 let n = 0;
 const scratch = (name: string) => path.join(SCRATCH, `${name}-${++n}`);
@@ -99,7 +110,7 @@ describe('the native Wrangler config is compared key by key with its native targ
 		['a build command (executable config)', '"build": { "command": "curl x | sh" }', /config\.build is not a key/],
 		['a define (executable config)', '"define": { "X": "1" }', /config\.define is not a key/],
 		['module rules', '"rules": [{ "type": "Text", "globs": ["**/*.txt"] }]', /config\.rules is not a key/],
-		['no_bundle', '"no_bundle": true', /config\.no_bundle is not a key/],
+		['no_bundle (now a required key, so this repeats it)', '"no_bundle": true', /duplicate key "no_bundle"/],
 		['an alias', '"alias": { "x": "./y" }', /config\.alias is not a key/],
 		['keep_vars', '"keep_vars": true', /config\.keep_vars is not a key/],
 		['a tail consumer', '"tail_consumers": [{ "service": "x" }]', /config\.tail_consumers is not a key/],
@@ -244,6 +255,7 @@ describe('the native stage binds the checked config, the artifact and the migrat
 			files: { 'target.json': expect.stringMatching(/^sha256:[0-9a-f]{64}$/), 'wrangler.jsonc': expect.stringMatching(/^sha256:[0-9a-f]{64}$/) },
 			artifact: DIGEST,
 			migrations: a.runtime.migrationsSha256,
+			upload: expect.objectContaining({ mode: 'prebundled-no-bundle', bundler: 'none', additionalModules: false, hostImports: [], invocation: ['wrangler', 'deploy', '--config', 'wrangler.jsonc'] }),
 			runtime: { profile: 'production', sourceSha: a.runtime.sourceSha },
 			desired: { accountId: a.accountId, worker: a.worker, zoneId: a.zone.id, hostname: 'a.sandbox.gridshift.co.za', d1Id: a.d1.id, r2Bucket: a.r2.bucket },
 			policy: { workersDev: false, previewUrls: false, d1Jurisdiction: 'eu', r2Jurisdiction: 'eu', r2PublicAccess: false, remoteMigrations: 'not-applied-by-stage' },
@@ -254,7 +266,7 @@ describe('the native stage binds the checked config, the artifact and the migrat
 			deployed: false,
 		});
 		expect(digestDir(path.join(out, 'migrations'))).toBe(record.migrations);
-		expect(checkNativeStage({ client: 'client-a', stage: out, clients: CLIENTS })).toEqual([]);
+		expect(checkNativeStage({ client: 'client-a', stage: out, clients: CLIENTS, pins: PINS })).toEqual([]);
 	});
 
 	const refusedStage = (a2: { artifact?: string; digest?: string; clients?: string }, reason: RegExp | string) => {
@@ -313,7 +325,7 @@ describe('the native stage binds the checked config, the artifact and the migrat
 		const refusedPrebuilt = (edit: (out: string) => void, reason: RegExp | string) => {
 			const out = stageOk();
 			edit(out);
-			refusedWith(checkNativeStage({ client: 'client-a', stage: out, clients: CLIENTS }), reason);
+			refusedWith(checkNativeStage({ client: 'client-a', stage: out, clients: CLIENTS, pins: PINS }), reason);
 		};
 		test('a claim flag edited in stage.json is refused', () => refusedPrebuilt((o) => editJson(path.join(o, 'stage.json'), (r) => (r.fundedAdmission = true)), /stage\.json is not the record of these staged bytes/));
 		test('a policy edited in stage.json is refused', () => refusedPrebuilt((o) => editJson(path.join(o, 'stage.json'), (r) => (r.policy.r2Jurisdiction = 'default')), /stage\.json is not the record/));
@@ -335,7 +347,7 @@ describe('the native stage binds the checked config, the artifact and the migrat
 			const out = stageOk();
 			const link = scratch('stage-link');
 			symlinkSync(out, link);
-			refusedWith(checkNativeStage({ client: 'client-a', stage: link, clients: CLIENTS }), /is a symlink, not a directory/);
+			refusedWith(checkNativeStage({ client: 'client-a', stage: link, clients: CLIENTS, pins: PINS }), /is a symlink, not a directory/);
 		});
 	});
 });

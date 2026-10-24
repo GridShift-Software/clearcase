@@ -5,6 +5,8 @@
   "name": "cc-sbx-a-20261023",
   "account_id": "fb4c31b91c5d89b7a54afbdc34823170",
   "main": "artifact/cloudflare/_worker.js",
+  "no_bundle": true,
+  "find_additional_modules": false,
   "compatibility_date": "2026-10-12",
   "compatibility_flags": ["nodejs_als"],
   "send_metrics": false,

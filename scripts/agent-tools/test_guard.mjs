@@ -2189,6 +2189,9 @@ function main() {
   for (const file of touched) {
     if (!(/(?:^|\/)(?:tests?|__tests__)\/|\.(?:test|spec)\./.test(file))) continue;
     if (!supported(file)) {
+      // Only explicit whole-file protection validated above can stand in for a Python assertion floor.
+      // JS/TS still count below, and other unsupported test syntax still refuses.
+      if (file.endsWith('.py') && protectedFiles.has(file)) continue;
       if (/\.(?:py|sh)$/.test(file)) throw Error(`unsupported changed test syntax: ${file}; guard refuses to infer assertion counts`);
       continue;
     }

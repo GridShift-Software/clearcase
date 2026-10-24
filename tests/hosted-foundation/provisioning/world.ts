@@ -25,6 +25,7 @@ export const CLIENT_A = id('client', 'client-a'), CASE_1 = id('case', 'case-1'),
 export const client = (subject: string, issuer = ISSUER_A): Principal => ({ issuer, subject, kind: 'client' });
 export const staff = (subject: string, issuer = ISSUER_STAFF): Principal => ({ issuer, subject, kind: 'staff' });
 export const SESSION = id('session', 'session-1') as SessionId;
+export const SESSION_2 = id('session', 'session-2') as SessionId;
 
 export function d1(db: DatabaseSync): D1 {
   const statement = (sql: string, values: (string | number | null)[] = []): D1Statement => ({
@@ -47,12 +48,24 @@ export function world(o: { cases?: CaseId[] } = {}) {
   db.exec(MIGRATION);
   let clock = new Date('2026-10-24T12:00:00.000Z');
   const events: AuditEvent[] = [];
-  const state = { auditFails: false, casesFail: false, grantsFail: false };
-  const audit: AuditSink = {
+  const state = { auditFails: false, casesFail: false, grantsFail: false, lostAck: false, findFails: false, appends: 0 };
+  // The audit stand-in follows the gate's contract: event_id is a primary key, so a repeated append is refused. It can
+  // fail before persisting (auditFails), persist and then lose the acknowledgement (lostAck), and answer a lookup by
+  // event id (findFails makes that lookup unavailable).
+  const unavailable = () => Object.assign(new Error('audit-unavailable'), { code: 'audit-unavailable', retryable: true });
+  const audit: AuditSink & { find(eventId: string): Promise<AuditEvent | null> } = {
     async append(e) {
-      if (state.auditFails) throw Object.assign(new Error('audit-unavailable'), { code: 'audit-unavailable', retryable: true });
+      state.appends++;
+      if (state.auditFails) throw unavailable();
+      if (events.some((x) => x.eventId === e.eventId)) throw unavailable();
       events.push(structuredClone(e));
+      if (state.lostAck) throw unavailable();
       return { eventId: e.eventId };
+    },
+    async find(eventId) {
+      if (state.findFails) throw unavailable();
+      const found = events.find((x) => x.eventId === eventId);
+      return found ? structuredClone(found) : null;
     },
   };
   const known = new Set<string>(o.cases ?? [CASE_1, CASE_2]);
@@ -74,6 +87,6 @@ export function world(o: { cases?: CaseId[] } = {}) {
     return grantId;
   }
   const rows = () => db.prepare('SELECT grant_id, role, state, version FROM tenant_case_grants ORDER BY grant_id').all();
-  const actor = (p: Principal) => ({ principal: p, sessionId: SESSION });
-  return { db, events, state, authorizeCase, authorizeCapability, manage, seed, rows, actor, advance: (ms: number) => { clock = new Date(clock.getTime() + ms); } };
+  const actor = (p: Principal, sessionId: SessionId = SESSION) => ({ principal: p, sessionId });
+  return { db, events, audit, state, authorizeCase, authorizeCapability, manage, seed, rows, actor, advance: (ms: number) => { clock = new Date(clock.getTime() + ms); } };
 }

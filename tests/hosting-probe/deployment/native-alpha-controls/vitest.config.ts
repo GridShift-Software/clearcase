@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 export default defineConfig({
 	test: {
 		root: fileURLToPath(new URL('.', import.meta.url)),
-		include: ['controls.test.ts'],
+		include: ['controls.test.ts', 'controls-fix-r1.test.ts'],
 		pool: 'forks',
 		testTimeout: 30_000,
 	},

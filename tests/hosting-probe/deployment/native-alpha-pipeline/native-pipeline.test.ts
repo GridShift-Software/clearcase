@@ -110,7 +110,7 @@ describe('the native Wrangler config is compared key by key with its native targ
 		['a build command (executable config)', '"build": { "command": "curl x | sh" }', /config\.build is not a key/],
 		['a define (executable config)', '"define": { "X": "1" }', /config\.define is not a key/],
 		['module rules', '"rules": [{ "type": "Text", "globs": ["**/*.txt"] }]', /config\.rules is not a key/],
-		['no_bundle (now a required key, so this repeats it)', '"no_bundle": true', /duplicate key "no_bundle"/],
+		['no_bundle', '"no_bundle": true', /duplicate key "no_bundle"/],
 		['an alias', '"alias": { "x": "./y" }', /config\.alias is not a key/],
 		['keep_vars', '"keep_vars": true', /config\.keep_vars is not a key/],
 		['a tail consumer', '"tail_consumers": [{ "service": "x" }]', /config\.tail_consumers is not a key/],

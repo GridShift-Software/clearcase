@@ -1,0 +1,70 @@
+{
+  "schema": "clearcase-fix-round/1",
+  "unit": "PRFIX-153/implementation",
+  "fixBase": "7f8aa5fcede1fe2f841f963551af49fe563f37bb",
+  "reviewFindingsSha256": "4e67b00a13084f322f436df71a56675af548ff4b934bb9c27bbd449f416c4ef0",
+  "findings": [
+    {
+      "file": "tests/gate/reviewed-python-file-protection.test.ts",
+      "line": 79,
+      "comment": "https://github.com/GridShift-Software/clearcase/pull/153#discussion_r4366659601",
+      "severity": "P2",
+      "text": "<a href=\"#\"><img alt=\"P2\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/p2.svg?v=9\" align=\"top\"></a> **Tests need old Git history**\n\nIf a shallow checkout lacks `DEV105`, every `Fixture` throws while copying the old reader. All 70 cases fail before checking the guard, including cases that only need the current reader. Keep the old reader as a checked-in fixture, or separate historical comparisons from the current guard tests so missing history does not disable the whole suite.",
+      "tests": []
+    }
+  ],
+  "tests": [],
+  "protection": {
+    "kind": "files",
+    "files": [
+      {
+        "file": "tests/gate/fixtures/reviewed-python-dev105/README.md",
+        "revision": "7bf95cf1e14139c40d4740d5fd8de3effcfbf003"
+      },
+      {
+        "file": "tests/gate/fixtures/reviewed-python-dev105/_common.sh.fixture",
+        "revision": "7bf95cf1e14139c40d4740d5fd8de3effcfbf003"
+      },
+      {
+        "file": "tests/gate/fixtures/reviewed-python-dev105/agent_tools.py.fixture",
+        "revision": "7bf95cf1e14139c40d4740d5fd8de3effcfbf003"
+      },
+      {
+        "file": "tests/gate/fixtures/reviewed-python-dev105/fix-round-guard",
+        "revision": "7bf95cf1e14139c40d4740d5fd8de3effcfbf003"
+      },
+      {
+        "file": "tests/gate/fixtures/reviewed-python-dev105/manifest.json",
+        "revision": "7bf95cf1e14139c40d4740d5fd8de3effcfbf003"
+      },
+      {
+        "file": "tests/gate/fixtures/reviewed-python-dev105/materialize.ts",
+        "revision": "7bf95cf1e14139c40d4740d5fd8de3effcfbf003"
+      },
+      {
+        "file": "tests/gate/fixtures/reviewed-python-dev105/skills.lock.json",
+        "revision": "7bf95cf1e14139c40d4740d5fd8de3effcfbf003"
+      },
+      {
+        "file": "tests/gate/fixtures/reviewed-python-dev105/test-guard",
+        "revision": "7bf95cf1e14139c40d4740d5fd8de3effcfbf003"
+      },
+      {
+        "file": "tests/gate/fixtures/reviewed-python-dev105/test_guard.mjs",
+        "revision": "7bf95cf1e14139c40d4740d5fd8de3effcfbf003"
+      },
+      {
+        "file": "tests/gate/reviewed-python-file-protection-assets.test.ts",
+        "revision": "7bf95cf1e14139c40d4740d5fd8de3effcfbf003"
+      },
+      {
+        "file": "tests/gate/reviewed-python-file-protection.test.ts",
+        "revision": "7bf95cf1e14139c40d4740d5fd8de3effcfbf003"
+      }
+    ],
+    "review": {
+      "file": "docs/acceptance/file-protection-reviews/PR-153-r1.json",
+      "sha256": "2a905a059944f67c4fa26f3b1f9ba2bc02899f42c067042ef710f420a7161e7b"
+    }
+  }
+}

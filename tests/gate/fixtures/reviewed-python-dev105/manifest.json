@@ -1,0 +1,41 @@
+{
+  "commit": "105c4fa8ccf9e5850d082a502ef2705a85d70301",
+  "assets": [
+    {
+      "path": "scripts/agent-tools/test_guard.mjs",
+      "blob": "3646e0ec41fd0439766160c37c95b87dc43f6b9c",
+      "sha256": "555cb1067621bf160e386a638322215c9a382a09d558eb96119e18a4c9ab948f",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/agent-tools/agent_tools.py",
+      "blob": "2494ba49d2ffcbe2e0e77699b3aa9d9d3d161376",
+      "sha256": "69f4a7ef8cb6ad4a3ac9de23462a236ec4113546ef56ed1006ea542e2fff0f08",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/agent-tools/_common.sh",
+      "blob": "c693c711bfd54da5db13c5576b8140534b7f5a92",
+      "sha256": "639c04628497108b46eeffa37d4f6adb8f549d757db0f8ccfb5aaa263120ed93",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/agent-tools/skills.lock.json",
+      "blob": "9c253fa6666c1b488396c920696f2ce51f8886e7",
+      "sha256": "576f86a88c65756471fd757ea8ddaea0b600fa0c762b7597607055dac3fb1ff9",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/agent-tools/test-guard",
+      "blob": "2afc8f7b1089756e26ee54802747c55550efa002",
+      "sha256": "2021b408882c6342c2c0fcfc92beae331311777d80652a6ff1f188c27948844f",
+      "mode": "100755"
+    },
+    {
+      "path": "scripts/agent-tools/fix-round-guard",
+      "blob": "a2ea10a9e20302878f1bf4d2861393d3372add85",
+      "sha256": "3645dfa0424cef6ad1ab9d36836faa1a87575df5f74aa378e84dfdea86689a41",
+      "mode": "100755"
+    }
+  ]
+}

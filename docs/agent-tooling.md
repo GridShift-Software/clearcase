@@ -719,9 +719,10 @@ best-effort net, not a sandbox. The cases below remain reviewer-owned; GRS-150 d
   guard keeps this refusal fail-closed, so a fix that changes `viewer.mjs` fails until the reviewer clears it by
   reading the change and confirming the import is the unchanged asset.
 
-Unsupported named syntax or changed Python/shell test sources fail closed, and so does a protected file importing a
-module the resolver cannot bind, a `.svelte` component included; this draft does not claim semantic understanding of
-arbitrary test frameworks.
+Unsupported named syntax and changed shell test sources fail closed. Changed Python test sources also refuse unless
+validated by the explicit whole-file protection below. A protected JS/TS file importing a module the resolver cannot
+bind, a `.svelte` component included, still refuses; this guard does not claim semantic understanding of arbitrary test
+frameworks or Python import traversal.
 
 ### Custom probe file protection
 
@@ -753,9 +754,19 @@ Its exact fields are:
 
 Replace the placeholders with the actual review and complete ordered files list. This document preserves the new
 review provenance separately from the original findings hash and history. Every declaration must equal its reviewed
-entry. The guard still runs ordinary configuration, dependency/reach and touched-test assertion-count checks against
-`fixBase..HEAD`; it does not execute the custom legs. Frozen files join the protected closure for reach checks, while
-the original assertion floor still applies to them. Other changed runtime files remain subject to the existing checks.
+entry. The guard still runs ordinary configuration, dependency/reach and touched-test checks against `fixBase..HEAD`;
+it does not execute the custom legs. Frozen files join the protected closure for reach checks. At the final touched-test
+floor only, a `.py` file whose entire committed bytes **and mode** already passed all files-mode snapshot and provenance
+checks uses that explicit whole-file protection instead of an inferred JS/TS assertion count. An unlisted changed Python
+test still refuses, as does any listed file with altered bytes/mode or invalid snapshot/provenance. Named-test mode,
+nonempty named lists and `noTests` are unchanged; files mode cannot be mixed with them. Supported JS/TS assertion floors
+still apply even to frozen files, and reviewed shell tests still refuse. Other changed runtime files remain subject to
+the existing checks. There is no general unsupported-language waiver or Python parser.
+
+For Python, the independent reviewer must audit the complete explicit input list, imports, helpers and runtime changes:
+this byte/mode binding does not discover or freeze Python's imported modules or prove their semantics. Missing inputs
+can invalidate the review even when the declared files pass. Hashes and distinct actor names do not authenticate the
+reviewer's authority; the existing unsigned-review/ledger limits below remain unchanged.
 
 With a ledger, the original prompting review and first fix dispatch still determine `fixBase`, findings hash and
 `protectedTests`. Files mode cannot replace a nonempty named-test list. Only this explicit mode permits absent or

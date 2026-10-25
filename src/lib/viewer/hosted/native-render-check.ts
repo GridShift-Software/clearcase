@@ -1,6 +1,7 @@
 import puppeteer, { type Browser, type BrowserWorker, type HTTPRequest, type Page } from '@cloudflare/puppeteer';
 import { packageVersion as sdkVersion } from '@cloudflare/puppeteer/lib/esm/puppeteer/generated/version.js';
 import { NATIVE_RENDER_SDK_POLICY } from '../../../../scripts/native-render-sdk-policy.ts';
+import { NATIVE_SDK_POLICY_IDENTITY } from './sdk-build-contract.ts';
 import type { ClientId } from '../../server/runtime/contracts.ts';
 import type { CloudD1 } from '../../storage/cloud/bindings.ts';
 import type { NativePreviewRenderBudget, NativePreviewRenderChecker } from './render-check-contract.ts';
@@ -210,7 +211,8 @@ export async function createNativePreviewRenderChecker(o: NativePreviewRenderOpt
  // The actual installed SDK version, exact lock integrity, pinned browser/worker/resource bytes, and source-owned
  // HTML/CSP/render program all participate. Server-side transcript/admission algorithm changes bump the family above.
  const rendererVersion = NATIVE_PDF_RENDERER_ALGORITHM + ';sha256:' + await sha(encode({
-  algorithm: NATIVE_PDF_RENDERER_ALGORITHM, sdkVersion, sdkIntegrity: SDK_INTEGRITY, pdfjsVersion: PDF_VERSION,
+  algorithm: NATIVE_PDF_RENDERER_ALGORITHM, sdkVersion, sdkIntegrity: SDK_INTEGRITY,
+  sdkWorkerPolicy: NATIVE_SDK_POLICY_IDENTITY, pdfjsVersion: PDF_VERSION,
   packageDigest: PACKAGE_DIGEST, browser: files.get('/pdfjs/pdf.min.mjs'), worker: files.get('/pdfjs/pdf.worker.min.mjs'),
   program: await sha(encode([HTML, CSP, INSPECTOR])),
  }));

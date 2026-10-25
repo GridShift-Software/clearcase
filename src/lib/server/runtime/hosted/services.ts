@@ -29,6 +29,8 @@ import { canonicalText } from '../../../case-package/canonical.ts';
 import { committedAuditRecovery, type RecoveryD1 } from '../../../audit/recovery.ts';
 import { createPublicationMaterialReader } from './publication-material.ts';
 import { hostedValidationPolicy } from './validation-policy.ts';
+import { createNativePreviewRenderChecker, type NativePreviewRenderOptions } from '../../../viewer/hosted/native-render-check.ts';
+import { compiledPdfAssetPins } from './render-pins.ts';
 import { d1PublicationPublisher } from '../../../publication/hosted/d1-publisher.ts';
 import { d1PublicationLedger } from '../../../publication/hosted/ledger.ts';
 import { d1ReadinessFence } from '../../../publication/hosted/readiness-fence.ts';
@@ -174,12 +176,27 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 						};
 					}
 					const validationLimits = hostedValidationPolicy(budgets);
+					const browserBinding = env.BROWSER;
+					const assetsBinding = env.ASSETS as { fetch?: (request: Request) => Promise<Response> } | undefined;
+					const renderBudget = context.settings.nativeRenderBudget;
+					const renderChecker = await createNativePreviewRenderChecker({
+						db: context.rawDb, clientId: clerk.config.clientId,
+						browser: browserBinding && typeof (browserBinding as { fetch?: unknown }).fetch === 'function'
+							? browserBinding as NativePreviewRenderOptions['browser'] : null,
+						assets: assetsBinding && typeof assetsBinding.fetch === 'function'
+							? { fetch: (assetRequest) => assetsBinding.fetch!(assetRequest) } : null,
+						appOrigin: clerk.config.appOrigin, pins: compiledPdfAssetPins(),
+						// The factory validates all six finite bounds, ceilings and their relation. No budget defaults.
+						budget: renderBudget && typeof renderBudget === 'object' && !Array.isArray(renderBudget)
+							? renderBudget as NativePreviewRenderOptions['budget'] : null,
+						now,
+					});
 					const material = validationLimits && createPublicationMaterialReader({ db: context.rawDb, bucket: cloud.bucket,
 						clientId: clerk.config.clientId, identity, audit: services.audit, storageBudgets: budgets,
 						// Revalidate with the importer's complete effective parser + explicit resource policy.
 						validationLimits,
-						// Until the SDK build policy/closure is proved and composed, every required file stays pending.
-						renderChecker: null, now });
+						// Missing binding, compiled pins or finite policy leaves genuine required previews pending.
+						renderChecker, now });
 					const publication: PublicationReadinessPorts | null = material ? {
 						clientId: clerk.config.clientId, candidates: material, now,
 						authorize: async (a) => {

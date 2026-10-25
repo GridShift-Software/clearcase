@@ -11,6 +11,8 @@ export function fixture() {
  put('package.json', readFileSync('package.json', 'utf8'));
  cpSync('node_modules/@cloudflare/puppeteer', path.join(root, 'node_modules/@cloudflare/puppeteer'), { recursive: true });
  put(FACTORY, readFileSync(FACTORY, 'utf8'));
+ const contract='src/lib/viewer/hosted/sdk-build-contract.ts';
+ put(contract,readFileSync(contract,'utf8'));
  put('scripts/native-render-sdk-policy.ts', readFileSync('scripts/native-render-sdk-policy.ts', 'utf8'));
  put('entry.ts', `import {createNativePreviewRenderChecker} from './${FACTORY}';
 export default { async fetch(_request: Request, env: {render: Parameters<typeof createNativePreviewRenderChecker>[0]}) {

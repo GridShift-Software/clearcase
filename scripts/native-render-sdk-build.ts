@@ -6,23 +6,19 @@ import type { Plugin } from 'vite';
 import { applyNativeRenderSdkPolicy, NATIVE_RENDER_SDK_POLICY } from './native-render-sdk-policy.ts';
 import type { HostedProfile } from './ci/hosted-imports.ts';
 
-export const NATIVE_SDK_BUILD_SCHEMA = 'clearcase.native-render-sdk-build/1';
+import { NATIVE_SDK_BUILD_SCHEMA, NATIVE_SDK_INPUT_PINS, NATIVE_SDK_WORKER_OUTPUTS, NATIVE_SDK_BUFFER_SOURCE as BUFFER_SOURCE, NATIVE_SDK_DEBUG_SOURCE as DEBUG_SOURCE } from '../src/lib/viewer/hosted/sdk-build-contract.ts';
+export { NATIVE_SDK_BUILD_SCHEMA, NATIVE_SDK_INPUT_PINS, NATIVE_SDK_WORKER_OUTPUTS } from '../src/lib/viewer/hosted/sdk-build-contract.ts';
 const SDK = '@cloudflare/puppeteer';
 const FACTORY = 'src/lib/viewer/hosted/native-render-check.ts';
 const VERSION = SDK + '/lib/esm/puppeteer/generated/version.js';
 const BUFFER = '\0clearcase-native-render:host-buffer';
 const DEBUG = '\0clearcase-native-render:deny-node-debug';
-const BUFFER_SOURCE = "export { Buffer } from 'node:buffer';\n";
-const DEBUG_SOURCE = "export default function debug() { throw Error('native render SDK Node diagnostics refused'); }\n";
 const sha = (s: string | Uint8Array) => createHash('sha256').update(s).digest('hex');
 const slash = (s: string) => s.replaceAll(path.sep, '/');
 function refused(why: string): never { throw Error('native render SDK build refused: ' + why); }
 
 // The entire official ESM JS inventory (including third_party/rxjs) and package metadata from the frozen install.
 // Individual reached inputs are compared AGAIN with this captured inventory, never accepted by suffix alone.
-export const NATIVE_SDK_INPUT_PINS = {
- version: '1.4.0', packageSha256: '8ab3e1d7431161bccb5ac1c7198eee3077aa14912a74290764b71583a9699166', esmInventorySha256: '65d81a63ea1ea2a381d29260aad55d9737ca513b345efc68b66a88c4df539005', modules: 144,
-} as const;
 const edits = {
  'puppeteer/cloudflare/PuppeteerWorkers.js': [
   ["import './globalPatcher.js';", '// Global patching denied; Buffer is imported lexically by its consumers.'],
@@ -49,16 +45,6 @@ const CONNECTOR_SOURCE = "/** @license Copyright 2023 Google Inc. SPDX-License-I
 const TRANSPORT = 'puppeteer/common/BrowserWebSocketTransport.js';
 const TRANSPORT_SOURCE = "export class BrowserWebSocketTransport { constructor() { throw Error('native render SDK generic transport refused'); } static async create() { throw Error('native render SDK generic transport refused'); } }\n";
 // Each deny-only transform is itself output pinned, separate from the two reviewed diagnostics transformations.
-export const NATIVE_SDK_WORKER_OUTPUTS: Readonly<Record<string, string>> = {
- 'puppeteer/cloudflare/PuppeteerWorkers.js': '01743bfb29b39e4cb164fd5af7e4b3a679af925ea16bbf70eb02952342c7065f',
- 'puppeteer/environment.js': '2a5e664e943102a3e3cf15c51b521edde0da5f139e93ed1368be6693624daae1',
- 'puppeteer/common/util.js': 'bd3e757520c301ae67f66047c3b626178da11a4580efa15e807feef258a1b6a4',
- 'puppeteer/cdp/ElementHandle.js': '6815afe625aa56f87058ed745772d943147443ccacaa4e0df07f1ba9c7664e51',
- 'puppeteer/api/Page.js': 'a7ce8d8fc342f9d2d7903c3f9d188e1808b22f8da9b0a0d2fd09bfca74aa8ce4',
- 'puppeteer/cdp/HTTPResponse.js': 'cce51077cfb109ee1cca5b147f789a6d43c848f7dfca28f72406eca9f75f9343',
- [CONNECTOR]: 'db97c7501ad3b626b1b6e0f3fe736b8a350999d2da0d6c17415a5489a5fffb4b',
- [TRANSPORT]: 'aa0064de9edc9ed95d35e64cce447b0946ac672994408c3aaf0e23b871f5563a',
-};
 const REVIEWED = ['puppeteer/common/Debug.js', 'puppeteer/cloudflare/utils.js'];
 const REQUIRED = [...REVIEWED, ...Object.keys(NATIVE_SDK_WORKER_OUTPUTS)];
 export type SdkModuleReceipt = {

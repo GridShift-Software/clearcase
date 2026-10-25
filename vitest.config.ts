@@ -27,35 +27,22 @@ export default defineConfig({
     // The viewer lifecycle needs client-compiled Svelte; keep it in its own project, once, while every other test
     // inherits this root project's server compilation, aliases, setup and sequencer.
     projects: [
-      { extends: true, plugins: [svelte({ configFile: false })], test: { name: 'root', exclude: [...configDefaults.exclude, 'tests/hosted-smoke/native-viewer/**'] } },
+      { extends: true, plugins: [svelte({ configFile: false })], test: { name: 'root', include: [
+        'tests/case-package/**/*.test.ts', 'tests/fixtures/**/*.test.ts', 'src/lib/local-case/**/*.test.ts', 'src/lib/components/**/*.test.ts',
+        'tests/parity/**/*.test.ts', 'tests/gate/**/*.test.ts', 'tests/ci/**/*.test.ts',
+        'tests/{evidence,analysis,quantum,calculations,registers,litigation,bundles,system}/**/*.test.ts',
+        'src/lib/{evidence,analysis,calculations,litigation,bundles,views,user-work}/**/*.test.ts', 'src/routes/**/*.test.ts',
+        'tests/e2e/pilot/**/*.test.ts', 'tests/demo/**/*.test.ts', 'tests/hosted-foundation/**/*.test.ts',
+        'tests/hosting-probe/deployment/**/*.test.ts', 'tests/hosting-probe/identity/*.test.ts', 'tests/hosted-smoke/**/*.test.ts',
+        'tests/results-review/**/*.test.ts', 'tests/publication/**/*.test.ts', 'tests/native-alpha-journey/**/*.test.ts', 'tests/acceptance/CC-25/*.test.ts',
+      ], exclude: [...configDefaults.exclude, 'tests/hosted-smoke/native-viewer/**'] } },
       { ...nativeViewerConfig, test: { ...nativeViewerConfig.test, name: 'native-viewer' } },
     ],
     // GRS-10's package suite, then the pilot's unit tests (storage, import, activation, originals, contracts), the
     // parity harness, the pilot e2e harness's own unit tests, and the M2 owners' write scopes
     // (.orchestration/reservations.tsv, CC-04 to CC-10), so a new owner's tests run without an edit here. Route-level
     // tests (src/routes/**) are collected too, so a test placed next to a route is never silently skipped.
-    include: [
-      'tests/case-package/**/*.test.ts',
-      'tests/fixtures/**/*.test.ts',
-      'src/lib/local-case/**/*.test.ts',
-      'src/lib/components/**/*.test.ts',
-      'tests/parity/**/*.test.ts',
-      'tests/gate/**/*.test.ts',
-      'tests/ci/**/*.test.ts',
-      'tests/{evidence,analysis,quantum,calculations,registers,litigation,bundles,system}/**/*.test.ts',
-      'src/lib/{evidence,analysis,calculations,litigation,bundles,views,user-work}/**/*.test.ts',
-      'src/routes/**/*.test.ts',
-      'tests/e2e/pilot/**/*.test.ts',
-      'tests/demo/**/*.test.ts',
-      'tests/hosted-foundation/**/*.test.ts',
-      'tests/hosting-probe/deployment/**/*.test.ts',
-      'tests/hosting-probe/identity/*.test.ts',
-      'tests/hosted-smoke/**/*.test.ts',
-      'tests/results-review/**/*.test.ts',
-      'tests/publication/**/*.test.ts',
-      'tests/native-alpha-journey/**/*.test.ts',
-      'tests/acceptance/CC-25/*.test.ts',
-    ],
+
     pool: 'forks',
     setupFiles: ['tests/setup/strip-git-env.ts'], // no test sees an inherited GIT_* variable
     sequence: { sequencer: SlowFirst },

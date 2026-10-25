@@ -51,8 +51,8 @@ const counts = (w: World) => Object.fromEntries(['native_import_attempt', 'nativ
 const CLAIM: Doc = { ref: 'OD-001', path: 'Letters/Claim.pdf', bytes: pdf('claim') };
 interface Ready { w: World; fx: Fixture; revisionId: string; manifest: Awaited<ReturnType<typeof finalizeSubmission>>; body: { operationId: string; submissionRevisionId: string; files: Record<string, string> } }
 /** A world with one finalized one-file submission and a package whose single required original is that file. */
-async function ready(o: { docs?: readonly Doc[]; submitted?: SubmittedFile; fx?: Parameters<typeof buildFixture>[0]; submissions?: unknown; operate?: readonly CaseId[]; null?: string | null } = {}): Promise<Ready> {
-  const w = world({ operate: o.operate, null: o.null, submissions: o.submissions });
+async function ready(o: { configured?: boolean; docs?: readonly Doc[]; submitted?: SubmittedFile; fx?: Parameters<typeof buildFixture>[0]; submissions?: unknown; operate?: readonly CaseId[]; null?: string | null } = {}): Promise<Ready> {
+  const w = world({ operate: o.operate, null: o.null, submissions: o.submissions, configured: o.configured });
   const docs = o.docs ?? [CLAIM];
   const submitted = o.submitted ?? { path: docs[0].path, bytes: docs[0].bytes };
   const manifest = await finalizeSubmission(w.db, { operationId: op(), file: submitted });
@@ -125,7 +125,7 @@ describe('authority is decided before any body byte, row, object or stager call'
   });
 
   it('answers 503 for every route when nothing is composed', async () => {
-    const w = world({ configured: false }), body = (await ready()).body;
+    const { w, body } = await ready({ configured: false });
     expect((await importPkg('case-a', body)).status).toBe(503);
     expect((await listAll('case-a')).status).toBe(503);
     expect((await readOne('case-a', 'cand-x')).status).toBe(503);
@@ -501,11 +501,12 @@ describe('the exact required file set, preserved by the candidate staying privat
     expect(counts(w).native_import_link).toBe(0);
   });
 
-  it('prefers the exact name over a case variant, then still demands every submitted file be mapped', async () => {
+  it('prefers the exact name over a case variant (no ambiguity), yet the variant file still blocks the link as unmapped', async () => {
     const lower = { path: 'letters/claim.pdf', bytes: pdf('lower') };
-    const { body } = await multi([CLAIM, { ref: 'OD-002', path: lower.path, bytes: lower.bytes }], [CLAIM, lower]);
-    const m = (await linked(await importPkg('case-a', body))).link.coverage.mappedOriginals;
-    expect(m.map((x) => [x.packagePath, x.storedPath, x.pathMatch])).toEqual([['Letters/Claim.pdf', 'Letters/Claim.pdf', 'literal'], ['letters/claim.pdf', 'letters/claim.pdf', 'literal']]);
+    const { w, body } = await multi([CLAIM], [CLAIM, lower]);
+    const u = await unlinked(await importPkg('case-a', body));
+    expect(u.reasons).toEqual([{ code: 'submitted-file-unmapped', subject: 'letters/claim.pdf' }]);
+    expect(counts(w).native_import_link).toBe(0);
   });
 });
 

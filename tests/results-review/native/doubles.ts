@@ -74,7 +74,8 @@ export class ValidatingStager {
 
 /** The stored-package reader double the correction path reads the base candidate's exact bytes through. */
 export class StoredPackages {
-  constructor(private readonly stager: ValidatingStager) {}
+  private readonly stager: ValidatingStager;
+  constructor(stager: ValidatingStager) { this.stager = stager; }
   tamper: ((files: Map<string, Uint8Array>) => void) | null = null;
   async files(a: { clientId: ClientId; caseId: CaseId; resultsVersion: string }): Promise<ReadonlyMap<string, Uint8Array> | null> {
     const s = this.stager.store.get(a.resultsVersion);

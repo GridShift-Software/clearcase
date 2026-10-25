@@ -1,0 +1,12 @@
+{
+  "extends": "../../../tsconfig.json",
+  "include": [
+    "../../../src/app.d.ts",
+    "../../../src/lib/publication/hosted/readiness.ts",
+    "../../../src/lib/views/hosted/OperatorWorkbench.svelte",
+    "../../../deploy/client/routes/operator/cases/[caseId]/+page.server.ts",
+    "../../../deploy/client/routes/operator/cases/[caseId]/+page.svelte",
+    "../../../deploy/client/routes/operator/publication/[caseId]/readiness/+server.ts",
+    "./**/*.ts"
+  ]
+}

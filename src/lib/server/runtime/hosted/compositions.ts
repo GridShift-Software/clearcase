@@ -6,12 +6,15 @@ import {setNativeImportComposition} from '../../../results-review/native/composi
 import type {NativeImportPorts} from '../../../results-review/native/ports.ts';
 import {setPublicationComposition} from '../../../publication/hosted/composition.ts';
 import {setReadinessComposition,type PublicationReadinessPorts} from '../../../publication/hosted/readiness.ts';
+import {setRecoveryComposition,type NativeRecoveryBinding} from '../../../recovery/hosted/composition.ts';
 
 export interface NativeRequestCompositions {
  readonly intake: IntakePorts | null;
  readonly downloads: OperatorDownloadPorts | null;
  readonly imports?:NativeImportPorts|null;
  readonly publication?:PublicationReadinessPorts|null;
+ /** Trusted parent only: this request's own deps plus its configured app origin. Absent means the recovery routes answer 503. */
+ readonly recovery?:NativeRecoveryBinding|null;
 }
 // Object identity, not path, cookie, session id or the last request. Unknown requests always fail closed.
 const requests=new WeakMap<Request,NativeRequestCompositions>();
@@ -32,6 +35,7 @@ export function installNativeCompositions():void {
  setNativeImportComposition(({request})=>requests.get(request)?.imports??null);
  setPublicationComposition(({request})=>requests.get(request)?.publication??null);
  setReadinessComposition(({request})=>requests.get(request)?.publication??null);
+ setRecoveryComposition(({request})=>requests.get(request)?.recovery??null);
  setOperatorDownloadComposition(({request,platform})=>{
   const ports=requests.get(request)?.downloads,context=executionContext(platform);
   if(!ports||!context)return null;

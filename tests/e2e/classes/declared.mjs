@@ -112,6 +112,12 @@ export const NOT_PRODUCERS = {
 	'src/routes/v/[vid]/system/backup_tab/download/+server.ts': 'the JSON backup (application/json)',
 	'src/routes/v/[vid]/system/rescan_tab/+page.svelte': 'link to the JSON index',
 	'src/routes/v/[vid]/system/rescan_tab/index.json/+server.ts': 'the JSON index (application/json)',
+	'src/lib/views/hosted/OperatorWorkbench.svelte': 'hosted operator workbench: links to the exact submission manifest (JSON) and the submitted PDF',
+	'src/lib/results/hosted/assets.ts': 'hosted result assets served with Content-Disposition from the media policy (original bytes, never CSV)',
+	'src/lib/submissions/download/controller.ts': 'hosted operator download: the submission manifest (attachment, JSON) and the submitted PDF bytes',
+	'src/lib/viewer/hosted/PdfViewer.svelte': 'hosted viewer: Download links to the original PDF',
+	'src/lib/viewer/hosted/delivery.ts': 'hosted viewer delivery: original PDF bytes with Content-Disposition from the serve policy',
+	'src/lib/viewer/hosted/native-render-check.ts': 'builds an object URL for the PDF worker script (text/javascript) in the native render check; a script, not a download',
 };
 
 /**
@@ -221,12 +227,42 @@ export const NON_CSV_PAGES = {
 
 /**
  * Hosted pages with a form, by route id under deploy/client/routes, with why the class suite does not drive them. The suite
- * drives the local pilot (src/routes) over its work store; the hosted tree has no user work yet (GRS-117) and its forms are
- * test-identity sign-in and sign-out. Checked (classes-targets.test.ts): discovery finds exactly these routes, and the hosted
- * smoke run (tests/hosted-foundation/runtime/smoke.ts) names each, so a reason cannot outlive the evidence it cites.
+ * drives the local pilot (src/routes) over its work store, so it drives none of these. Checked (classes-targets.test.ts):
+ * discovery finds exactly these routes, and each is bound to evidence of the kind HOSTED_FORM_EVIDENCE declares, so a
+ * reason cannot outlive the evidence it cites. The three test-identity routes are driven by the hosted smoke run
+ * (test:hosted, on workerd); the other four only by unit or component tests, over doubles, which are not browser or workerd proof.
  */
 export const HOSTED_FORMS = {
 	'/sign-in': 'the test-identity sign-in form saves no user work and has no typed field (one select); test:hosted posts it on workerd (origin check, unknown identity, redirect, cookie)',
 	'/sign-out': 'the sign-out action revokes the session and saves no user work; test:hosted posts it on workerd and checks the revoked session is refused at once',
 	'/cases': 'the case list is a read page whose only form is the sign-out POST; there is no typed field or user work, and test:hosted reads it for the signed-in, anonymous and wrong-client sessions',
+	'/sign-in/operator': 'the ClearCase staff sign-in is one submit button that redirects to the staff Clerk instance; it has no typed field and saves no user work, and the identity operator-route unit tests call its load and action',
+	'/cases/[caseId]/notes': 'the hosted case notes route (add and delete note forms) is not the local pilot work store and the suite does not drive it; the case-overview unit tests call its load and actions over doubles, with no browser or workerd run',
+	'/cases/[caseId]/views/[resultsVersion]/chronology': 'the only form is a GET filter (search, bundle, type, text status); it saves no user work, and the case-overview unit tests call its load over doubles, with no browser or workerd run',
+	'/client/intake/[caseId]': 'the intake form picks one PDF and uploads it through the submissions API (no <form> POST, no typed field); the intake component tests dispatch the real submissions route handlers over doubles for the upload and its adverse cases, and the page itself is not driven',
+};
+
+/**
+ * What drives each HOSTED_FORMS route, by kind, so a reason cannot outlive its evidence (classes-targets.test.ts parses the
+ * cited files; a comment, a harness file, a skipped test or a call no enabled test reaches is not evidence):
+ *   smoke:     the hosted smoke run names the route in code. The three test-identity routes only, pinned in the test;
+ *   unit:      a tracked *.test.ts imports the route `module`, and an enabled test reaches a call of it;
+ *   component: as unit, through `via`, a harness whose exported function reaches a call of a `module` handler (through
+ *              its handler table), and an enabled test in the test file reaches a call of that export.
+ * unit and component run in Vitest over doubles; they are never browser or workerd proof.
+ */
+const SMOKE_RUN = 'tests/hosted-foundation/runtime/smoke.ts';
+export const HOSTED_FORM_EVIDENCE = {
+	'/sign-in': { kind: 'smoke', test: SMOKE_RUN },
+	'/sign-out': { kind: 'smoke', test: SMOKE_RUN },
+	'/cases': { kind: 'smoke', test: SMOKE_RUN },
+	'/sign-in/operator': { kind: 'unit', test: 'tests/hosted-foundation/identity/operator-route.test.ts', module: 'deploy/client/routes/sign-in/operator/+page.server.ts' },
+	'/cases/[caseId]/notes': { kind: 'unit', test: 'tests/hosted-smoke/case-overview/views-notes.test.ts', module: 'deploy/client/routes/cases/[caseId]/notes/+page.server.ts' },
+	'/cases/[caseId]/views/[resultsVersion]/chronology': { kind: 'unit', test: 'tests/hosted-smoke/case-overview/views-notes.test.ts', module: 'deploy/client/routes/cases/[caseId]/views/[resultsVersion]/chronology/+page.server.ts' },
+	'/client/intake/[caseId]': {
+		kind: 'component',
+		test: 'tests/hosted-smoke/intake/adverse.test.ts',
+		via: { file: 'tests/hosted-smoke/intake/harness.ts', export: 'dispatch' },
+		module: 'deploy/client/routes/client/intake/[caseId]/submissions/+server.ts',
+	},
 };

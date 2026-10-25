@@ -4,7 +4,7 @@ import type { CloudR2Body } from '../../../src/lib/storage/cloud/bindings.ts';
 import type { Identity, IdentityState } from '../../../src/lib/server/runtime/contracts.ts';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
 import { id } from '../../../src/lib/server/runtime/ids.ts';
-import { auditConfig, requestAuditSink } from '../../../src/lib/audit/index.ts';
+import { auditConfig, requestAuditSink, type AuditReadGate } from '../../../src/lib/audit/index.ts';
 import { provisionAuditBinding } from '../../../src/lib/audit/trusted.ts';
 import { createCaseAuthorizer } from '../../../src/lib/tenancy/authorizer.ts';
 import { d1GrantRepository } from '../../../src/lib/tenancy/d1-grants.ts';
@@ -26,6 +26,11 @@ import { BUDGETS, QUOTAS, syntheticPackage, provideOriginals, publish } from '..
 
 export const CLIENT = id('client', 'client-a'), CASE = id('case', 'case-a');
 export const now = () => new Date('2026-10-25T12:00:00.000Z');
+type AuditView = Parameters<AuditReadGate['caseAudit']>[0];
+// Separately provisioned SYNTHETIC audit-view entitlement, never inferred by product code from a content/staff grant.
+// The content-only denial probes deliberately use a different principal absent from this fixture grant set.
+export const auditViewers = new Set<string>();
+export const auditViewKey = (a: AuditView) => JSON.stringify([a.principal.issuer, a.principal.subject, a.principal.kind, a.sessionId, a.caseId]);
 export const enc = (s: string) => new TextEncoder().encode(s);
 export const LIMITS = { maxFiles: 256, maxFileBytes: 1 << 20, maxTotalBytes: 8 << 20, maxManifestBytes: 256 << 10 };
 const migration = (p: string) => readFileSync(new URL(`../../../src/lib/${p}`, import.meta.url), 'utf8');
@@ -83,6 +88,7 @@ export async function world(isolated = false, workBound = true, staff = false) {
   const config = auditConfig({ clientId: CLIENT, trustedIssuers: [resource.clientIssuer, resource.staffIssuer], limits: { maxEventBytes: 4096, maxRows: 100_000, maxReadRows: 100_000, maxDenialRows: 10_000, maxDenialsPerActor: 1000, maxPageRows: 50, maxPagesPerRequest: 5 } });
   await provisionAuditBinding({ db, config, now });
   const requester: IdentityState = { kind: 'verified', principal: { issuer: staff ? resource.staffIssuer : resource.clientIssuer, subject: 'synthetic-editor', kind: staff ? 'staff' : 'client' }, sessionId: id('session', isolated ? 'target-session' : 'source-session') };
+  auditViewers.add(auditViewKey({ principal: requester.principal, sessionId: requester.sessionId, caseId: CASE }));
   const audit = requestAuditSink({ db, config, requester, now });
   db.exec(`INSERT INTO tenant_case_grants (grant_id, client_id, scope, case_id, issuer, subject, principal_kind, role, slot, state, version, created_operation_id, request, created_by_issuer, created_by_subject, created_at)
     VALUES ('g1', ?, 'case', ?, ?, ?, ?, 'editor', 'content', 'active', 1, 'grant-op', '{}', ?, 'provisioner', ?)`, CLIENT, CASE, requester.principal.issuer, requester.principal.subject, requester.principal.kind, resource.staffIssuer, now().toISOString());

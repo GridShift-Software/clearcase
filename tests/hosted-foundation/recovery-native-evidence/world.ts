@@ -1,6 +1,6 @@
 // SYNTHETIC: genuine intake, native stager, import/correction service, repositories, authorizer and audit sink.
 // Only D1 (SQLite) and R2 stream transports and the already-authenticated synthetic request are doubles.
-import { world, CASE, CLIENT, now, type World } from '../recovery-native-adapters/world.ts';
+import { world, CASE, CLIENT, now, auditViewers, auditViewKey, type World } from '../recovery-native-adapters/world.ts';
 import { buildFixture, pdf } from '../../results-review/native/fixtures.ts';
 import { BUDGETS, QUOTAS, submit, submissionOp } from '../storage/fixture.ts';
 import { createHostedCandidateStager } from '../../../src/lib/server/runtime/hosted/candidate-stager.ts';
@@ -11,11 +11,9 @@ import { d1SubmissionRepository, revisionIdOf } from '../../../src/lib/submissio
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
 import type { HostedCandidateStagerOptions } from '../../../src/lib/server/runtime/hosted/candidate-stager.ts';
 import type { AuditReadGate } from '../../../src/lib/audit/index.ts';
-type AuditView = Parameters<AuditReadGate['caseAudit']>[0];
-// Fixture composition of the parent's existing case-audit gate: an explicit, separately held view grant per exact
-// principal, session and case. A content grant, operator grant or staff kind never adds an entry.
-export const auditViewers = new Set<string>();
-export const auditViewKey = (a: AuditView) => JSON.stringify([a.principal.issuer, a.principal.subject, a.principal.kind, a.sessionId, a.caseId]);
+// Shared fixture composition explicitly provisions a separate audit view even for the malformed-lineage fixture.
+// Otherwise the now-correct pre-read check would deny that test before it could exercise strict lineage validation.
+export { auditViewers, auditViewKey };
 export const AUDIT_GATE: Pick<AuditReadGate, 'caseAudit'> = { async caseAudit(a) { if (!auditViewers.has(auditViewKey(a))) throw contractError('forbidden'); } };
 export const POLICY = { maxLineageRows: 5000, maxLineageBytes: 2 << 20, audit: AUDIT_GATE };
 export const req = { caseId: CASE, exportId: 'native-e1', includeUserWork: true };

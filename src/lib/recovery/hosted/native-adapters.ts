@@ -1,7 +1,7 @@
 // Native bindings only; no routes, provisioning, credentials, publication or grant writers.
 import type { AuditSink, CaseId, ClientId, Identity, OriginalEntry, ResultsVersion, VersionInfo } from '../../server/runtime/contracts.ts';
 import { codeOf, contractError, isDenial } from '../../server/runtime/errors.ts';
-import type { CloudD1, CloudR2, CloudR2Body } from '../../storage/cloud/bindings.ts';
+import type { CloudD1, CloudD1Statement, CloudR2, CloudR2Body } from '../../storage/cloud/bindings.ts';
 import { storageGate } from '../../storage/cloud/gate.ts';
 import { storageBudgets, type StorageBudgets } from '../../storage/cloud/budgets.ts';
 import { writeOnce } from '../../storage/cloud/objects.ts';
@@ -10,7 +10,7 @@ import { requirePublished } from '../../results/hosted/versions.ts';
 import { createD1UserWork, d1WorkRevision, userWorkConfig, type D1UserWorkConfig } from '../../user-work/hosted/d1-user-work.ts';
 import { resolveExactDeployment, validateClientManifest, type ClientResourceIdentity, type ExactDeploymentTuple } from '../../tenancy/manifest.ts';
 import { canonicalJson, ID, SHA, sha256Hex } from './bytes.ts';
-import type { CaseAuditPort, Limits, PreviewCatalog, PrivateObjectPort, RecoveryDeps, VersionVisibilityPort } from './types.ts';
+import type { CaseAuditPort, Limits, PreviewCatalog, PrivateObjectPort, ReadBoundary, RecoveryDeps, VersionVisibilityPort } from './types.ts';
 import type { RestoreDeps, RestoreTarget } from './restore.ts';
 import { expectedReferences, nativeLimits, primaryEvidenceReader, type AuditScope, type NativeEvidencePort, type NativeRecoveryPolicy, type ImmutableReference } from './native-evidence.ts';
 
@@ -92,12 +92,14 @@ function privateObjects(a: { db: CloudD1; bucket: RecoveryR2; clientId: ClientId
     if (tail.length === 3 && tail[1] === 'blobs' && SHA.test(tail[2]!)) return { max: a.limits.maxFileBytes, sha: tail[2]! };
     throw contractError('foreign-input');
   }
-  async function guard() { if (await gate()) unavailable(); await a.check(); }
-  async function get(key: string): Promise<Uint8Array | null> {
-    const scope = scoped(key);
-    await guard();
+  // All avoidable binding/controller IO precedes the final receiving authority observation.
+  async function guard(beforeIO?: () => Promise<void>) { if (await gate()) unavailable(); await beforeIO?.(); await a.check(); }
+  async function get(key: string, boundary?: ReadBoundary): Promise<Uint8Array | null> {
+    const scope = scoped(key), beforeRead = boundary?.beforeRead;
+    const checkRead = async () => { await beforeRead?.(); await a.check(); };
+    await guard(beforeRead);
     const object = await a.bucket.get(key).catch(unavailable);
-    if (!object) { await a.check(); return null; }
+    if (!object) { await checkRead(); return null; }
     const expected = checksum(object.checksums?.sha256);
     // Do not touch a body with invalid metadata. R2 creates the body lazily; cancel on all refusals.
     if (object.key !== key || !Number.isSafeInteger(object.size) || object.size < 0 || object.size > scope.max || !expected || (scope.sha !== null && scope.sha !== expected) || typeof object.body?.getReader !== 'function') {
@@ -105,23 +107,23 @@ function privateObjects(a: { db: CloudD1; bucket: RecoveryR2; clientId: ClientId
       if (object.size > scope.max) throw contractError('export-too-large');
       return corrupt();
     }
-    const reader = object.body.getReader();
+    const reader = object.body.getReader(), bytes = new Uint8Array(object.size);
     let length = 0, chunks = 0;
     try {
-      const bytes = new Uint8Array(object.size);
       for (;;) {
+        await checkRead(); // metadata/previous pull was awaited; authorize before the next protected body read
         const next = await reader.read();
         if (next.done) break;
         if (++chunks > object.size + 1 || !(next.value instanceof Uint8Array) || next.value.length > bytes.length - length) return corrupt();
         bytes.set(next.value, length); length += next.value.length;
       }
       if (length !== bytes.length || await sha256Hex(bytes) !== expected) return corrupt();
-      await a.check();
-      return bytes;
     } catch (e) {
       if (codeOf(e)) throw e;
       return unavailable();
     } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
+    await checkRead(); // cancellation is awaited too; no unchecked await follows this release observation
+    return bytes;
   }
   return Object.freeze<PrivateObjectPort>({
     kind: 'durable-private', get,
@@ -132,13 +134,13 @@ function privateObjects(a: { db: CloudD1; bucket: RecoveryR2; clientId: ClientId
       // Own the bytes before any await; a caller cannot race a checksum with a mutation of its buffer.
       const bytes = new Uint8Array(input);
       if (await sha256Hex(bytes) !== sha256) return corrupt();
-      await guard();
+      await guard(beforeCommit);
       // writeOnce awaits head before put. Interpose at the actual write boundary, not just before preflight IO.
       let authorityError: unknown;
       const guardedBucket: CloudR2 = {
         head: a.bucket.head.bind(a.bucket), get: a.bucket.get.bind(a.bucket),
         async put(...args) {
-          try { await guard(); await beforeCommit?.(); } catch (e) { authorityError = e; throw e; }
+          try { await guard(beforeCommit); } catch (e) { authorityError = e; throw e; }
           return a.bucket.put(...args);
         },
       };
@@ -146,7 +148,7 @@ function privateObjects(a: { db: CloudD1; bucket: RecoveryR2; clientId: ClientId
       if (authorityError) throw authorityError;
       if (result === 'conflict') return corrupt();
       // Includes a conditional race or an acknowledgement lost AFTER commit. Never infer success from an ETag/head.
-      const back = await get(key);
+      const back = await get(key, { beforeRead: beforeCommit });
       if (!back) return unavailable();
       if (back.length !== bytes.length || await sha256Hex(back) !== sha256) return corrupt();
       return { kind: result === 'written' ? 'created' : 'exists' };
@@ -155,8 +157,9 @@ function privateObjects(a: { db: CloudD1; bucket: RecoveryR2; clientId: ClientId
 }
 
 /** A reference capability comes only from the completed primary batch above, never from a caller's object key. */
-async function readImmutable(bucket: RecoveryR2, ref: { objectKey: string; size: number; sha256: string }, max: number) {
+async function readImmutable(bucket: RecoveryR2, ref: { objectKey: string; size: number; sha256: string }, max: number, check: () => Promise<void>) {
   if (!Number.isSafeInteger(ref.size) || ref.size < 0 || ref.size > max) throw contractError('export-too-large');
+  await check();
   const object = await bucket.get(ref.objectKey).catch(unavailable);
   if (!object) throw contractError('export-incomplete');
   const reader = object.body?.getReader?.();
@@ -164,17 +167,54 @@ async function readImmutable(bucket: RecoveryR2, ref: { objectKey: string; size:
     await reader?.cancel().catch(() => undefined); reader?.releaseLock(); return corrupt();
   }
   let length = 0, chunks = 0;
+  const bytes = new Uint8Array(ref.size);
   try {
-    const bytes = new Uint8Array(ref.size);
     for (;;) {
+      await check();
       const next = await reader.read(); if (next.done) break;
       if (++chunks > ref.size + 1 || !(next.value instanceof Uint8Array) || next.value.length > ref.size - length) return corrupt();
       bytes.set(next.value, length); length += next.value.length;
     }
     if (length !== ref.size || await sha256Hex(bytes) !== ref.sha256) return corrupt();
-    return { bytes, objectVersion: object.version, etag: object.etag };
   } catch (e) { if (codeOf(e)) throw e; return unavailable(); }
   finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
+  await check();
+  return { bytes, objectVersion: object.version, etag: object.etag };
+}
+
+/** Recovery-local composition, not a new user-work implementation or a synthetic Identity. Each call owns its
+ * hook and statement association; concurrent requests cannot replace another operation's authority callback.
+ * Reads observe genuine content authority; every mutation (including snapshot/import/acknowledgement) runs the
+ * controller first, then receiving authorization last. Authorization/audit services use the unwrapped DB. */
+function guardedD1(db: CloudD1, check: () => Promise<void>, beforeCommit?: () => Promise<void>): CloudD1 {
+  const originals = new WeakMap<CloudD1Statement, CloudD1Statement>();
+  const wrap = (raw: CloudD1Statement): CloudD1Statement => {
+    const stmt: CloudD1Statement = {
+      bind(...values) { return wrap(raw.bind(...values)); },
+      async first<T>() { await check(); const r = await raw.first<T>(); await check(); return r; },
+      async all<T>() { await check(); const r = await raw.all<T>(); await check(); return r; },
+      async run() { await beforeCommit?.(); await check(); const r = await raw.run(); await check(); return r; },
+    };
+    originals.set(stmt, raw); return stmt;
+  };
+  return {
+    prepare(sql) { return wrap(db.prepare(sql)); },
+    async batch(statements) {
+      const raw = statements.map((s) => { const original = originals.get(s); if (!original) return unavailable(); return original; });
+      await beforeCommit?.();
+      await check();
+      const result = await db.batch(raw);
+      await check(); return result;
+    },
+  };
+}
+function workIO(s: Awaited<ReturnType<typeof openSource>>, identity: Identity, receiving: () => Promise<void>, now: () => Date, beforeIO?: () => Promise<void>) {
+  const check = async () => { await beforeIO?.(); await receiving(); };
+  // User-work SELECTs contain independent target work, not source audit history. The full controller check brackets
+  // the operation; genuine content authority guards every SELECT. Repeat the full hook at each actual mutation.
+  const db = guardedD1(s.db, receiving, beforeIO);
+  return { check, revision: d1WorkRevision({ db, config: s.config }),
+    work: createD1UserWork({ db, config: s.config, identity, audit: s.userWorkAudit, store: s.store, now, tableDefinitions: null }) };
 }
 
 function currentVisibility(a: { db: CloudD1; identity: Identity; clientId: ClientId; caseId: CaseId; gate(): Promise<unknown> }): VersionVisibilityPort {
@@ -224,7 +264,7 @@ async function openSource(a: NativeRecoverySource, now: () => Date) {
     },
   });
   const userWork = createD1UserWork({ db, config, identity: a.identity, audit: a.audit, store, now, tableDefinitions: null });
-  return { deployment, clientId, db, bucket, gate, store, assets, userWork, revision, budgets, config };
+  return { deployment, clientId, db, bucket, gate, store, assets, userWork, userWorkAudit: a.audit, revision, budgets, config };
 }
 
 /** Factory for /1 and opt-in /2 archive and NON-ACTIVATING restore contracts. Throws 503 for unusable source config.
@@ -319,27 +359,47 @@ export async function createNativeRecoveryAdapters(input: NativeRecoveryOptions)
     async availability(q) { scope(q.asset.caseId); return s.assets.availability(q); },
     async get(q) { scope(q.asset.caseId); return s.assets.get(q); },
   };
-  const userWork: RecoveryDeps['userWork'] = { async exportAll(q) { scope(q.caseId); const snapshot = await s.userWork.exportAll(q); await check(); return snapshot; } };
+  const userWork: RecoveryDeps['userWork'] = { async exportAll(q) {
+    scope(q.caseId); const { beforeRead, ...request } = q, io = workIO(s, a.identity, check, a.now, beforeRead);
+    await io.check(); const snapshot = await io.work.exportAll(request); await io.check(); return snapshot;
+  } };
   let target: RestoreTarget | null = null;
   if (a.target) {
     try {
       const t = await openSource(a.target, a.now);
       if (t.clientId !== clientId || !sameActor(a.identity, a.target.identity) || a.identity === a.target.identity ||
         resourceKeys.some((k) => t.deployment[k] === s.deployment[k]) || a.target.resources.db === a.resources.db || a.target.resources.bucket === a.resources.bucket) throw contractError('target-not-isolated');
-      if (!await t.db.prepare('SELECT case_id FROM rs_case WHERE case_id = ?').bind(a.caseId).first()) return unavailable();
       const targetIdentity = a.target.identity;
       const targetCheck = async () => { await check(); await authority(targetIdentity, clientId, a.caseId, true); };
+      await targetCheck();
+      if (!await t.db.prepare('SELECT case_id FROM rs_case WHERE case_id = ?').bind(a.caseId).first()) return unavailable();
       await targetCheck();
       const targetObjects = privateObjects({ ...t, caseId: a.caseId, namespace: 'restore', limits, check: targetCheck });
       target = Object.freeze<RestoreTarget>({
         isolationId: t.deployment.worker, clientId, caseId: a.caseId, objects: targetObjects,
-        async stateRevision() { await targetCheck(); const r = await t.revision({ caseId: a.caseId }); await targetCheck(); return r; },
+        checkAuthority: targetCheck,
+        async stateRevision(boundary) {
+          const io = workIO(t, targetIdentity, targetCheck, a.now, boundary?.beforeRead);
+          await io.check(); const r = await io.revision({ caseId: a.caseId }); await io.check(); return r;
+        },
         userWork: {
-          async exportAll(q) { scope(q.caseId); await targetCheck(); const snap = await t.userWork.exportAll(q); await targetCheck(); return snap; },
-          async importAll(q) { scope(q.caseId); await targetCheck(); const result = await t.userWork.importAll(q); await targetCheck(); return result; },
+          async exportAll(q) {
+            scope(q.caseId); const { beforeRead, ...request } = q, io = workIO(t, targetIdentity, targetCheck, a.now, beforeRead);
+            await io.check(); const snap = await io.work.exportAll(request); await io.check(); return snap;
+          },
+          async importAll(q) {
+            scope(q.caseId); const { beforeCommit, ...request } = q, io = workIO(t, targetIdentity, targetCheck, a.now, beforeCommit);
+            await io.check(); const result = await io.work.importAll(request); await io.check(); return result;
+          },
           snapshots: {
-            async put(q) { scope(q.caseId); await targetCheck(); const id = await t.userWork.snapshots.put(q); await targetCheck(); return id; },
-            async get(q) { scope(q.caseId); await targetCheck(); const snap = await t.userWork.snapshots.get(q); await targetCheck(); return snap; },
+            async put(q) {
+              scope(q.caseId); const { beforeCommit, ...request } = q, io = workIO(t, targetIdentity, targetCheck, a.now, beforeCommit);
+              await io.check(); const id = await io.work.snapshots.put(request); await io.check(); return id;
+            },
+            async get(q) {
+              scope(q.caseId); const { beforeRead, ...request } = q, io = workIO(t, targetIdentity, targetCheck, a.now, beforeRead);
+              await io.check(); const snap = await io.work.snapshots.get(request); await io.check(); return snap;
+            },
           },
         },
       });
@@ -376,22 +436,45 @@ export async function createNativeRecoveryAdapters(input: NativeRecoveryOptions)
     },
   }) : null;
   const captured = new Set<string>();
-  const capture = evidenceLimits ? primaryEvidenceReader({ openPrimary: () => a.resources.db.withSession('first-primary'), clientId, caseId: a.caseId, limits: evidenceLimits, now: a.now, check: async () => { if (await s.gate()) return unavailable(); await check(); } }) : null;
+  let capturedAudit: AuditScope | null = null;
+  async function evidenceCheck(audit: AuditScope) {
+    if (await s.gate()) return unavailable();
+    if (audit === 'case-audit/1') {
+      if (!auditPort) return unavailable();
+      await auditPort.requireCaseAudit({ identity: a.identity, caseId: a.caseId });
+    }
+    await check();
+  }
+  const capture = evidenceLimits ? primaryEvidenceReader({ openPrimary: () => a.resources.db.withSession('first-primary'), clientId, caseId: a.caseId, limits: evidenceLimits, now: a.now, check: evidenceCheck }) : null;
   const nativeEvidence: NativeEvidencePort | null = evidenceLimits ? Object.freeze({
     limits: evidenceLimits, visibility: nativeVisibility, audit: auditPort,
     async capture(q: { audit: AuditScope }) {
       if (q?.audit !== 'none' && (q?.audit !== 'case-audit/1' || !auditPort)) return unavailable();
+      captured.clear(); capturedAudit = null;
+      await evidenceCheck(q.audit);
+      // Observe exact live version entitlement before fetching the history-sized primary payload. This inventory
+      // uses the ordinary service session; only the subsequent atomic capture consumes its fresh first-primary.
+      for (const version of await inventory()) {
+        if (await nativeVisibility.isVisible({ identity: a.identity, caseId: a.caseId, resultsVersion: version.version_id }) !== true) throw contractError('not-found');
+      }
       const c = await capture!(q.audit);
-      captured.clear();
       for (const ref of expectedReferences(c.evidence)) captured.add(canonicalJson(ref));
+      capturedAudit = c.evidence.audit;
       return c;
     },
-    async userWorkRevision() { await check(); const r = await s.revision({ caseId: a.caseId }); await check(); return r; },
+    async userWorkRevision(boundary?: ReadBoundary) {
+      const io = workIO(s, a.identity, check, a.now, boundary?.beforeRead);
+      await io.check(); const r = await io.revision({ caseId: a.caseId }); await io.check(); return r;
+    },
     async read(ref: Omit<ImmutableReference, 'blob' | 'objectVersion' | 'etag'>) {
       if (!captured.has(canonicalJson(ref))) throw contractError('foreign-input');
-      await check(); if (await s.gate()) return unavailable();
-      const r = await readImmutable(s.bucket, ref, limits.maxFileBytes);
-      await check(); return r;
+      const readCheck = async () => {
+        if (capturedAudit === null) return unavailable();
+        await evidenceCheck(capturedAudit);
+        if (ref.resultsVersion && await nativeVisibility.isVisible({ identity: a.identity, caseId: a.caseId, resultsVersion: ref.resultsVersion as ResultsVersion }) !== true) throw contractError('not-found');
+        await check();
+      };
+      return readImmutable(s.bucket, ref, limits.maxFileBytes, readCheck);
     },
   }) : null;
   return Object.freeze<RestoreDeps>({ profile: 'production', now: a.now, newId: a.newId, identity: a.identity, store, assets, previews, visibility, userWork, audit: a.audit, objects, limits, nativeEvidence, liveIsolationId: s.deployment.worker, target });

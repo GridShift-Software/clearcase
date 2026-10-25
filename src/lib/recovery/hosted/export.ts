@@ -1,6 +1,6 @@
 import type { AssetRef, OriginalEntry, ResultsVersion } from '../../server/runtime/contracts.ts';
 import { contractError } from '../../server/runtime/errors.ts';
-import { authorizeAndAudit, recordAfter, recordFailure, requireCaseId, requireObjects } from './authority.ts';
+import { authorizeAndAudit, recheck as recheckCase, recordAfter, recordFailure, requireCaseId, requireObjects } from './authority.ts';
 import { canonicalJson, encode, fail, ID, objectKeys, sha256Hex } from './bytes.ts';
 import { DEFAULT_LIMITS, EXPORT_FORMAT, type Accounting, type BlobRef, type EmbeddedRecord, type ExportManifest, type ExportResult, type Limits, type OriginalRecord, type PreviewRecord, type RecoveryDeps, type VersionRecord } from './types.ts';
 import { recheckExportAuthority, requireVisibility, requireVisible } from './visibility.ts';
@@ -18,19 +18,25 @@ export async function exportNativeCase(deps: RecoveryDeps, req: ExportRequest): 
   await authorizeAndAudit(deps, { ...audit, scopes });
   try {
     const keys = objectKeys(deps.identity.clientId, caseId, req.exportId);
-    if (await objects.get(keys.manifest)) throw fail('export-exists');
-    const scope = auditScopeOf(deps), capture = await port.capture({ audit: scope }), evidence = capture.evidence;
+    const scope = auditScopeOf(deps), beforeManifest = () => requireAuditView(deps, { audit: scope }, caseId);
+    await beforeManifest();
+    if (await objects.get(keys.manifest, { beforeRead: beforeManifest })) throw fail('export-exists');
+    await beforeManifest(); // capture ports must enforce this too, before the first protected audit SELECT
+    const capture = await port.capture({ audit: scope }), evidence = capture.evidence;
     if (evidence.audit !== scope) throw fail('manifest-invalid');
-    // Captured rows are only in memory here: nothing is read from R2, released or written before both entitlements hold.
-    await requireAuditView(deps, evidence, caseId);
-    for (const id of evidenceVersionIds(evidence)) await requireVisible(auth, caseId, id);
+    const recheckCaptured = async () => {
+      await requireAuditView(deps, evidence, caseId);
+      for (const id of evidenceVersionIds(evidence)) await requireVisible(auth, caseId, id);
+      await recheckCase(deps, scopes);
+    };
+    await recheckCaptured();
     const versions = evidenceVersions(evidence);
     const expected = expectedReferences(evidence), budget: Budget = { files: 0, bytes: 0, limits: port.limits };
     for (const ref of expected) take(budget, ref.size); // bound every declared reference before touching any protected bytes
     const references: ImmutableReference[] = [], blobs = new Map<string, Uint8Array>();
     const startedAt = deps.now().toISOString();
     for (const ref of expected) {
-      if (ref.resultsVersion) await requireVisible(auth, caseId, ref.resultsVersion as never);
+      await recheckCaptured();
       const { bytes, objectVersion, etag } = await port.read(ref);
       if (bytes.length !== ref.size || await sha256Hex(bytes) !== ref.sha256) throw fail('export-corrupt');
       blobs.set(ref.sha256, bytes);
@@ -38,11 +44,12 @@ export async function exportNativeCase(deps: RecoveryDeps, req: ExportRequest): 
     }
     const completedAt = deps.now().toISOString();
     let userWork: ExportManifest['userWork'] = null;
-    let userWorkObservation: NativeExportManifest['source']['userWork'] = { revision: await port.userWorkRevision(), observedAt: deps.now().toISOString() };
+    let userWorkObservation: NativeExportManifest['source']['userWork'] = { revision: await port.userWorkRevision({ beforeRead: recheckCaptured }), observedAt: deps.now().toISOString() };
     if (req.includeUserWork) {
       const revision = userWorkObservation.revision;
-      const snap = await deps.userWork.exportAll({ caseId });
-      if (await port.userWorkRevision() !== revision) throw fail('export-raced', true);
+      await recheckCaptured();
+      const snap = await deps.userWork.exportAll({ caseId, beforeRead: recheckCaptured });
+      if (await port.userWorkRevision({ beforeRead: recheckCaptured }) !== revision) throw fail('export-raced', true);
       const bytes = encode(canonicalJson(snap)); take(budget, bytes.length);
       const sha256 = await sha256Hex(bytes); blobs.set(sha256, bytes);
       userWork = { sha256, blob: `blobs/${sha256}`, size: bytes.length, exportedAt: snap.exportedAt, tables: snap.tables.length, rows: snap.tables.reduce((n, t) => n + t.rows.length, 0) };
@@ -78,7 +85,8 @@ export async function exportNativeCase(deps: RecoveryDeps, req: ExportRequest): 
       await objects.putIfAbsent({ key: `${keys.base}/blobs/${sha256}`, bytes: b, sha256, beforeCommit: recheck });
     }
     for (const [sha, b] of blobs) {
-      const back = await objects.get(`${keys.base}/blobs/${sha}`);
+      await recheck();
+      const back = await objects.get(`${keys.base}/blobs/${sha}`, { beforeRead: recheck });
       if (!back) throw fail('export-incomplete', true);
       if (back.length !== b.length || await sha256Hex(back) !== sha) throw fail('export-corrupt');
     }
@@ -86,7 +94,8 @@ export async function exportNativeCase(deps: RecoveryDeps, req: ExportRequest): 
     const manifestSha256 = await sha256Hex(bytes);
     const result = await objects.putIfAbsent({ key: keys.manifest, bytes, sha256: manifestSha256, beforeCommit: recheck });
     if (result.kind === 'exists') throw fail('export-exists');
-    const back = await objects.get(keys.manifest);
+    await recheck();
+    const back = await objects.get(keys.manifest, { beforeRead: recheck });
     if (!back || await sha256Hex(back) !== manifestSha256 || back.length !== bytes.length) throw fail('export-incomplete', true);
     await recordAfter(deps, { ...audit, outcome: 'succeeded' });
     await recheck();

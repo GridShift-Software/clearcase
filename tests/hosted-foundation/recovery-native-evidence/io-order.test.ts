@@ -61,6 +61,42 @@ it.each(['snapshot', 'import'] as const)('target %s repeats source audit then re
   expect(t.db.rows('SELECT * FROM uw_snapshot')).toHaveLength(what === 'import' ? 1 : 0);
   expect(t.bucket.puts).toEqual([]);
 });
+it('receiving grant revocation inside source caseAudit after target head prevents every new object', async () => {
+  const { s, t } = await pair(); let armed = false, tripped = false;
+  s.options.nativeEvidence!.audit = { async caseAudit(a) { await AUDIT_GATE.caseAudit(a); if (armed) { armed = false; tripped = true; t.revokeGrant(); } } };
+  const d = await s.deps(), out = await exportNativeCase(d, req), r = { ...req, expectedManifestSha256: out.manifestSha256 }, plan = await planNativeRestore(d, r), head = t.bucket.head.bind(t.bucket);
+  t.bucket.head = async (key) => { const result = await head(key); if (key.includes('/blobs/')) armed = true; return result; };
+  await expect(applyNativeRestore(d, { ...r, confirmedPlanSha256: plan.planSha256, operationId: 'grant-during-source-audit' })).rejects.toMatchObject({ code: 'storage-unavailable' });
+  expect(tripped).toBe(true); expect(t.bucket.puts).toEqual([]); expect(t.db.rows('SELECT * FROM uw_operation')).toEqual([]);
+});
+it.each(['snapshot', 'import'] as const)('apply forwards live source audit through the target %s internal preflight', async (what) => {
+  const { s, t } = await pair(); let armed = false, tripped = false;
+  s.options.nativeEvidence!.audit = { async caseAudit(a) { await AUDIT_GATE.caseAudit(a); if (armed) { tripped = true; t.revokeGrant(); } } };
+  const d = await s.deps(), out = await exportNativeCase(d, req), r = { ...req, expectedManifestSha256: out.manifestSha256 }, p = await planNativeRestore(d, r), prepare = t.db.prepare.bind(t.db);
+  t.db.prepare = (sql) => { if (sql.includes(what === 'snapshot' ? 'INSERT INTO uw_snapshot' : 'INSERT INTO uw_operation')) armed = true; return prepare(sql); };
+  await expect(applyNativeRestore(d, { ...r, confirmedPlanSha256: p.planSha256, operationId: `apply-${what}-order` })).rejects.toMatchObject({ code: expect.stringMatching(/forbidden|storage-unavailable/) });
+  expect(tripped).toBe(true); expect(t.db.rows('SELECT * FROM uw_operation')).toEqual([]);
+  expect(t.db.rows('SELECT * FROM uw_snapshot')).toHaveLength(what === 'import' ? 1 : 0);
+  if (what === 'snapshot') expect(t.bucket.puts).toEqual([]);
+  for (const table of ['rs_publication', 'native_candidate', 'rs_case_original', 'submissions_revision']) expect(t.db.rows(`SELECT * FROM ${table}`)).toEqual([]);
+});
+it('revocation during manifest metadata prevents even the first body pull', async () => {
+  const s = await source(); let deny = false;
+  s.options.nativeEvidence!.audit = { async caseAudit(a) { await AUDIT_GATE.caseAudit(a); if (deny) throw contractError('forbidden'); } };
+  const d = await s.deps(), out = await exportNativeCase(d, req), pulls = s.bucket.bodyReads;
+  s.bucket.afterGet = (key) => { if (key === out.manifestKey) deny = true; };
+  await expect(verifyNativeExport(d, { ...req, expectedManifestSha256: out.manifestSha256 })).rejects.toMatchObject({ code: 'forbidden' });
+  expect(s.bucket.bodyReads).toBe(pulls);
+});
+it('concurrent user-work calls retain their own source callback, without a mutable shared guard', async () => {
+  const { s } = await pair(), d = await s.deps(), work = d.target!.userWork;
+  const results = await Promise.allSettled([
+    work.exportAll({ caseId: CASE, async beforeRead() { throw contractError('forbidden'); } }),
+    work.exportAll({ caseId: CASE, async beforeRead() { await d.nativeEvidence!.audit!.requireCaseAudit({ identity: d.identity, caseId: CASE }); } }),
+  ]);
+  expect(results[0]).toMatchObject({ status: 'rejected', reason: { code: 'forbidden' } });
+  expect(results[1]).toMatchObject({ status: 'fulfilled', value: { format: 'clearcase.user-work/1' } });
+});
 it('a retained source reference does not outlive its case-audit view', async () => {
   const s = await source(); let deny = false;
   s.options.nativeEvidence!.audit = { async caseAudit(a) { await AUDIT_GATE.caseAudit(a); if (deny) throw contractError('forbidden'); } };

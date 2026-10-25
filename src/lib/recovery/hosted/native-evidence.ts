@@ -4,11 +4,11 @@ import type { CloudD1, D1Value } from '../../storage/cloud/bindings.ts';
 import { decodeUtf8Strict, parseStrictJson } from '../../case-package/strict-json.ts';
 import { canonicalText } from '../../case-package/canonical.ts';
 import { safePath } from '../../submissions/path.ts';
-import { authorizeAndAudit, recordAfter, recordFailure, requireCaseId, requireObjects } from './authority.ts';
+import { authorizeAndAudit, recheck, recordAfter, recordFailure, requireCaseId, requireObjects } from './authority.ts';
 import { canonicalJson, encode, fail, ID, objectKeys, SHA, sha256Hex } from './bytes.ts';
 import { parseManifest, exportScopes, type VerifyRequest, type Verified } from './verify.ts';
-import { recheckExportAuthority, requireVisible } from './visibility.ts';
-import type { BlobRef, CaseAuditPort, ExportManifest, ExportResult, Limits, RecoveryDeps, VersionVisibilityPort } from './types.ts';
+import { requireVisible } from './visibility.ts';
+import type { BlobRef, CaseAuditPort, ExportManifest, ExportResult, Limits, ReadBoundary, RecoveryDeps, VersionVisibilityPort } from './types.ts';
 import type { AuditReadGate } from '../../audit/index.ts';
 
 export const NATIVE_EXPORT_FORMAT = 'clearcase.recovery-export/2' as const;
@@ -58,7 +58,7 @@ export interface NativeEvidencePort {
   readonly audit: CaseAuditPort | null;
   capture(a: { audit: AuditScope }): Promise<EvidenceCapture>;
   read(ref: Omit<ImmutableReference, 'blob' | 'objectVersion' | 'etag'>): Promise<{ bytes: Uint8Array; objectVersion: string; etag: string }>;
-  userWorkRevision(): Promise<CaseRevision>;
+  userWorkRevision(boundary?: ReadBoundary): Promise<CaseRevision>;
 }
 
 // SQL identifiers and scopes are fixed source code. No received SQL, table name or predicate is executable.
@@ -176,11 +176,11 @@ function validateArchiveEvent(raw: Cell, clientId: ClientId, caseId: CaseId): Re
 /** One primary batch, not alternating observations. Aggregates bound raw row bytes before any payload is used.
  * Oversized text columns are not transferred; every response, including the aggregates, must be complete and successful.
  */
-export function primaryEvidenceReader(a: { openPrimary(): CloudD1; clientId: ClientId; caseId: CaseId; limits: NativeArchiveLimits; now(): Date; check(): Promise<void> }): (audit: AuditScope) => Promise<EvidenceCapture> {
+export function primaryEvidenceReader(a: { openPrimary(): CloudD1; clientId: ClientId; caseId: CaseId; limits: NativeArchiveLimits; now(): Date; check(audit: AuditScope): Promise<void> }): (audit: AuditScope) => Promise<EvidenceCapture> {
   const limits = nativeLimits(a.limits);
   return async (audit) => {
     if (audit !== 'case-audit/1' && audit !== 'none') unavailable();
-    await a.check();
+    await a.check(audit); // authorize the selected history BEFORE opening/preparing the protected primary batch
     let db: CloudD1;
     try { db = a.openPrimary(); } catch { return unavailable(); }
     if (!db || typeof db.prepare !== 'function' || typeof db.batch !== 'function') unavailable();
@@ -238,7 +238,7 @@ export function primaryEvidenceReader(a: { openPrimary(): CloudD1; clientId: Cli
     }
     const evidence: NativeEvidence = { format: NATIVE_EVIDENCE_FORMAT, audit, tables, rows: rawRows, bytes: encode(canonicalJson(tables)).length, sha256: await hash(tables) };
     await validateEvidence(evidence, a.clientId, a.caseId, a.limits);
-    await a.check();
+    await a.check(audit);
     return { evidence, observation: { kind: 'primary-d1-batch', startedAt, completedAt } };
   };
 }
@@ -445,18 +445,20 @@ export function nativeAuthorityDeps(deps: RecoveryDeps): RecoveryDeps { return {
 /** The scope a capture may archive: the case audit only when the live entitlement port exists, checked by `requireAuditView`. */
 export const auditScopeOf = (deps: RecoveryDeps): AuditScope => nativePort(deps).audit ? 'case-audit/1' : 'none';
 /** Audit-bearing evidence is released, verified or staged only under the live case-audit entitlement; absent port is 503. */
-export async function requireAuditView(deps: RecoveryDeps, e: NativeEvidence, caseId: CaseId) {
+export async function requireAuditView(deps: RecoveryDeps, e: Pick<NativeEvidence, 'audit'>, caseId: CaseId) {
   if (e.audit === 'none') return;
   const port = nativePort(deps).audit;
   if (!port) unavailable();
   await port.requireCaseAudit({ identity: deps.identity, caseId });
 }
 /** Every native release/commit boundary: audit entitlement, live visibility of every carried version, then case authority. */
-export async function recheckNative(deps: RecoveryDeps, m: NativeExportManifest, scopes: Parameters<typeof recheckExportAuthority>[2]) {
+export async function recheckNative(deps: RecoveryDeps, m: NativeExportManifest, scopes: Parameters<typeof recheck>[1]) {
   const auth = nativeAuthorityDeps(deps);
   await requireAuditView(deps, m.evidence, m.caseId);
   for (const id of evidenceVersionIds(m.evidence)) await requireVisible(auth, m.caseId, id);
-  await recheckExportAuthority(auth, legacyView(m), scopes);
+  // The validated evidence contains every identity (including publication/active/staging). Do not repeat policy IO
+  // after the final case-authority observation, or alternate independently revocable gates indefinitely.
+  await recheck(auth, scopes);
 }
 
 export async function parseNativeManifest(bytes: Uint8Array, limits: NativeArchiveLimits): Promise<NativeExportManifest> {
@@ -559,18 +561,22 @@ export async function loadNativeExport(deps: RecoveryDeps, req: VerifyRequest, s
   await authorizeAndAudit(deps, { ...audit, scopes: scopesFor(caseId) });
   try {
     const keys = objectKeys(deps.identity.clientId, caseId, req.exportId);
-    const sealedManifest = await objects.get(keys.manifest); if (!sealedManifest) missing();
+    const beforeManifest = () => requireAuditView(deps, { audit: auditScopeOf(deps) }, caseId);
+    await beforeManifest();
+    const sealedManifest = await objects.get(keys.manifest, { beforeRead: beforeManifest }); if (!sealedManifest) missing();
     const manifestSha256 = await sha256Hex(sealedManifest); if (manifestSha256 !== req.expectedManifestSha256) throw fail('manifest-mismatch');
     const nativeManifest = await parseNativeManifest(sealedManifest, port.limits);
     if (nativeManifest.clientId !== deps.identity.clientId || nativeManifest.caseId !== caseId || nativeManifest.exportId !== req.exportId) throw fail('foreign-input');
     const manifest = legacyView(nativeManifest);
-    await recheckNative(deps, nativeManifest, scopesFor(caseId)); // before any retained protected blob is read
+    const beforeRead = () => recheckNative(deps, nativeManifest, scopesFor(caseId));
+    await beforeRead(); // before any retained protected blob is read
     const refs = [...nativeManifest.references, ...(manifest.userWork ? [manifest.userWork] : [])];
     if (refs.length > port.limits.maxFiles || refs.some((r) => r.size > port.limits.maxFileBytes) || refs.reduce((n, r) => n + r.size, 0) > port.limits.maxTotalBytes) throw fail('export-too-large');
     const blobs = new Map<string, Uint8Array>();
     for (const r of refs) {
       if (blobs.has(r.sha256)) { if (blobs.get(r.sha256)!.length !== r.size) bad(); continue; }
-      const b = await objects.get(`${keys.base}/${r.blob}`); if (!b) missing();
+      await beforeRead();
+      const b = await objects.get(`${keys.base}/${r.blob}`, { beforeRead }); if (!b) missing();
       if (b.length !== r.size || await sha256Hex(b) !== r.sha256) throw fail('export-corrupt'); blobs.set(r.sha256, b);
     }
     await verifyNativeBytes(nativeManifest, blobs);

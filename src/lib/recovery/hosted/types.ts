@@ -12,12 +12,20 @@ export type RecoveryCode =
 export interface Limits { maxFiles: number; maxFileBytes: number; maxTotalBytes: number }
 export const DEFAULT_LIMITS: Readonly<Limits> = Object.freeze({ maxFiles: 20_000, maxFileBytes: 512 * 1024 * 1024, maxTotalBytes: 8 * 1024 * 1024 * 1024 });
 
+/** Trusted controller callbacks, never request data. IO implementations run them after their own preflight,
+ * then observe their genuine local authority last. They do not promise distributed atomic revocation. */
+export interface ReadBoundary { beforeRead?(): Promise<void> }
+export interface CommitBoundary { beforeCommit?(): Promise<void> }
+export interface RecoveryUserWork {
+  exportAll(a: Parameters<AsyncUserWork['exportAll']>[0] & ReadBoundary): ReturnType<AsyncUserWork['exportAll']>;
+}
+
 /** A durable, private, client-scoped object store. `putIfAbsent` never overwrites. A test stand-in says so and production refuses it. */
 export interface PrivateObjectPort {
   readonly kind: 'durable-private' | 'test-standin';
-  /** Trusted controller hook, never request data: after awaited preflight IO, immediately before conditional write. */
-  putIfAbsent(a: { key: string; bytes: Uint8Array; sha256: string; beforeCommit?(): Promise<void> }): Promise<{ kind: 'created' } | { kind: 'exists' }>;
-  get(key: string): Promise<Uint8Array | null>;
+  /** After preflight: controller hook, then receiving authority, then conditional write without another source await. */
+  putIfAbsent(a: { key: string; bytes: Uint8Array; sha256: string } & CommitBoundary): Promise<{ kind: 'created' } | { kind: 'exists' }>;
+  get(key: string, boundary?: ReadBoundary): Promise<Uint8Array | null>;
 }
 
 /** Published previews are not enumerable through `AssetsAccess`; the production adapter is an integration handoff. */
@@ -47,7 +55,7 @@ export interface RecoveryDeps {
   profile: Profile; now(): Date; newId(): string;
   identity: Identity; store: ReaderPort; assets: AssetsPort; previews: PreviewCatalog | null;
   visibility: VersionVisibilityPort | null;
-  userWork: Pick<AsyncUserWork, 'exportAll'>; audit: AuditSink;
+  userWork: RecoveryUserWork; audit: AuditSink;
   objects: PrivateObjectPort | null; limits?: Partial<Limits>;
   /** Explicit native /2 capability. Its absence never lifts the legacy native-lineage HOLD. */
   nativeEvidence?: import('./native-evidence.ts').NativeEvidencePort | null;

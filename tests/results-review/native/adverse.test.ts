@@ -7,7 +7,7 @@ import { sha256Hex } from '../../../src/lib/case-package/hash.ts';
 import type { CaseId, ClientId, Identity } from '../../../src/lib/server/runtime/contracts.ts';
 import { CASE_A, CASE_B, CLIENT, NOW, finalizeSubmission, trackedBody, who, type SubmittedFile } from './doubles.ts';
 import { asText, buildFixture, fromText, pdf, shaOf, type Doc, type Fixture } from './fixtures.ts';
-import { BUDGET, dispatch, world, type Route, type World } from './harness.ts';
+import { BUDGET, compose, dispatch, world, type Route, type World } from './harness.ts';
 
 const ORIGIN = 'https://client-a.clearcase.test';
 const utf8 = (s: string) => new TextEncoder().encode(s);
@@ -144,6 +144,11 @@ describe('authority is decided before any body byte, row, object or stager call'
     const other = world({ operate: [CASE_B] });
     expect(other.operateCalls).toHaveLength(0);
     expect(w.operateCalls.length).toBeGreaterThan(0);
+    // Same populated repository; the ungranted staff operator must really attempt both reads.
+    compose({ ...w.ports, authorizeOperate: async () => { throw Object.assign(new Error('forbidden'), { code: 'forbidden' }); } });
+    expect((await readOne('case-a', c.candidateId, who({ subject: 'ungranted-staff' }))).status).toBe(404);
+    expect((await listAll('case-a', who({ subject: 'ungranted-staff' }))).status).toBe(404);
+    expect(counts(w).native_candidate).toBe(1);
   });
 });
 

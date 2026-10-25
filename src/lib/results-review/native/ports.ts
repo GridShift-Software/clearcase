@@ -1,4 +1,4 @@
-import type { AuditSink, CaseId, ClientId, Principal, ResultsVersion, SessionId } from '../../server/runtime/contracts.ts';
+import type { AuditEvent, AuditSink, CaseId, ClientId, Principal, ResultsVersion, SessionId } from '../../server/runtime/contracts.ts';
 import type { CandidateImportLink, FinalizedSubmissionSnapshot } from '../../server/runtime/hosted/alpha-contracts.ts';
 
 /** The part of a Cloudflare D1 binding this module uses. The parent passes the client's per-deployment `DB`. */
@@ -49,6 +49,8 @@ export interface StageRequest {
   clientId: ClientId; caseId: CaseId; operationId: string;
   files: ReadonlyMap<string, Uint8Array>;
   identity: { resultsVersion: ResultsVersion; manifestSha256: string };
+  /** Trusted exact finalized revision for the parent's validator/original-fact selection; never package-provided. */
+  submission: FinalizedSubmissionSnapshot;
 }
 /** One diagnostic the existing validator raised as `ORIG_CASE_MISMATCH`, copied unchanged (its subject ref and fingerprint). */
 export interface CaseMismatchDiagnostic { ref: string; fingerprint: string }
@@ -76,7 +78,7 @@ export type Origin = 'import' | 'correction';
 export type OperatorRef = Readonly<Pick<Principal, 'issuer' | 'subject'>>;
 export interface ChangeFact { readonly path: string; readonly before: { readonly sha256: string; readonly size: number } | null; readonly after: { readonly sha256: string; readonly size: number } }
 export interface CorrectionRecord { readonly reason: string; readonly operator: OperatorRef; readonly at: string; readonly changes: readonly ChangeFact[] }
-/** One private candidate with its immutable link, as stored. `current` is false once a correction supersedes it. */
+/** One private candidate with its immutable link. `current` requires durable audit settlement and no supersession. */
 export interface LinkedCandidate {
   readonly candidateId: string;
   readonly origin: Origin;
@@ -89,7 +91,7 @@ export interface LinkedCandidate {
 export type Scoped = { clientId: ClientId; caseId: CaseId };
 
 export type AttemptClaim =
-  | { kind: 'claimed' | 'repeated' }
+  | { kind: 'claimed' | 'repeated'; at: string }
   | { kind: 'operation-reused' };
 
 /**
@@ -102,8 +104,13 @@ export interface NativeCandidateRepository {
   claim(a: Scoped & { operationId: string; kind: Origin; operator: OperatorRef; requestSha256: string; submissionRevisionId: string; baseCandidateId: string | null; at: string }): Promise<AttemptClaim>;
   byOperation(a: Scoped & { operationId: string }): Promise<LinkedCandidate | null>;
   byResultsVersion(a: Scoped & { resultsVersion: ResultsVersion }): Promise<{ candidateId: string; manifestSha256: string } | null>;
-  /** One atomic batch: candidate, link and, for a correction, its supersession and change records. Verified by readback. */
-  record(a: Scoped & { operationId: string; origin: Origin; parentCandidateId: string | null; link: CandidateImportLink; correction: CorrectionRecord | null }): Promise<LinkedCandidate>;
+  /** One atomic batch: candidate, link, success audit intent and any correction/supersession records. Verified by readback. */
+  record(a: Scoped & { operationId: string; origin: Origin; parentCandidateId: string | null; link: CandidateImportLink; correction: CorrectionRecord | null; auditEvent: AuditEvent }): Promise<LinkedCandidate>;
+  /** Committed intent only; includes the original actor/session, never exposed in candidate responses. */
+  auditIntent(a: Scoped & { candidateId: string }): Promise<CommittedCandidateAudit>;
+  pendingAudits(a: Scoped & { limit: number }): Promise<readonly CommittedCandidateAudit[]>;
+  /** Trusted caller only, AFTER the audit sink acknowledges these exact bytes. Idempotent, verified readback. */
+  settleAudit(a: CommittedCandidateAudit): Promise<void>;
   candidate(a: Scoped & { candidateId: string }): Promise<LinkedCandidate | null>;
   list(a: Scoped): Promise<readonly LinkedCandidate[]>;
 }
@@ -112,9 +119,19 @@ export interface NativeCandidateRepository {
 export interface CandidateReader {
   candidate(a: Scoped & { candidateId: string }): Promise<LinkedCandidate | null>;
   list(a: Scoped): Promise<readonly LinkedCandidate[]>;
-  /** The current (not superseded) candidates of a case. */
+  /** The durably audited, not superseded candidates of a case. Sign-off must require this eligibility. */
   current(a: Scoped): Promise<readonly LinkedCandidate[]>;
 }
+
+/** The exact immutable audit event committed atomically with one link, scoped to the deployment. */
+export interface CommittedCandidateAudit extends Scoped { readonly candidateId: string; readonly event: AuditEvent }
+/**
+ * TRUSTED background-only port, not a request AuditSink. The parent must authorize delivery of committed native intents,
+ * verify their source/scope, durably append the unchanged event id/actor/time/bytes, and acknowledge only exact readback.
+ * Never implement by manufacturing a past verified requester (or a system actor) for requestAuditSink.
+ * No adapter is supplied here: until the audit owner supplies one, pending candidates stay noncurrent.
+ */
+export interface CandidateAuditRecovery { appendCommitted(intent: CommittedCandidateAudit): Promise<{ eventId: string }> }
 
 /** Everything the import needs, composed by the parent from trusted configuration. A null port answers 503. */
 export interface NativeImportPorts {

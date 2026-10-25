@@ -437,12 +437,11 @@ export async function createNativeRecoveryAdapters(input: NativeRecoveryOptions)
   }) : null;
   const captured = new Set<string>();
   let capturedAudit: AuditScope | null = null;
-  async function evidenceCheck(audit: AuditScope) {
+  async function evidenceCheck() {
+    // Archive selection cannot authorize protected IO, not even an audit-free capture's inventory.
+    if (!auditPort) return unavailable();
+    await auditPort.requireCaseAudit({ identity: a.identity, caseId: a.caseId });
     if (await s.gate()) return unavailable();
-    if (audit === 'case-audit/1') {
-      if (!auditPort) return unavailable();
-      await auditPort.requireCaseAudit({ identity: a.identity, caseId: a.caseId });
-    }
     await check();
   }
   const capture = evidenceLimits ? primaryEvidenceReader({ openPrimary: () => a.resources.db.withSession('first-primary'), clientId, caseId: a.caseId, limits: evidenceLimits, now: a.now, check: evidenceCheck }) : null;
@@ -451,7 +450,7 @@ export async function createNativeRecoveryAdapters(input: NativeRecoveryOptions)
     async capture(q: { audit: AuditScope }) {
       if (q?.audit !== 'none' && (q?.audit !== 'case-audit/1' || !auditPort)) return unavailable();
       captured.clear(); capturedAudit = null;
-      await evidenceCheck(q.audit);
+      await evidenceCheck();
       // Observe exact live version entitlement before fetching the history-sized primary payload. This inventory
       // uses the ordinary service session; only the subsequent atomic capture consumes its fresh first-primary.
       for (const version of await inventory()) {
@@ -470,7 +469,7 @@ export async function createNativeRecoveryAdapters(input: NativeRecoveryOptions)
       if (!captured.has(canonicalJson(ref))) throw contractError('foreign-input');
       const readCheck = async () => {
         if (capturedAudit === null) return unavailable();
-        await evidenceCheck(capturedAudit);
+        await evidenceCheck();
         if (ref.resultsVersion && await nativeVisibility.isVisible({ identity: a.identity, caseId: a.caseId, resultsVersion: ref.resultsVersion as ResultsVersion }) !== true) throw contractError('not-found');
         await check();
       };

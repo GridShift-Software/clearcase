@@ -41,7 +41,8 @@ export interface VersionVisibilityPort {
 }
 
 /** The live case-audit view entitlement (AuditReadGate.caseAudit) of this exact request identity and case. Content grants,
- * staff kind and preview authority never satisfy it. Resolves only when held; a denial is `forbidden`, a fault refuses.
+ * staff kind and preview authority never satisfy it. Every native /2 storage controller requires it before protected IO,
+ * even for audit:none content. Resolves only when held; a denial is `forbidden`, a fault refuses.
  */
 export interface CaseAuditPort {
   readonly kind: 'current-policy' | 'test-standin';

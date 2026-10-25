@@ -63,8 +63,9 @@ it('RED M3: a content-only exporter receives no audit-bearing /2, with or withou
 it('a content-only exporter of a case without lineage gets /2 with no audit rows and no session material', async () => {
   const w = await world(); worlds.push(w);
   await submit(w, CASE, [{ path: 'folder/source.pdf', bytes: pdf('content only'), ref: 'content-only' }]);
-  w.options.nativeEvidence = { ...CONTENT_ONLY };
-  const d = await w.deps(), out = await exportNativeCase(d, req), m = out.manifest, text = canonicalJson(m);
+  // Explicit, separately provisioned audit-view entitlement; content-only describes archive content, not authority.
+  w.options.nativeEvidence = { ...CONTENT_ONLY, audit: AUDIT_GATE };
+  const d = await w.deps(), out = await exportNativeCase(d, { ...req, auditScope: 'none' }), m = out.manifest, text = canonicalJson(m);
   expect(m.evidence.audit).toBe('none');
   for (const t of ['native_audit_events', 'native_candidate_audit_intent', 'native_candidate_audit_settlement', 'native_candidate', 'native_import_attempt'] as const) expect(m.evidence.tables[t]).toEqual([]);
   expect(text).not.toContain(w.identity.sessionId!); expect(text).not.toContain(await sha256Hex(encode(w.identity.sessionId!)));

@@ -4,28 +4,33 @@ import { authorizeAndAudit, recheck as recheckCase, recordAfter, recordFailure, 
 import { canonicalJson, encode, fail, ID, objectKeys, sha256Hex } from './bytes.ts';
 import { DEFAULT_LIMITS, EXPORT_FORMAT, type Accounting, type BlobRef, type EmbeddedRecord, type ExportManifest, type ExportResult, type Limits, type OriginalRecord, type PreviewRecord, type RecoveryDeps, type VersionRecord } from './types.ts';
 import { recheckExportAuthority, requireVisibility, requireVisible } from './visibility.ts';
-import { auditScopeOf, evidenceVersionIds, evidenceVersions, expectedReferences, nativeAuthorityDeps, nativePort, NATIVE_EXPORT_FORMAT, parseNativeManifest, recheckNative, requireAuditView, verifyNativeBytes, type ImmutableReference, type NativeExportManifest, type NativeExportResult } from './native-evidence.ts';
+import { evidenceVersionIds, evidenceVersions, expectedReferences, nativeAuthorityDeps, nativePort, NATIVE_EXPORT_FORMAT, parseNativeManifest, recheckNative, requireAuditView, verifyNativeBytes, type AuditScope, type ImmutableReference, type NativeExportManifest, type NativeExportResult } from './native-evidence.ts';
 
 export interface ExportRequest { caseId: string; exportId: string; includeUserWork: boolean }
+export interface NativeExportRequest extends ExportRequest {
+  /** Archive content selection only; `none` still requires the live case-audit gate before all private IO. */
+  auditScope?: AuditScope;
+}
 
 /** Opt-in /2. Legacy exportCase remains byte-compatible and keeps its native lineage HOLD. */
-export async function exportNativeCase(deps: RecoveryDeps, req: ExportRequest): Promise<NativeExportResult> {
+export async function exportNativeCase(deps: RecoveryDeps, req: NativeExportRequest): Promise<NativeExportResult> {
   const port = nativePort(deps), objects = requireObjects(deps), caseId = requireCaseId(req.caseId);
-  if (!ID.test(req.exportId) || typeof req.includeUserWork !== 'boolean') throw fail('invalid-request');
+  const scope = req.auditScope === undefined ? 'case-audit/1' : req.auditScope;
+  if (!ID.test(req.exportId) || typeof req.includeUserWork !== 'boolean' || (scope !== 'none' && scope !== 'case-audit/1')) throw fail('invalid-request');
   const auth = nativeAuthorityDeps(deps);
   const scopes = [{ caseId, operation: 'read' as const }, { caseId, operation: 'read-original' as const }, { caseId, operation: 'read-preview' as const }];
   const audit = { action: 'recovery.export', objectKind: 'case-export', objectId: req.exportId, caseId };
   await authorizeAndAudit(deps, { ...audit, scopes });
   try {
     const keys = objectKeys(deps.identity.clientId, caseId, req.exportId);
-    const scope = auditScopeOf(deps), beforeManifest = () => requireAuditView(deps, { audit: scope }, caseId);
+    const beforeManifest = () => requireAuditView(deps, caseId);
     await beforeManifest();
     if (await objects.get(keys.manifest, { beforeRead: beforeManifest })) throw fail('export-exists');
     await beforeManifest(); // capture ports must enforce this too, before the first protected audit SELECT
     const capture = await port.capture({ audit: scope }), evidence = capture.evidence;
     if (evidence.audit !== scope) throw fail('manifest-invalid');
     const recheckCaptured = async () => {
-      await requireAuditView(deps, evidence, caseId);
+      await requireAuditView(deps, caseId);
       for (const id of evidenceVersionIds(evidence)) await requireVisible(auth, caseId, id);
       await recheckCase(deps, scopes);
     };

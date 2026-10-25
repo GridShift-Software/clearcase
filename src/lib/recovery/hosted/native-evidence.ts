@@ -23,7 +23,7 @@ export interface NativeRecoveryPolicy extends NativeEvidenceLimits {
   /** Omit to retain publication-only policy. Historical/private versions still HOLD unless trusted composition
    * supplies an exact, live operator-entitlement policy; supplying only a case-level read grant is not sufficient. */
   visibility?: VersionVisibilityPort;
-  /** The existing case-audit gate, called for the exact request principal, session and case. Absent: audit-bearing /2 is unavailable. */
+  /** Required by every /2 storage controller, even for audit-free archives. Exact live request principal/session/case. */
   audit?: Pick<AuditReadGate, 'caseAudit'>;
 }
 type Cell = string | number | null;
@@ -55,6 +55,7 @@ export interface EvidenceCapture { evidence: NativeEvidence; observation: D1Obse
 export interface NativeEvidencePort {
   readonly limits: Readonly<NativeArchiveLimits>;
   readonly visibility: VersionVisibilityPort;
+  /** Null disables /2 storage controllers; it never selects audit-free authority. */
   readonly audit: CaseAuditPort | null;
   capture(a: { audit: AuditScope }): Promise<EvidenceCapture>;
   read(ref: Omit<ImmutableReference, 'blob' | 'objectVersion' | 'etag'>): Promise<{ bytes: Uint8Array; objectVersion: string; etag: string }>;
@@ -438,15 +439,13 @@ export function legacyView(m: NativeExportManifest): ExportManifest {
 export function nativePort(deps: RecoveryDeps): NativeEvidencePort {
   const p = deps.nativeEvidence;
   if (!p || typeof p.capture !== 'function' || typeof p.read !== 'function' || typeof p.userWorkRevision !== 'function' || !p.visibility || (deps.profile === 'production' && p.visibility.kind !== 'current-policy')) return unavailable();
-  if (p.audit !== null && (typeof p.audit?.requireCaseAudit !== 'function' || (deps.profile === 'production' && p.audit.kind !== 'current-policy'))) return unavailable();
+  if (!p.audit || typeof p.audit.requireCaseAudit !== 'function' || (deps.profile === 'production' && p.audit.kind !== 'current-policy')) return unavailable();
   nativeLimits(p.limits); return p;
 }
 export function nativeAuthorityDeps(deps: RecoveryDeps): RecoveryDeps { return { ...deps, visibility: nativePort(deps).visibility }; }
-/** The scope a capture may archive: the case audit only when the live entitlement port exists, checked by `requireAuditView`. */
-export const auditScopeOf = (deps: RecoveryDeps): AuditScope => nativePort(deps).audit ? 'case-audit/1' : 'none';
-/** Audit-bearing evidence is released, verified or staged only under the live case-audit entitlement; absent port is 503. */
-export async function requireAuditView(deps: RecoveryDeps, e: Pick<NativeEvidence, 'audit'>, caseId: CaseId) {
-  if (e.audit === 'none') return;
+/** Every /2 storage operation requires live case-audit authority, including before an unclassified manifest read.
+ * Scope comes from the trusted request/composition, never from archived audit selection or identity claims. */
+export async function requireAuditView(deps: RecoveryDeps, caseId: CaseId) {
   const port = nativePort(deps).audit;
   if (!port) unavailable();
   await port.requireCaseAudit({ identity: deps.identity, caseId });
@@ -454,7 +453,7 @@ export async function requireAuditView(deps: RecoveryDeps, e: Pick<NativeEvidenc
 /** Every native release/commit boundary: audit entitlement, live visibility of every carried version, then case authority. */
 export async function recheckNative(deps: RecoveryDeps, m: NativeExportManifest, scopes: Parameters<typeof recheck>[1]) {
   const auth = nativeAuthorityDeps(deps);
-  await requireAuditView(deps, m.evidence, m.caseId);
+  await requireAuditView(deps, m.caseId);
   for (const id of evidenceVersionIds(m.evidence)) await requireVisible(auth, m.caseId, id);
   // The validated evidence contains every identity (including publication/active/staging). Do not repeat policy IO
   // after the final case-authority observation, or alternate independently revocable gates indefinitely.
@@ -561,7 +560,7 @@ export async function loadNativeExport(deps: RecoveryDeps, req: VerifyRequest, s
   await authorizeAndAudit(deps, { ...audit, scopes: scopesFor(caseId) });
   try {
     const keys = objectKeys(deps.identity.clientId, caseId, req.exportId);
-    const beforeManifest = () => requireAuditView(deps, { audit: auditScopeOf(deps) }, caseId);
+    const beforeManifest = () => requireAuditView(deps, caseId);
     await beforeManifest();
     const sealedManifest = await objects.get(keys.manifest, { beforeRead: beforeManifest }); if (!sealedManifest) missing();
     const manifestSha256 = await sha256Hex(sealedManifest); if (manifestSha256 !== req.expectedManifestSha256) throw fail('manifest-mismatch');

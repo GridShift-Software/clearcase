@@ -3,12 +3,14 @@
 // denials leg requires the D1 audit log to name the refused request's own operation, `asset.read-original`, for these
 // reads. The route asks `assets.metadata` first, so without a record under the requested operation the log holds
 // only `asset.describe` and the leg fails on workerd. Synthetic fixture only; the workerd run stays the hosted evidence.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import type { RequestEvent } from '@sveltejs/kit';
 import type { D1, D1Statement, R2 } from '../../../src/lib/server/runtime/hosted/bindings.ts';
 import { gateServices } from '../../../src/lib/server/runtime/hosted/gate/services.ts';
 import { serveAsset } from '../../../src/lib/viewer/hosted/route.ts';
+import { deliverAsset } from '../../../src/lib/viewer/hosted/delivery.ts';
+import type { AssetRef, AssetsAccess } from '../../../src/lib/server/runtime/contracts.ts';
 import { gateFixture, sentinel } from './gate-fixture.ts';
 
 function d1(db: DatabaseSync): D1 {
@@ -49,8 +51,14 @@ function world() {
 			return { status, text: JSON.stringify((e as { body?: unknown }).body ?? '') };
 		}
 	}
+	// The gate's real AssetsAccess for one session, to call a handle or deliverAsset directly.
+	async function assets(sessionId: string) {
+		const ready = await gateServices(new Request('http://127.0.0.1/', { headers: { cookie: `clearcase_session=${sessionId}` } }), env);
+		if (!ready.ready) throw new Error(ready.reason);
+		return ready.services.assets;
+	}
 	const events = () => db.prepare('SELECT action, outcome, object_id FROM audit_event').all() as { action: string; outcome: string; object_id: string }[];
-	return { session, original, events };
+	return { session, original, assets, events };
 }
 
 describe('the original route audits a refused read under the operation requested (the test:hosted denials leg)', () => {
@@ -75,5 +83,43 @@ describe('the original route audits a refused read under the operation requested
 		const r = await w.original(w.session('client-a', 'a-viewer'), 'case-a1', 'a1-letter');
 		expect(r.status).toBe(200);
 		expect(w.events().filter((e) => e.outcome === 'succeeded')).toEqual([{ action: 'asset.read-original', outcome: 'succeeded', object_id: 'a1-letter' }]);
+	});
+});
+
+const asset = (caseId: string, assetId: string) => ({ kind: 'original' as const, caseId, assetId }) as AssetRef;
+const GET = { method: 'GET' as const, url: new URL('http://127.0.0.1/x'), headers: new Headers() };
+
+describe('metadata names the read it prefaces (the optional for: "read" intent)', () => {
+	it('keeps asset.describe for a refused metadata call that names no intent', async () => {
+		const w = world(), a = await w.assets(w.session('client-a', 'a-viewer'));
+		await expect(a.metadata({ asset: asset('case-a2', 'a2-statement') })).rejects.toMatchObject({ code: 'forbidden' });
+		expect(w.events()).toContainEqual({ action: 'asset.describe', outcome: 'denied', object_id: 'a2-statement' });
+		expect(w.events().some((e) => e.action === 'asset.read-original')).toBe(false);
+	});
+	it('audits a refused for: "read" call once under asset.read-original, never as asset.describe', async () => {
+		const w = world(), a = await w.assets(w.session('client-a', 'a-viewer'));
+		await expect(a.metadata({ asset: asset('case-a2', 'a2-statement'), for: 'read' })).rejects.toMatchObject({ code: 'forbidden' });
+		expect(w.events().filter((e) => e.object_id === 'a2-statement')).toEqual([{ action: 'asset.read-original', outcome: 'denied', object_id: 'a2-statement' }]);
+	});
+	it('records nothing for a granted for: "read" call: the delivery is recorded only by get', async () => {
+		const w = world(), a = await w.assets(w.session('client-a', 'a-viewer'));
+		expect((await a.metadata({ asset: asset('case-a1', 'a1-letter'), for: 'read' })).filename).toBeTruthy();
+		expect(w.events()).toEqual([]);
+	});
+	it('stops deliverAsset at a refused preflight: one requested-read denial, no get, no success, though get would permit', async () => {
+		const w = world(), real = await w.assets(w.session('client-a', 'a-viewer'));
+		const permissive = vi.fn(async () => new Response('LEAKED', { status: 200 }));
+		const guarded: AssetsAccess = { ...real, get: permissive };
+		await expect(deliverAsset({ assets: guarded, asset: asset('case-a2', 'a2-statement'), ...GET })).rejects.toMatchObject({ code: 'forbidden' });
+		expect(permissive).not.toHaveBeenCalled();
+		expect(w.events()).toEqual([{ action: 'asset.read-original', outcome: 'denied', object_id: 'a2-statement' }]);
+	});
+	it('passes the read intent to the preflight and keeps the not-found status without reaching get', async () => {
+		const get = vi.fn(), metadata = vi.fn(async () => { throw Object.assign(new Error('gone'), { code: 'not-found' }); });
+		const stub = { metadata, get } as unknown as AssetsAccess;
+		const ref = asset('case-a1', 'a1-letter');
+		await expect(deliverAsset({ assets: stub, asset: ref, ...GET })).rejects.toMatchObject({ code: 'not-found' });
+		expect(metadata).toHaveBeenCalledExactlyOnceWith({ asset: ref, for: 'read' });
+		expect(get).not.toHaveBeenCalled();
 	});
 });

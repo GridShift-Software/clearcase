@@ -225,3 +225,32 @@ describe('memory authorization and controls', () => {
     await expect(a.runtime.probe()).rejects.toMatchObject({ code: 'missing-binding' });
   });
 });
+
+describe('memory metadata names the read it prefaces', () => {
+  const private_ = { kind: 'preview' as const, caseId: undefined as never, resultsVersion: undefined as never, assetId: 'private' };
+  function withdrawn() {
+    const backend = createMemoryBackend({ fixture: fx.data, now });
+    const a = backend.request({ clientId: id('client', 'client-a'), sessionId: id('session', 'a-editor') });
+    backend.publish({ clientId: a.identity.clientId, caseId: fx.caseId, publication: { kind: 'withdrawn' } });
+    const asset = { ...private_, caseId: fx.caseId, resultsVersion: fx.rv };
+    const seen = () => backend.events(a.identity.clientId).map((e) => `${e.action} ${e.outcome}`);
+    return { a, asset, seen };
+  }
+  it('audits a refused preview preflight once as asset.read-preview, and a plain call as asset.describe', async () => {
+    const { a, asset, seen } = withdrawn();
+    await expect(a.assets.metadata({ asset, for: 'read' })).rejects.toMatchObject({ code: 'forbidden' });
+    expect(seen()).toEqual(['asset.read-preview denied']);
+    await expect(a.assets.metadata({ asset })).rejects.toMatchObject({ code: 'forbidden' });
+    expect(seen()).toEqual(['asset.read-preview denied', 'asset.describe denied']);
+  });
+  it('audits a refused original preflight as asset.read-original and records nothing for a granted one', async () => {
+    const backend = createMemoryBackend({ fixture: fx.data, now });
+    const b = backend.request({ clientId: id('client', 'client-a'), sessionId: id('session', 'a-editor') });
+    const original = { kind: 'original' as const, caseId: fx.caseId, assetId: 'HOSTED-001' };
+    expect((await b.assets.metadata({ asset: original, for: 'read' })).size).toBeGreaterThan(0);
+    expect(backend.events(b.identity.clientId)).toEqual([]);
+    backend.revoke(id('session', 'a-editor'));
+    await expect(b.assets.metadata({ asset: original, for: 'read' })).rejects.toMatchObject({ code: 'invalid-session' });
+    expect(backend.events(b.identity.clientId).map((e) => `${e.action} ${e.outcome}`)).toEqual(['asset.read-original denied']);
+  });
+});

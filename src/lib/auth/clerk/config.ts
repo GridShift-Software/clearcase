@@ -59,6 +59,7 @@ const SECRET = /^sk_(test|live)_[A-Za-z0-9]{8,256}$/;
 const HOST = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
 const PEM = /^-----BEGIN PUBLIC KEY-----[A-Za-z0-9+/=\s]{64,4096}-----END PUBLIC KEY-----$/;
 const AUDIENCE = /^[A-Za-z0-9._:/-]{1,200}$/;
+const DEV_BROWSER = /^[A-Za-z0-9._-]{16,4096}$/;
 // @clerk/backend 3.26.0 loads a PEM key by deleting this exact RSA-2048 SPKI prefix and the exponent suffix (AQAB) and
 // taking the rest as the modulus. Any other key (EC, RSA of another size, exponent) would turn every token into an
 // SDK failure, so the configuration refuses it up front instead of per request.
@@ -170,19 +171,57 @@ export function readClerkIdentityConfig(env: Readonly<Record<string, unknown>>, 
 /**
  * What the public sign-in page may show: the sign-in URL of the client instance (default) or of the staff instance for the
  * per-client operator route, never a key. Null when unconfigured or when the return target is not on this origin.
+ *
+ * `devBrowser` is the browser's `__clerk_db_jwt` on this origin. A development instance keeps one Clerk client per dev
+ * browser, so a portal on another origin signs in this browser's client only when handed it, as @clerk/backend's
+ * redirectToSignIn does; without it the portal signs in a client of its own and the handshake here stays signed out. It is
+ * added for the client instance only: the cookie name is shared on this origin and nothing shows which instance minted it.
+ *
+ * The staff portal returns to the operator route, carrying the target as `returnTo`, not to the target itself: only that
+ * route takes the staff handshake for a browser with no staff session yet, and it sends the verified session on.
  */
-export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, returnTo: string, kind: InstanceKind = 'client'): { href: string } | null {
+export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, returnTo: string, kind: InstanceKind = 'client', devBrowser: string | null = null): { href: string } | null {
 	const read = readClerkIdentityConfig(env, { keys: 'optional' });
 	const signInUrl = read.ok ? (kind === 'client' ? read.config.signInUrl : read.config.staffSignInUrl) : null;
 	if (!read.ok || signInUrl === null) return null;
 	const target = new URL(signInUrl), back = new URL(returnTo, read.config.appOrigin);
 	if (back.origin !== read.config.appOrigin) return null;
+	if (kind === 'staff') {
+		const operator = new URL(STAFF_SIGN_IN_PAGE, read.config.appOrigin);
+		if (!isSignInFlowPage(back.pathname)) operator.searchParams.set('returnTo', `${back.pathname}${back.search}`);
+		target.searchParams.set('redirect_url', operator.href);
+		return { href: target.href };
+	}
 	target.searchParams.set('redirect_url', back.href);
+	const development = read.config[kind].publishableKey.startsWith('pk_test_');
+	if (kind === 'client' && development && devBrowser !== null && DEV_BROWSER.test(devBrowser) && target.origin !== read.config.appOrigin) target.searchParams.set('__clerk_db_jwt', devBrowser);
 	return { href: target.href };
 }
 
 // The sign-in page of each instance: its form posts to itself and is redirected (303) to that instance's portal.
-const SIGN_IN_PAGES: Readonly<Record<string, InstanceKind>> = { '/sign-in': 'client', '/sign-in/operator': 'staff' };
+const STAFF_SIGN_IN_PAGE = '/sign-in/operator';
+const SIGN_IN_PAGES: Readonly<Record<string, InstanceKind>> = { '/sign-in': 'client', [STAFF_SIGN_IN_PAGE]: 'staff' };
+const SIGN_IN_FLOW = /^\/sign-(?:in|out)(?:\/|$)/;
+
+/**
+ * Whether a same-origin path is a sign-in or sign-out page, which a sign-in never returns to: that would loop or end the
+ * new session at once. The path is decoded and normalized until it is stable, so no escape, dot segment or doubled
+ * slash hides one; a path that does not decode counts as one.
+ */
+export function isSignInFlowPage(pathname: string): boolean {
+	let path = pathname;
+	for (let i = 0; i < 4; i++) {
+		let next: string;
+		try {
+			next = new URL(`https://path.invalid/${decodeURIComponent(path)}`).pathname.replace(/\/{2,}/g, '/');
+		} catch {
+			return true;
+		}
+		if (next === path) return SIGN_IN_FLOW.test(path.toLowerCase());
+		path = next;
+	}
+	return true;
+}
 
 /**
  * The origins, beside 'self', a sign-in page's form-action must allow: a browser checks every redirect of a form

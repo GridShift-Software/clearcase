@@ -7,9 +7,9 @@ import type { Identity, Principal, SessionId } from '../../server/runtime/contra
 import { contractError } from '../../server/runtime/errors.ts';
 import { readClerkIdentityConfig, type ClerkIdentityConfig, type ClerkInstanceConfig, type InstanceKind } from './config.ts';
 import { revocationEvidenceOf, type RevocationEvidence } from './revocation.ts';
-import { inspectToken, presentedToken } from './session.ts';
+import { CLEARABLE_COOKIE_NAME, REFRESH_COOKIE_NAME, cookiePairs, inspectToken, presentedToken } from './session.ts';
 
-const CLEARABLE = /^(?:__session|__client_uat)(?:_[A-Za-z0-9]{1,32})?$/;
+export { cookiePairs, type CookiePair } from './session.ts';
 
 /** The per-client staff (operator) sign-in route on a client origin. */
 export const OPERATOR_PATH = '/sign-in/operator';
@@ -26,8 +26,20 @@ export interface ClerkBrowserHandshake {
 	handle(request: Request): Promise<HandshakeOutcome>;
 }
 
-export const cookiePairs = (request: Request): { name: string; value: string }[] =>
-	(request.headers.get('cookie') ?? '').split(';').map((p) => p.trim()).filter(Boolean).map((p) => { const i = p.indexOf('='); return i < 0 ? { name: p, value: '' } : { name: p.slice(0, i), value: p.slice(i + 1) }; });
+/**
+ * The Cookie header the SDK may see: the request's cookies as `cookiePairs` read them, without the handshake cookie (a
+ * handshake is only ever taken from the query, verified here) and without Clerk's refresh token (with it the SDK would
+ * refresh an expired session through the Backend API on each request). Exact names, not a prefix.
+ */
+export function sdkCookieHeader(request: Request): string {
+	return cookiePairs(request).filter((c) => c.name !== '__clerk_handshake' && !REFRESH_COOKIE_NAME.test(c.name)).map((c) => `${c.name}=${c.value}`).join('; ');
+}
+
+/** The browser's one `__clerk_db_jwt` (the dev browser a handshake set host-only here), or null when absent or repeated. */
+export function devBrowserOf(request: Request): string | null {
+	const values = cookiePairs(request).filter((c) => c.name === '__clerk_db_jwt').map((c) => c.value);
+	return values.length === 1 ? values[0]! : null;
+}
 
 /** The cookie directives that delete exactly the Clerk session cookies a request carries (host-only, as they were set). */
 export function clerkCookieClears(request: Request, secure: boolean): string[] {
@@ -35,7 +47,7 @@ export function clerkCookieClears(request: Request, secure: boolean): string[] {
 }
 /** The names of the Clerk session cookies a request carries, in order of appearance. */
 export function clearableNames(request: Request): string[] {
-	return [...new Set(cookiePairs(request).map((c) => c.name).filter((n) => CLEARABLE.test(n)))];
+	return [...new Set(cookiePairs(request).map((c) => c.name).filter((n) => CLEARABLE_COOKIE_NAME.test(n)))];
 }
 
 

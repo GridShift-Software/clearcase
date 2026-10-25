@@ -281,15 +281,134 @@ test('keeps the real app inventory at the base 19 pages and one server without r
 });
 
 // The hosted route tree (deploy/client/routes, GRS-112) is not src/routes, so the class suite does not map its forms. Each
-// hosted page with a form is declared with a reason (declared.mjs HOSTED_FORMS), and the reason is checked: the route is
-// one discovery finds, and the hosted smoke run (tests/hosted-foundation/runtime/smoke.ts) names it.
+// hosted page with a form is declared with a reason (declared.mjs HOSTED_FORMS), and the reason is checked against evidence
+// of a declared kind (HOSTED_FORM_EVIDENCE): the three test-identity routes are named by the hosted smoke run; the others
+// are driven by tracked unit or component tests that import and call the real route modules over doubles. The unit and
+// component kinds are never browser or workerd proof, and a harness file or a comment is not evidence.
 // @ts-expect-error plain .mjs
 import { hostedForms } from '../classes/targets.mjs';
-import { readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import ts from 'typescript';
+
+type Evidence = { kind: string; test: string; module?: string; via?: { file: string; export: string } };
+const SMOKE = 'tests/hosted-foundation/runtime/smoke.ts';
+// The original three smoke-bound routes, pinned here and not read from declared.mjs, so one cannot be relabelled to evade the smoke check.
+const SMOKE_ROUTES = ['/cases', '/sign-in', '/sign-out'];
+
+const parseTs = (root: string, rel: string) => ts.createSourceFile(rel, readFileSync(join(root, rel), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+const visit = (node: ts.Node, fn: (n: ts.Node) => void) => { fn(node); ts.forEachChild(node, (c) => visit(c, fn)); };
+const gitTracked = (root: string, rel: string) => spawnSync('git', ['ls-files', '--error-unmatch', '--', rel], { cwd: root, stdio: 'ignore' }).status === 0;
+
+/** The identifier a call or access chain starts from (`operator.actions.default!(…)` -> operator, `it.each(x)(…)` -> it). */
+function rootName(e: ts.Node): string | undefined {
+ for (;;) {
+  if (ts.isIdentifier(e)) return e.text;
+  if (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e) || ts.isNonNullExpression(e) || ts.isParenthesizedExpression(e) || ts.isCallExpression(e)) e = e.expression;
+  else return undefined;
+ }
+}
+/** Every name along a callee chain (`it.skip` -> it, skip). */
+function chainNames(e: ts.Node): string[] {
+ const out: string[] = [];
+ for (;;) {
+  if (ts.isIdentifier(e)) return [e.text, ...out];
+  if (ts.isPropertyAccessExpression(e)) out.unshift(e.name.text);
+  if (ts.isPropertyAccessExpression(e) || ts.isNonNullExpression(e) || ts.isParenthesizedExpression(e) || ts.isCallExpression(e)) e = e.expression;
+  else return out;
+ }
+}
+/** Whether a node sits inside the callback of an `it` or `test` that is not skipped (or todo) and not under a skipped describe. */
+function inLiveTest(node: ts.Node): boolean {
+ let live = false;
+ for (let p = node.parent; p; p = p.parent) {
+  if (!ts.isCallExpression(p)) continue;
+  const names = chainNames(p.expression);
+  if (names.some((n) => /^(skip|skipIf|todo)$/.test(n))) return false;
+  if (names[0] === 'it' || names[0] === 'test') live = true;
+ }
+ return live;
+}
+/** The local names a source binds to the module at `target`: a static import or an `await import('…')` of a relative path; `only` narrows to one named export. */
+function bindingsOf(root: string, rel: string, sf: ts.SourceFile, target: string, only?: string): Set<string> {
+ const names = new Set<string>();
+ const hits = (spec?: string) => spec !== undefined && spec.startsWith('.') && resolve(root, rel, '..', spec) === join(root, target);
+ const addPattern = (name: ts.BindingName) => { if (ts.isIdentifier(name)) names.add(name.text); else for (const e of name.elements) if (ts.isBindingElement(e)) addPattern(e.name); };
+ visit(sf, (n) => {
+  if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier) && hits(n.moduleSpecifier.text)) {
+   const c = n.importClause;
+   if (!c || c.isTypeOnly) return;
+   if (only === undefined && c.name) names.add(c.name.text);
+   const nb = c.namedBindings;
+   if (nb && ts.isNamespaceImport(nb) && only === undefined) names.add(nb.name.text);
+   if (nb && ts.isNamedImports(nb)) for (const e of nb.elements) if (!e.isTypeOnly && (only === undefined || (e.propertyName ?? e.name).text === only)) names.add(e.name.text);
+  }
+  if (only === undefined && ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword && n.arguments[0] && ts.isStringLiteralLike(n.arguments[0]) && hits(n.arguments[0].text)) {
+   let p: ts.Node = n.parent;
+   while (ts.isAwaitExpression(p) || ts.isParenthesizedExpression(p)) p = p.parent;
+   if (ts.isVariableDeclaration(p)) addPattern(p.name);
+  }
+ });
+ return names;
+}
+/** Whether a live test in `sf` calls one of `drivers`, directly or through a top-level helper that does. */
+function testCalls(sf: ts.SourceFile, drivers: Set<string>): boolean {
+ const calls: ts.CallExpression[] = [];
+ visit(sf, (n) => { if (ts.isCallExpression(n)) calls.push(n); });
+ const helpers: [string, ts.Node][] = [];
+ for (const s of sf.statements) {
+  if (ts.isFunctionDeclaration(s) && s.name) helpers.push([s.name.text, s]);
+  if (ts.isVariableStatement(s)) for (const d of s.declarationList.declarations) if (ts.isIdentifier(d.name) && d.initializer) helpers.push([d.name.text, d.initializer]);
+ }
+ const callsDriver = (node: ts.Node) => { let found = false; visit(node, (n) => { if (ts.isCallExpression(n) && drivers.has(rootName(n.expression) ?? '')) found = true; }); return found; };
+ for (let grew = true; grew;) {
+  grew = false;
+  for (const [name, node] of helpers) if (!drivers.has(name) && callsDriver(node)) { drivers.add(name); grew = true; }
+ }
+ return calls.some((c) => drivers.has(rootName(c.expression) ?? '') && inLiveTest(c));
+}
+
+/** Why a route's evidence does not show it driven, empty when it does. `tracked` is injectable for a synthetic tree. */
+function evidenceProblems(root: string, route: string, ev: Evidence, tracked: (rel: string) => boolean = (rel) => gitTracked(root, rel)): string[] {
+ const bad = (why: string) => [`${route}: ${why}`];
+ if (!tracked(ev.test) || !existsSync(join(root, ev.test))) return bad(`${ev.test} is not a tracked file`);
+ const sf = parseTs(root, ev.test);
+ if (ev.kind === 'smoke') {
+  if (ev.test !== SMOKE) return bad(`smoke evidence must be ${SMOKE}`);
+  let named = false;
+  visit(sf, (n) => { if (ts.isStringLiteralLike(n) && n.text === route) named = true; });
+  return named ? [] : bad(`${ev.test} holds no string literal ${route} outside comments`);
+ }
+ if (ev.kind !== 'unit' && ev.kind !== 'component') return bad(`unknown evidence kind ${ev.kind}`);
+ if (!ev.test.endsWith('.test.ts')) return bad(`${ev.test} is not a test file`);
+ if (!ev.module || !existsSync(join(root, ev.module))) return bad(`module ${ev.module} does not exist`);
+ if (!ev.module.startsWith(`deploy/client/routes${route}/`)) return bad(`${ev.module} is not under the route`);
+ let drivers: Set<string>;
+ if (ev.via) {
+  if (!tracked(ev.via.file) || !existsSync(join(root, ev.via.file))) return bad(`${ev.via.file} is not a tracked file`);
+  const harness = parseTs(root, ev.via.file);
+  const mod = bindingsOf(root, ev.via.file, harness, ev.module);
+  let uses = false;
+  for (const s of harness.statements) {
+   const exported = (ts.canHaveModifiers(s) ? ts.getModifiers(s) : undefined)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+   const declares = (ts.isFunctionDeclaration(s) && s.name?.text === ev.via.export) || (ts.isVariableStatement(s) && s.declarationList.declarations.some((d) => ts.isIdentifier(d.name) && d.name.text === ev.via!.export));
+   if (exported && declares) visit(s, (n) => { if (ts.isIdentifier(n) && mod.has(n.text)) uses = true; });
+  }
+  if (!uses) return bad(`${ev.via.file} does not import ${ev.module} and use it in its exported ${ev.via.export}`);
+  drivers = bindingsOf(root, ev.test, sf, ev.via.file, ev.via.export);
+ } else drivers = bindingsOf(root, ev.test, sf, ev.module);
+ if (!drivers.size) return bad(`${ev.test} does not import ${ev.via ? `${ev.via.export} from ${ev.via.file}` : ev.module}`);
+ return testCalls(sf, drivers) ? [] : bad(`no live test in ${ev.test} calls ${[...drivers].join(', ')}`);
+}
+
 describe('hosted forms are declared, with a reason the suite checks', () => {
  const app = join(import.meta.dirname, '..', '..', '..');
  const found: string[] = hostedForms(app);
  const declaredRoutes = Object.keys(declared.HOSTED_FORMS ?? {});
+ test('discovery finds the hosted sign-in, sign-out and case-list forms', () => {
+  expect(found).toEqual(expect.arrayContaining(SMOKE_ROUTES));
+ });
  test('discovery finds exactly the hosted sign-in, operator sign-in, sign-out, case-list, notes, chronology filter and intake forms', () => {
   expect(found).toEqual(['/cases', '/cases/[caseId]/notes', '/cases/[caseId]/views/[resultsVersion]/chronology', '/client/intake/[caseId]', '/sign-in', '/sign-in/operator', '/sign-out']);
  });
@@ -298,10 +417,22 @@ describe('hosted forms are declared, with a reason the suite checks', () => {
   expect(Object.keys(declared.HOSTED_FORM_EVIDENCE).sort()).toEqual(found);
   for (const route of declaredRoutes) expect(declared.HOSTED_FORMS[route].length).toBeGreaterThan(20);
  });
- test('a tracked test drives each declared route', () => {
-  for (const route of declaredRoutes) {
-   const { file, needle } = declared.HOSTED_FORM_EVIDENCE[route];
-   expect(readFileSync(join(app, file), 'utf8'), `${route}: ${file} must contain ${needle}`).toContain(needle);
+ test('the hosted smoke run drives each declared route', () => {
+  for (const route of SMOKE_ROUTES) {
+   expect(declared.HOSTED_FORMS[route], `${route} is declared`).toBeTruthy();
+   expect(declared.HOSTED_FORM_EVIDENCE[route], `${route} stays smoke-bound, not relabelled`).toEqual({ kind: 'smoke', test: SMOKE });
+   expect(evidenceProblems(app, route, declared.HOSTED_FORM_EVIDENCE[route])).toEqual([]);
+  }
+ });
+ test('the other declared routes are driven by tracked unit or component tests, labelled as that and never as browser or workerd proof', () => {
+  const others = declaredRoutes.filter((r) => !SMOKE_ROUTES.includes(r));
+  expect(others).toHaveLength(4);
+  for (const route of others) {
+   const ev: Evidence = declared.HOSTED_FORM_EVIDENCE[route];
+   expect(['unit', 'component'], `${route} is labelled ${ev.kind}`).toContain(ev.kind);
+   expect(declared.HOSTED_FORMS[route], `${route}: the reason names its ${ev.kind} evidence`).toMatch(new RegExp(`\\b${ev.kind}\\b`));
+   expect(declared.HOSTED_FORMS[route], `${route}: a unit or component reason does not cite test:hosted or workerd as its proof`).not.toMatch(/test:hosted|on workerd/);
+   expect(evidenceProblems(app, route, ev)).toEqual([]);
   }
  });
  test('discovery reads a form from a page and from exported actions, and ignores a page with neither', () => {
@@ -314,5 +445,90 @@ describe('hosted forms are declared, with a reason the suite checks', () => {
   put2('c/+server.ts', 'export const GET = () => new Response();');
   put2('d/[id]/+page.svelte', '<form action="/x"></form>');
   try { expect(hostedForms(dir)).toEqual(['/a', '/b', '/d/[id]']); } finally { rmSync(dir, { recursive: true, force: true }); }
+ });
+});
+
+describe('hosted form evidence is refused when its driving setup is gone', () => {
+ const app = join(import.meta.dirname, '..', '..', '..');
+ const real = (route: string): Evidence => declared.HOSTED_FORM_EVIDENCE[route];
+ const UNIT_AND_COMPONENT = Object.keys(declared.HOSTED_FORM_EVIDENCE ?? {}).filter((r) => !SMOKE_ROUTES.includes(r)).sort();
+ const always = () => true;
+ // a copy of the files one real entry cites, so a mutation never touches the checkout
+ const copyOf = (route: string) => {
+  const ev = real(route), dir = mkdtempSync(join(root, 'evidence-'));
+  for (const rel of [ev.test, ev.via?.file, ev.module]) if (rel) { mkdirSync(dirname(join(dir, rel)), { recursive: true }); copyFileSync(join(app, rel), join(dir, rel)); }
+  return { ev, dir, set: (rel: string, text: string) => writeFileSync(join(dir, rel), text), read: (rel: string) => readFileSync(join(dir, rel), 'utf8') };
+ };
+ test('the git check sees a tracked file and refuses an untracked path', () => {
+  expect(gitTracked(app, 'tests/hosted-smoke/intake/harness.ts')).toBe(true);
+  expect(gitTracked(app, 'tests/hosted-smoke/intake/not-a-file.test.ts')).toBe(false);
+ });
+ test.each(UNIT_AND_COMPONENT)('%s: a copy of the real evidence passes, and loses it when the file that drives it is reduced to a comment naming the route', (route) => {
+  const { ev, dir, set } = copyOf(route);
+  expect(evidenceProblems(dir, route, ev, always)).toEqual([]);
+  set(ev.via?.file ?? ev.test, `// ${ev.module}\n// ${route}\n`);
+  expect(evidenceProblems(dir, route, ev, always)).not.toEqual([]);
+ });
+ test.each(UNIT_AND_COMPONENT)('%s: the cited evidence is refused once its import of the route module is gone', (route) => {
+  const { ev, dir, set, read } = copyOf(route);
+  const file = ev.via?.file ?? ev.test, cut = ev.module!.split('/').slice(-1)[0];
+  set(file, read(file).replaceAll(cut, 'other.ts'));
+  expect(evidenceProblems(dir, route, ev, always)).not.toEqual([]);
+ });
+ test('the intake harness reduced to only the route comment is refused, whatever the test around it still does', () => {
+  const route = '/client/intake/[caseId]', { ev, dir, set } = copyOf(route);
+  set(ev.via!.file, '// deploy/client/routes/client/intake\n');
+  expect(evidenceProblems(dir, route, ev, always).join('\n')).toMatch(/does not import .*submissions\/\+server\.ts and use it in its exported dispatch/);
+ });
+
+ // synthetic trees for the shapes a real file cannot be mutated into without breaking its own tests
+ const ROUTE = '/r', MODULE = 'deploy/client/routes/r/+page.server.ts', T = 'tests/r.test.ts', H = 'tests/harness.ts';
+ const put3 = (files: Record<string, string>) => { const dir = mkdtempSync(join(root, 'synthetic-')); for (const [rel, text] of Object.entries(files)) { mkdirSync(dirname(join(dir, rel)), { recursive: true }); writeFileSync(join(dir, rel), text); } return dir; };
+ const MOD = { [MODULE]: 'export const load = () => 1;' };
+ const DIRECT: Evidence = { kind: 'unit', test: T, module: MODULE };
+ const VIA: Evidence = { kind: 'component', test: T, module: MODULE, via: { file: H, export: 'dispatch' } };
+ const HARNESS = "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport const compose = () => 0;\nexport async function dispatch() { return r.load(); }\n";
+ const viaTest = (body: string) => `import { describe, it } from 'vitest';\nimport { compose, dispatch } from './harness.ts';\n${body}`;
+ const directTest = (body: string, head = "import { it } from 'vitest';\nimport { load } from '../deploy/client/routes/r/+page.server.ts';\n") => head + body;
+ const cases: [string, Evidence, Record<string, string>, boolean][] = [
+  ['a static import called inside a test', DIRECT, { ...MOD, [T]: directTest("it('x', () => load());") }, true],
+  ['an awaited dynamic import called through its namespace', DIRECT, { ...MOD, [T]: "import { it } from 'vitest';\nconst r = await import('../deploy/client/routes/r/+page.server.ts');\nit('x', () => r.load!());" }, true],
+  ['a call reached through a top-level helper', DIRECT, { ...MOD, [T]: directTest("const go = () => load();\nit('x', () => { go(); });") }, true],
+  ['a harness export that uses the route, called from a test', VIA, { ...MOD, [H]: HARNESS, [T]: viaTest("it('x', async () => { await dispatch(); });") }, true],
+  ['a test file reduced to a comment naming the module', DIRECT, { ...MOD, [T]: `// ${MODULE}\n// load()\n` }, false],
+  ['the call only in a comment', DIRECT, { ...MOD, [T]: directTest("// load();\nit('x', () => 1);") }, false],
+  ['the import removed while the call remains', DIRECT, { ...MOD, [T]: "import { it } from 'vitest';\nit('x', () => load());" }, false],
+  ['an import of another module', DIRECT, { ...MOD, [T]: "import { it } from 'vitest';\nimport { load } from '../deploy/client/routes/other/+page.server.ts';\nit('x', () => load());" }, false],
+  ['the import never called', DIRECT, { ...MOD, [T]: directTest("it('x', () => 1);") }, false],
+  ['a call outside every test', DIRECT, { ...MOD, [T]: directTest('load();') }, false],
+  ['a call in a skipped test', DIRECT, { ...MOD, [T]: directTest("it.skip('x', () => load());") }, false],
+  ['a call in a todo test', DIRECT, { ...MOD, [T]: directTest("test.todo('x', () => load());", "import { test } from 'vitest';\nimport { load } from '../deploy/client/routes/r/+page.server.ts';\n") }, false],
+  ['a call under a skipped describe', DIRECT, { ...MOD, [T]: directTest("describe.skip('d', () => { it('x', () => load()); });", "import { describe, it } from 'vitest';\nimport { load } from '../deploy/client/routes/r/+page.server.ts';\n") }, false],
+  ['a helper that is never called from a test', DIRECT, { ...MOD, [T]: directTest("const go = () => load();\nit('x', () => 1);") }, false],
+  ['a harness reduced to a comment', VIA, { ...MOD, [H]: `// ${MODULE}\n`, [T]: viaTest("it('x', async () => { await dispatch(); });") }, false],
+  ['a harness that imports the route but whose dispatch does not use it', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport const keep = r;\nexport async function dispatch() { return 1; }\n", [T]: viaTest("it('x', async () => { await dispatch(); });") }, false],
+  ['a harness with no dispatch export', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport const compose = () => r.load();\n", [T]: viaTest("it('x', () => 1);") }, false],
+  ['a test that calls only another harness export', VIA, { ...MOD, [H]: HARNESS, [T]: viaTest("it('x', () => { compose(); });") }, false],
+  ['a test that never calls the harness dispatch', VIA, { ...MOD, [H]: HARNESS, [T]: viaTest("it('x', () => 1);") }, false],
+ ];
+ test.each(cases)('%s', (_name, ev, files, ok) => {
+  const problems = evidenceProblems(put3(files), ROUTE, ev, always);
+  if (ok) expect(problems).toEqual([]); else expect(problems).not.toEqual([]);
+ });
+ test('a harness is not a test: citing it as the test is refused even when it drives the route', () => {
+  const dir = put3({ ...MOD, [H]: HARNESS });
+  expect(evidenceProblems(dir, ROUTE, { kind: 'unit', test: H, module: MODULE }, always).join()).toMatch(/is not a test file/);
+ });
+ test('an untracked file is refused, and so is a module outside the route', () => {
+  const dir = put3({ ...MOD, [T]: directTest("it('x', () => load());") });
+  expect(evidenceProblems(dir, ROUTE, DIRECT, () => false).join()).toMatch(/not a tracked file/);
+  expect(evidenceProblems(dir, '/elsewhere', DIRECT, always).join()).toMatch(/not under the route/);
+ });
+ test('smoke evidence names the route in code, not in a comment, and only in the pinned smoke run', () => {
+  const smoke = { kind: 'smoke', test: SMOKE };
+  expect(evidenceProblems(put3({ [SMOKE]: "check(await form('/sign-in', {}));" }), '/sign-in', smoke, always)).toEqual([]);
+  expect(evidenceProblems(put3({ [SMOKE]: "// '/sign-in'\n" }), '/sign-in', smoke, always)).not.toEqual([]);
+  expect(evidenceProblems(put3({ [SMOKE]: "check(await form('/sign-out', {}));" }), '/sign-in', smoke, always)).not.toEqual([]);
+  expect(evidenceProblems(put3({ 'tests/other.ts': "form('/sign-in');" }), '/sign-in', { kind: 'smoke', test: 'tests/other.ts' }, always).join()).toMatch(/must be/);
  });
 });

@@ -3,6 +3,7 @@ import type { Config } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import { assertHostedGraph, selected, type HostedProfile } from './scripts/ci/hosted-imports.ts';
 import { prepareHostedStaticInput } from './scripts/hosted-static-input.ts';
+import { nativeRenderSdkBuild } from './scripts/native-render-sdk-build.ts';
 
 // One app, two artifacts, chosen by one build variable. Unset (or `local`), the build is the local pilot on adapter-node
 // that `bun run --bun start` serves. `CLEARCASE_TARGET=hosted` (only through `bun run --bun build:hosted`) is the
@@ -55,9 +56,14 @@ export default defineConfig(async ({ command, isPreview }) => {
 		const kit = await sveltekit(input ? { ...config, files: { ...config.files, assets: input.assets } } : config);
 		return {
 			// The build stamp `build:hosted` passes in; the runtime refuses an artifact without one.
-			define: hosted ? { __CLEARCASE_BUILD__: JSON.stringify(process.env.CLEARCASE_BUILD_STAMP ?? null) } : {},
+			define: {
+				...(hosted ? { __CLEARCASE_BUILD__: JSON.stringify(process.env.CLEARCASE_BUILD_STAMP ?? null) } : {}),
+				// Public, reviewed build-input metadata, never an env/config/secret claim. No public manifest file.
+				__CLEARCASE_PDF_ASSETS__: JSON.stringify(hosted && profile === 'production' ? input?.inventory ?? null : null)
+			},
 			plugins: [
 				{ name: 'clearcase-hosted-boundary', buildStart() { if (hosted) assertHostedGraph(process.cwd(), profile); } },
+				nativeRenderSdkBuild({ root: process.cwd(), target, profile }),
 				kit,
 				...(input ? [{
 					name: 'clearcase-hosted-static-input',

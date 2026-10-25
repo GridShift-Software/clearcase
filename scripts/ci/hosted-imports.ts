@@ -21,6 +21,7 @@ const gateDouble = /^src\/lib\/server\/runtime\/hosted\/gate\//;
 // Check each edge before the visited cache: an earlier trusted import cannot bless a route's edge.
 const auditImplementation = /^src\/lib\/audit\//;
 const auditComposer = 'src/lib/server/runtime/hosted/services.ts';
+const nativeRenderer = 'src/lib/viewer/hosted/native-render-check.ts';
 // Provisioning-only modules (GRS-114 system actor): the grant-admin bootstrap and the one audit port that may record a
 // system actor. No hosted module may reach them, the trusted service composer included, so a request can neither run the
 // bootstrap nor forge a system producer. Matched on the resolved file, so a deep import, a re-export or a literal dynamic
@@ -97,6 +98,10 @@ export function checkHostedGraph(a: { root: string; profile?: HostedProfile }): 
       const name = packageOf(specifier);
       if (name === '@clerk/backend') {
         if (!relative(importer).startsWith('src/lib/auth/clerk/')) fail(chain, 'Clerk SDK construction is restricted to the first-party identity implementation');
+      } else if (name === '@cloudflare/puppeteer') {
+        // No generic SDK construction or deep entry. Its internals are bundled/byte-checked by the scoped build policy.
+        if (relative(importer) !== nativeRenderer || !['@cloudflare/puppeteer', '@cloudflare/puppeteer/lib/esm/puppeteer/generated/version.js'].includes(specifier))
+          fail(chain, 'native render SDK construction is restricted to the exact first-party renderer and SDK entries');
       } else if (!name || !hostedPackages.has(name)) fail(chain, `package outside the hosted allowlist ${specifier}`);
       return;
     }
@@ -152,6 +157,10 @@ export function checkHostedGraph(a: { root: string; profile?: HostedProfile }): 
       // d1-log.ts also holds the system-actor provisioning core, so even the trusted composer may only reach it through the
       // audit module's own facades (index.ts, trusted.ts), never by naming it.
       if (name === 'src/lib/audit/d1-log.ts' && !auditImplementation.test(importer)) { fail(chain, 'audit core (with the system-actor provisioning core) is internal to src/lib/audit'); return; }
+    }
+    if (name === nativeRenderer && prior.at(-1) !== auditComposer) {
+      fail(chain, 'native render construction is restricted to trusted hosted service composition');
+      return;
     }
     if (visited.has(file)) return;
     visited.add(file);

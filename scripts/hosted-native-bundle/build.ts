@@ -7,7 +7,7 @@
 //   bun scripts/hosted-native-bundle/build.ts verify   --artifact DIR --target FILE
 //
 // `--target` is the reviewed native target.json; only its compatibility date and flags are read here. `assemble` copies
-// the bundle's _worker.js unchanged to artifact/cloudflare/ and the adapter's public files to artifact/public/, then runs
+// the bundle's _worker.js unchanged to artifact/cloudflare/ and only proven browser/static files to artifact/public/, then runs
 // target.ts `checkNativeArtifact` on the result and removes it on any refusal. Exit 0 PASS, 1 refused, 2 usage.
 // Evidence: a PASS is a local build/structure check of one artifact, never a stage, upload, provider or deploy proof.
 import { spawnSync } from 'node:child_process';
@@ -16,7 +16,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { NATIVE_STAGED, parseNativeJson, parseNativeTarget, type NativeTarget, type NativeUpload } from '../../deploy/native-alpha/pipeline.ts';
+import { NATIVE_STAGED, nativeArtifactLayout, parseNativeJson, parseNativeTarget, type NativeTarget, type NativeUpload, type UploadFile } from '../../deploy/native-alpha/pipeline.ts';
 import { checkNativeArtifact, nativeWalk, readRegular } from '../../deploy/probes/target.ts';
 import {
 	ADAPTER_ASSETSIGNORE,
@@ -62,7 +62,7 @@ export type NativeBundleRecord = {
 	schema: typeof NATIVE_BUNDLE_SCHEMA;
 	pins: typeof NATIVE_BUNDLE_PINS;
 	compatibility: { date: string; flags: string[] };
-	inputs: { adapterWorker: string; adapterAssetsignore: string; bundle: string; bundleMap: string; bundleReadme: string };
+	inputs: { adapterWorker: string; adapterAssetsignore: string; bundle: string; bundleMap: string; bundleReadme: string; clientAssets: string };
 	artifact: string;
 	upload: NativeUpload;
 	state: 'BUILT-UNVERIFIED';
@@ -71,11 +71,39 @@ export type NativeBundleRecord = {
 	deployed: false;
 };
 
+/** Read-only positive provenance over a complete build tree, before creating any artifact.
+ * output/client is Kit's browser/static build input to builder.writeClient, not the adapter output directory.
+ * Every public adapter file must match its client input by path AND bytes; the final entry's used manifest/graph
+ * must also account for it. Headers remain the exact pinned adapter policy. Nothing evaluates JavaScript.
+ */
+export function checkNativePublicBuild(a: { adapter: string; bundle: string }): { problems: string[]; clientAssets?: string } {
+	try {
+		const client = path.join(path.dirname(a.adapter), 'output/client');
+		const clientFiles = new Map(nativeWalk(client).filter(e => !e.dir).map(e => [e.rel.split(path.sep).join('/'), readRegular(path.join(client, e.rel), client)]));
+		const entry = readRegular(path.join(a.bundle, ADAPTER_WORKER), a.bundle);
+		const bytes = new Map<string, Buffer>();
+		const files: UploadFile[] = [{ path: NATIVE_STAGED.entry, bytes: entry.length, sha256: sha256Of(entry) }];
+		const problems: string[] = [];
+		for (const e of nativeWalk(a.adapter)) {
+			const rel = e.rel.split(path.sep).join('/');
+			if (e.dir || rel === ADAPTER_WORKER || rel === ADAPTER_ASSETSIGNORE_FILE) continue;
+			const b = readRegular(path.join(a.adapter, e.rel), a.adapter);
+			const at = `${NATIVE_STAGED.assets}/${rel}`;
+			bytes.set(at, b); files.push({ path: at, bytes: b.length, sha256: sha256Of(b) });
+			if (rel !== '_headers' && !clientFiles.get(rel)?.equals(b)) problems.push(`${at}: no byte-matching provenance in the trusted Kit output/client build input`);
+		}
+		problems.push(...nativeArtifactLayout({ files, entrySha256: sha256Of(entry), headersText: bytes.get(`${NATIVE_STAGED.assets}/_headers`)?.toString('utf8') ?? null, entryText: new TextDecoder('utf-8', {fatal:true}).decode(entry), publicFiles: bytes }).problems);
+		const bindings = [...clientFiles].map(([rel,b]) => ({path:rel,bytes:b.length,sha256:sha256Of(b)})).sort((a,b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+		return { problems, clientAssets: sha256Of(JSON.stringify(bindings)) };
+	} catch (e) { return { problems: [(e as Error).message] }; }
+}
+
 /**
  * Builds the native artifact at `out` (which must not exist) from the adapter output `adapter` and Wrangler's build-only
  * out directory `bundle`, then checks it with target.ts `checkNativeArtifact` under the target's flags. Nothing is
- * rewritten: the bundle's _worker.js bytes are copied as they are, every adapter file except its worker and its exact
- * .assetsignore goes to public/ unchanged, and `_redirects`/`_routes.json` are refused rather than dropped. A refusal
+ * rewritten: the bundle's _worker.js bytes are copied as they are. Only files with positive manifest/browser-graph
+ * provenance AND byte-matching trusted output/client inputs go to public/ unchanged (plus the exact adapter headers).
+ * `_redirects`/`_routes.json` are refused rather than dropped. A refusal
  * removes `out`.
  */
 export function assembleNativeArtifact(a: { adapter: string; bundle: string; out: string; target: NativeTarget }): { problems: string[]; record?: NativeBundleRecord } {
@@ -100,7 +128,9 @@ export function assembleNativeArtifact(a: { adapter: string; bundle: string; out
 	try {
 		const ignore = read(a.adapter, ADAPTER_ASSETSIGNORE_FILE);
 		if (ignore.toString('utf8') !== ADAPTER_ASSETSIGNORE) return { problems: [`the adapter output's ${ADAPTER_ASSETSIGNORE_FILE} is not exactly adapter-cloudflare 8.0.1's (${JSON.stringify(ADAPTER_ASSETSIGNORE)}): it is not the measured adapter output`] };
-		inputs = { adapterWorker: sha256Of(read(a.adapter, ADAPTER_WORKER)), adapterAssetsignore: sha256Of(ignore), bundle: sha256Of(read(a.bundle, '_worker.js')), bundleMap: sha256Of(read(a.bundle, '_worker.js.map')), bundleReadme: sha256Of(read(a.bundle, 'README.md')) };
+		const provenance = checkNativePublicBuild(a);
+		if (provenance.problems.length || !provenance.clientAssets) return { problems: provenance.problems };
+		inputs = { adapterWorker: sha256Of(read(a.adapter, ADAPTER_WORKER)), adapterAssetsignore: sha256Of(ignore), bundle: sha256Of(read(a.bundle, '_worker.js')), bundleMap: sha256Of(read(a.bundle, '_worker.js.map')), bundleReadme: sha256Of(read(a.bundle, 'README.md')), clientAssets: provenance.clientAssets };
 		mkdirSync(a.out);
 		mkdirSync(path.join(a.out, path.posix.dirname(ENTRY_REL)));
 		writeFileSync(path.join(a.out, ENTRY_REL), read(a.bundle, '_worker.js'), { flag: 'wx', mode: 0o644 });

@@ -94,9 +94,12 @@ Config JSON is read with a bounded strict parser (duplicate keys, nesting over 3
 
 - anything under `artifact/cloudflare/` except the entry, and anything outside the two trees;
 - in `public/`: any `.assetsignore` (an empty one also silences Wrangler's `_worker.js` guard), dotfiles and dot directories, `_redirects`, `_routes.json`, `_worker.js*`, source maps, a file byte-identical to the entry, a file over 25 MiB, more than 20,000 files, and no files;
-- a `_headers` other than the exact adapter-cloudflare 8.0.1 rules (`NATIVE_ADAPTER_HEADERS`: noindex and no-cache on `/_app/*`, immutable on `/_app/immutable/*`).
+- a `_headers` other than the exact adapter-cloudflare 8.0.1 rules (`NATIVE_ADAPTER_HEADERS`: noindex and no-cache on `/_app/*`, immutable on `/_app/immutable/*`);
+- any file without positive browser/static provenance. `public-assets.ts` follows the default Worker's actual `server.respond` receiver to `create_server(manifest)` and the pinned Kit manifest IIFE. Its static `assets` Set and `client` start/app/imports/stylesheets/fonts seed the allowed paths, together with Kit's required `_app/version.json`. Literal browser imports, Vite's preload dependency table and local CSS URLs extend the graph. Arbitrary manifest-shaped objects, arbitrary adapter-directory membership, an immutable-looking filename and hash inequality confer no provenance. Static PDF.js is supported when present in the actual Kit static Set; it is not a new filename exception.
 
-**Bundle contract (`scripts/hosted-native-bundle/`).** `contract.ts` pins Wrangler 4.151.1, its esbuild 0.28.2, adapter-cloudflare 8.0.1, Kit 3.1.0 and Svelte 5.57.2, and fixes the parent's measured build-only protocol: `/usr/bin/unshare -rn` with loopback only, `/usr/bin/node <root>/node_modules/wrangler/bin/wrangler.js deploy --dry-run --config bundle-only.jsonc --outdir bundle`, an explicit 13-key environment with nothing inherited, and a build-only config with only name, `main` (the adapter worker), the target's compatibility date and flags, `send_metrics: false` and `minify: false`. `build.ts` has `plan`, `bundle` (parent only), `assemble` and `verify`. `assemble` copies the bundle's `_worker.js` bytes unchanged to `cloudflare/`, copies the adapter files except its worker and its exact `.assetsignore` to `public/`, refuses `_redirects`/`_routes.json` and any Wrangler out directory other than `README.md`, `_worker.js`, `_worker.js.map`, then runs `checkNativeArtifact` and removes the output on any refusal. The map and README stay out of the artifact; their hashes go in the `clearcase.native-bundle/1` record beside it (`BUILT-UNVERIFIED`, every proof flag false).
+The provenance helper checks the supplied public bytes against every file's own size/hash and checks the manifest text against the actual entry binding. No sidecar labels authorize files. The root of trust remains the externally reviewed artifact/entry/source pins and the pinned framework build protocol, not arbitrary attacker-authored Worker/browser code. New framework output shapes fail closed until reviewed. This is not a general JavaScript control-flow or browser-code safety proof.
+
+**Bundle contract (`scripts/hosted-native-bundle/`).** `contract.ts` pins Wrangler 4.151.1, its esbuild 0.28.2, adapter-cloudflare 8.0.1, Kit 3.1.0 and Svelte 5.57.2, and fixes the parent's measured build-only protocol: `/usr/bin/unshare -rn` with loopback only, `/usr/bin/node <root>/node_modules/wrangler/bin/wrangler.js deploy --dry-run --config bundle-only.jsonc --outdir bundle`, an explicit 13-key environment with nothing inherited, and a build-only config with only name, `main` (the adapter worker), the target's compatibility date and flags, `send_metrics: false` and `minify: false`. `build.ts` has `plan`, `bundle` (parent only), `assemble` and `verify`. `assemble` first runs `checkNativePublicBuild`: every public adapter file except the exact generated headers must match the corresponding trusted Kit build input under the adapter's sibling `output/client` by path **and bytes**, and the used final-entry manifest/browser graph must account for it. The complete build tree is now required; an adapter-only copy is insufficient. Unexpected files are refused, not silently dropped. It then copies the bundle's `_worker.js` bytes unchanged to `cloudflare/` and the proven public files to `public/`, refuses `_redirects`/`_routes.json` and any Wrangler out directory other than `README.md`, `_worker.js`, `_worker.js.map`, runs `checkNativeArtifact` and removes the output on any refusal. The map and README stay out of the artifact; their hashes go in the `clearcase.native-bundle/1` record beside it (`BUILT-UNVERIFIED`, every proof flag false). Additive `inputs.clientAssets` hashes the sorted JSON path/size/sha256 bindings of the actual complete `output/client` tree (including its build manifest). It records the trusted build input, not a self-certified public-file classification. The upload/stage schemas and external pins are unchanged.
 
 **stage.** The client directory may hold only `target.json`, `wrangler.jsonc` and `migrations/`. The stage copies them and the artifact into a new directory, then judges the staged copy only:
 
@@ -124,6 +127,28 @@ It also re-verifies the whole stage:
 
 ## Parent handoffs (not done here)
 
+**Required provenance hook (NATIVE24 review fix).** The enum-scanner owner owns `deploy/probes/target.ts`. After that owner finishes, the parent must apply these three additions inside `nativeArtifactUpload`, before source recheck. No new import is needed:
+
+At the start of that function:
+
+```ts
+const publicFiles = new Map<string, Buffer>();
+```
+
+Inside the existing `nativeTree` callback, just after computing `at`:
+
+```ts
+if (at.startsWith(`${NATIVE_STAGED.assets}/`)) publicFiles.set(at, bytes);
+```
+
+Extend the existing `nativeArtifactLayout` call, retaining all its current arguments:
+
+```ts
+const layout = nativeArtifactLayout({ files, entrySha256: entrySha, headersText: headers === undefined ? null : headers.toString('utf8'), entryText: entry.toString('utf8'), publicFiles });
+```
+
+This reuses the exact descriptor-read bytes, so check, stage and prebuilt judge the same inputs without a second filesystem read. Missing hook inputs fail closed. **The Medium is not claimed closed until this hook is installed and the two exact server-copy probes are rechecked through `checkNativeArtifact` and assembly.** Existing tests/fixtures are untouched in this lane. Old positive synthetic fixtures that contain no used Kit manifest or trusted `output/client` no longer establish provenance; their setup needs those inputs while preserving their assertions.
+
 - **Artifact.** A credential-free `build:hosted` (production profile) at an exact clean SHA, then `bun scripts/hosted-native-bundle/build.ts bundle --root <checkout> --target <reviewed target.json> --work <new dir>`, which runs the pinned Wrangler build-only and assembles `<work>/artifact`. Pass that as `--artifact`. The target's `runtime.artifactSha256` is its `digestDir`. Parent-only; nothing here ran it. The synthetic fixtures prove nothing about the application. Whether a rebuilt real bundle passes is UNMEASURED; the f8d2b7b3 bundle and its receipts stay as they are.
 - **Compatibility flags.** The real bundle needs `node:crypto` through Svelte's forwarder, so its target needs `nodejs_compat` (beside or instead of `nodejs_als`). Choosing that is a reviewed target change for the parent; it also changes what Wrangler bundles, so new static imports must be measured, not assumed.
 - **Real target.** The D1 UUIDs observed after an EU creation, the reviewed secret-name inventory, the CPU limit and compatibility settings, and the reviewed migrations directory and its digest.
@@ -138,4 +163,6 @@ All native reads go through `readRegular`: `lstat`, open with `O_NOFOLLOW|O_NONB
 
 ## Unrun boundaries
 
-Not run here: any provider, account, API, auth or credential use; Wrangler or cf deploy, build, bundle or dry run (including `build.ts bundle`); the real SvelteKit production build and its final bundling; the new checks against the real f8d2b7b3 bundle (they ran only on synthetic modules, a hand reproduction of its measured shape, and real Svelte/Kit sources compiled by Wrangler's esbuild); whether workerd resolves `node:crypto` and `node:async_hooks` dynamically under the chosen flags; a remote migration; real EU placement; the custom-domain attach, the DNS or certificate effect; the full build, gate, workerd and browser; funding.
+The provenance review-fix lane runs only targeted structural tests and TypeScript checking. Its positive real check reads the complete pre-existing 4fa042bd build tree without modifying it; mutations run only on private scratch copies. This is public-provenance evidence, not whole-bundle acceptance: the enum-scanner refusal is separately owned, and the target hook above is still a parent action.
+
+Not run here: builds or bundling (including Wrangler dry run), full suites/gates, provider/account/API/auth/credential operations, deploy/upload, workerd/browser, migrations, EU placement, DNS/certificate operations, funding, or post-hook check/stage/prebuilt acceptance. The parent owns fresh source recheck and combined exact-SHA acceptance.

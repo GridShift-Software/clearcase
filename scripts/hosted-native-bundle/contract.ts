@@ -14,6 +14,8 @@
 // Nothing here rewrites compiled code: the bundle's `_worker.js` bytes are copied unchanged, and the source map and the
 // Wrangler README stay out of the artifact (their hashes are kept as provenance in the bundle record).
 
+// Additive inputs.clientAssets records the digest of the sorted path/size/sha256 bindings read from Kit output/client.
+// The used final-entry manifest and browser graph are checked as well; this record never grants public provenance.
 export const NATIVE_BUNDLE_SCHEMA = 'clearcase.native-bundle/1';
 
 /** The exact versions the contract was measured with; build.ts refuses a checkout whose installed packages differ (a new version is a reviewed change here). esbuild is Wrangler's own dependency. */

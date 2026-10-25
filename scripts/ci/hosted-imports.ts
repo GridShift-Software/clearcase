@@ -25,7 +25,7 @@ const auditComposer = 'src/lib/server/runtime/hosted/services.ts';
 // system actor. No hosted module may reach them, the trusted service composer included, so a request can neither run the
 // bootstrap nor forge a system producer. Matched on the resolved file, so a deep import, a re-export or a literal dynamic
 // import is caught at the edge that names it (type-only imports are erased before the scan and cost nothing).
-const provisioningOnly = /^src\/lib\/(?:(?:tenancy|audit)\/provisioning|tenancy\/(?:case|upload)-provisioning|user-work\/hosted\/provision)\.ts$/;
+const provisioningOnly = /^src\/lib\/(?:(?:tenancy|audit)\/provisioning|tenancy\/(?:case(?:-grant)?|upload)-provisioning|user-work\/hosted\/provision)\.ts$/;
 export type HostedProfile = 'production' | 'hosted-gate';
 const packageOf = (specifier: string) => /^(?:@[^/]+\/)?[^/.$][^/]*/.exec(specifier)?.[0] ?? null;
 const extensions = ['.ts', '.js', '.mjs', '.svelte'];

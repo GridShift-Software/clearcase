@@ -74,3 +74,15 @@ scripts/agent-tools/receipt --base b6e4ef39ee52aef8be14c2cc1141d438a9673a56 --na
 ```
 
 These are unit tests over node:sqlite and in-memory doubles. They are not D1, Clerk or provisioning evidence. The two-client staging proof, direct-request role tests and the full gate remain UNRUN.
+
+## Disclosure addendum: three post-RED test corrections in security-fix.test.ts (GRS-114)
+
+Source: the fix-round-1 recheck (`native-grs114-fix-recheck-r1`) and a byte-for-byte rerun of the RED file from 5dca8304 against current source. After RED, three tests were corrected and the change was not disclosed at the time. This records it. The original RED commit, its receipts and this history are preserved, and nothing is retrospectively called an adverse-first result.
+
+| Test | Why the RED version was defective | Actual failure of the unmodified RED test on the fixed source |
+|---|---|---|
+| H1 `denied` filter | Its denied-event list was unfiltered, but the base already audited a `case.write-user-work` denial. The filter gained the same `grant.` prefix (`e.action.startsWith('grant.')`). | `expected [Array(4)] to deeply equal [Array(3)]` |
+| M1 `createdBy: admin` | The stored `createdBy` is `{ issuer, subject }` and has no `kind`, so `toMatchObject(admin)` could never match. It now names `{ issuer, subject }`. | `expected { kind: 'applied', … } to match object { kind: 'applied', … }` |
+| M1 revoke leg | It revoked a grant that the preceding update had already superseded. That gave `stale`, and `toBeDefined()` masked it. It was split into separate update and revoke tests that assert `audit-pending`, the other manager's `operation-reused`, and the original actor's resume. | `expected { kind: 'stale' } to deeply equal { kind: 'conflict', … }` |
+
+The recheck ruled each edit a correction of a RED-test defect that does not loosen the protected contract. It also ruled the separate edit to `management.test.ts:58` a PASS. Probe: the unmodified RED file gives 3 failed and 13 passed at the fixed source.

@@ -25,7 +25,7 @@ Parent-only work (not wired by this change):
 
 ## Authority, selection and validation
 
-Before protected metadata or bytes, require verified **staff**, exact deployment/request client, current session and explicit operate permission for the exact case. Scoped D1 operations and R2 get/head/put/body operations reauthorize on both sides of each await. Audit and final release are followed by another current-authority check. Caller IDs, submission snapshot and bounded package buffers are pinned before the first await; package/case/identity checks precede original metadata reads.
+Before protected metadata or bytes, require verified **staff**, exact deployment/request client, current session and explicit operate permission for the exact case. Scoped D1 operations and R2 get/head/put/body operations reauthorize on both sides of each await. Raw backend/transport exceptions from those operations become retryable `storage-unavailable`; deliberate contract errors, integrity failures and current authority denials retain their original semantics. Audit and final release are followed by another current-authority check. Caller IDs, submission snapshot and bounded package buffers are pinned before the first await; package/case/identity checks precede original metadata reads.
 
 The exact selected submission is re-read through `submissionSnapshotReader(d1SubmissionRepository(primaryDB))`, including finalized upload state, all manifest fields, persisted canonical manifest digest and byte count. The whole caller snapshot must match, before staging, after staging and after the final audit. Neither sequence nor package inputRevision chooses a submission. The package inputRevision/resultsVersion/manifest bytes remain unchanged.
 

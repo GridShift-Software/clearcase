@@ -77,7 +77,15 @@ export function createHostedCandidateStager(o: HostedCandidateStagerOptions): Ho
     const check = () => authorize(requestClient, caseId);
     async function checked<T>(f: () => Promise<T>): Promise<T> {
       await check();
-      const value = await f();
+      let value!: T;
+      try { value = await f(); }
+      catch (error) {
+        // Preserve deliberate contract refusals (integrity, invalid input, etc.); raw provider/transport
+        // failures from D1 or R2 are transient storage faults. Recheck authority before reporting either.
+        await check();
+        if (error instanceof Error && 'code' in error && typeof error.code === 'string') throw error;
+        unavailable();
+      }
       await check();
       return value;
     }

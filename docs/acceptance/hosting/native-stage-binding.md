@@ -1,30 +1,53 @@
-# Native stage binder (NATIVE24): PREPARED / UNVERIFIED, HOLD for fresh independent review
+# Native stage binder (NATIVE24)
 
-Source preparation only. Not deployment proof, provider proof, a controls proof, funded admission, a real EU placement or a deploy. Base `f8d2b7b363c40f347b5cfa5eb7e81fa5d97a1271`. CF ceiling (about USD 10 incremental) is unchanged; nothing here grants a financial, provider, DNS, certificate or upload permission.
+Local structural comparison only, not deployment, provider, controls, funding or placement proof. The controller's legacy `bindStageRecord` is unchanged; native records are never converted to legacy records. Fresh independent re-check and combined-head integration remain with the parent.
 
-## What it is
-`deploy/native-alpha/native-stage-binding.ts` is a NEW, pure module (no file, environment, network, process, credential, clock or host module; SHA-256 is computed in the module and tested against `node:crypto`). It binds the VERIFIED native prebuilt stage (`clearcase.deploy-stage.native/1`, pipeline.ts) and its six external reviewed pins to the OBSERVED native ControlManifest (controls.ts), per client and as one bound set. It never reads, writes or converts the legacy `clearcase.deploy-stage/1` record; the controller's `bindStageRecord` is unchanged and still legacy-only.
+## Parent API: checked evidence, then structural binding
 
-## API (`bindNativeStages(input) -> frozen result`, `nativeBindingProblems(x)`)
-- `observed`: `{ manifest, readback }`. The manifest is parsed with `parseNativeManifest` (copied and frozen first); the readback is copied and must show it (`readbackProblems(..., 'before')`: fresh, complete, EU D1/R2, domain bound once). Domain IDs, version IDs and every provider-assigned identifier come only from here.
-- `pins`: `Record<client, NativePins>` (six pins) and `profileRevision` (40-hex). Never read from the stage. The evidence echoes the pins its checker was given; any difference from the supplied pins is a HOLD. Pins for a client not in the manifest, or a manifest client without pins, are a HOLD.
-- `reader.read(client) -> NativeStageEvidence` (`clearcase.native-stage-evidence/1`): `{ schema, checker: 'checkNativeStage', client, pins, problems, readAt, files: { stageJson, targetJson, configJsonc } }` (exact keys; any other key such as `checked`/`ok`/`verified` is refused). `problems` is checkNativeStage's own return and must be empty. Each client is read twice (revalidation): content must be identical and the read time must not go backwards; each evidence is JSON-copied and deep-frozen.
-- `now()`: evidence older than 300 s, future-dated, or a missing/non-finite/backwards clock is a HOLD.
-- Result keys are exactly `schema, state, problems, bound, structuralOnly, providerProof, controlReady, funded, legacyConversion`. `state` is `HOLD` (nothing bound) or `BOUND-STRUCTURAL`; `providerProof`, `controlReady`, `funded` and `legacyConversion` are constant false. The result is issued by a module-private WeakSet; a stored JSON copy, a spread copy or a hand-built label is refused by `nativeBindingProblems` as not issued, and a HOLD is never judged as bound. There is no grant, permission or allowance field.
+Use `deploy/native-alpha/native-stage-evidence.ts` for the local deployment bridge:
 
-## What the binder re-derives itself (so a reader reporting no problems is not enough)
-Hashes of target.json and wrangler.jsonc against the pins; the target through `parseNativeTarget`; the config through `checkNativeWrangler` over every bound target (a foreign client's Worker, hostname, D1 or R2 is refused); `distinctNative` across the bound set; the record's `upload` section (exact keys, entry path/hash equal to the entry pin and listed with the same size, closed host imports, `additionalModules:false`, exact upload command, no duplicate path); the whole native stage record rebuilt from those facts and the PINNED artifact and migrations digests and required byte for byte (so a claim flag, a changed hash or a non-canonical layout fails); and each observed fact against the target: account, zone id and name, client, Worker, domain service, hostname and zone, D1 binding/name/UUID/jurisdiction, R2 binding/bucket/jurisdiction, secret inventory (set equality), release source, release artifact, profile revision, and the original asset canary against the staged upload file of the same path and its own hash.
+```ts
+import { bindCheckedNativeStages, readNativeStageEvidence } from './native-stage-evidence.ts';
+import { nativeBindingProblems } from './native-stage-binding.ts';
 
-## Residual trust (named, not hidden)
-The binder cannot recompute the artifact and migrations tree digests or `_app/version.json` from text. It relies on the owner's checker problems list and the external pins for those. A reader that lies about exactly those and nothing else is not refused here, and an in-process caller can build evidence the owner never produced. Hence the result is structural only and the unforgeable origin below is a named hook.
+const result = bindCheckedNativeStages({
+  observed: { manifest, readback },
+  pins, // Reviewed external NativePins per client, never derived from the stage.
+  profileRevision, // Reviewed 40-hex revision.
+  now,
+  reader: { read: (client) => readNativeStageEvidence({
+    client, stage: stages[client], clients: reviewedClients, pins: pins[client], now,
+  }) },
+});
+const problems = nativeBindingProblems(result);
+```
 
-## Exact parent / owner hook handoff (nothing below was edited here)
-1. Bundle owner, `deploy/probes/target.ts`: export `readNativeStageEvidence(a: { client, stage, clients, pins, now })` returning exactly `NativeStageEvidence`: `checkNativeStage` before, `readRegular(path.join(stage, f), stage)` for `stage.json`, `target.json`, `wrangler.jsonc` (utf8), `checkNativeStage` after, `problems` = union, `readAt` from the caller's clock; plus a module-private WeakSet and an exported `isIssuedNativeStageEvidence(e)`, so the parent can require origin. There is no `readStage` today. Until then the typed parent adapter is the test's `realReader` (the real `checkNativeStage` around real `readRegular` reads): same shape, without the single-read guarantee or an issuer.
-2. Controller owner, `deploy/native-alpha/controls.ts`: no change is required and none is requested. Do not import the binder from controls.ts (it imports controls.ts) and do not extend `bindStageRecord` to the native schema. Optional: when `bindStageRecord` sees `clearcase.deploy-stage.native/1`, say that `bindNativeStages` is the native binder.
-3. Parent wiring: call `bindNativeStages` with the observed manifest and fresh readback, the reviewed pins and profile revision, and the owner reader; require `nativeBindingProblems(result)` to be empty before any controller step (stop, negative proof) or apply plan uses the stage. DNS/certificate policy (default UNKNOWN), operations and negative canaries stay in controls.ts, unmodified.
+`readNativeStageEvidence({ client, stage, clients, pins, now })` calls the real `readNativeStage` twice around real `readRegular` reads of stage.json, target.json and wrangler.jsonc. Both checked readings must have no problems and be identical. Their `files` values are hashes, NOT text: each raw text is hashed against the checked reading, target/config against the external pins, and stage.json against the recomputed canonical record. Invalid UTF-8, failed checks, changed readings or mismatched raw bytes throw without issuing evidence. The completion timestamp comes from the supplied clock after both checks.
 
-## Tests (`tests/hosting-probe/deployment/native-stage-binding/`)
-60 tests, real `stageNative` stages on a real temp directory, real `checkNativeStage`/`readRegular`/`digestDir`; no mocks of the checker, filesystem or hashing. RED against a permissive baseline (a binder that accepts anything): 51 of 58 failed, 7 passed (source scans, the legacy-binder refusal, a fixture listing and the exact-honest control). Adversaries: wrong artifact (observed, other valid stage, pin, entry), foreign client and shared identifiers, rehashed stage (real checker and lying reader), hand-edited claim flags, no/partial/extra pins, old/legacy schema, dropped upload record, stale/future/non-finite evidence and clock, revalidation drift, caller labels as proof, stored-JSON labels, manifest drift per field, readback mismatch, immutability, module-boundary scans. A mutation pass (12 single-check removals) left three survivors that were then covered by stricter assertions.
+Successful evidence is deeply frozen and privately branded in a WeakSet. `isIssuedNativeStageEvidence(value)` checks actual object identity. Booleans, caller checker labels, JSON and spread copies are not provenance. `bindCheckedNativeStages(input)` requires this brand on every read BEFORE the pure binder copies the evidence. No new target.ts export or edit is needed.
 
-## Unrun
-Full app build, the gate, workerd, browser, any provider/account/API/auth/VM/key/remote/migration action, the real SvelteKit production bundle (whether it is closed is the bundle owner's), a real ControlManifest or real provider readback, and the fresh independent review.
+The lower-level `bindNativeStages(input)` in `native-stage-binding.ts` remains a pure data comparator, with no filesystem, environment, network, process, credential, clock or host-module access. Calling it directly does NOT establish checked origin. Parents must use the checked bridge above, not substitute a reader that merely returns `checker: 'checkNativeStage'` and an empty problems list.
+
+## Input and time contracts
+
+- `observed`: parsed, copied, frozen ControlManifest and copied, frozen provider readback. `readbackProblems(..., 'before')` must pass at entry AND at the final post-read clock; domain IDs, version IDs and other provider facts come only from this observation. Nothing here fetches or fabricates readback.
+- `pins`: exactly six reviewed external pins per manifest client. Missing, malformed, additional or differently echoed pins are refused.
+- `profileRevision`: captured once before callbacks and compared using only that captured value. A reader cannot replace a wrong reviewed revision during binding.
+- `reader.read(client)`: exact `NativeStageEvidence` shape with raw texts, external pins, empty checker problems and completion `readAt`. Every client is read twice; content must be identical, and the second read time cannot go backwards. Evidence is copied and frozen on receipt.
+- `now()`: sampled after EACH reader call and once finally. Non-finite, missing or backwards clocks are refused. Evidence must not be future-dated or older than 300 seconds; evidence freshness is also checked at the final clock. The provider observation's separate 60-second freshness policy is rechecked after all reads. Honest completion timestamps need no backdating or frozen production clock.
+
+## Upload and observed-state comparison
+
+The binder rehashes target/config text against the pins, parses the target, checks config against all bound targets and refuses shared identifiers. It reconstructs the entire native record byte for byte and compares every observed account, zone, Worker, domain, D1, private EU R2, secret inventory, source, artifact, profile revision and original asset canary fact.
+
+The expanded upstream upload contract is preserved: `assets` and `dynamicHostImports` are required, not dropped or replaced with a legacy record. Upload files have unique canonical artifact paths, hashes and sizes; the entry must be listed with the same size/hash and match its external pin. `nativeArtifactLayout` enforces artifact/public and the single artifact/cloudflare/_worker.js server entry. Public assets and the exact adapter header inventory must equal the upload inventory. Dynamic host facts require allowed specifiers, compatible flags, positive site counts and unique literal/forwarder facts. Closed static host imports, `additionalModules:false` and the exact upload invocation remain required. Actual tree digests, module facts and version bytes are checked by the real stage issuer, not inferred from checker strings.
+
+## Result and integration
+
+Results are frozen, process-issued records with exactly `schema, state, problems, bound, structuralOnly, providerProof, controlReady, funded, legacyConversion`. State is `HOLD` (nothing bound) or `BOUND-STRUCTURAL`; all proof/readiness/funding/conversion flags stay false. `nativeBindingProblems` refuses unissued result copies and HOLD results. Even checked-origin binding grants no provider action. The parent requires no binding problems before its separate controller/apply logic. DNS, certificates, stop plans and negative canaries remain unchanged in controls.ts.
+
+## Focused tests
+
+The private suite retains the original 60 tests and adds reviewer regressions and checked-issuer cases, using real synthetic stages, hashing and filesystem checks. Fixtures now use artifact/public. The private Vitest include replaces the root list; run with `--maxWorkers=1`. Tests cover completion clocks, final provider expiry despite mutation of the caller's readback, immutable profile pins, issuer identity/copies, real changed stages, nonempty dynamic imports, adapter headers and altered upload metadata. The suite is not yet registered in the shared integration runner; that shared-file follow-up belongs to the parent.
+
+Unrun here: full build/suites/gates, browser, workerd, real production bundle, real provider readback, provider execution and deployment. Local synthetic checks are not live-alpha evidence.

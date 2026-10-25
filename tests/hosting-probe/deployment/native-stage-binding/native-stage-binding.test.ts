@@ -9,8 +9,9 @@ import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { NATIVE_CONTROLS_SCHEMA, bindStageRecord, parseNativeManifest, type NativeManifest, type ProviderReadback } from '../../../../deploy/native-alpha/controls.ts';
 import { bindNativeStages, nativeBindingProblems, sha256Text, type BindInput, type NativeStageEvidence, type NativeStageReader } from '../../../../deploy/native-alpha/native-stage-binding.ts';
-import { nativeStageRecord, parseNativeJson, parseNativeTarget, type NativePins } from '../../../../deploy/native-alpha/pipeline.ts';
-import { checkNativeStage, digestDir, readRegular, stageNative } from '../../../../deploy/probes/target.ts';
+import { NATIVE_ADAPTER_HEADERS, nativeStageRecord, parseNativeJson, parseNativeTarget, type NativePins } from '../../../../deploy/native-alpha/pipeline.ts';
+import { bindCheckedNativeStages, isIssuedNativeStageEvidence, readNativeStageEvidence } from '../../../../deploy/native-alpha/native-stage-evidence.ts';
+import { checkNativeStage, digestDir, readNativeStage, readRegular, stageNative } from '../../../../deploy/probes/target.ts';
 
 const ROOT = path.join(import.meta.dirname, '../../../..');
 const MODULE = path.join(ROOT, 'deploy/native-alpha/native-stage-binding.ts');
@@ -200,6 +201,100 @@ describe('reviewer regressions M1–M4', () => {
 		expect(upload.assets.files.some((f: any) => f.path === 'artifact/public/_app/version.json')).toBe(true);
 		expect(upload.dynamicHostImports).toEqual([]);
 		expect(bind(w).problems).toEqual([]);
+	});
+});
+
+describe('the real checked evidence issuer and parent bridge', () => {
+	const w = world();
+	const issuedReader: NativeStageReader = { read: (client) => readNativeStageEvidence({ client, stage: w.stages[client]!, clients: w.clients, pins: w.pins[client]!, now: () => READ_AT }) };
+
+	test('real twice-checked evidence carries raw text, not hashes, and binds through the parent bridge', () => {
+		const e = issuedReader.read('client-a');
+		const checked = readNativeStage({ client: 'client-a', stage: w.stages['client-a']!, clients: w.clients, pins: w.pins['client-a']! });
+		expect(isIssuedNativeStageEvidence(e)).toBe(true);
+		expect(Object.isFrozen(e.files)).toBe(true);
+		expect(Object.isFrozen(e.pins)).toBe(true);
+		expect(Object.isFrozen(e.problems)).toBe(true);
+		expect(e.files.stageJson).toBe(readFileSync(path.join(w.stages['client-a']!, 'stage.json'), 'utf8'));
+		expect(sha(e.files.stageJson)).toBe(checked.files!.stageJson);
+		expect(e.files.stageJson).not.toBe(checked.files!.stageJson);
+		expect(bindCheckedNativeStages(input(w, { reader: issuedReader })).problems).toEqual([]);
+	});
+
+	test('checker strings, booleans, JSON and spread copies are not issuance', () => {
+		const real = issuedReader.read('client-a');
+		for (const value of [true, { checker: 'checkNativeStage', problems: [] }, clone(real), { ...real }, realReader(w).read('client-a')]) {
+			expect(isIssuedNativeStageEvidence(value)).toBe(false);
+			const reader: NativeStageReader = { read: () => value as NativeStageEvidence };
+			hold(bindCheckedNativeStages(input(w, { reader })), /not issued/);
+		}
+	});
+
+	test('external pin failures and modified real artifacts cannot be issued', () => {
+		expect(() => readNativeStageEvidence({ client: 'client-a', stage: w.stages['client-a']!, clients: w.clients, pins: { ...w.pins['client-a']!, entry: `sha256:${'0'.repeat(64)}` }, now: () => READ_AT })).toThrow();
+		const stage = copy(w.stages['client-a']!, (dir) => writeFileSync(path.join(dir, 'artifact/cloudflare/_worker.js'), 'export default {};'));
+		expect(() => readNativeStageEvidence({ client: 'client-a', stage, clients: w.clients, pins: w.pins['client-a']!, now: () => READ_AT })).toThrow();
+	});
+
+	test('the issuer copies external pins before the completion callback and freezes the issued snapshot', () => {
+		const pins = { ...w.pins['client-a']! };
+		const e = readNativeStageEvidence({ client: 'client-a', stage: w.stages['client-a']!, clients: w.clients, pins, now: () => { pins.source = 'd'.repeat(40); return READ_AT; } });
+		expect(e.pins.source).toBe(w.pins['client-a']!.source);
+		expect(() => void (e.files.stageJson = '{}')).toThrow();
+		expect(isIssuedNativeStageEvidence(e)).toBe(true);
+	});
+
+	test('failed clocks and interrupted stages cannot issue evidence', () => {
+		for (const now of [() => Number.NaN, () => { throw new Error('clock stopped'); }]) {
+			expect(() => readNativeStageEvidence({ client: 'client-a', stage: w.stages['client-a']!, clients: w.clients, pins: w.pins['client-a']!, now })).toThrow();
+		}
+		const stage = copy(w.stages['client-a']!, (dir) => rmSync(path.join(dir, 'target.json')));
+		expect(() => readNativeStageEvidence({ client: 'client-a', stage, clients: w.clients, pins: w.pins['client-a']!, now: () => READ_AT })).toThrow();
+	});
+
+	test('a stage changed after issuance is refused on the next real read', () => {
+		const stage = copy(w.stages['client-a']!);
+		let reads = 0;
+		const reader: NativeStageReader = { read(client) {
+			const e = readNativeStageEvidence({ client, stage: client === 'client-a' ? stage : w.stages[client]!, clients: w.clients, pins: w.pins[client]!, now: () => READ_AT });
+			if (++reads === 1) writeFileSync(path.join(stage, 'stage.json'), '{}');
+			return e;
+		} };
+		hold(bindCheckedNativeStages(input(w, { reader })), /stage.json|record|revalidat/);
+	});
+
+	test('real assets, exact adapter headers and nonempty dynamic host facts survive the expanded contract', () => {
+		const artifact = copy(w.artifact, (dir) => {
+			writeFileSync(path.join(dir, 'cloudflare/_worker.js'), 'export default { fetch() { return new Response("synthetic"); } }; const load = () => import("node:async_hooks");');
+			writeFileSync(path.join(dir, 'public/_headers'), NATIVE_ADAPTER_HEADERS);
+			writeFileSync(path.join(dir, 'public/synthetic.txt'), 'synthetic asset');
+		});
+		const clients = copy(w.clients, (dir) => { for (const c of CLIENTS) editJson(path.join(dir, c, 'target.json'), (t) => void (t.runtime.artifactSha256 = digestDir(artifact))); });
+		const expanded = world(clients, artifact);
+		const reader: NativeStageReader = { read: (client) => readNativeStageEvidence({ client, stage: expanded.stages[client]!, clients, pins: expanded.pins[client]!, now: () => READ_AT }) };
+		const upload = JSON.parse(reader.read('client-a').files.stageJson).upload;
+		expect(upload.dynamicHostImports).toEqual([{ specifier: 'node:async_hooks', via: 'literal', sites: 1 }]);
+		expect(upload.assets.headers.path).toBe('artifact/public/_headers');
+		expect(upload.assets.files).toHaveLength(2);
+		expect(bindCheckedNativeStages(input(expanded, { reader })).problems).toEqual([]);
+	});
+
+	test('altered assets, dynamic host imports and public layout are refused as data too', () => {
+		for (const record of [
+			(r: any) => delete r.upload.assets,
+			(r: any) => r.upload.assets.files.pop(),
+			(r: any) => r.upload.dynamicHostImports = [{ specifier: 'node:fs', via: 'literal', sites: 1 }],
+			(r: any) => r.upload.dynamicHostImports = [{ specifier: 'node:async_hooks', via: 'literal', sites: 0 }],
+			(r: any) => r.upload.files.push({ path: 'artifact/public/../escape', bytes: 1, sha256: `sha256:${'0'.repeat(64)}` }),
+			(r: any) => r.upload.files.push({ path: 'artifact/cloudflare/leak.js', bytes: 1, sha256: `sha256:${'0'.repeat(64)}` }),
+		]) hold(bind(w, lying(w, 'client-a', forge(w, 'client-a', { record }))), /upload|asset|artifact/);
+	});
+
+	test('a backwards post-read clock and a provider observation expiring only at the final sample are refused', () => {
+		let calls = 0;
+		hold(bind(w, { now: () => ++calls === 2 ? NOW - 1 : NOW }), /backwards/);
+		calls = 0;
+		hold(bind(w, { now: () => ++calls === 6 ? NOW + 120_000 : NOW }), /readback.*stale|readback.*old/i);
 	});
 });
 

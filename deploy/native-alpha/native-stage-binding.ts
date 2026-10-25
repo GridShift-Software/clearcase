@@ -2,7 +2,7 @@
 // reviewed external pins to the OBSERVED native ControlManifest (controls.ts), per client and as a bound set. A NEW
 // binder: it never reads, writes or converts the legacy `clearcase.deploy-stage/1` record that the controller's
 // `bindStageRecord` accepts, and nothing here is forged to look like one. The controller stays legacy-only; the parent
-// calls `bindNativeStages` beside it (see docs/acceptance/hosting/native-stage-binding.md for the exact hook).
+// calls `bindCheckedNativeStages` in native-stage-evidence.ts beside it (see the acceptance document).
 //
 // What it judges is DATA handed to it. It reads no file, environment, network, process, credential or clock of its own:
 //   - `observed`: the ControlManifest (parseNativeManifest, copied and frozen before anything else is read) and a fresh
@@ -16,7 +16,8 @@
 //     (its problems list, which must be empty) together with the stage.json, target.json and wrangler.jsonc bytes of the
 //     SAME stage as text. A caller-asserted boolean ("checked", "ok", "verified") is an unread key and a HOLD. The
 //     reader is called twice per client (revalidation): the second evidence must equal the first byte for byte, and
-//     every evidence is copied and frozen on receipt.
+//     every evidence is copied and frozen on receipt. This pure API judges data, not origin; the local parent bridge
+//     requires the private issuer brand BEFORE handing the evidence here.
 //
 // Independent re-derivation. The binder does not trust the checker's emptiness alone: from the evidence texts and the
 // pins it re-hashes target.json and wrangler.jsonc against the pins, re-parses the target, re-checks the config against
@@ -28,8 +29,8 @@
 // artifact, profile revision and the original asset canary against the staged file of the same path). What it cannot
 // re-derive from text (the artifact and migrations tree digests, `_app/version.json`) it takes from the owner's checker
 // problems list and the external pins; a reader that lies about those and about nothing else is NOT refused here. That
-// residual trust is why the result is structural only and why the unforgeable origin of the evidence is a named hook
-// on the bundle/parent owner (the acceptance document).
+// residual trust is why the result is structural only. native-stage-evidence.ts closes the local origin gap with
+// real twice-checked same-reading evidence; parents must use that bridge, not accept checker strings as provenance.
 //
 // Result: a frozen record that only this module issues. providerProof, controlReady and funded are constant false; a
 // stored JSON copy, a spread copy or a label is structural data that nativeBindingProblems refuses as not issued. The
@@ -296,6 +297,7 @@ type Judged = { client: string; target?: NativeTarget; evidence: NativeStageEvid
 export function bindNativeStages(a: BindInput): NativeBindingResult {
 	const hold = (problems: string[]) => issue('HOLD', problems);
 	if (!isObject(a)) return hold(['the binding input is not an object']);
+	const profileRevision = a.profileRevision;
 	if (typeof a.now !== 'function') return hold(['no injected now(): this module has no clock of its own']);
 	const reading = (what: string): number | string => {
 		let v: unknown;
@@ -321,7 +323,7 @@ export function bindNativeStages(a: BindInput): NativeBindingResult {
 	if (!isObject(obs.readback)) return hold(['no provider readback of the observed manifest: a manifest without a fresh readback is not observed state']);
 	let readback: ProviderReadback;
 	try {
-		readback = snapshot(obs.readback);
+		readback = deepFreeze(snapshot(obs.readback));
 	} catch (e) {
 		return hold([`the provider readback cannot be copied: ${(e as Error).message}`]);
 	}
@@ -329,7 +331,7 @@ export function bindNativeStages(a: BindInput): NativeBindingResult {
 	problems.push(...readbackProblems(manifest, readback, t0, 'before').map((p) => `readback ${p}`));
 
 	// 2. The external side: the reviewed profile revision and the six pins per client.
-	if (typeof a.profileRevision !== 'string' || !SHA40.test(a.profileRevision)) problems.push(`the reviewed profile revision ${show(a.profileRevision)} is required and must be a 40-hex commit`);
+	if (typeof profileRevision !== 'string' || !SHA40.test(profileRevision)) problems.push(`the reviewed profile revision ${show(profileRevision)} is required and must be a 40-hex commit`);
 	const names = manifest.clients.map((c) => c.client);
 	const pins: Record<string, NativePins> = {};
 	if (!isObject(a.pins)) problems.push('the external pins are required for every client and are never read from the stage; none were given');
@@ -347,7 +349,16 @@ export function bindNativeStages(a: BindInput): NativeBindingResult {
 
 	// 3. First read of every client's evidence, judged as data.
 	const first = new Map<string, NativeStageEvidence>();
-	const pass = (n: number, now: number): Map<string, NativeStageEvidence> => {
+	let lastClock = t0;
+	const clockAfter = (what: string): number | string => {
+		const now = reading(what);
+		if (typeof now === 'number') {
+			if (now < lastClock) problems.push(`the clock went backwards: ${now} after ${lastClock}`);
+			lastClock = now;
+		}
+		return now;
+	};
+	const pass = (n: number): Map<string, NativeStageEvidence> => {
 		const out = new Map<string, NativeStageEvidence>();
 		for (const client of names) {
 			let raw: unknown;
@@ -357,13 +368,15 @@ export function bindNativeStages(a: BindInput): NativeBindingResult {
 				problems.push(`${client}: stage evidence unreadable${n === 2 ? ' on revalidation' : ''}: ${(e as Error).message}`);
 				continue;
 			}
+			const now = clockAfter(`${client} after read ${n}`);
+			if (typeof now === 'string') { problems.push(now); continue; }
 			const shaped = evidenceShape(raw, client, pins[client]!, now, `${client}${n === 2 ? ' (revalidation)' : ''}`);
 			problems.push(...shaped.problems);
 			if (shaped.evidence) out.set(client, deepFreeze(shaped.evidence));
 		}
 		return out;
 	};
-	for (const [c, e] of pass(1, t0)) first.set(c, e);
+	for (const [c, e] of pass(1)) first.set(c, e);
 
 	// 4. Judge each client's evidence against the pins, the other targets and the observation.
 	const judged: Judged[] = [];
@@ -462,7 +475,7 @@ export function bindNativeStages(a: BindInput): NativeBindingResult {
 		eq('release source', mc.release.sourceSha, p.source);
 		eq('release artifact', mc.release.artifactSha256, p.artifact);
 		eq('release artifact', mc.release.artifactSha256, t.runtime.artifactSha256);
-		if (mc.release.profileRevision !== a.profileRevision) problems.push(`${at}: observed profile revision ${mc.release.profileRevision} is not the reviewed profile revision ${a.profileRevision}`);
+		if (mc.release.profileRevision !== profileRevision) problems.push(`${at}: observed profile revision ${mc.release.profileRevision} is not the reviewed profile revision ${profileRevision}`);
 		if (j.upload) {
 			const canary = `${NATIVE_STAGED.assets}${mc.canary.assetPath}`;
 			const staged = j.upload.files.find((f) => f.path === canary);
@@ -472,20 +485,24 @@ export function bindNativeStages(a: BindInput): NativeBindingResult {
 	}
 
 	// 6. Revalidation: a second read of the same stages, after everything above, must be identical.
-	const t1 = reading('revalidation');
-	if (typeof t1 === 'string') problems.push(t1);
+	const second = pass(2);
+	for (const client of names) {
+		const a1 = first.get(client);
+		const a2 = second.get(client);
+		if (!a1 || !a2) {
+			if (a1 && !a2) problems.push(`${client}: the evidence could not be revalidated`);
+			continue;
+		}
+		if (content(a1) !== content(a2)) problems.push(`${client}: revalidation read different evidence (the stage changed between the first and the second read)`);
+		if (a2.readAt < a1.readAt) problems.push(`${client}: the revalidation read time ${a2.readAt} went backwards from ${a1.readAt}`);
+	}
+	// All callbacks have completed. Judge the copied observation again, never the caller's live readback.
+	const finalClock = clockAfter('the final binding');
+	if (typeof finalClock === 'string') problems.push(finalClock);
 	else {
-		if (t1 < t0) problems.push(`the clock went backwards: ${t1} after ${t0}`);
-		const second = pass(2, t1);
-		for (const client of names) {
-			const a1 = first.get(client);
-			const a2 = second.get(client);
-			if (!a1 || !a2) {
-				if (a1 && !a2) problems.push(`${client}: the evidence could not be revalidated`);
-				continue;
-			}
-			if (content(a1) !== content(a2)) problems.push(`${client}: revalidation read different evidence (the stage changed between the first and the second read)`);
-			if (a2.readAt < a1.readAt) problems.push(`${client}: the revalidation read time ${a2.readAt} went backwards from ${a1.readAt}`);
+		problems.push(...readbackProblems(manifest, readback, finalClock, 'before').map((p) => `readback ${p}`));
+		for (const e of [...first.values(), ...second.values()]) {
+			if (finalClock - e.readAt > STAGE_EVIDENCE_MAX_AGE_MS) problems.push(`${e.client}: evidence read time ${e.readAt} is stale at the final binding`);
 		}
 	}
 	if (problems.length) return hold(problems);

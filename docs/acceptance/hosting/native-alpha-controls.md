@@ -12,7 +12,7 @@ The GRS-203 stop sends only `POST /accounts/<account>/workers/scripts/<worker>/s
 | --- | --- | --- |
 | LOCAL-PLAN-VERIFIED | The private unit tests pass at an exact SHA, with injected data only | This module |
 | `UNIT-CONTRACT-ONLY` | Canary data satisfies the contract shape, but at least one observation is injected | `checkNegativeProof` |
-| `NEGATIVE-PROOF-CONTRACT-SATISFIED` | **Structural only.** Every observation is labelled `network` and carries a well-formed `provenance`, and the contract shape holds. The label and the provenance are self-asserted data: this validator runs over injected data, so it cannot certify remote proof, and the name must not be read as proof. The result carries `remoteProof:false` and `structuralOnly:true` | `checkNegativeProof` |
+| `NETWORK-LABELLED-STRUCTURALLY-CONSISTENT` | **Structural only.** Every observation is labelled `network` and carries a well-formed `provenance`, and the contract shape holds. The label and the provenance are self-asserted data: this validator runs over injected data, so it cannot certify remote proof, and the name must not be read as proof. The result carries `remoteProof:false` and `structuralOnly:true` | `checkNegativeProof` |
 | REMOTE CONTROL-READY | The parent has a funded manifest, a scoped apply, a fresh provider readback and authenticated real negative canaries at an exact SHA | Parent only, not run |
 | FUNDED | An all-in allocation within USD 10, with retention accepted by the user | User/parent only, not decided |
 
@@ -122,7 +122,18 @@ scripts/agent-tools/receipt --name native-controls-types -- bun x tsc -p tests/h
 
 The 81 existing tests keep their names and assertions. Only their fixture helpers changed, because the new checks need data the old format could not carry: the readback helper gained `routesComplete`, `accountZones` and `otherZoneRoutes` (one synthetic zone); the stop harness gained a synthetic KNOWN `domainDetachPolicy`; and the canary helper gained `respondedAt` on every observation and `provenance` on `network` ones. The new adverse tests are in `controls-fix-r1.test.ts` (private include list). They failed first on the unchanged module (receipt `native-controls-fix-r1-red2`).
 
-**Review decision needed:** an existing test asserts that network-labelled data reaches `NEGATIVE-PROOF-CONTRACT-SATISFIED`. The name was kept so the assertion stays unchanged, and it now needs provenance and states `structuralOnly:true` and `remoteProof:false`. The name still reads stronger than the evidence. Renaming it (for example to `STRUCTURALLY-CONSISTENT`) needs a reviewed edit to that assertion, so this round did not do it.
+**Resolved by the label correction below.** The result for network-labelled data was first named `NEGATIVE-PROOF-CONTRACT-SATISFIED`, which read stronger than the evidence. The user approved a label-only rename on 25 October 2026 (`.orchestration/reports/cloudflare-alpha-20261024/user-four-bounded-corrections-20261025.md`). The state is now `NETWORK-LABELLED-STRUCTURALLY-CONSISTENT`: the `ProofState` literal, the one return literal, and the two expected-result assertions (`controls.test.ts` and `controls-fix-r1.test.ts`) changed. Test names, logic, negative assertions, flags and claims did not. The result still carries `structuralOnly:true`, `remoteProof:false` and `controlReady:false`. Network and receipt labels are self-asserted and never acquire trust here. Nothing in this module is provider proof, REMOTE CONTROL-READY or a funding decision.
+
+## Addendum: post-RED edits to `controls-fix-r1.test.ts`
+
+The fix-r1 report says its RED commit `8683d9d6` added the new test file with the module unchanged. That file was in fact edited after `8683d9d6`, before the fix commit `30bf0cb9`, and the original report did not disclose it. The fresh recheck (`.orchestration/reports/hosted-48h-20261023/native-custom-domain-controls-fix-recheck-r1.md`) found four edits and ruled each behaviourally neutral and not loosening:
+
+1. The `inventory()` fixture stub was filled in (fixture data).
+2. A type cast was changed.
+3. `withOther(s) || delete` became `(withOther(s), delete)` (a comma expression).
+4. In the provenance-edit test, the assertion target moved from `o[1]` to `o[0]`. Before and after observations share one provenance object, so the change is neutral.
+
+The original reports, receipts and failing history are kept unchanged. This addendum does not claim a retrospective RED.
 
 ## Not run
 

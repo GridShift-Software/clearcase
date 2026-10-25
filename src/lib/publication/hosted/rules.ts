@@ -7,6 +7,7 @@ const plain = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 const keys = (v: Record<string, unknown>, want: readonly string[]) => Object.keys(v).sort().join() === [...want].sort().join();
 const text = (v: unknown, max = 256): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
 const SHA = /^[0-9a-f]{64}$/;
+const DIAGNOSTICS_SHA = /^(?:sha256:)?[0-9a-f]{64}$/;
 const RV = /^sha256:[0-9a-f]{64}$/;
 const FP = /^[0-9a-f]{32}$/;
 const fingerprints = (v: unknown): v is string[] => Array.isArray(v) && v.every((f) => typeof f === 'string' && FP.test(f)) && new Set(v).size === v.length;
@@ -29,7 +30,7 @@ export function checkSnapshot(v: unknown): CandidateSnapshot | null {
   if (!plain(preparedBy) || !keys(preparedBy, ['issuer', 'subject']) || !text(preparedBy.issuer) || !text(preparedBy.subject)) return null;
   if (!text(v.snapshotRevision)) return null;
   if (!plain(val) || !keys(val, ['verdict', 'validatorVersion', 'diagnosticsSha256', 'errorFingerprints', 'warningFingerprints'])) return null;
-  if (!['accept', 'report', 'reject'].includes(val.verdict as string) || !text(val.validatorVersion) || typeof val.diagnosticsSha256 !== 'string' || !SHA.test(val.diagnosticsSha256)) return null;
+  if (!['accept', 'report', 'reject'].includes(val.verdict as string) || !text(val.validatorVersion) || typeof val.diagnosticsSha256 !== 'string' || !DIAGNOSTICS_SHA.test(val.diagnosticsSha256)) return null;
   if (!fingerprints(val.errorFingerprints) || !fingerprints(val.warningFingerprints) || !fingerprints(v.trustedBaseline)) return null;
   if (!Array.isArray(v.requiredSections) || !v.requiredSections.every((x) => plain(x) && keys(x, ['key', 'state']) && text(x.key) && SECTION_STATES.has(x.state as string))) return null;
   if (!Array.isArray(v.requiredPreviews) || !v.requiredPreviews.every((x) => plain(x) && keys(x, ['assetId', 'state']) && text(x.assetId) && PREVIEW_STATES.has(x.state as string))) return null;

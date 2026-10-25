@@ -50,15 +50,22 @@ function dense(value: unknown, length: number, at: string): unknown[] {
 	}
 	return captured;
 }
+const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+const typedArrayByteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'byteLength')!.get!;
+const typedArrayBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'buffer')!.get!;
+const arrayBufferResizable = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'resizable')!.get!;
+const copyBytes = Uint8Array.prototype.set;
 function captureBytes(value: unknown, length: number): Uint8Array {
-	if (!(value instanceof Uint8Array) || (Object.getPrototypeOf(value) !== Uint8Array.prototype && Object.getPrototypeOf(value) !== Buffer.prototype)) throw new Error('expected plain byte array');
-	// Intrinsic typed-array getters reject proxies; shared/resizable backing stores are not stable inputs.
-	const proto = Object.getPrototypeOf(Uint8Array.prototype);
-	const size = Object.getOwnPropertyDescriptor(proto, 'byteLength')!.get!.call(value);
-	const buffer = Object.getOwnPropertyDescriptor(proto, 'buffer')!.get!.call(value);
-	if (!(buffer instanceof ArrayBuffer) || buffer.resizable || size !== length || Reflect.ownKeys(value).length !== length) throw new Error('input bytes differ or overridden');
+	// Brand-check first: even a proxy must be refused without invoking its traps.
+	const size = typedArrayByteLength.call(value);
+	const prototype = Object.getPrototypeOf(value);
+	if ((prototype !== Uint8Array.prototype && prototype !== Buffer.prototype) || !(value instanceof Uint8Array)) throw new Error('expected plain byte array');
+	// Read internal slots, never caller-owned view/backing-store properties. The ArrayBuffer
+	// intrinsic also rejects shared storage, even with a forged ArrayBuffer prototype.
+	const buffer = typedArrayBuffer.call(value);
+	if (arrayBufferResizable.call(buffer) || size !== length || Reflect.ownKeys(value).length !== length) throw new Error('input bytes differ or overridden');
 	const captured = new Uint8Array(length);
-	Uint8Array.prototype.set.call(captured, value);
+	copyBytes.call(captured, value);
 	return captured;
 }
 
@@ -97,6 +104,9 @@ function realPath(file: string, directory: boolean) {
 }
 function location(value: unknown): string {
 	if (typeof value !== 'string' || !value || value.includes('\0')) throw new Error('expected path');
+	// Reject raw traversal before resolve can erase a link/.. boundary. Ordinary relative
+	// locations and a trailing directory slash remain useful for prepare/read callers.
+	if (value.split(path.sep).some(part => part === '.' || part === '..')) throw new Error('path traversal is not permitted');
 	return path.resolve(value);
 }
 function readBytes(file: string, expectedSize: number) {
@@ -160,9 +170,11 @@ export function checkNativeRuntimeMigrationInvocation(value: { root: string; sta
 	const checked = readNativeRuntimeMigration({ root: location(v.root), stage: location(v.stage) });
 	const target = checked.manifest.targets.find(t => t.slot === v.slot);
 	if (!target) throw new Error('not an approved target');
-	const cwd = location(v.cwd);
-	realPath(cwd, true);
+	// The parent must execute this exact spelling, not a lexically equivalent path whose
+	// filesystem traversal could land elsewhere. checked.stage has no linked ancestors.
+	if (v.cwd !== checked.stage) throw new Error('invocation differs from exact plan');
+	realPath(checked.stage, true);
 	const argv = dense(v.argv, target.argv.length, 'argv');
-	if (cwd !== checked.stage || argv.some((arg, i) => arg !== target.argv[i])) throw new Error('invocation differs from exact plan');
+	if (argv.some((arg, i) => arg !== target.argv[i])) throw new Error('invocation differs from exact plan');
 	return freeze({ ...checked, target });
 }

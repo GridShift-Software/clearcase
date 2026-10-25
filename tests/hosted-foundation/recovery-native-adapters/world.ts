@@ -63,8 +63,11 @@ export class StreamR2 extends MemoryR2 implements RecoveryR2 {
   }
 }
 
-export async function world(isolated = false, workBound = true) {
+export async function world(isolated = false, workBound = true, staff = false) {
   const db = new SqliteD1(), bucket = new StreamR2();
+  // D1 batch transport envelopes. The shared storage double returns bare SQLite row arrays by default.
+  const batch = db.batch.bind(db);
+  db.batch = async (statements) => (await batch(statements)).map((results) => ({ success: true, results }));
   for (const p of ['user-work/hosted/migrations/0001_uw_user_work.sql', 'results-review/native/migrations/0001_native_candidate_import.sql', 'tenancy/migrations/0001_tenant_case_grants.sql', 'audit/migrations/0001_native_audit.sql']) db.sqlite.exec(migration(p));
   db.exec("INSERT INTO rs_storage_identity VALUES (1, ?, 'clearcase.rs/1')", CLIENT);
   db.exec('INSERT INTO rs_case VALUES (?, ?)', CASE, 'Synthetic recovery');
@@ -79,10 +82,10 @@ export async function world(isolated = false, workBound = true) {
   const boundResources: ExactDeploymentTuple = { clientId: CLIENT, hostname: resource.hostname, worker: resource.worker, d1DatabaseId: resource.d1DatabaseId, d1DatabaseName: resource.d1DatabaseName, r2Bucket: resource.r2Bucket };
   const config = auditConfig({ clientId: CLIENT, trustedIssuers: [resource.clientIssuer, resource.staffIssuer], limits: { maxEventBytes: 4096, maxRows: 100_000, maxReadRows: 100_000, maxDenialRows: 10_000, maxDenialsPerActor: 1000, maxPageRows: 50, maxPagesPerRequest: 5 } });
   await provisionAuditBinding({ db, config, now });
-  const requester: IdentityState = { kind: 'verified', principal: { issuer: resource.clientIssuer, subject: 'synthetic-editor', kind: 'client' }, sessionId: id('session', isolated ? 'target-session' : 'source-session') };
+  const requester: IdentityState = { kind: 'verified', principal: { issuer: staff ? resource.staffIssuer : resource.clientIssuer, subject: 'synthetic-editor', kind: staff ? 'staff' : 'client' }, sessionId: id('session', isolated ? 'target-session' : 'source-session') };
   const audit = requestAuditSink({ db, config, requester, now });
   db.exec(`INSERT INTO tenant_case_grants (grant_id, client_id, scope, case_id, issuer, subject, principal_kind, role, slot, state, version, created_operation_id, request, created_by_issuer, created_by_subject, created_at)
-    VALUES ('g1', ?, 'case', ?, ?, ?, 'client', 'editor', 'content', 'active', 1, 'grant-op', '{}', ?, 'provisioner', ?)`, CLIENT, CASE, resource.clientIssuer, requester.principal.subject, resource.staffIssuer, now().toISOString());
+    VALUES ('g1', ?, 'case', ?, ?, ?, ?, 'editor', 'content', 'active', 1, 'grant-op', '{}', ?, 'provisioner', ?)`, CLIENT, CASE, requester.principal.issuer, requester.principal.subject, requester.principal.kind, resource.staffIssuer, now().toISOString());
   const authorizer = createCaseAuthorizer({ deployment: resource, grants: d1GrantRepository(db), cases: d1CaseDirectory({ db, deployment: resource }), audit, now });
   const state = { revoked: false, authorizations: 0, afterAuthorize: null as (() => void) | null };
   const identity: Identity = { ...requester, clientId: CLIENT,
@@ -90,7 +93,7 @@ export async function world(isolated = false, workBound = true) {
     async authorize(q) { await identity.checkRevocation(); state.authorizations++; await authorizer.authorizeCase({ ...q, principal: requester.principal, sessionId: requester.sessionId }); state.afterAuthorize?.(); },
   };
   const sessions: string[] = [];
-  const resources = { deployment: resource, boundResources, db: { prepare: db.prepare.bind(db), batch: db.batch.bind(db), withSession: (constraint: 'first-primary') => { sessions.push(constraint); return db; } }, bucket };
+  const resources: NativeRecoveryOptions['resources'] = { deployment: resource, boundResources, db: { prepare: db.prepare.bind(db), batch: db.batch.bind(db), withSession: (constraint: 'first-primary') => { sessions.push(constraint); return db; } }, bucket };
   const options: NativeRecoveryOptions = { resources, identity, audit, storageBudgets: { ...BUDGETS }, userWork: { clientId: CLIENT, limits: { maxStatementsPerBatch: 500, maxSnapshotBytes: 1 << 20 } }, caseId: CASE, limits: { ...LIMITS }, now, newId: () => crypto.randomUUID(), target: null };
   const deps = () => createNativeRecoveryAdapters(options);
   const work = () => {
@@ -131,7 +134,7 @@ export async function world(isolated = false, workBound = true) {
     db.exec('INSERT INTO rs_preview VALUES (?, ?, ?, ?, ?, ?, ?)', rv, assetId, sha, bytes.length, 'application/pdf', 'supplied-preview.pdf', key);
     return bytes;
   };
-  return { db, bucket, identity, state, options, resources, deps, work, sessions, revokeGrant, stage, preview, publish: (rv: string) => publish(db, CASE, rv), close: () => db.sqlite.close() };
+  return { db, bucket, identity, authorizer, auditConfig: config, state, options, resources, deps, work, sessions, revokeGrant, stage, preview, publish: (rv: string) => publish(db, CASE, rv), close: () => db.sqlite.close() };
 }
 export type World = Awaited<ReturnType<typeof world>>;
 export const exportKey = (id = 'e1') => `recovery/exports/${CLIENT}/${CASE}/${id}/manifest.json`;

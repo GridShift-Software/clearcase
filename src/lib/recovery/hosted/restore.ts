@@ -4,6 +4,7 @@ import { canonicalJson, encode, fail, ID, SHA, sha256Hex } from './bytes.ts';
 import { exportScopes, loadExport, type VerifyRequest, type Verified } from './verify.ts';
 import type { Accounting, PrivateObjectPort, RecoveryDeps } from './types.ts';
 import { recheckExportAuthority } from './visibility.ts';
+import { loadNativeExport, nativeAuthorityDeps } from './native-evidence.ts';
 
 /** An isolated restore target: a scope that is not the live client instance. Nothing in it is ever the live case's data. */
 export interface RestoreTarget {
@@ -44,18 +45,18 @@ async function emptyUserWork(t: RestoreTarget) {
   if (snap.tables.some((x) => x.rows.length > 0)) throw fail('target-not-empty');
   return snap;
 }
-function buildPlan(v: Verified & { caseId: CaseId }, t: RestoreTarget, revision: CaseRevision, req: RestoreRequest): Omit<RestorePlan, 'planSha256'> {
+function buildPlan(v: Verified & { caseId: CaseId; sealedManifest?: Uint8Array }, t: RestoreTarget, revision: CaseRevision, req: RestoreRequest): Omit<RestorePlan, 'planSha256'> {
   const { accounting: a } = v;
   return {
     manifestSha256: v.manifestSha256, exportId: req.exportId, source: { clientId: v.manifest.clientId, caseId: v.caseId },
     target: { isolationId: t.isolationId, clientId: t.clientId, caseId: t.caseId, revision },
     categories: { originals: a.originals, previews: a.previews, resultsPackages: a.resultsPackages, userWork: a.userWork },
-    stage: { objects: v.blobs.size + 1, bytes: [...v.blobs.values()].reduce((n, b) => n + b.length, 0) }, destructive: false, deletes: 0,
+    stage: { objects: v.blobs.size + 1, bytes: [...v.blobs.values()].reduce((n, b) => n + b.length, 0) + (v.sealedManifest?.length ?? 0) }, destructive: false, deletes: 0,
   };
 }
-async function plan(deps: RestoreDeps, req: RestoreRequest, action: string, scopes: typeof writeScope) {
+async function plan(deps: RestoreDeps, req: RestoreRequest, action: string, scopes: typeof writeScope, native = false) {
   const t = requireTarget(deps); // required-null and isolation refuse before authority, reads or any byte
-  const v = await loadExport(deps, req, scopes, action);
+  const v = await (native ? loadNativeExport : loadExport)(deps, req, scopes, action);
   try {
     const revision = await t.stateRevision();
     if (v.manifest.userWork) await emptyUserWork(t);
@@ -63,6 +64,7 @@ async function plan(deps: RestoreDeps, req: RestoreRequest, action: string, scop
     // A staged object that differs from the export is a conflict now, before any apply: nothing is overwritten.
     const prefix = prefixOf(t, req.exportId);
     for (const [sha, bytes] of v.blobs) await conflict(t.objects, `${prefix}/blobs/${sha}`, bytes);
+    if ('sealedManifest' in v && v.sealedManifest instanceof Uint8Array) await conflict(t.objects, `${prefix}/manifest.json`, v.sealedManifest);
     return { v, t, revision, plan: { ...p, planSha256: await sha256Hex(encode(canonicalJson(p))) } as RestorePlan };
   } catch (e) { await recordFailure(deps, { action, objectKind: 'case-export', objectId: req.exportId, caseId: v.caseId }, e); throw e; }
 }
@@ -72,12 +74,15 @@ async function conflict(o: PrivateObjectPort, key: string, bytes: Uint8Array) {
 }
 
 /** Read-only: verifies the export, the target's isolation, emptiness and revision, and returns the plan to confirm. Writes nothing. */
-export async function planRestore(deps: RestoreDeps, req: RestoreRequest): Promise<RestorePlan> {
-  const { plan: p, v } = await plan(deps, req, 'recovery.restore.plan', exportScopes);
+export const planRestore = (deps: RestoreDeps, req: RestoreRequest): Promise<RestorePlan> => planRestoreUsing(deps, req, false);
+export const planNativeRestore = (deps: RestoreDeps, req: RestoreRequest): Promise<RestorePlan> => planRestoreUsing(deps, req, true);
+async function planRestoreUsing(deps: RestoreDeps, req: RestoreRequest, native: boolean): Promise<RestorePlan> {
+  const auth = native ? nativeAuthorityDeps(deps) : deps;
+  const { plan: p, v } = await plan(deps, req, 'recovery.restore.plan', exportScopes, native);
   const audit = { action: 'recovery.restore.plan', objectKind: 'case-export', objectId: req.exportId, caseId: v.caseId };
   try {
     await recordAfter(deps, { ...audit, outcome: 'succeeded' });
-    await recheckExportAuthority(deps, v.manifest, exportScopes(v.caseId));
+    await recheckExportAuthority(auth, v.manifest, exportScopes(v.caseId));
     return p;
   } catch (e) { await recordFailure(deps, audit, e); throw e; }
 }
@@ -87,9 +92,12 @@ export async function planRestore(deps: RestoreDeps, req: RestoreRequest): Promi
  * target's pre-restore snapshot. Only an explicit confirmation of the exact current plan applies; staged objects are additive
  * (existing identical objects are kept, differing ones refuse before any write); nothing is deleted, nothing is activated.
  */
-export async function applyRestore(deps: RestoreDeps, req: ApplyRequest): Promise<RestoreReport> {
+export const applyRestore = (deps: RestoreDeps, req: ApplyRequest): Promise<RestoreReport> => applyRestoreUsing(deps, req, false);
+export const applyNativeRestore = (deps: RestoreDeps, req: ApplyRequest): Promise<RestoreReport> => applyRestoreUsing(deps, req, true);
+async function applyRestoreUsing(deps: RestoreDeps, req: ApplyRequest, native: boolean): Promise<RestoreReport> {
+  const auth = native ? nativeAuthorityDeps(deps) : deps;
   if (!SHA.test(req.confirmedPlanSha256) || !ID.test(req.operationId)) throw fail('invalid-request');
-  const { plan: p, v, t, revision } = await plan(deps, req, 'recovery.restore.apply', writeScope);
+  const { plan: p, v, t, revision } = await plan(deps, req, 'recovery.restore.apply', writeScope, native);
   const audit = { action: 'recovery.restore.apply', objectKind: 'case-export', objectId: req.exportId, caseId: v.caseId };
   try {
     if (p.planSha256 !== req.confirmedPlanSha256) throw fail('plan-mismatch');
@@ -103,16 +111,18 @@ export async function applyRestore(deps: RestoreDeps, req: ApplyRequest): Promis
       try { snapshot = JSON.parse(new TextDecoder().decode(v.blobs.get(uw.sha256)!)) as UserWorkExport; } catch { throw fail('manifest-invalid'); }
       if (snapshot.format !== 'clearcase.user-work/1' || !Array.isArray(snapshot.tables)) throw fail('manifest-invalid');
     }
-    const items: [string, Uint8Array][] = [[`${prefix}/manifest.json`, encode(canonicalJson(v.manifest))], ...[...v.blobs].map(([sha, b]) => [`${prefix}/blobs/${sha}`, b] as [string, Uint8Array])];
-    await conflict(t.objects, items[0]![0], items[0]![1]);
+    const seal: [string, Uint8Array] = [`${prefix}/manifest.json`, 'sealedManifest' in v && v.sealedManifest instanceof Uint8Array ? v.sealedManifest : encode(canonicalJson(v.manifest))];
+    const blobItems = [...v.blobs].map(([sha, b]) => [`${prefix}/blobs/${sha}`, b] as [string, Uint8Array]);
+    const items: [string, Uint8Array][] = native ? [...blobItems, seal] : [seal, ...blobItems];
+    await conflict(t.objects, seal[0], seal[1]);
     const objects = { planned: items.length, written: 0, alreadyPresent: 0, verified: 0 };
     // Pre-restore snapshot of the target's own work, before the first change to it.
-    await recheckExportAuthority(deps, v.manifest, writeScope(v.caseId));
+    await recheckExportAuthority(auth, v.manifest, writeScope(v.caseId));
     if (snapshot) snapshotId = await t.userWork.snapshots.put({ caseId: t.caseId, snapshot: await emptyUserWork(t), revision });
     for (const [key, bytes] of items) {
       const sha256 = await sha256Hex(bytes);
-      await recheckExportAuthority(deps, v.manifest, writeScope(v.caseId));
-      const r = await t.objects.putIfAbsent({ key, bytes, sha256 }).catch(() => { throw fail('storage-unavailable', true); });
+      await recheckExportAuthority(auth, v.manifest, writeScope(v.caseId));
+      const r = await t.objects.putIfAbsent({ key, bytes, sha256, beforeCommit: () => recheckExportAuthority(auth, v.manifest, writeScope(v.caseId)) }).catch(() => { throw fail('storage-unavailable', true); });
       if (r.kind === 'created') objects.written += 1; else objects.alreadyPresent += 1;
     }
     for (const [key, bytes] of items) {
@@ -124,7 +134,7 @@ export async function applyRestore(deps: RestoreDeps, req: ApplyRequest): Promis
     if (objects.verified !== objects.planned || objects.written + objects.alreadyPresent !== objects.planned) throw fail('restore-failed');
     if (snapshot && !snapshotId) throw fail('restore-failed');
     if (snapshot && snapshotId) {
-      await recheckExportAuthority(deps, v.manifest, writeScope(v.caseId));
+      await recheckExportAuthority(auth, v.manifest, writeScope(v.caseId));
       // The expected-revision guard also prevents importing into a target that moved since the plan.
       const r = await t.userWork.importAll({ caseId: t.caseId, expectedRevision: revision, operationId: req.operationId, snapshot, preRestore: snapshotId as never });
       if (r.kind === 'stale') throw fail('stale-state');
@@ -133,8 +143,9 @@ export async function applyRestore(deps: RestoreDeps, req: ApplyRequest): Promis
       imported = { tables: r.value.tables, rows: r.value.rows, deleted, replaced };
       invariants.push({ name: 'user-work-rows-accounted', ok: r.value.rows === uw!.rows && r.value.tables === uw!.tables }, { name: 'nothing-deleted', ok: deleted === 0 && replaced === 0 });
     }
+    if (native && !invariants.every((i) => i.ok)) throw fail('restore-failed');
     await recordAfter(deps, { ...audit, outcome: invariants.every((i) => i.ok) ? 'succeeded' : 'failed' });
-    await recheckExportAuthority(deps, v.manifest, writeScope(v.caseId));
+    await recheckExportAuthority(auth, v.manifest, writeScope(v.caseId));
     return { ok: invariants.every((i) => i.ok), planSha256: p.planSha256, preRestoreSnapshot: snapshotId, objects, userWork: { planned: { tables: uw?.tables ?? 0, rows: uw?.rows ?? 0 }, imported }, invariants, activated: false };
   } catch (e) { await recordFailure(deps, audit, e); throw e; }
 }

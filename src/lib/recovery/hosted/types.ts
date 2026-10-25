@@ -15,7 +15,8 @@ export const DEFAULT_LIMITS: Readonly<Limits> = Object.freeze({ maxFiles: 20_000
 /** A durable, private, client-scoped object store. `putIfAbsent` never overwrites. A test stand-in says so and production refuses it. */
 export interface PrivateObjectPort {
   readonly kind: 'durable-private' | 'test-standin';
-  putIfAbsent(a: { key: string; bytes: Uint8Array; sha256: string }): Promise<{ kind: 'created' } | { kind: 'exists' }>;
+  /** Trusted controller hook, never request data: after awaited preflight IO, immediately before conditional write. */
+  putIfAbsent(a: { key: string; bytes: Uint8Array; sha256: string; beforeCommit?(): Promise<void> }): Promise<{ kind: 'created' } | { kind: 'exists' }>;
   get(key: string): Promise<Uint8Array | null>;
 }
 
@@ -40,6 +41,8 @@ export interface RecoveryDeps {
   visibility: VersionVisibilityPort | null;
   userWork: Pick<AsyncUserWork, 'exportAll'>; audit: AuditSink;
   objects: PrivateObjectPort | null; limits?: Partial<Limits>;
+  /** Explicit native /2 capability. Its absence never lifts the legacy native-lineage HOLD. */
+  nativeEvidence?: import('./native-evidence.ts').NativeEvidencePort | null;
 }
 
 export interface BlobRef { sha256: string; size: number; blob: string }

@@ -9,9 +9,10 @@ import { createCloudResults } from '../../results/hosted/index.ts';
 import { requirePublished } from '../../results/hosted/versions.ts';
 import { createD1UserWork, d1WorkRevision, userWorkConfig, type D1UserWorkConfig } from '../../user-work/hosted/d1-user-work.ts';
 import { resolveExactDeployment, validateClientManifest, type ClientResourceIdentity, type ExactDeploymentTuple } from '../../tenancy/manifest.ts';
-import { ID, SHA, sha256Hex } from './bytes.ts';
+import { canonicalJson, ID, SHA, sha256Hex } from './bytes.ts';
 import type { Limits, PreviewCatalog, PrivateObjectPort, RecoveryDeps, VersionVisibilityPort } from './types.ts';
 import type { RestoreDeps, RestoreTarget } from './restore.ts';
+import { expectedReferences, nativeLimits, primaryEvidenceReader, type NativeEvidencePort, type NativeRecoveryPolicy, type ImmutableReference } from './native-evidence.ts';
 
 /** R2's native streaming body is required: arrayBuffer() alone cannot enforce a read bound. */
 export interface RecoveryR2 extends CloudR2 {
@@ -42,6 +43,8 @@ export interface NativeRecoveryOptions extends NativeRecoverySource {
   limits: NativeRecoveryLimits;
   now(): Date;
   newId(): string;
+  /** Explicit /2 evidence policy; absent keeps native export unavailable. Legacy /1 is unchanged. */
+  nativeEvidence?: NativeRecoveryPolicy | null;
   /** Separately provisioned and authenticated deployment. Absence/unprovisioned resources stay null (503 on restore). */
   target: NativeRecoverySource | null;
 }
@@ -122,7 +125,7 @@ function privateObjects(a: { db: CloudD1; bucket: RecoveryR2; clientId: ClientId
   }
   return Object.freeze<PrivateObjectPort>({
     kind: 'durable-private', get,
-    async putIfAbsent({ key, bytes: input, sha256 }) {
+    async putIfAbsent({ key, bytes: input, sha256, beforeCommit }) {
       const scope = scoped(key);
       if (!(input instanceof Uint8Array) || input.length > scope.max) throw contractError('export-too-large');
       if (!SHA.test(sha256) || (scope.sha !== null && scope.sha !== sha256)) return corrupt();
@@ -130,7 +133,17 @@ function privateObjects(a: { db: CloudD1; bucket: RecoveryR2; clientId: ClientId
       const bytes = new Uint8Array(input);
       if (await sha256Hex(bytes) !== sha256) return corrupt();
       await guard();
-      const result = await writeOnce(a.bucket, key, bytes, sha256);
+      // writeOnce awaits head before put. Interpose at the actual write boundary, not just before preflight IO.
+      let authorityError: unknown;
+      const guardedBucket: CloudR2 = {
+        head: a.bucket.head.bind(a.bucket), get: a.bucket.get.bind(a.bucket),
+        async put(...args) {
+          try { await guard(); await beforeCommit?.(); } catch (e) { authorityError = e; throw e; }
+          return a.bucket.put(...args);
+        },
+      };
+      const result = await writeOnce(guardedBucket, key, bytes, sha256);
+      if (authorityError) throw authorityError;
       if (result === 'conflict') return corrupt();
       // Includes a conditional race or an acknowledgement lost AFTER commit. Never infer success from an ETag/head.
       const back = await get(key);
@@ -139,6 +152,29 @@ function privateObjects(a: { db: CloudD1; bucket: RecoveryR2; clientId: ClientId
       return { kind: result === 'written' ? 'created' : 'exists' };
     },
   });
+}
+
+/** A reference capability comes only from the completed primary batch above, never from a caller's object key. */
+async function readImmutable(bucket: RecoveryR2, ref: { objectKey: string; size: number; sha256: string }, max: number) {
+  if (!Number.isSafeInteger(ref.size) || ref.size < 0 || ref.size > max) throw contractError('export-too-large');
+  const object = await bucket.get(ref.objectKey).catch(unavailable);
+  if (!object) throw contractError('export-incomplete');
+  const reader = object.body?.getReader?.();
+  if (!reader || object.key !== ref.objectKey || object.size !== ref.size || checksum(object.checksums?.sha256) !== ref.sha256 || !object.version || !object.etag) {
+    await reader?.cancel().catch(() => undefined); reader?.releaseLock(); return corrupt();
+  }
+  let length = 0, chunks = 0;
+  try {
+    const bytes = new Uint8Array(ref.size);
+    for (;;) {
+      const next = await reader.read(); if (next.done) break;
+      if (++chunks > ref.size + 1 || !(next.value instanceof Uint8Array) || next.value.length > ref.size - length) return corrupt();
+      bytes.set(next.value, length); length += next.value.length;
+    }
+    if (length !== ref.size || await sha256Hex(bytes) !== ref.sha256) return corrupt();
+    return { bytes, objectVersion: object.version, etag: object.etag };
+  } catch (e) { if (codeOf(e)) throw e; return unavailable(); }
+  finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
 }
 
 function currentVisibility(a: { db: CloudD1; identity: Identity; clientId: ClientId; caseId: CaseId; gate(): Promise<unknown> }): VersionVisibilityPort {
@@ -151,8 +187,10 @@ function currentVisibility(a: { db: CloudD1; identity: Identity; clientId: Clien
         if (await a.gate()) return unavailable();
         for (let pass = 0; pass < 2; pass++) {
           await authority(a.identity, a.clientId, a.caseId);
-          // Exact current publication + stored/case identity + withdrawal, on the SAME primary session as the catalogue.
+          // Exact live publication + stored/case identity + withdrawal on the source service session; not a snapshot.
           await requirePublished(a.db, a.caseId, q.resultsVersion);
+          // The publication read itself is awaited: a session/grant revoked during it releases no metadata.
+          await authority(a.identity, a.clientId, a.caseId);
         }
         return true;
       } catch (e) { if (isDenial(e) || codeOf(e) === 'not-found') return false; return unavailable(); }
@@ -177,7 +215,7 @@ async function openSource(a: NativeRecoverySource, now: () => Date) {
   if (await gate()) return unavailable();
   const binding = await db.prepare('SELECT client_id, schema_version FROM uw_binding WHERE singleton = 1').first<{ client_id: string; schema_version: number }>().catch(unavailable);
   if (binding?.client_id !== clientId || binding.schema_version !== 1) return unavailable();
-  const revision = d1WorkRevision({ db, config });
+  const revision = d1WorkRevision({ db, config }); // user-work revision only, never a whole-case/D1/R2 revision
   const { store, assets } = createCloudResults({ bindings: { db, bucket }, clientId, budgets, identity: a.identity, stateRevision: revision, now,
     record: async (event) => {
       const identity = a.identity;
@@ -189,7 +227,7 @@ async function openSource(a: NativeRecoverySource, now: () => Date) {
   return { deployment, clientId, db, bucket, gate, store, assets, userWork, revision, budgets, config };
 }
 
-/** Factory for the existing /1 archive and NON-ACTIVATING restore contracts. Throws 503 for unusable source config.
+/** Factory for /1 and opt-in /2 archive and NON-ACTIVATING restore contracts. Throws 503 for unusable source config.
  * Native import/submission lineage is not representable in /1: source export explicitly holds instead of losing it.
  * Low-level current visibility, preview enumeration and private object IO remain useful independently of that hold.
  */
@@ -198,6 +236,15 @@ export async function createNativeRecoveryAdapters(input: NativeRecoveryOptions)
   // must not switch an already-built port's caller, case or target authority.
   const a: NativeRecoveryOptions = { ...input, resources: { ...input.resources }, target: input.target ? { ...input.target, resources: { ...input.target.resources } } : null };
   const limits = limitsOf(a.limits);
+  const policy = a.nativeEvidence ? { ...a.nativeEvidence } : null;
+  let evidenceLimits: ReturnType<typeof nativeLimits> | null = null;
+  if (policy) {
+    try {
+      if (Object.keys(policy).some((k) => !['maxLineageRows', 'maxLineageBytes', 'visibility'].includes(k))) return unavailable();
+      evidenceLimits = nativeLimits({ ...limits, maxLineageRows: policy.maxLineageRows, maxLineageBytes: policy.maxLineageBytes });
+      if ('visibility' in policy && (!policy.visibility || policy.visibility.kind !== 'current-policy' || typeof policy.visibility.isVisible !== 'function')) return unavailable();
+    } catch { return unavailable(); }
+  }
   if (!ID.test(a.caseId) || typeof a.now !== 'function' || typeof a.newId !== 'function') return unavailable();
   const s = await openSource(a, a.now), { clientId, db } = s;
   // Source readers buffer whole files; these upstream bounds must not bypass the recovery's smaller explicit policy.
@@ -301,5 +348,37 @@ export async function createNativeRecoveryAdapters(input: NativeRecoveryOptions)
       target = null;
     }
   }
-  return Object.freeze<RestoreDeps>({ profile: 'production', now: a.now, newId: a.newId, identity: a.identity, store, assets, previews, visibility, userWork, audit: a.audit, objects, limits, liveIsolationId: s.deployment.worker, target });
+  const policyPort = policy?.visibility;
+  const policyCheck = policyPort?.isVisible.bind(policyPort);
+  const nativeVisibility = policyCheck ? Object.freeze<VersionVisibilityPort>({
+    kind: 'current-policy',
+    async isVisible(q) {
+      if (q.identity !== a.identity || q.caseId !== a.caseId || q.identity.clientId !== clientId || !RV.test(q.resultsVersion)) return false;
+      try {
+        await check();
+        const allowed = await policyCheck(q);
+        await check(); // custom policy IO has the same late-authority boundary as publication IO
+        return allowed === true;
+      } catch (e) { if (isDenial(e) || codeOf(e) === 'not-found') return false; return unavailable(); }
+    },
+  }) : visibility;
+  const captured = new Set<string>();
+  const capture = evidenceLimits ? primaryEvidenceReader({ openPrimary: () => a.resources.db.withSession('first-primary'), clientId, caseId: a.caseId, limits: evidenceLimits, now: a.now, check: async () => { if (await s.gate()) return unavailable(); await check(); } }) : null;
+  const nativeEvidence: NativeEvidencePort | null = evidenceLimits ? Object.freeze({
+    limits: evidenceLimits, visibility: nativeVisibility,
+    async capture() {
+      const c = await capture!();
+      captured.clear();
+      for (const ref of expectedReferences(c.evidence)) captured.add(canonicalJson(ref));
+      return c;
+    },
+    async userWorkRevision() { await check(); const r = await s.revision({ caseId: a.caseId }); await check(); return r; },
+    async read(ref: Omit<ImmutableReference, 'blob' | 'objectVersion' | 'etag'>) {
+      if (!captured.has(canonicalJson(ref))) throw contractError('foreign-input');
+      await check(); if (await s.gate()) return unavailable();
+      const r = await readImmutable(s.bucket, ref, limits.maxFileBytes);
+      await check(); return r;
+    },
+  }) : null;
+  return Object.freeze<RestoreDeps>({ profile: 'production', now: a.now, newId: a.newId, identity: a.identity, store, assets, previews, visibility, userWork, audit: a.audit, objects, limits, nativeEvidence, liveIsolationId: s.deployment.worker, target });
 }

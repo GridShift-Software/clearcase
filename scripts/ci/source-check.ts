@@ -10,6 +10,8 @@
 // the command that reproduces it. Exit 0 when every rule ran over at least one file and found nothing, 1 on a problem,
 // 2 when the check itself cannot run (not a Git checkout, bash or python3 missing, a rule with no files to check).
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { HOSTED_PDF_READER_DIGEST } from '../hosted-pdf-assets.ts';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -55,7 +57,11 @@ function checkJs(files: string[], tracked: Set<string>): Problem[] {
 	const out: Problem[] = [];
 	const t = new Bun.Transpiler({ loader: 'js' });
 	for (const file of files) {
-		const src = readFileSync(file, 'utf8');
+		const bytes = readFileSync(file);
+		const src = bytes.toString('utf8');
+		const hostedReader = file === 'src/lib/viewer/hosted/static/pdf-reader.mjs';
+		const reviewedReader = hostedReader && `sha256:${createHash('sha256').update(bytes).digest('hex')}` === HOSTED_PDF_READER_DIGEST;
+		if (hostedReader && !reviewedReader) out.push({ rule: 'js-import', file, line: 1, col: 1, message: 'reviewed PDF reader bytes mismatch' });
 		let imports: { path: string }[];
 		try {
 			imports = t.scan(src).imports;
@@ -67,6 +73,8 @@ function checkJs(files: string[], tracked: Set<string>): Problem[] {
 		for (const { path: spec } of imports) {
 			if (!spec.startsWith('./') && !spec.startsWith('../')) continue;
 			const target = path.normalize(path.join(path.dirname(file), spec.split('?')[0]!));
+			// Only this reviewed importer may reference this generated sibling. Syntax and every other import still run.
+			if (reviewedReader && spec === './pdf.min.mjs' && target === 'src/lib/viewer/hosted/static/pdf.min.mjs') continue;
 			if (tracked.has(target) || target in BUILT) continue;
 			out.push({ rule: 'js-import', file, ...locate(src, spec), message: `imports ${spec}, which resolves to ${target}: not a tracked file` });
 		}

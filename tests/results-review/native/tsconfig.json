@@ -1,0 +1,4 @@
+{
+  "extends": "../../../tsconfig.json",
+  "include": ["../../../src/lib/results-review/native/**/*.ts", "../../../deploy/client/routes/operator/results/**/*.ts", "./**/*.ts", "../../../src/app.d.ts"]
+}

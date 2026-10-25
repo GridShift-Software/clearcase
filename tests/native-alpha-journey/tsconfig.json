@@ -1,0 +1,4 @@
+{
+  "extends": "../../tsconfig.json",
+  "include": ["./**/*.ts", "../case-package/fixtures/*.ts", "../../src/lib/case-package/**/*.ts", "../../src/app.d.ts"]
+}

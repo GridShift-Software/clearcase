@@ -32,7 +32,7 @@ before checker calls, and at release. `operate` is deliberately not required; th
   Provisioning must first install `src/lib/publication/hosted/migrations/0003_provenance_generation.sql` after storage,
   submissions, native import and publication 0001/0002. It advances existing generations on installation (retiring old
   sign-offs), then transactionally fences mutable original-upload provenance, submission state/metadata, deployment
-  identity, publication/withdrawal/warning-baseline writes and baseline-version metadata. Existing original/association
+  identity, publication/withdrawal/warning-baseline writes and baseline-version metadata. Operation-state fencing applies only to transitions into or out of `audited`, when accepted baseline evidence changes; pending/failed/refused bookkeeping preserves a valid sign-off for same-operation retries. Existing original/association
   fences and immutable submission/link/receipt evidence remain in force. INSERT/UPDATE/DELETE/REPLACE, including
   secondary-unique-key conflict victims with recursive delete triggers off, cannot retain affected sign-offs.
   Invalidation is conservatively case-wide; a reverted change does not restore approval. No request executes DDL.

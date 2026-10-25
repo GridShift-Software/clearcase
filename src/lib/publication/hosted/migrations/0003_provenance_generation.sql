@@ -89,4 +89,5 @@ CREATE TRIGGER pub_provenance_withdrawal_conflict BEFORE INSERT ON rs_version_wi
 -- Sign-off identity/warnings are immutable; receipt insertion already requires its audited state.
 -- Do NOT trigger on sign-off invalidation/settlement: that would invalidate a newly settled approval.
 CREATE TRIGGER pub_provenance_operation_state AFTER UPDATE OF state ON pub_operation
+  WHEN OLD.state IS NOT NEW.state AND (OLD.state = 'audited' OR NEW.state = 'audited')
   BEGIN UPDATE pub_candidate_generation SET generation = generation + 1 WHERE case_id = NEW.case_id; END;

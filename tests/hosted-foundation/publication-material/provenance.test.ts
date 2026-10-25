@@ -174,6 +174,31 @@ it('refuses the real atomic publisher after provenance changes and reverts follo
   expect((await ledger.signoff({ ...w.scope, signoffId: signed.signoffId }))?.invalidatedAt).not.toBeNull();
 });
 
+it('keeps failed-operation bookkeeping retryable but fences audited-baseline transitions', async () => {
+  const w = await setup(), { ledger, signed } = await approve(w);
+  if (w.options.identity.kind !== 'verified') throw new Error('fixture identity');
+  const who = w.options.identity;
+  const identity: SignoffIdentity = { candidateId: signed.candidateId, linkId: signed.linkId, submissionRevisionId: signed.submissionRevisionId,
+    submissionManifestSha256: signed.submissionManifestSha256, resultsVersion: signed.resultsVersion, manifestSha256: signed.manifestSha256,
+    packageInputRevisionId: signed.packageInputRevisionId, diagnosticsSha256: signed.diagnosticsSha256,
+    validatorVersion: signed.validatorVersion, snapshotRevision: signed.snapshotRevision };
+  const op: OperationRecord = { operationId: 'publication-retry', requestSha256: 'c'.repeat(64), clientId: CLIENT, caseId: CASE,
+    kind: 'publish', signoffId: signed.signoffId, resultsVersion: w.rv, expected: { kind: 'none' }, actor: who.principal,
+    signedIdentity: identity, state: 'pending', reason: null, at: NOW,
+    auditEvent: { ...signed.auditEvent, eventId: 'publication-retry-audit', action: 'publication.publish',
+      object: { kind: 'publication', id: 'publication-retry', caseId: CASE } } };
+  expect((await ledger.beginOperation(op)).kind).toBe('begun');
+  const before = generation(w);
+  await ledger.finishOperation({ ...w.scope, operationId: op.operationId, state: 'failed', reason: 'transient-storage' });
+  expect(generation(w)).toBe(before);
+  expect((await ledger.signoff({ ...w.scope, signoffId: signed.signoffId }))?.invalidatedAt).toBeNull();
+  expect((await ledger.beginOperation(op)).kind).toBe('begun');
+  await ledger.finishOperation({ ...w.scope, operationId: op.operationId, state: 'applied', reason: null });
+  await ledger.settleOperation({ ...w.scope, operationId: op.operationId });
+  expect(generation(w)).toBeGreaterThan(before);
+  expect((await ledger.signoff({ ...w.scope, signoffId: signed.signoffId }))?.invalidatedAt).not.toBeNull();
+});
+
 it('rolls provenance, generation and sign-off invalidation back together on an interrupted D1 batch', async () => {
   const w = await setup(), { ledger, signed } = await approve(w), before = generation(w);
   await expect(w.db.batch([

@@ -37,10 +37,13 @@ from a stage, so a stage cannot grant itself the binding.
 
 ## Input boundary (caller-owned in-memory data)
 
-The opt-in is read once, as data, and that snapshot is what is validated and used:
+Every entry point takes one snapshot of everything it will use before it reads a file or derives a fact, validates that snapshot, and never reads the caller's objects again:
 
-- `parseNativeTarget` copies the whole target through `plainData` (own enumerable data fields, plain object/array prototypes, no symbol keys, holes, accessors, inherited or hidden fields) and returns the copy, never the caller's object. `nativeBrowserOptIn` reads a target's own `browser` the same way; `checkNativeWrangler`, `nativeStageRecord` and the invocation guard use it and compare against the fixed `BROWSER` literal, not a live `target.browser.binding`. A malformed value is a problem or a throw, never a guess.
-- `planWorkersDevBootstrap` captures the settings, `pins`, `compatibilityFlags` and `browserClients` once from own data descriptors (a dense plain array of at most two client slots) and returns copies. `prepare`, `read` and the invocation guard capture their own argument objects (and `argv`) once and reuse one plan, so no caller getter, proxy, inherited field, `toJSON` or overridden `some`/`includes` is ever run or re-read.
+- `parseNativeTarget` copies the whole target through `plainData` (own enumerable data fields, plain object/array prototypes, no symbol keys, holes, accessors, inherited or hidden fields) and returns the copy, never the caller's object.
+- `checkNativeWrangler` copies its arguments and parses every target it is handed; `nativeStageRecord` parses its target and copies its facts. The opt-in, identifiers, collisions, the D1/R2/ASSETS tuple and the record all come from that one copy, and the binding is compared against the fixed `BROWSER` literal. A malformed value is a problem or a throw, never a guess.
+- `checkNative`, `stageNative`, `checkNativeStage`/`readNativeStage` and `checkNativeUploadInvocation` copy their argument objects first; `nativeUploadInvocationProblems` compares and shows argv only as the primitive strings it copied, so no element's `toJSON` or `toString` runs.
+- `pipeline.ts` cannot detect a proxy (no `node:util`): a proxy's descriptor traps run while the copy is taken and can only change what the copy holds and is then validated as. No get trap runs.
+- `planWorkersDevBootstrap` captures the settings, `pins`, `compatibilityFlags` and `browserClients` once from own data descriptors (dense plain arrays of primitive strings; proxies refused) and returns copies. `prepare`, `read` and the invocation guard capture their own argument objects once and reuse one plan. The invocation guard captures and types `argv`, `cwd` and `slot` before it reads the stage, so no caller getter, proxy, inherited field, `toJSON`, boxed string or overridden `some`/`includes` is ever run or re-read.
 - Not covered: strict JSON file loading never produces these objects; no on-disk bypass was claimed.
 
 ## Checks (synthetic, scoped, no provider, workerd or browser)
@@ -50,8 +53,10 @@ scripts/agent-tools/receipt --name native-browser-binding-unit -- bun run --bun 
 scripts/agent-tools/receipt --name native-browser-binding-tsc -- bun node_modules/typescript/bin/tsc --noEmit -p tests/hosting-probe/deployment/native-browser-binding/tsconfig.json
 ```
 
-Existing suites that must stay green: `workers-dev-bootstrap` (103) and
-`native-alpha-pipeline` (471; the four `public-asset-provenance-reviewfix` cases
-need `NATIVE_PUBLIC_REAL_TREE` and fail without it). `native-stage-binding` fails
+The unit suite holds `browser-binding` (70), `input-boundary` (56) and
+`snapshot-consumers` (42). Existing suites that must stay green:
+`workers-dev-bootstrap` (103) and `native-alpha-pipeline` (471; the four
+`public-asset-provenance-reviewfix` cases need `NATIVE_PUBLIC_REAL_TREE` and fail
+without it). `native-stage-binding` fails
 at its fixture stage step on the base commit already (public provenance of the
 synthetic artifact) and is not changed by this work.

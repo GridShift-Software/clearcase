@@ -51,16 +51,17 @@ function capture(value: unknown, required: readonly string[], at: string, option
 	}
 	return captured;
 }
-/** A fresh copy of a dense plain array of at most `max` elements, or null for anything else (holes, accessors, extra or inherited members). */
-function dense(value: unknown, max: number): unknown[] | null {
+/** A fresh copy of a dense plain array of at most `max` primitive strings, or null for anything else (holes, accessors,
+ * extra or inherited members, and elements that are objects, boxed strings or numbers): no element is coerced or called. */
+function strings(value: unknown, max: number): string[] | null {
 	if (!plain(value) || !Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return null;
 	const descriptors = Object.getOwnPropertyDescriptors(value);
 	const length = (descriptors.length as PropertyDescriptor | undefined)?.value;
 	if (typeof length !== 'number' || length > max || Reflect.ownKeys(descriptors).length !== length + 1) return null;
-	const captured: unknown[] = [];
+	const captured: string[] = [];
 	for (let i = 0; i < length; i++) {
 		const d = descriptors[String(i)];
-		if (!d || !Object.hasOwn(d, 'value') || !d.enumerable) return null;
+		if (!d || !Object.hasOwn(d, 'value') || !d.enumerable || typeof d.value !== 'string') return null;
 		captured.push(d.value);
 	}
 	return captured;
@@ -72,11 +73,11 @@ function settings(value: unknown): BootstrapSettings {
 	for (const k of ['artifact', 'entry']) if (typeof pins[k] !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(pins[k] as string)) throw new Error(`external ${k} pin must be sha256:<64 lowercase hex>`);
 	const date = top.compatibilityDate;
 	if (typeof date !== 'string' || !/^\d{4}-\d\d-\d\d$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date) throw new Error('compatibilityDate must be a real YYYY-MM-DD date');
-	const flags = dense(top.compatibilityFlags, 1);
+	const flags = strings(top.compatibilityFlags, 1);
 	if (flags?.length !== 1 || flags[0] !== 'nodejs_compat') throw new Error('bootstrap requires exactly nodejs_compat; the parent must build for this flag');
 	let browserClients: BootstrapClientSlot[] | undefined;
 	if (Object.hasOwn(top, 'browserClients')) {
-		const clients = dense(top.browserClients, SLOTS.length);
+		const clients = strings(top.browserClients, SLOTS.length);
 		if (!clients?.length || clients.some((c) => c !== 'client-a' && c !== 'client-b')) throw new Error('browserClients must be a non-empty plain list of client-a and client-b; staff, any other slot, holes, accessors and overridden members are refused');
 		if (JSON.stringify(clients) !== JSON.stringify(SLOTS.filter((c) => clients.includes(c)))) throw new Error('browserClients must list each client at most once, in client-a, client-b order');
 		browserClients = clients as BootstrapClientSlot[];
@@ -245,13 +246,16 @@ function readPlanned(stagePath: unknown, plan: ReturnType<typeof planWorkersDevB
 /** Read-only upload guard. No extra flags, alternative cwd, environment selection, name or config override. */
 export function checkWorkersDevBootstrapInvocation(input: { stage: string; settings: unknown; cwd: string; slot: BootstrapSlot; argv: readonly string[] }) {
 	const value = capture(input, ['stage', 'settings', 'cwd', 'slot', 'argv'], 'invocation');
-	const checked = readPlanned(value.stage, planWorkersDevBootstrap(value.settings));
-	const target = checked.manifest.targets.find((t) => t.slot === value.slot);
-	if (!target) throw new Error('not an approved bootstrap slot');
+	// Every caller value is captured and typed before the stage is read; afterwards only these copies are compared.
+	const argv = strings(value.argv, 64);
+	if (!argv) throw new Error('upload argv is not a plain list of primitive strings, so not the bounded bootstrap invocation');
 	if (typeof value.cwd !== 'string') throw new Error('upload cwd must be a path');
+	const slot = value.slot;
+	if (typeof slot !== 'string' || !(SLOTS as readonly string[]).includes(slot)) throw new Error('not an approved bootstrap slot');
+	const checked = readPlanned(value.stage, planWorkersDevBootstrap(value.settings));
+	const target = checked.manifest.targets.find((t) => t.slot === slot)!;
 	realAncestors(value.cwd);
 	if (realpathSync(value.cwd) !== checked.stage) throw new Error('upload cwd is not the checked bootstrap stage');
-	const argv = dense(value.argv, 64);
-	if (!argv || JSON.stringify(argv) !== JSON.stringify(target.argv)) throw new Error('upload argv is not exactly the bounded bootstrap invocation (a plain list of strings)');
+	if (JSON.stringify(argv) !== JSON.stringify(target.argv)) throw new Error('upload argv is not exactly the bounded bootstrap invocation (a plain list of strings)');
 	return checked;
 }

@@ -217,8 +217,10 @@ function exactKeys(value: Record<string, unknown>, required: readonly string[], 
  * Caller-owned data read ONCE into a fresh copy: own enumerable data fields only, plain object and array prototypes, no
  * symbol keys, holes, accessors, inherited or hidden fields. A getter, trap-driven read, iterator, `toJSON` or overridden
  * array method is never run, so what is validated is exactly what is used. A key such as `__proto__` stays an inert own field.
+ * Without node:util a proxy cannot be told apart: its descriptor traps run while the copy is taken, so they can only change
+ * what the copy then holds and is validated as. Every entry point takes this copy first and never reads the caller again.
  */
-function plainData(value: unknown, at: string, depth = 0): unknown {
+export function plainData(value: unknown, at: string, depth = 0): unknown {
 	if (value === null || typeof value !== 'object') {
 		if (typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint') throw new Error(`${at} is not plain data`);
 		return value;
@@ -244,23 +246,6 @@ function plainData(value: unknown, at: string, depth = 0): unknown {
 		Object.defineProperty(copy, key, { value: plainData(data(key), `${at}.${key}`, depth + 1), enumerable: true, writable: true, configurable: true });
 	}
 	return copy;
-}
-
-/**
- * Whether `target` opts in to the Browser Run binding, read from its own `browser` data only. Absent means no opt-in;
- * an inherited, accessor, hidden-keyed, proxied-away or otherwise malformed value throws instead of being guessed at.
- * Callers use the fixed NATIVE_BROWSER_BINDING literal afterwards, never a live `browser.binding` read.
- */
-export function nativeBrowserOptIn(target: object): boolean {
-	const own = Object.getOwnPropertyDescriptor(target, 'browser');
-	if (!own) {
-		if ('browser' in target) throw new Error('target.browser is inherited, not an own field of the reviewed target');
-		return false;
-	}
-	if (!Object.hasOwn(own, 'value') || !own.enumerable) throw new Error('target.browser is an accessor or hidden field, not plain data');
-	const browser = plainData(own.value, 'target.browser');
-	if (!isObject(browser) || !sameKeys(browser, ['binding']) || browser.binding !== NATIVE_BROWSER_BINDING) throw new Error(`target.browser is not exactly { binding: "${NATIVE_BROWSER_BINDING}" }`);
-	return true;
 }
 
 /** The approved native scope's entry for `client`, or undefined. */
@@ -380,15 +365,19 @@ const WRANGLER_KEYS = ['name', 'account_id', 'main', 'no_bundle', 'find_addition
  * compared; an extra key, binding, route or setting is refused, as is any string equal (case-free) to another native
  * client's identifier.
  */
-export function checkNativeWrangler(a: { client: string; targets: NativeTarget[]; text: string }): string[] {
+export function checkNativeWrangler(input: { client: string; targets: NativeTarget[]; text: string }): string[] {
+	// One validated snapshot of the arguments and of every target: the browser opt-in, identifiers, collisions and the
+	// compared tuple all come from it, never from the caller's objects.
+	let a: { client: string; targets: NativeTarget[]; text: string };
+	try {
+		const v = plainData(input, 'check');
+		if (!isObject(v) || typeof v.client !== 'string' || typeof v.text !== 'string' || !Array.isArray(v.targets)) throw new Error('expected { client, targets, text }: a client name, a list of native targets and the config text');
+		a = { client: v.client, text: v.text, targets: v.targets.map((t, i) => parseNativeTarget(t, `targets[${i}]`)) };
+	} catch (e) {
+		return [`the native check input is refused: ${(e as Error).message}`];
+	}
 	const target = a.targets.find((t) => t.client === a.client);
 	if (!target) return [`no native target for ${a.client}`];
-	let optIn: boolean;
-	try {
-		optIn = nativeBrowserOptIn(target);
-	} catch (e) {
-		return [`the native target for ${a.client} cannot be read as a browser opt-in: ${(e as Error).message}`];
-	}
 	let config: unknown;
 	try {
 		config = parseNativeJson(a.text, true);
@@ -479,8 +468,8 @@ export function checkNativeWrangler(a: { client: string; targets: NativeTarget[]
 	}
 	// Browser Run: present exactly when the reviewed target opted in, and then exactly the one binding. Nothing is inferred.
 	if (!Object.hasOwn(config, 'browser')) {
-		if (optIn) problems.push(`config.browser is missing: the target opts in to the ${NATIVE_BROWSER_BINDING} binding`);
-	} else if (!optIn) problems.push(`config.browser is ${show(config.browser)}, but the target does not opt in to the browser binding (add browser to the reviewed target.json to opt in)`);
+		if (target.browser) problems.push(`config.browser is missing: the target opts in to the ${NATIVE_BROWSER_BINDING} binding`);
+	} else if (!target.browser) problems.push(`config.browser is ${show(config.browser)}, but the target does not opt in to the browser binding (add browser to the reviewed target.json to opt in)`);
 	else if (!isObject(config.browser)) problems.push(`config.browser is ${show(config.browser)}, not { binding: "${NATIVE_BROWSER_BINDING}" }`);
 	else {
 		exactKeys(config.browser, ['binding'], 'config.browser', problems);
@@ -502,7 +491,15 @@ export function checkNativeWrangler(a: { client: string; targets: NativeTarget[]
 export const NATIVE_UPLOAD_ARGV = ['wrangler', 'deploy', '--config', NATIVE_CONFIG_FILE] as const;
 
 /** Problems with `argv` as the native upload command: it must be exactly NATIVE_UPLOAD_ARGV, so no flag can override the checked config. */
-export function nativeUploadInvocationProblems(argv: readonly string[]): string[] {
+export function nativeUploadInvocationProblems(input: readonly string[]): string[] {
+	// Each element is compared, and shown, as the primitive string it was captured as: none is coerced, stringified or called.
+	let argv: unknown;
+	try {
+		argv = plainData(input, 'argv');
+	} catch {
+		argv = undefined;
+	}
+	if (!Array.isArray(argv) || argv.some((x) => typeof x !== 'string')) return [`the upload command is not a plain list of strings, so it is not exactly ${JSON.stringify(NATIVE_UPLOAD_ARGV)}`];
 	if (argv.length === NATIVE_UPLOAD_ARGV.length && NATIVE_UPLOAD_ARGV.every((x, i) => argv[i] === x)) return [];
 	return [`the upload command is ${JSON.stringify(argv)}, not exactly ${JSON.stringify(NATIVE_UPLOAD_ARGV)}: a CLI flag (--name, --env, --route, --var, --define, --compatibility-*, --keep-vars, --no-bundle, --minify, --config, --outdir, --dry-run) would override or bypass the checked config`];
 }
@@ -692,8 +689,15 @@ export function pinProblems(pins: NativePins, observed: ObservedPins, t: NativeT
 	return problems;
 }
 
-/** The record a native stage writes and its prebuilt check recomputes byte for byte. Every claim flag is constant false. */
-export function nativeStageRecord(t: NativeTarget, a: { files: Record<string, string>; artifact: string; migrations: string; upload: NativeUpload }) {
+/**
+ * The record a native stage writes and its prebuilt check recomputes byte for byte. Every claim flag is constant false.
+ * Built only from one validated snapshot of the target and one copy of the facts, so it holds no caller object.
+ */
+export function nativeStageRecord(target: NativeTarget, facts: { files: Record<string, string>; artifact: string; migrations: string; upload: NativeUpload }) {
+	const t = parseNativeTarget(target, 'target');
+	const copy = plainData(facts, 'stage record facts');
+	if (!isObject(copy)) throw new Error('stage record facts are not an object');
+	const a = copy as typeof facts;
 	return {
 		schema: NATIVE_STAGE_SCHEMA,
 		profile: 'native',
@@ -704,7 +708,7 @@ export function nativeStageRecord(t: NativeTarget, a: { files: Record<string, st
 		migrations: a.migrations,
 		upload: a.upload,
 		runtime: { profile: t.runtime.profile, sourceSha: t.runtime.sourceSha },
-		desired: { accountId: t.accountId, worker: t.worker, zoneId: t.zone.id, hostname: t.customDomain.hostname, d1Id: t.d1.id, r2Bucket: t.r2.bucket, ...(nativeBrowserOptIn(t) ? { browserBinding: NATIVE_BROWSER_BINDING } : {}) },
+		desired: { accountId: t.accountId, worker: t.worker, zoneId: t.zone.id, hostname: t.customDomain.hostname, d1Id: t.d1.id, r2Bucket: t.r2.bucket, ...(t.browser ? { browserBinding: NATIVE_BROWSER_BINDING } : {}) },
 		policy: { workersDev: false, previewUrls: false, d1Jurisdiction: t.d1.jurisdiction, r2Jurisdiction: t.r2.jurisdiction, r2PublicAccess: false, remoteMigrations: 'not-applied-by-stage' },
 		state: 'STAGED-UNVERIFIED',
 		fundedAdmission: false,

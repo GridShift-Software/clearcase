@@ -66,7 +66,6 @@ import {
 	dynamicHostImportsOf,
 	hostImportsOf,
 	nativeArtifactLayout,
-	nativeBrowserOptIn,
 	nativeStageRecord,
 	nativeUpload,
 	nativeUploadInvocationProblems,
@@ -74,6 +73,7 @@ import {
 	parseNativePins,
 	parseNativeTarget,
 	pinProblems,
+	plainData,
 	uploadModuleProblems,
 	versionProblems,
 	type DynamicImportFact,
@@ -125,6 +125,19 @@ const BINDING = /^[A-Z][A-Z0-9_]{0,62}$/;
 const ACCOUNT = /^[0-9a-f]{32}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+/**
+ * One plain-data copy of a native entry point's argument object (pipeline.ts `plainData`), or why there is none. The entry
+ * point reads only this copy, so no caller accessor, get trap or `toJSON` runs and no path, pin or argv element can differ
+ * between two of its reads.
+ */
+function nativeArguments<T>(input: T, at: string): { args?: T; problem?: string } {
+	try {
+		const v = plainData(input, at);
+		return isObject(v) ? { args: v as T } : { problem: `the ${at} arguments are not an object` };
+	} catch (e) {
+		return { problem: `the ${at} arguments are refused: ${(e as Error).message}` };
+	}
+}
 const show = (v: unknown) => (v === undefined ? 'missing' : JSON.stringify(v));
 
 /** Refuses any key outside `allowed`, so a field the check does not read cannot redirect a deploy. */
@@ -553,7 +566,9 @@ function nativeClientDirProblems(dir: string): string[] {
 }
 
 /** Every reason the native config `text` must not deploy `client`; `format` other than wrangler is the measured cf gap. */
-export function checkNative(a: { client: string; targets: NativeTarget[]; format?: Format | 'prebuilt'; text: string }): string[] {
+export function checkNative(input: { client: string; targets: NativeTarget[]; format?: Format | 'prebuilt'; text: string }): string[] {
+	const { args: a, problem } = nativeArguments(input, 'check');
+	if (!a) return [problem!];
 	if (a.format !== undefined && a.format !== 'wrangler') return [CF_NATIVE_GAP];
 	return checkNativeWrangler({ client: a.client, targets: a.targets, text: a.text });
 }
@@ -898,7 +913,9 @@ function reviewedSourceProblems(clients: string, stage: string): string[] {
  * must not exist) file by file from descriptor reads, then checks and digests the staged copy only and writes a native
  * stage record. A refusal removes `out`. The stage's own agreement with itself is not review: `prebuilt` needs pins.
  */
-export function stageNative(a: { client: string; artifact: string; digest: string; out: string; clients: string }): string[] {
+export function stageNative(input: { client: string; artifact: string; digest: string; out: string; clients: string }): string[] {
+	const { args: a, problem } = nativeArguments(input, 'stage');
+	if (!a) return [problem!];
 	const dir = path.join(a.clients, a.client);
 	let sourceTargets: NativeTarget[];
 	try {
@@ -966,7 +983,9 @@ const deepFreeze = <T>(v: T): T => {
 	}
 	return v;
 };
-export function readNativeStage(a: { client: string; stage: string; clients: string; pins?: NativePins }): NativeStageReading {
+export function readNativeStage(input: { client: string; stage: string; clients: string; pins?: NativePins }): NativeStageReading {
+	const { args: a, problem } = nativeArguments(input, 'stage check');
+	if (!a) return deepFreeze({ checker: 'checkNativeStage', client: '', pins: null, problems: [problem!], files: null, record: null });
 	const given = parseNativePins(a.pins).pins;
 	const done = (problems: string[], record?: NativeStageRecord, stageJson?: string): NativeStageReading =>
 		deepFreeze({
@@ -1035,7 +1054,7 @@ function nativeBrowserInvocationProblems(stage: string, client: string, record: 
 	}
 	const problems: string[] = [];
 	if (target.client !== client) problems.push(`the staged target.json is for ${target.client}, not ${client}`);
-	const want = nativeBrowserOptIn(target) ? NATIVE_BROWSER_BINDING : undefined;
+	const want = target.browser ? NATIVE_BROWSER_BINDING : undefined;
 	const desired = isObject(record.desired) ? record.desired.browserBinding : undefined;
 	if (desired !== want) problems.push(`the stage record's desired browser binding is ${JSON.stringify(desired) ?? 'absent'}, not the target's ${JSON.stringify(want) ?? 'absent'}`);
 	const got = isObject(config) ? config.browser : undefined;
@@ -1044,7 +1063,9 @@ function nativeBrowserInvocationProblems(stage: string, client: string, record: 
 }
 
 /** Every reason `argv`, run with working directory `cwd`, is not the one native upload command for the stage `stage` of `client`. It runs nothing and reads no credential or environment; an ambient WRANGLER_* or CLOUDFLARE_* variable is the caller's to scrub and is not checked here. */
-export function checkNativeUploadInvocation(a: { client: string; stage: string; cwd: string; argv: readonly string[] }): string[] {
+export function checkNativeUploadInvocation(input: { client: string; stage: string; cwd: string; argv: readonly string[] }): string[] {
+	const { args: a, problem } = nativeArguments(input, 'upload invocation');
+	if (!a) return [problem!];
 	const problems = nativeUploadInvocationProblems(a.argv);
 	const root = realDirectory(a.stage, 'stage');
 	if (root) return [...problems, root];

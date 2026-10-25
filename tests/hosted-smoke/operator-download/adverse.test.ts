@@ -292,13 +292,17 @@ describe('every release is audited first and read-only', () => {
     const r = await call('download', CASE_A, s.operationId);
     expect(order).toEqual(['audit', 'get']);
     await bytes(r);
-    expect(w.audit.events).toEqual([{
-      eventId: 'evt-1', action: 'operator.submission.download', outcome: 'succeeded', at: '2026-10-25T09:00:00.000Z', version: null,
+    const recorded = {
+      outcome: 'succeeded', at: '2026-10-25T09:00:00.000Z', version: null,
       actor: { kind: 'verified', principal: { issuer: 'https://staff.issuer.test', subject: 'operator-1', kind: 'staff' }, sessionId: expect.any(String) },
       object: { kind: 'submission', id: s.operationId, caseId: CASE_A },
-    }]);
-    expect(w.operateCalls).toHaveLength(1);
-    expect(w.operateCalls[0]).toMatchObject({ caseId: CASE_A, capability: 'operate' });
+    };
+    expect(w.audit.events).toEqual([
+      { ...recorded, eventId: 'evt-1', action: 'operator.submission.download.intent' },
+      { ...recorded, eventId: 'evt-1:completed', action: 'operator.submission.download' },
+    ]);
+    expect(w.operateCalls).toHaveLength(2);
+    for (const check of w.operateCalls) expect(check).toMatchObject({ caseId: CASE_A, capability: 'operate' });
   });
   it('releases nothing when the audit record cannot be written', async () => {
     for (const route of ['list', 'view', 'manifest', 'download'] as const) {
@@ -315,7 +319,7 @@ describe('every release is audited first and read-only', () => {
     for (const route of ROUTES) await call(route, CASE_A, s.operationId);
     expect(w.audit.events.map((e) => [e.action, e.object.kind, e.object.id])).toEqual([
       ['operator.submission.list', 'case', CASE_A], ['operator.submission.read', 'submission', s.operationId],
-      ['operator.submission.manifest', 'submission', s.operationId], ['operator.submission.download', 'submission', s.operationId],
+      ['operator.submission.manifest', 'submission', s.operationId], ['operator.submission.download.intent', 'submission', s.operationId],
     ]);
   });
   it('writes nothing: no intake row changes and the stored upload stays as it was', async () => {

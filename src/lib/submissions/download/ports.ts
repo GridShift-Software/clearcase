@@ -21,7 +21,8 @@ export type OperatorAssets = Pick<AssetsAccess, 'metadata' | 'get'>;
  *
  * `authorizeOperate` is the tenancy authorizer's explicit capability check with capability `operate` (a grant row for this
  * case; client membership, a management role, a staff or Global Admin identity alone grant nothing). It is checked in
- * addition to the identity's own `read-original` access to the case.
+ * addition to the identity's own `read-original` access to the case, both initially and again at release after awaited
+ * storage/audit work. It must read current grants on every call, not cache the first decision for the request.
  */
 export interface OperatorDownloadPorts {
   readonly clientId: ClientId;
@@ -30,6 +31,8 @@ export interface OperatorDownloadPorts {
   readonly assets: OperatorAssets | null;
   readonly audit: AuditSink | null;
   now(): Date;
-  /** An audit event id; defaults to a random UUID. */
+  /** Parent binds the request's execution context on Workers, retaining best-effort terminal audits after EOF/cancel. */
+  waitUntil?(work: Promise<void>): void;
+  /** A unique audit id; defaults to a random UUID. Downloads need 1–118 identifier characters to reserve a terminal suffix. */
   newEventId?(): string;
 }

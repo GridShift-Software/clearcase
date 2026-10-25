@@ -69,19 +69,47 @@ function disposition(filename: string): string {
   return `attachment; filename="${name.replace(/[^A-Za-z0-9._-]/g, '_')}"; filename*=UTF-8''${pct(name)}`;
 }
 
-/** Exactly `expected` bytes of `body`, pulled on demand: one more or one fewer byte errors the stream instead of ending it normally. */
-function exactly(body: ReadableStream<Uint8Array>, expected: number): ReadableStream<Uint8Array> {
+/** Normalize a syntactically valid single range; null means it is unsatisfiable for this exact original. */
+function intervalOf(range: string, size: number): { start: number; end: number } | null {
+  const [left, right] = range.slice(6).split('-');
+  const start = left === '' ? Math.max(0, size - Number(right)) : Number(left);
+  const end = left === '' || right === '' ? size - 1 : Math.min(Number(right), size - 1);
+  return size <= 0 || (left === '' && Number(right) === 0) || start >= size || start > end ? null : { start, end };
+}
+
+/** On-demand bounded delivery. Success means validated EOF, not headers or the last expected chunk. */
+function exactly(body: ReadableStream<Uint8Array>, expected: number, finish: (outcome: 'succeeded' | 'failed') => Promise<void>): ReadableStream<Uint8Array> {
   const reader = body.getReader();
-  let sent = 0;
+  let sent = 0, canceled = false, released = false;
+  const releaseReader = () => { if (!released) { reader.releaseLock(); released = true; } };
   return new ReadableStream<Uint8Array>({
     async pull(c) {
-      const step = await reader.read();
-      if (step.done) { if (sent === expected) c.close(); else c.error(new Error('the original ended before its recorded size')); return; }
-      if (sent + step.value.byteLength > expected) { await reader.cancel().catch(() => undefined); c.error(new Error('the original is longer than its recorded size')); return; }
-      sent += step.value.byteLength;
-      c.enqueue(step.value);
+      try {
+        const step = await reader.read();
+        if (canceled) return;
+        if (step.done) {
+          if (sent !== expected) throw new Error('the original ended before its recorded size');
+          releaseReader();
+          c.close();
+          await finish('succeeded');
+          return;
+        }
+        if (sent + step.value.byteLength > expected) throw new Error('the original is longer than its recorded size');
+        sent += step.value.byteLength;
+        c.enqueue(step.value);
+      } catch (e) {
+        if (!released) await reader.cancel().catch(() => undefined);
+        releaseReader();
+        await finish('failed');
+        if (!canceled) c.error(e);
+      }
     },
-    cancel: (reason) => reader.cancel(reason),
+    async cancel(reason) {
+      canceled = true;
+      const failure = finish('failed');
+      try { if (!released) await reader.cancel(reason); }
+      finally { releaseReader(); await failure; }
+    },
   }, { highWaterMark: 0 });
 }
 
@@ -104,21 +132,30 @@ export function createOperatorDownloadController(ports: OperatorDownloadPorts | 
     const { principal, sessionId } = who as { principal: Principal; sessionId: SessionId };
     // Operators are the service team's staff principals. A client user never operates, whatever else says yes.
     if (principal.kind !== 'staff') notFound();
-    try {
-      await who.checkRevocation();
-      await ports.authorizeOperate({ principal, sessionId, caseId, capability: 'operate' });
-      await who.authorize({ caseId, operation: 'read-original' });
-    } catch (e) { authorityRefusal(e); }
+    const authorizeOperate = ports.authorizeOperate;
+    const revalidate = async () => {
+      try {
+        await who.checkRevocation();
+        await authorizeOperate({ principal, sessionId, caseId, capability: 'operate' });
+        await who.authorize({ caseId, operation: 'read-original' });
+      } catch (e) { authorityRefusal(e); }
+    };
+    await revalidate();
     const actor: IdentityState = { kind: 'verified', principal: { issuer: principal.issuer, subject: principal.subject, kind: principal.kind }, sessionId };
-    return { caseId, operationId: operationId ?? '', actor, repository: ports.repository, assets: ports.assets, audit: ports.audit, scope: { clientId: ports.clientId, caseId } };
+    return { caseId, operationId: operationId ?? '', actor, revalidate, repository: ports.repository, assets: ports.assets, audit: ports.audit, scope: { clientId: ports.clientId, caseId } };
   }
   type Admitted = Awaited<ReturnType<typeof admit>>;
   const event = (a: Admitted, action: string, object: AuditEvent['object'], outcome: AuditEvent['outcome']): AuditEvent =>
     ({ eventId: ports!.newEventId?.() ?? crypto.randomUUID(), actor: a.actor, action, object, version: null, outcome, at: ports!.now().toISOString() });
-  /** The audit record of a release, appended before anything is released. With the log unavailable nothing is released. */
-  const release = (a: Admitted, action: string, object: AuditEvent['object']) =>
-    a.audit.append(event(a, action, object, 'succeeded')).catch(() => refuse(503, 'audit-unavailable', 'The audit log is unavailable, so nothing was released. Try again shortly.'));
-  const failed = (a: Admitted, action: string, object: AuditEvent['object']) => a.audit.append(event(a, action, object, 'failed')).catch(() => undefined);
+  const requiredAudit = async (a: Admitted, e: AuditEvent) => {
+    try { await a.audit.append(e); }
+    catch { refuse(503, 'audit-unavailable', 'The audit log is unavailable, so nothing was released. Try again shortly.'); }
+  };
+  /** Metadata release: audit acknowledgement and all slow reads precede the final current-authority check. */
+  const release = async (a: Admitted, action: string, object: AuditEvent['object']) => {
+    await requiredAudit(a, event(a, action, object, 'succeeded'));
+    await a.revalidate();
+  };
   const storage = <T>(work: Promise<T>): Promise<T> => work.catch((e) => {
     if (codeOf(e) === 'forbidden') notFound();
     return refuse(503, 'storage-unavailable', 'Submission storage is unavailable. Try again shortly.');
@@ -197,39 +234,76 @@ export function createOperatorDownloadController(ports: OperatorDownloadPorts | 
       // The stored original must be the very file the manifest records, before anything is released.
       const meta = await a.assets.metadata({ asset }).catch(assetRefusal);
       if (meta.size !== file.size || meta.sha256 !== file.sha256 || meta.mediaType !== 'application/pdf') return refuse(410, 'changed-original', 'This original failed its integrity check.');
-      await release(a, 'operator.submission.download', object);
       const method = r.request.method === 'HEAD' ? 'HEAD' : 'GET';
+      const action = method === 'HEAD' ? 'operator.submission.download.head' : 'operator.submission.download';
+      const intent = event(a, `${action}.intent`, object, 'succeeded');
+      // Reserve room for a correlated terminal suffix within the existing immutable audit envelope's 128-char id.
+      if (!/^[A-Za-z0-9][A-Za-z0-9:._-]{0,117}$/.test(intent.eventId)) return refuse(503, 'audit-unavailable', 'The audit log is unavailable, so nothing was released. Try again shortly.');
+      await requiredAudit(a, intent);
+      let terminal: Promise<void> | undefined;
+      const finish = (outcome: 'succeeded' | 'failed' | 'refused'): Promise<void> => {
+        // Install the promise before appending: concurrent cancellation/EOF/error can write only one terminal event.
+        if (!terminal) {
+          terminal = Promise.resolve().then(async () => {
+            const suffix = outcome === 'succeeded' ? 'completed' : outcome;
+            await a.audit.append({ ...intent, eventId: `${intent.eventId}:${suffix}`, action, outcome, at: ports!.now().toISOString() });
+          }).catch(() => undefined); // terminal delivery observations are best effort; intent was mandatory
+          try { ports!.waitUntil?.(terminal); } catch { /* A broken lifetime hook cannot change observed delivery. */ }
+        }
+        return terminal;
+      };
       const wanted = r.request.headers.get('range');
       const range = wanted !== null && wanted.length <= 64 && RANGE.test(wanted) ? wanted : null;
+      const requested = range === null ? null : intervalOf(range, file.size);
       const ifRange = range !== null ? r.request.headers.get('if-range') : null;
-      const upstream = await a.assets.get({ asset, request: { method, range, ifRange: ifRange !== null && ifRange.length <= 128 ? ifRange : null } }).catch(async (e) => { await failed(a, 'operator.submission.download', object); return assetRefusal(e); });
-      const contradict = async (): Promise<never> => { await upstream.body?.cancel().catch(() => undefined); await failed(a, 'operator.submission.download', object); return refuse(503, 'asset-unavailable', 'Originals are unavailable. Try again shortly.'); };
-      const headers: Record<string, string> = {
-        ...PRIVATE, ...identityHeaders(a, manifest, file), 'content-type': 'application/pdf', 'content-disposition': disposition(file.filename), 'accept-ranges': 'bytes',
-        'content-security-policy': "sandbox; default-src 'none'", 'repr-digest': `sha-256=:${base64OfHex(file.sha256)}:`,
-        link: `<${hrefOf(a.caseId, manifest.operationId, '/manifest')}>; rel="describedby"; type="application/json"`, etag: upstream.headers.get('etag') ?? `"${file.sha256}"`,
-      };
-      if (upstream.status === 416) {
-        await upstream.body?.cancel().catch(() => undefined);
-        return new Response(null, { status: 416, headers: { ...headers, 'content-range': `bytes */${file.size}` } });
+      let upstream: Response | undefined;
+      try {
+        upstream = await a.assets.get({ asset, request: { method, range, ifRange: ifRange !== null && ifRange.length <= 128 ? ifRange : null } }).catch(assetRefusal);
+        const contradict = (): never => refuse(503, 'asset-unavailable', 'Originals are unavailable. Try again shortly.');
+        const headers: Record<string, string> = {
+          ...PRIVATE, ...identityHeaders(a, manifest, file), 'content-type': 'application/pdf', 'content-disposition': disposition(file.filename), 'accept-ranges': 'bytes',
+          'content-security-policy': "sandbox; default-src 'none'", 'repr-digest': `sha-256=:${base64OfHex(file.sha256)}:`,
+          link: `<${hrefOf(a.caseId, manifest.operationId, '/manifest')}>; rel="describedby"; type="application/json"`, etag: upstream.headers.get('etag') ?? `"${file.sha256}"`,
+        };
+        const contentRange = upstream.headers.get('content-range');
+        const declared = upstream.headers.get('content-length');
+        if (upstream.status === 416) {
+          if (range === null || requested !== null || contentRange !== `bytes */${file.size}` || (declared !== null && declared !== '0')) return contradict();
+          await upstream.body?.cancel().catch(() => undefined);
+          await a.revalidate();
+          await finish('refused');
+          await a.revalidate();
+          return new Response(null, { status: 416, headers: { ...headers, 'content-range': `bytes */${file.size}` } });
+        }
+        let expected: number;
+        if (upstream.status === 200) {
+          if (contentRange !== null) return contradict();
+          expected = file.size; // including a legitimate ignored range / If-Range full response
+        } else if (upstream.status === 206 && requested !== null) {
+          const m = CONTENT_RANGE.exec(contentRange ?? '');
+          if (!m) return contradict();
+          const [start, end, total] = [Number(m[1]), Number(m[2]), Number(m[3])];
+          if (total !== file.size || start !== requested.start || end !== requested.end) return contradict();
+          expected = end - start + 1;
+          headers['content-range'] = `bytes ${start}-${end}/${total}`;
+        } else return contradict();
+        if (declared !== null && declared !== String(expected)) return contradict();
+        headers['content-length'] = String(expected);
+        if (method === 'HEAD') {
+          await upstream.body?.cancel().catch(() => undefined);
+          await a.revalidate();
+          await finish('succeeded');
+          await a.revalidate();
+          return new Response(null, { status: upstream.status, headers });
+        }
+        if (!upstream.body) return contradict();
+        await a.revalidate();
+        return new Response(exactly(upstream.body, expected, finish), { status: upstream.status, headers });
+      } catch (e) {
+        await upstream?.body?.cancel().catch(() => undefined);
+        await finish('failed');
+        throw e;
       }
-      let expected: number;
-      if (upstream.status === 200 && range === null) expected = file.size;
-      else if (upstream.status === 206 && range !== null) {
-        const m = CONTENT_RANGE.exec(upstream.headers.get('content-range') ?? '');
-        if (!m) return contradict();
-        const [start, end, total] = [Number(m[1]), Number(m[2]), Number(m[3])];
-        if (total !== file.size || start > end || end >= file.size) return contradict();
-        expected = end - start + 1;
-        headers['content-range'] = `bytes ${start}-${end}/${total}`;
-      } else if (upstream.status === 200 && range !== null) expected = file.size; // a service that ignored the range answers the whole file
-      else return contradict();
-      const declared = upstream.headers.get('content-length');
-      if (declared !== null && declared !== String(expected)) return contradict();
-      headers['content-length'] = String(expected);
-      if (method === 'HEAD') { await upstream.body?.cancel().catch(() => undefined); return new Response(null, { status: upstream.status, headers }); }
-      if (!upstream.body) return contradict();
-      return new Response(exactly(upstream.body, expected), { status: upstream.status, headers });
     }),
   };
 }

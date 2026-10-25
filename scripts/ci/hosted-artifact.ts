@@ -6,10 +6,11 @@
 // after every hosted build.
 //
 //   bun scripts/ci/hosted-artifact.ts [--root DIR] --profile production|hosted-gate
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { HostedProfile } from './hosted-imports.ts';
+import { readRegular } from '../../deploy/probes/target.ts';
 import { manifestAssets, pinnedBrowserRefusal, PINNED_BROWSER_MODULES, reachChain, scanModule, workerReach, type ModuleScan } from './hosted-artifact-scope.ts';
 
 const LOCAL_MODULES = '(?:node:)?(?:fs|fs/promises|sqlite|child_process|net|http|https|http2|cluster|worker_threads|dgram|tls|readline|repl|v8|vm)';
@@ -24,27 +25,56 @@ const MEMORY = ['memory-contract-diagnostic', 'createMemoryBackend'];
 const GATE = 'clearcase-test-double:hosted-gate';
 const ROOTS = ['.svelte-kit/cloudflare', '.svelte-kit/output/server'];
 const MANIFEST = '.svelte-kit/output/server/manifest.js';
+const BUILD_ROOT = '.svelte-kit';
+const MAX_MODULES = 4096, MAX_BYTES = 128 * 1024 * 1024; // readRegular also caps each descriptor read at 64 MiB.
 
 export function scanArtifact(a: { root: string; profile: HostedProfile }): { errors: string[]; files: number } {
 	const errors: string[] = [];
 	let gate = false;
-	const manifest = path.join(a.root, MANIFEST), { assets, problem } = manifestAssets(existsSync(manifest) ? readFileSync(manifest, 'utf8') : undefined);
-	if (problem) errors.push(`hosted-artifact: ${MANIFEST}: ${problem}`);
 	const modules = new Map<string, { bytes: Buffer; text: string; scan: ModuleScan }>();
+	let total = 0;
+	const buildRoot = path.resolve(a.root, BUILD_ROOT);
+	const directory = (at: string) => {
+		for (let dir = path.resolve(at); ; dir = path.dirname(dir)) {
+			if (!lstatSync(dir).isDirectory()) throw new Error('artifact directory is not a real directory (symlink refused)');
+			if (dir === buildRoot) break;
+		}
+	};
+	// All inventory and discovered dependencies use the same descriptor snapshot and containment rule. Nothing is
+	// loaded from the checkout/package tree outside the build root, and no filename grants an exception.
+	const load = (name: string) => {
+		const known = modules.get(name);
+		if (known) return known;
+		if (!name.startsWith(`${BUILD_ROOT}/`) || path.posix.normalize(name) !== name || !/\.(?:js|mjs|cjs)$/.test(name)) throw new Error('not a canonical build-root JS path');
+		if (modules.size >= MAX_MODULES) throw new Error(`over the ${MAX_MODULES} module limit`);
+		const file = path.resolve(a.root, name);
+		directory(path.dirname(file));
+		const bytes = readRegular(file, buildRoot);
+		total += bytes.length;
+		if (total > MAX_BYTES) throw new Error(`over the ${MAX_BYTES} total byte limit`);
+		const text = bytes.toString('utf8'), entry = { bytes, text, scan: scanModule(text) };
+		modules.set(name, entry);
+		return entry;
+	};
 	for (const dir of ROOTS) {
 		const base = path.join(a.root, dir);
 		if (!existsSync(base)) {
 			errors.push(`hosted-artifact: ${dir} is missing`);
 			continue;
 		}
+		try { directory(base); } catch (e) {
+			errors.push(`hosted-artifact: ${dir}: cannot read artifact directory: ${(e as Error).message}`);
+			continue;
+		}
 		for (const entry of readdirSync(base, { recursive: true, withFileTypes: true })) {
-			if (!entry.isFile() || !/\.(?:js|mjs|cjs)$/.test(entry.name)) continue;
+			if (!(entry.isFile() || entry.isSymbolicLink()) || !/\.(?:js|mjs|cjs)$/.test(entry.name)) continue;
 			const file = path.join(entry.parentPath, entry.name), name = path.relative(a.root, file).replaceAll(path.sep, '/');
-			const bytes = readFileSync(file), text = bytes.toString('utf8');
-			modules.set(name, { bytes, text, scan: scanModule(text) });
+			try { load(name); } catch (e) { errors.push(`hosted-artifact: ${name}: cannot read artifact bytes: ${(e as Error).message}`); }
 		}
 	}
-	const reach = workerReach(modules);
+	const { assets, problem } = manifestAssets(modules.get(MANIFEST)?.text);
+	if (problem) errors.push(`hosted-artifact: ${MANIFEST}: ${problem}`);
+	const reach = workerReach(modules, load);
 	for (const [name, why] of reach.problems) errors.push(`hosted-artifact: ${name}: ${why}`);
 	for (const [name, specifier] of reach.host) if (LOCAL.test(specifier)) errors.push(`hosted-artifact: ${name}: imports ${specifier}`);
 	for (const [name, { bytes, text, scan }] of modules) {

@@ -174,16 +174,19 @@ const HOST_SCHEMES = /^(?:node|cloudflare|bun):/;
  * through a relative static specifier, a string-literal `import()` or a forwarder that deploy/probes/target.ts proves
  * (only ever called with string literals). `via` maps each reached module to the module that reached it (null for a
  * root). An `import()` that proof does not cover, or an absolute-path or URL specifier, is a problem; a bare specifier
- * is a package import, which the source guard (hosted-imports.ts) owns. `host` lists each forwarder's specifiers. */
-export function workerReach(modules: ReadonlyMap<string, { text: string; scan: ModuleScan }>): {
+ * is a package import, which the source guard (hosted-imports.ts) owns. `host` lists each forwarder's specifiers.
+ * Relative edges must name actual JS bytes inside .svelte-kit; load may supply a dependency outside the initial
+ * inventory (notably adapter-cloudflare's cloudflare-tmp/server.js). Missing or unsupported edges are problems. */
+export function workerReach(modules: ReadonlyMap<string, { text: string; scan: ModuleScan }>, load?: (name: string) => { text: string; scan: ModuleScan }): {
 	via: Map<string, string | null>; problems: [string, string][]; host: [string, string][]; edges: Map<string, [string, string][]>;
 } {
 	const via = new Map<string, string | null>(), problems: [string, string][] = [], host: [string, string][] = [];
 	const edges = new Map<string, [string, string][]>();
-	const queue = [...modules.keys()].filter((m) => m === WORKER_ENTRY || m.startsWith(SERVER_OUTPUT)).sort();
+	const sources = new Map(modules);
+	const queue = [...sources.keys()].filter((m) => m === WORKER_ENTRY || m.startsWith(SERVER_OUTPUT)).sort();
 	for (const m of queue) via.set(m, null);
 	for (let name = queue.shift(); name !== undefined; name = queue.shift()) {
-		const { text, scan } = modules.get(name)!, specifiers = [...scan.imports];
+		const { text, scan } = sources.get(name)!, specifiers = [...scan.imports];
 		if (scan.dynamic) {
 			for (const fact of dynamicImportFacts(text).dynamic ?? []) {
 				if (fact.via === 'unproven') problems.push([name, `import() target is not proven at line ${fact.line}: ${fact.reason}`]);
@@ -192,11 +195,26 @@ export function workerReach(modules: ReadonlyMap<string, { text: string; scan: M
 		}
 		const resolved: [string, string][] = [];
 		for (const s of specifiers) {
-			if (s.startsWith('./') || s.startsWith('../')) {
+			if (s.startsWith('/') || (/^[a-z][a-z0-9+.-]*:/i.test(s) && !HOST_SCHEMES.test(s))) {
+				problems.push([name, `imports ${s}, outside the artifact graph`]);
+			} else if (/[?%\\\\\x00-\x20\x7f]/.test(s) || (s.includes('#') && !s.startsWith('#')) || s === '.' || s === '..') {
+				problems.push([name, `imports ${s}, unsupported module specifier`]);
+			} else if (s.startsWith('./') || s.startsWith('../')) {
 				const target = path.posix.join(path.posix.dirname(name), s);
+				if (!target.startsWith('.svelte-kit/') || !/\.(?:js|mjs|cjs)$/.test(target)) {
+					problems.push([name, `imports ${s}, outside the bounded JS artifact graph`]);
+					continue;
+				}
+				try {
+					if (!sources.has(target) && load) sources.set(target, load(target));
+					if (!sources.has(target)) throw new Error('no artifact bytes');
+				} catch (e) {
+					problems.push([name, `imports ${s}, unresolved relative module: ${(e as Error).message}`]);
+					continue;
+				}
 				resolved.push([s, target]);
-				if (modules.has(target) && !via.has(target)) (via.set(target, name), queue.push(target));
-			} else if (s.startsWith('/') || (/^[a-z][a-z0-9+.-]*:/i.test(s) && !HOST_SCHEMES.test(s))) problems.push([name, `imports ${s}, outside the artifact graph`]);
+				if (!via.has(target)) (via.set(target, name), queue.push(target));
+			}
 		}
 		edges.set(name, resolved);
 	}
@@ -245,11 +263,48 @@ export function pinnedBrowserRefusal(a: { name: string; bytes: Buffer; uses: str
 	return null;
 }
 
+// Compare the helper's syntax tree, not its filename, a substring or trivia-blind tokens (ASI can change a body).
+function syntaxShape(n: ts.Node): string {
+	const children: string[] = [];
+	ts.forEachChild(n, (child) => { children.push(syntaxShape(child)); });
+	return JSON.stringify([n.kind, n.flags & ts.NodeFlags.BlockScoped, ts.isIdentifier(n) ? n.text : null, children]);
+}
+const MEMO_SHAPE = syntaxShape(ts.createSourceFile('memo.js', 'function __memo(fn) { let value; return () => value ??= (value = fn()); }', ts.ScriptTarget.ESNext, true).statements[0]!);
+const stringArray = (e: ts.Expression) => ts.isArrayLiteralExpression(e) && e.elements.every(ts.isStringLiteral);
+function inertManifest(expression: ts.Expression, memo: boolean): boolean {
+	const e = strip(expression), inert = (x: ts.Expression) => inertManifest(x, memo);
+	if (ts.isStringLiteralLike(e) || ts.isNumericLiteral(e) || ts.isRegularExpressionLiteral(e)
+		|| e.kind === ts.SyntaxKind.TrueKeyword || e.kind === ts.SyntaxKind.FalseKeyword || e.kind === ts.SyntaxKind.NullKeyword) return true;
+	if (ts.isPrefixUnaryExpression(e)) return (e.operator === ts.SyntaxKind.MinusToken || e.operator === ts.SyntaxKind.PlusToken) && ts.isNumericLiteral(e.operand);
+	if (ts.isVoidExpression(e)) return ts.isNumericLiteral(e.expression) && e.expression.text === '0';
+	// Creation does not run the function body or its parameter defaults. Such functions are never called here, except
+	// the separately proven memo helper below, which only closes over a zero-argument import loader.
+	if (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) return true;
+	if (ts.isArrayLiteralExpression(e)) return e.elements.every((x) => ts.isOmittedExpression(x) || inert(x));
+	if (ts.isObjectLiteralExpression(e)) {
+		const keys = new Set<string>();
+		return e.properties.every((p) => {
+			if (!ts.isPropertyAssignment(p) || !(ts.isIdentifier(p.name) || ts.isStringLiteral(p.name) || ts.isNumericLiteral(p.name))) return false;
+			const key = p.name.text;
+			if (key === '__proto__' || keys.has(key)) return false;
+			keys.add(key);
+			return inert(p.initializer);
+		});
+	}
+	if (ts.isNewExpression(e)) return ts.isIdentifier(e.expression) && e.expression.text === 'Set'
+		&& e.arguments?.length === 1 && stringArray(strip(e.arguments[0]!));
+	if (!memo || !ts.isCallExpression(e) || e.questionDotToken || !ts.isIdentifier(e.expression) || e.expression.text !== '__memo' || e.arguments.length !== 1) return false;
+	const fn = strip(e.arguments[0]!);
+	if (!ts.isArrowFunction(fn) || fn.parameters.length || fn.modifiers?.length || ts.isBlock(fn.body)) return false;
+	const call = strip(fn.body);
+	return ts.isCallExpression(call) && call.expression.kind === ts.SyntaxKind.ImportKeyword && call.arguments.length === 1 && ts.isStringLiteral(call.arguments[0]!);
+}
+
 const MANIFEST_SHAPE = "Kit's server manifest is not exactly one exported manifest with one literal assets set";
-/** The static asset paths of Kit's server manifest, read only from the shape Kit emits: the module is the single
- * statement `export const manifest = <object>` or `= (() => { function …; return <object>; })()` (or a concise arrow
- * body), and that object has exactly one `assets: new Set([<string literals>])`, no spread, computed key or accessor,
- * on the unshadowed `Set`. Any other shape is a `problem` with no assets; no manifest is no assets and no problem. */
+/** Prove the effective exported object, not a decoy or just the spelling of assets. Only inert construction is
+ * accepted: literal data, unshadowed intrinsic Set on literal string arrays, deferred functions and Kit's exact
+ * memo helper on deferred import loaders. No eager unknown call, alias, intrinsic rewrite or property override can
+ * run before or after assets is constructed. This is AST proof, never evaluation of candidate code. */
 export function manifestAssets(text: string | undefined): { assets: Set<string>; problem: string | null } {
 	const assets = new Set<string>();
 	if (text === undefined) return { assets, problem: null };
@@ -261,17 +316,21 @@ export function manifestAssets(text: string | undefined): { assets: Set<string>;
 		|| !(statement.declarationList.flags & ts.NodeFlags.Const) || statement.declarationList.declarations.length !== 1) return refuse('the module is not the single statement export const manifest = …');
 	const decl = statement.declarationList.declarations[0]!;
 	if (!ts.isIdentifier(decl.name) || decl.name.text !== 'manifest' || !decl.initializer) return refuse('the exported binding is not manifest');
-	let object = strip(decl.initializer);
+	let object = strip(decl.initializer), memo = false;
 	if (ts.isCallExpression(object)) {
 		const fn = strip(object.expression);
 		if (object.arguments.length || object.questionDotToken || !ts.isArrowFunction(fn) || fn.parameters.length || fn.modifiers?.length) return refuse('the manifest is not an argument-free arrow IIFE');
 		if (ts.isBlock(fn.body)) {
 			const body = fn.body.statements, last = body.at(-1);
-			if (!last || !ts.isReturnStatement(last) || !last.expression || !body.slice(0, -1).every((s) => ts.isFunctionDeclaration(s) && s.name?.text !== 'Set')) return refuse('the IIFE body is not function declarations and one return');
+			const helpers = body.slice(0, -1);
+			if (!last || !ts.isReturnStatement(last) || !last.expression || helpers.length > 1
+				|| helpers.some((s) => !ts.isFunctionDeclaration(s) || syntaxShape(s) !== MEMO_SHAPE)) return refuse('the IIFE body is not the inert Kit memo helper and one return');
+			memo = helpers.length === 1;
 			object = strip(last.expression);
 		} else object = strip(fn.body);
 	}
 	if (!ts.isObjectLiteralExpression(object)) return refuse('the manifest is not an object literal');
+	if (!inertManifest(object, memo)) return refuse('unproven manifest construction or intrinsic origin');
 	const named = (p: ts.ObjectLiteralElementLike) => p.name && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) && p.name.text === 'assets';
 	if (object.properties.some((p) => ts.isSpreadAssignment(p) || (p.name && ts.isComputedPropertyName(p.name)))) return refuse('the manifest object has a spread or computed key');
 	const listed = object.properties.filter(named);

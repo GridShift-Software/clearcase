@@ -5,6 +5,7 @@ import path from 'node:path';
 import { build } from 'vite';
 import { scanArtifact } from '../../../scripts/ci/hosted-artifact.ts';
 import { adaptKitDiagnostics, hostedKitDiagnosticsBuild, KIT_DIAGNOSTIC_MODULES } from '../../../scripts/hosted-kit-diagnostics-build.ts';
+import { scopeFixtureDependencies } from './fixture-dependencies.ts';
 
 const REPO = path.resolve(import.meta.dirname, '../../..');
 const KIT = path.join(REPO, 'node_modules/@sveltejs/kit');
@@ -13,7 +14,7 @@ const temp: string[] = [];
 afterAll(() => { for (const d of temp.splice(0)) rmSync(d, { recursive: true, force: true }); });
 function serverArtifact(files: Record<string, string>) {
 	const root = mkdtempSync(path.join(os.tmpdir(), 'cc-kit-diagnostics-')); temp.push(root);
-	for (const [name, body] of Object.entries({ '.svelte-kit/cloudflare/_worker.js': 'export default { fetch() {} };', ...files })) {
+	for (const [name, body] of Object.entries({ ...scopeFixtureDependencies, '.svelte-kit/cloudflare/_worker.js': 'export default { fetch() {} };', ...files })) {
 		mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); writeFileSync(path.join(root, name), body);
 	}
 	return scanArtifact({ root, profile: 'production' }).errors;

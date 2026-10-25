@@ -6,6 +6,7 @@ import { scanArtifact } from '../../../scripts/ci/hosted-artifact.ts';
 import { PINNED_BROWSER_MODULES } from '../../../scripts/ci/hosted-artifact-scope.ts';
 import { adaptKitDiagnostics, KIT_DIAGNOSTIC_MODULES } from '../../../scripts/hosted-kit-diagnostics-build.ts';
 import { HOSTED_PDF_PACKAGE_DIGEST, prepareHostedPdfAssets, type PdfAssetInventory } from '../../../scripts/hosted-pdf-assets.ts';
+import { scopeFixtureDependencies } from './fixture-dependencies.ts';
 
 const REPO = path.resolve(import.meta.dirname, '../../..');
 const PDF = '.svelte-kit/cloudflare/pdfjs/pdf.min.mjs', WORKER = '.svelte-kit/cloudflare/pdfjs/pdf.worker.min.mjs';
@@ -23,7 +24,7 @@ afterAll(() => { for (const d of temp.splice(0)) rmSync(d, { recursive: true, fo
 
 function artifact(files: Record<string, string | Buffer>): string {
 	const root = mkdtempSync(path.join(os.tmpdir(), 'cc-artifact-scope-')); temp.push(root);
-	for (const [name, body] of Object.entries({ '.svelte-kit/cloudflare/_worker.js': 'export default { fetch() {} };', [CHUNK]: 'export const x = 1;', ...files })) {
+	for (const [name, body] of Object.entries({ ...scopeFixtureDependencies, '.svelte-kit/cloudflare/_worker.js': 'export default { fetch() {} };', [CHUNK]: 'export const x = 1;', ...files })) {
 		mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); writeFileSync(path.join(root, name), body);
 	}
 	return root;

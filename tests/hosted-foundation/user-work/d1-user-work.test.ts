@@ -6,6 +6,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 import type { DatabaseSync } from 'node:sqlite';
 import type * as C from '../../../src/lib/server/runtime/contracts.ts';
 import { id } from '../../../src/lib/server/runtime/ids.ts';
+import { contractError } from '../../../src/lib/server/runtime/errors.ts';
+import type { UserWorkDefinitionAuthority } from '../../../src/lib/user-work/hosted/index.ts';
 import { createD1UserWork, d1WorkRevision, userWorkConfig } from '../../../src/lib/user-work/hosted/index.ts';
 import { provisionD1UserWork } from '../../../src/lib/user-work/hosted/provision.ts';
 import { auditConfig, requestAuditSink } from '../../../src/lib/audit/index.ts';
@@ -21,6 +23,13 @@ const temp: string[] = [];
 afterAll(() => { for (const dir of temp) rmSync(dir, { recursive: true, force: true }); });
 function written<T>(r: C.Written<T> | 'absent'): Extract<C.Written<T>, { kind: 'written' }> { if (r === 'absent' || r.kind !== 'written') throw new Error(`expected written, got ${r === 'absent' ? r : r.kind}`); return r; }
 const costs: C.TableDefinition = { name: 'costs', owner: 'costs-owner', description: 'Synthetic costs', scope: 'case', columns: [{ name: 'case_id', type: 'TEXT', notNull: true }, { name: 'id', type: 'TEXT' }, { name: 'amount', type: 'REAL' }], primaryKey: ['id'] };
+// Explicit synthetic administrative grant, independent of the case-grant map. No production default is installed.
+const definitionAdministrators = new Set([JSON.stringify([ISSUER, 'editor', 'client'])]);
+const tableDefinitions: UserWorkDefinitionAuthority = {
+  async authorize({ actor }) {
+    if (actor.kind !== 'verified' || !definitionAdministrators.has(JSON.stringify([actor.principal.issuer, actor.principal.subject, actor.principal.kind]))) throw contractError('forbidden');
+  },
+};
 const seedRow = (seedId: string, seedSha256: string): C.SeedRow => ({ datasetKey: 'parties', seedId, seedSha256, record: { name: `Synthetic ${seedId}` } });
 
 function setup(o: { db?: DatabaseSync; published?: C.ResultsVersion | null } = {}) {
@@ -35,7 +44,7 @@ function setup(o: { db?: DatabaseSync; published?: C.ResultsVersion | null } = {
     seeds: { [RV1]: [seedRow('p1', 'd'.repeat(64)), seedRow('p2', 'e'.repeat(64))] },
   });
   const make = (a: { subject?: string; fault?: Fault; clientId?: C.ClientId; identity?: C.Identity; audit?: C.AuditSink; database?: DatabaseSync } = {}) => createD1UserWork({
-    db: d1(a.database ?? db, a.fault ?? {}), config: { clientId: CLIENT, limits: LIMITS }, identity: a.identity ?? auth.identity(a.subject ?? 'editor', a.clientId ?? CLIENT), audit: a.audit ?? audit.sink, store: reader.reader, now: NOW,
+    db: d1(a.database ?? db, a.fault ?? {}), config: { clientId: CLIENT, limits: LIMITS }, identity: a.identity ?? auth.identity(a.subject ?? 'editor', a.clientId ?? CLIENT), audit: a.audit ?? audit.sink, store: reader.reader, now: NOW, tableDefinitions,
   });
   const count = (table: string) => (db.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n;
   return { db, auth, audit, reader, make, count };
@@ -441,7 +450,7 @@ describe('the GRS-116 audit sink as the injected AuditSink', () => {
     const { auth, reader } = setup({ db });
     const identity = auth.identity();
     const sink = requestAuditSink({ db: d1(db), config, requester: { kind: 'verified', principal: identity.kind === 'verified' ? identity.principal : null!, sessionId: identity.sessionId! }, now: NOW });
-    const work = createD1UserWork({ db: d1(db), config: { clientId: CLIENT, limits: LIMITS }, identity, audit: sink, store: reader.reader, now: NOW });
+    const work = createD1UserWork({ db: d1(db), config: { clientId: CLIENT, limits: LIMITS }, identity, audit: sink, store: reader.reader, now: NOW, tableDefinitions });
     const note = written(await work.addNote({ caseId: CASE, expected: { kind: 'absent' }, operationId: 'n', target: { kind: 'case' }, body: 'Audited' }));
     await work.defineTable({ definition: costs });
     const rows = db.prepare('SELECT action, case_id, outcome FROM native_audit_events ORDER BY seq').all();

@@ -32,12 +32,21 @@ export interface D1UserWorkLimits {
 }
 /** Trusted deployment configuration: the one client this deployment serves, never a value from a request. */
 export interface D1UserWorkConfig { clientId: C.ClientId; limits: D1UserWorkLimits }
+/** Trusted parent hook: explicit administration/provisioning grants or an exact feature-definition catalogue.
+ * Authentication, a case grant or a principal kind/role alone must never implement this authority.
+ * The parent checks current authority for this actor and the complete normalized definition; throw on refusal.
+ */
+export interface UserWorkDefinitionAuthority {
+  authorize(a: { clientId: C.ClientId; actor: C.IdentityState; definition: C.UserWorkTable }): Promise<void>;
+}
 export interface D1UserWorkOptions {
   /** The client's own D1 binding, or null when the deployment has none (every call then refuses). */
   db: D1 | null;
   config: D1UserWorkConfig;
   /** The request's identity service: revocation and case authorization are asked again on every operation. */
   identity: C.Identity;
+  /** Absent/null refuses client-global definitions, including implicit restore definitions. Never derived from sign-in. */
+  tableDefinitions?: UserWorkDefinitionAuthority | null;
   /** The request's audit sink; a write succeeds only after its event is acknowledged here. */
   audit: C.AuditSink;
   /** The request's case reader, for anchors, fingerprints, seeds and the published version. */
@@ -77,7 +86,7 @@ function compare(expected: C.Expected, current: { version: string } | null | und
 const sameJson = (a: unknown, b: unknown) => canonical(a) === canonical(b);
 
 type Ledger = { request_sha256: string; result_json: string; event_json: string; audited_at: string | null };
-type Plan<T> = { kind: 'stale' | 'gone' } | { kind: 'written'; value: T; statements: D1Statement[]; collision?: () => Promise<Error | null> };
+type Plan<T> = { kind: 'stale' | 'gone' } | { kind: 'written'; value: T; statements: D1Statement[]; collision?: () => Promise<Error | null>; beforeCommit?: () => Promise<void> };
 type Step = { revision: C.CaseRevision; version: C.WorkVersion; next: C.CaseRevision; at: string; event: C.AuditEvent };
 type NoteDb = { note_id: string; target_json: string; body: string; body_sha256: string; created_at: string; version: string };
 type RegisterDb = { row_id: string; store: string; anchor_json: string | null; fields_json: string; fields_sha256: string; created_at: string; updated_at: string; version: string };
@@ -110,6 +119,7 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
   if (!identity || typeof identity.authorize !== 'function' || typeof identity.checkRevocation !== 'function') throw new TypeError('user work needs the request identity');
   if (!audit || typeof audit.append !== 'function') throw new TypeError('user work needs an AuditSink');
   if (!store || typeof now !== 'function') throw new TypeError('user work needs the case reader and a clock');
+  if (options.tableDefinitions != null && typeof options.tableDefinitions.authorize !== 'function') throw new TypeError('user work needs a definition authorizer or null');
   const config = userWorkConfig(options.config), gate = bindingGate(options.db, config), limits = config.limits;
   const at = () => now().toISOString();
   const actor = (): C.IdentityState => identity.kind === 'verified' ? { kind: 'verified', principal: { issuer: identity.principal.issuer, subject: identity.principal.subject, kind: identity.principal.kind }, sessionId: identity.sessionId } : { kind: 'anonymous', principal: null, sessionId: null };
@@ -118,15 +128,27 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
   async function denied(caseId: C.CaseId | null, action: string) {
     try { await audit.append({ eventId: `uw-denied:${crypto.randomUUID()}`, actor: actor(), action, object: caseId ? { kind: 'case', id: caseId, caseId } : { kind: 'user-work', id: 'tables', caseId: null }, version: null, outcome: 'denied', at: at() }); } catch { /* the refusal stands */ }
   }
-  async function standing(caseId: C.CaseId | null, action: string) {
+  async function standing() {
     if (identity.clientId !== config.clientId) throw contractError('wrong-client');
-    try { await identity.checkRevocation(); } catch (e) { if (isDenial(e)) await denied(caseId, action); throw e; }
+    await identity.checkRevocation();
   }
-  /** Revocation, then the case grant, on every operation; a refusal appends a denial event and stands either way. */
+  /** One public boundary catches denials, including early and nested refusals, without double-appending. */
+  async function boundary<T>(caseId: C.CaseId | null, action: string, fn: () => Promise<T>): Promise<T> {
+    try { return await fn(); } catch (e) { if (isDenial(e)) await denied(caseId, action); throw e; }
+  }
+  async function authorizeDefinition(t: C.UserWorkTable) {
+    await standing();
+    if (identity.kind !== 'verified') throw contractError('unauthenticated');
+    if (!options.tableDefinitions) throw contractError('forbidden');
+    await options.tableDefinitions.authorize({ clientId: config.clientId, actor: actor(), definition: structuredClone(t) });
+    // The injected authority may await storage; the request's session must still stand afterwards.
+    await standing();
+  }
+  /** Revocation, then the case grant, on every operation. */
   async function authorize(scope: C.Scope, operation: 'read' | 'write-user-work'): Promise<{ db: D1; caseId: C.CaseId }> {
-    const caseId = caseOf(scope), action = operation === 'read' ? 'user-work.read' : 'user-work.write';
-    await standing(caseId, action);
-    try { await identity.authorize({ caseId, operation }); } catch (e) { if (isDenial(e)) await denied(caseId, action); throw e; }
+    const caseId = caseOf(scope);
+    await standing();
+    await identity.authorize({ caseId, operation });
     return { db: await gate(), caseId };
   }
   const read = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof Error && 'code' in e) throw e; throw contractError('storage-unavailable', true); } };
@@ -154,7 +176,13 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
     const eventId = `uw:${await sha256Hex(canonical([config.clientId, caseId, op]))}`;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       const prior = await read(() => ledger(db, caseId, op));
-      if (prior) return finish<T>(db, caseId, op, prior, request);
+      if (prior) {
+        // Historical context is irrelevant to replay, but today's session and case grant are not.
+        await authorize(scope, 'write-user-work');
+        const result = await finish<T>(db, caseId, op, prior, request);
+        await authorize(scope, 'write-user-work');
+        return result;
+      }
       const revision = await revisionOf(db, caseId);
       if (expectedRevision !== undefined && revision !== expectedRevision) return { kind: 'stale' };
       const version = token(), when = at();
@@ -172,12 +200,18 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
         ...planned.statements,
       ];
       if (statements.length > limits.maxStatementsPerBatch) invalid();
+      if (planned.beforeCommit) await planned.beforeCommit();
       try { await db.batch(statements); }
       catch (e) {
         // Decide from durable state, never from the error: the batch may have committed before its response was lost.
         let after: Ledger | null, current: C.CaseRevision;
         try { after = await ledger(db, caseId, op); current = await revisionOf(db, caseId); } catch { throw failure('storage-unavailable', 'unknown', true); }
-        if (after) return finish<T>(db, caseId, op, after, request);
+        if (after) {
+          await authorize(scope, 'write-user-work');
+          const result = await finish<T>(db, caseId, op, after, request);
+          await authorize(scope, 'write-user-work');
+          return result;
+        }
         if (current !== revision) { if (expectedRevision !== undefined) return { kind: 'stale' }; continue; }
         if (isConstraintFailure(e) && planned.collision) { const refusal = await read(planned.collision); if (refusal) throw refusal; }
         throw failure('storage-unavailable', 'not-written', true);
@@ -298,18 +332,20 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       if (!a.expected || a.expected.kind !== 'absent') invalid();
       if (!TargetCheck.Check(a.target)) invalid();
       const text = body(a.body), target = structuredClone(a.target) as C.NoteTarget;
-      await authorize(a, 'write-user-work');
-      if (target.kind === 'document') {
-        if (target.anchor.caseId !== caseId) throw contractError('forbidden');
-        const row = await store.documentRow({ caseId, resultsVersion: target.anchor.resultsVersion, ref: target.anchor.refAtCreation });
-        const digest = row?.state.original ? row.state.original.sha256 : null;
-        if (!row || digest !== target.anchor.sha256) invalid(); // an anchor names the content its ref had, never another
-      }
-      if (target.kind === 'analysis') await store.documentRows({ caseId, resultsVersion: target.resultsVersion });
-      return change<C.HostedNote>(a, 'note-add', { target, body: a.body }, undefined, async (db, _, s) => {
+      if (target.kind === 'document' && target.anchor.caseId !== caseId) throw contractError('forbidden');
+      const result = await change<C.HostedNote>(a, 'note-add', { target, body: a.body }, undefined, async (db, _, s) => {
+        // Only a genuinely new operation needs the old results context to remain visible.
+        if (target.kind === 'document') {
+          const row = await store.documentRow({ caseId, resultsVersion: target.anchor.resultsVersion, ref: target.anchor.refAtCreation });
+          const digest = row?.state.original ? row.state.original.sha256 : null;
+          if (!row || digest !== target.anchor.sha256) invalid();
+        }
+        if (target.kind === 'analysis') await store.documentRows({ caseId, resultsVersion: target.resultsVersion });
         const note: C.HostedNote = { id: crypto.randomUUID(), body: text, createdAt: s.at, target, status: 'here', candidates: [], intact: true };
-        return { kind: 'written', value: note, statements: [await noteInsert(db, caseId, note, s.version)] };
+        return { kind: 'written', value: note, statements: [await noteInsert(db, caseId, note, s.version)], beforeCommit: async () => { await authorize(a, 'write-user-work'); } };
       });
+      await authorize(a, 'write-user-work');
+      return result;
     },
     async deleteNote(a) {
       if (!a.expected || a.expected.kind !== 'match') invalid();
@@ -376,18 +412,20 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       });
     },
     async tables() {
-      await standing(null, 'user-work.read');
+      await standing();
       const db = await gate();
       return [...BUILTINS.map(builtin), ...await definitions(db)];
     },
     async defineTable(a) {
       if (identity.kind !== 'verified') throw contractError('unauthenticated');
-      await standing(null, 'user-work.write');
+      await standing();
       const db = await gate(), t = definition(a?.definition), json = canonical(t);
+      await authorizeDefinition(t);
       const event: C.AuditEvent = { eventId: `uw-table:${await sha256Hex(canonical([config.clientId, json]))}`, actor: actor(), action: 'user-work.table-define', object: { kind: 'user-work-table', id: t.name, caseId: null }, version: null, outcome: 'succeeded', at: at() };
       const lookup = () => db.prepare('SELECT definition_json, event_json, audited_at FROM uw_table_definition WHERE name = ?').bind(t.name).first<{ definition_json: string; event_json: string; audited_at: string | null }>();
       let row = await read(lookup);
       if (!row) {
+        await authorizeDefinition(t);
         try { await db.prepare('INSERT INTO uw_table_definition (name, owner, definition_json, event_json, created_at, audited_at) VALUES (?, ?, ?, ?, ?, NULL)').bind(t.name, t.owner, json, JSON.stringify(event), event.at).run(); }
         catch { /* decided by the read-back below */ }
         try { row = await lookup(); } catch { throw failure('storage-unavailable', 'unknown', true); }
@@ -395,6 +433,7 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       }
       if (row.definition_json !== json) throw contractError('table-conflict');
       if (row.audited_at === null) await acknowledge(db, row.event_json, []);
+      await authorizeDefinition(t);
     },
     async registerStores(a) {
       const { db, caseId } = await authorize(a, 'read');
@@ -448,13 +487,13 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       if (!a.snapshot || a.snapshot.format !== USER_WORK_FORMAT || !Array.isArray(a.snapshot.tables)) invalid();
       if (sizeOf(a.snapshot) > limits.maxSnapshotBytes) invalid();
       if (typeof a.preRestore !== 'string') invalid();
-      return change<C.ImportResult>(a, 'restore', { snapshot: a.snapshot, preRestore: a.preRestore, expectedRevision: a.expectedRevision }, a.expectedRevision, async (db, _, s) => {
+      const result = await change<C.ImportResult>(a, 'restore', { snapshot: a.snapshot, preRestore: a.preRestore, expectedRevision: a.expectedRevision }, a.expectedRevision, async (db, _, s) => {
         // The pre-restore snapshot must hold exactly this case at the revision being replaced, with its audit acknowledged.
         const receipt = await read(() => db.prepare('SELECT case_id, revision, audited_at FROM uw_snapshot WHERE snapshot_id = ?').bind(a.preRestore).first<{ case_id: string; revision: string; audited_at: string | null }>());
         if (!receipt || receipt.case_id !== caseId || receipt.revision !== s.revision || receipt.audited_at === null) throw contractError('snapshot-failed');
         const known = new Map((await definitions(db)).map((t) => [t.name, t]));
         const statements: D1Statement[] = ['uw_note', 'uw_seed_overlay', 'uw_register_row', 'uw_table_row'].map((table) => db.prepare(`DELETE FROM ${table} WHERE case_id = ?`).bind(caseId));
-        const names = new Set<string>(), restored: C.TableRestoreReport[] = [], keys = new Map<string, string[]>();
+        const names = new Set<string>(), restored: C.TableRestoreReport[] = [], keys = new Map<string, string[]>(), newDefinitions: C.UserWorkTable[] = [];
         for (const table of a.snapshot.tables) {
           if (!table || typeof table.name !== 'string' || !Array.isArray(table.rows) || names.has(table.name)) invalid();
           names.add(table.name);
@@ -464,6 +503,8 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
             const types = ['TEXT', 'INTEGER', 'REAL', 'BLOB'];
             if (!Array.isArray(table.columns) || !table.columns.every((c) => types.includes(c.type))) invalid();
             t = definition({ name: table.name, owner: table.owner, description: table.description, scope: table.scope, columns: table.columns.map((c) => ({ name: c.name, type: c.type as 'TEXT' | 'INTEGER' | 'REAL' | 'BLOB', notNull: c.notNull })), primaryKey: table.columns.filter((c) => c.pk).sort((x, y) => x.pk - y.pk).map((c) => c.name) });
+            await authorizeDefinition(t);
+            newDefinitions.push(t);
             known.set(t.name, t);
             statements.push(db.prepare('INSERT INTO uw_table_definition (name, owner, definition_json, event_json, created_at, audited_at) VALUES (?, ?, ?, ?, ?, NULL)')
               .bind(t.name, t.owner, canonical(t), JSON.stringify(s.event), s.at)); // acknowledged with the restore's own event
@@ -505,8 +546,12 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
           restored.push({ name: table.name, scope: 'case', action: 'replaced-for-cases', rows: rows.length, deleted: 0, cases: [caseId] });
         }
         const collision = async () => { for (const [name, list] of keys) { const refusal = await collisionOf(db, caseId, name, list)(); if (refusal) return refusal; } return null; };
-        return { kind: 'written', value: { tables: names.size, rows: restored.reduce((n, t) => n + t.rows, 0), cases: [caseId], restored }, statements, collision };
+        return { kind: 'written', value: { tables: names.size, rows: restored.reduce((n, t) => n + t.rows, 0), cases: [caseId], restored }, statements, collision,
+          beforeCommit: async () => { for (const t of newDefinitions) await authorizeDefinition(t); await authorize(a, 'write-user-work'); },
+        };
       });
+      await authorize(a, 'write-user-work');
+      return result;
     },
     snapshots: {
       async put(a) {
@@ -545,9 +590,16 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
           rows: () => work.listRows(base),
           add: (a) => work.putRow({ ...base, fields: a.fields, operationId: a.operationId, rowId: null, expected: { kind: 'absent' }, anchor: null }),
           async replace(a) {
-            const anchor = (await work.listRows(base)).find((r) => r.rowId === a.rowId)?.anchor ?? null;
-            const r = await work.putRow({ ...base, rowId: a.rowId, fields: a.fields, operationId: a.operationId, expected: { kind: 'match', version: a.expected }, anchor });
-            return r.kind === 'written' ? { ...r, value: undefined } : r;
+            const rowId = rowIdOf(a.rowId), values = fields(a.fields), expected: C.Expected = { kind: 'match', version: a.expected };
+            // The request does not contain an anchor: preserve it only in the fresh-write plan, never in the digest.
+            const result = await change<void>({ ...base, operationId: a.operationId }, 'register-replace', { store: base.store, rowId, fields: values, expected }, undefined, async (db, caseId, s) => {
+              const old = (await registerRowsOf(db, caseId, base.store)).find((r) => r.rowId === rowId);
+              const conflict = compare(expected, old); if (conflict) return { kind: conflict };
+              const row: C.WorkRegisterRow = { ...old!, fields: values, updatedAt: s.at };
+              return { kind: 'written', value: undefined, statements: [await registerUpsert(db, caseId, row, s.version, true)], beforeCommit: async () => { await authorize(base, 'write-user-work'); } };
+            });
+            await authorize(base, 'write-user-work');
+            return result;
           },
           remove: (a) => work.deleteRow({ ...base, rowId: a.rowId, operationId: a.operationId, expected: { kind: 'match', version: a.expected } }),
           async apply(a) {
@@ -578,22 +630,65 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
         return {
           views: () => work.seedViews(scope),
           async remove(a) {
-            const seeds = await work.seedRows(scope), seed = seeds.find((s) => s.seedId === a.seedId);
-            // A seed is removed only against the case's exact published version.
-            if (await store.activeVersionId({ caseId: scope.caseId }) !== scope.resultsVersion) throw contractError('forbidden');
             const result = await change<boolean>({ caseId: scope.caseId, operationId: a.operationId }, 'seed-remove', { resultsVersion: scope.resultsVersion, datasetKey: scope.datasetKey, seedId: a.seedId, expected: a.expected }, undefined, async (db, caseId, s) => {
+              const seeds = await work.seedRows(scope), seed = seeds.find((s) => s.seedId === a.seedId);
+              // Publication and seed visibility constrain fresh mutations, not acknowledgement of a durable removal.
+              if (await store.activeVersionId({ caseId }) !== scope.resultsVersion) throw contractError('forbidden');
+              await authorize(scope, 'write-user-work');
               const overlay = (await overlaysOf(db, caseId)).find((o) => o.datasetKey === scope.datasetKey && o.seedId === a.seedId);
               if (!seed && !overlay) return { kind: 'gone' };
               const current = overlay?.version ?? id('row-version', `seed:${seed!.seedSha256}`);
               if (current !== a.expected) return { kind: 'stale' };
               const next: C.SeedOverlay = { caseId, datasetKey: scope.datasetKey, seedId: a.seedId, baseSeedSha256: seed?.seedSha256 ?? overlay!.baseSeedSha256, fields: { ...(overlay?.fields ?? {}), deleted: true } };
-              return { kind: 'written', value: true, statements: [overlayUpsert(db, caseId, next, s.version, s.at, !!overlay)] };
+              return { kind: 'written', value: true, statements: [overlayUpsert(db, caseId, next, s.version, s.at, !!overlay)], beforeCommit: async () => {
+                if (await store.activeVersionId({ caseId }) !== scope.resultsVersion) throw contractError('forbidden');
+                await authorize(scope, 'write-user-work');
+              } };
             });
+            await authorize(scope, 'write-user-work');
             return result.kind === 'gone' ? 'absent' : result;
           },
         };
       },
     },
   };
-  return Object.freeze(work);
+  // Internal calls use `work`, not these wrappers, so one refusal produces exactly one best-effort denial event.
+  const wrap = <A extends unknown[], R>(fn: (...args: A) => Promise<R>, scope: (...args: A) => C.CaseId | null, action: 'read' | 'write') =>
+    (...args: A) => boundary(scope(...args), `user-work.${action}`, () => fn(...args));
+  const caseScope = (a: C.Scope) => a?.caseId ?? null;
+  return Object.freeze({
+    anchorFor: wrap(work.anchorFor, caseScope, 'read'),
+    resolve: wrap(work.resolve, (a) => a?.into?.caseId ?? null, 'read'),
+    notesFor: wrap(work.notesFor, caseScope, 'read'),
+    summary: wrap(work.summary, caseScope, 'read'),
+    addNote: wrap(work.addNote, caseScope, 'write'),
+    deleteNote: wrap(work.deleteNote, caseScope, 'write'),
+    seedRows: wrap(work.seedRows, caseScope, 'read'),
+    overlays: wrap(work.overlays, caseScope, 'read'),
+    seedViews: wrap(work.seedViews, caseScope, 'read'),
+    putSeedOverlay: wrap(work.putSeedOverlay, caseScope, 'write'),
+    listRows: wrap(work.listRows, caseScope, 'read'),
+    putRow: wrap(work.putRow, caseScope, 'write'),
+    deleteRow: wrap(work.deleteRow, caseScope, 'write'),
+    tables: wrap(work.tables, () => null, 'read'),
+    defineTable: wrap(work.defineTable, () => null, 'write'),
+    registerStores: wrap(work.registerStores, caseScope, 'read'),
+    listTableRows: wrap(work.listTableRows, caseScope, 'read'),
+    putTableRow: wrap(work.putTableRow, caseScope, 'write'),
+    putTableRows: wrap(work.putTableRows, caseScope, 'write'),
+    deleteTableRow: wrap(work.deleteTableRow, caseScope, 'write'),
+    exportAll: wrap(work.exportAll, caseScope, 'read'),
+    importAll: wrap(work.importAll, caseScope, 'write'),
+    snapshots: { put: wrap(work.snapshots.put, caseScope, 'write'), get: wrap(work.snapshots.get, caseScope, 'read') },
+    registers: {
+      open(scope: Parameters<D1UserWork['registers']['open']>[0]) {
+        const r = work.registers.open(scope), c = () => scope.caseId;
+        return { rows: wrap(r.rows, c, 'read'), add: wrap(r.add, c, 'write'), replace: wrap(r.replace, c, 'write'), remove: wrap(r.remove, c, 'write'), apply: wrap(r.apply, c, 'write') };
+      },
+      seeds(scope: Parameters<D1UserWork['registers']['seeds']>[0]) {
+        const r = work.registers.seeds(scope), c = () => scope.caseId;
+        return { views: wrap(r.views, c, 'read'), remove: wrap(r.remove, c, 'write') };
+      },
+    },
+  } satisfies D1UserWork);
 }

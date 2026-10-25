@@ -398,7 +398,7 @@ describe('the post-stop negative proof contract', () => {
 	test('even network-labelled data is a contract result for the parent to bind to receipts, not CONTROL-READY', async () => {
 		const { r, m } = await stopped();
 		const v = checkNegativeProof({ manifest: m, stop: r, observations: observations(m, r, 'network') });
-		expect(v.state).toBe('NEGATIVE-PROOF-CONTRACT-SATISFIED');
+		expect(v.state).toBe('NETWORK-LABELLED-STRUCTURALLY-CONSISTENT');
 		expect(v.controlReady).toBe(false);
 	});
 

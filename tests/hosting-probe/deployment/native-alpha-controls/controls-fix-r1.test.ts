@@ -275,7 +275,7 @@ describe('H2: a StopResult handed to checkNegativeProof is re-validated, never t
 	test('a satisfied contract names itself structural: no remote proof, no control readiness', async () => {
 		const { r, pm } = await stopped();
 		const v = proof(pm, r, observations(pm, r, { transport: 'network', provenance: true })) as any;
-		expect(v.state).toBe('NEGATIVE-PROOF-CONTRACT-SATISFIED');
+		expect(v.state).toBe('NETWORK-LABELLED-STRUCTURALLY-CONSISTENT');
 		expect(v).toMatchObject({ controlReady: false, remoteProof: false, structuralOnly: true });
 		expect((proof(pm, r, observations(pm, r)) as any).remoteProof).toBe(false);
 	});

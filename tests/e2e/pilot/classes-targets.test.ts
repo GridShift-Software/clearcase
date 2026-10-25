@@ -475,6 +475,20 @@ describe('hosted form evidence is refused when its driving setup is gone', () =>
   set(file, read(file).replaceAll(cut, 'other.ts'));
   expect(evidenceProblems(dir, route, ev, always)).not.toEqual([]);
  });
+ test.each(UNIT_AND_COMPONENT)('%s: the cited evidence is refused once every test returns before its body', (route) => {
+  const { ev, dir, set, read } = copyOf(route);
+  const registration = /\bit\('(?:[^'\\]|\\.)*', async \(\) => \{/g;
+  expect(read(ev.test).match(registration)?.length, `${ev.test} registers its tests as it('…', async () => {`).toBeGreaterThan(0);
+  set(ev.test, read(ev.test).replace(registration, '$& return;'));
+  expect(evidenceProblems(dir, route, ev, always)).not.toEqual([]);
+ });
+ test('the intake harness is refused when its dispatch keeps the route imports but calls no handler', () => {
+  const route = '/client/intake/[caseId]', { ev, dir, set, read } = copyOf(route), file = ev.via!.file;
+  const cut = read(file).replace(/export async function dispatch[\s\S]*$/, 'export async function dispatch(): Promise<Response> { void list; void one; return new Response(null, { status: 405 }); }\n');
+  expect(cut).toContain('void list');
+  set(file, cut);
+  expect(evidenceProblems(dir, route, ev, always).join('\n')).toMatch(/does not import .*submissions\/\+server\.ts and use it in its exported dispatch/);
+ });
  test('the intake harness reduced to only the route comment is refused, whatever the test around it still does', () => {
   const route = '/client/intake/[caseId]', { ev, dir, set } = copyOf(route);
   set(ev.via!.file, '// deploy/client/routes/client/intake\n');
@@ -488,6 +502,7 @@ describe('hosted form evidence is refused when its driving setup is gone', () =>
  const DIRECT: Evidence = { kind: 'unit', test: T, module: MODULE };
  const VIA: Evidence = { kind: 'component', test: T, module: MODULE, via: { file: H, export: 'dispatch' } };
  const HARNESS = "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport const compose = () => 0;\nexport async function dispatch() { return r.load(); }\n";
+ const TABLE_HARNESS = (tail: string) => `import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport async function dispatch(method: string) {\n const handlers: Record<string, (() => unknown) | undefined> = method === 'GET' ? { GET: r.load } : { PUT: r.load };\n const h = handlers[method];\n if (!h) return new Response(null, { status: 405 });\n ${tail}\n}\n`;
  const viaTest = (body: string) => `import { describe, it } from 'vitest';\nimport { compose, dispatch } from './harness.ts';\n${body}`;
  const directTest = (body: string, head = "import { it } from 'vitest';\nimport { load } from '../deploy/client/routes/r/+page.server.ts';\n") => head + body;
  const cases: [string, Evidence, Record<string, string>, boolean][] = [
@@ -509,7 +524,25 @@ describe('hosted form evidence is refused when its driving setup is gone', () =>
   ['a harness that imports the route but whose dispatch does not use it', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport const keep = r;\nexport async function dispatch() { return 1; }\n", [T]: viaTest("it('x', async () => { await dispatch(); });") }, false],
   ['a harness with no dispatch export', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport const compose = () => r.load();\n", [T]: viaTest("it('x', () => 1);") }, false],
   ['a test that calls only another harness export', VIA, { ...MOD, [H]: HARNESS, [T]: viaTest("it('x', () => { compose(); });") }, false],
-  ['a test that never calls the harness dispatch', VIA, { ...MOD, [H]: HARNESS, [T]: viaTest("it('x', () => 1);") }, false],
+  ['a test that never calls the harness dispatch', VIA, { ...MOD, [H]: HARNESS, [T]: viaTest("it('x', () => 1);") }, false],  // only a call on a reachable path from an enabled vitest test callback counts; an opaque condition may go either way, a
+  // literal one is folded, a call behind any condition does not count, and an unsupported shape is refused
+  ['a call through a helper that runs its callback', DIRECT, { ...MOD, [T]: directTest("const outcome = async (f: () => unknown) => { try { return { value: await f() }; } catch (e) { return { thrown: e }; } };\nit('x', async () => { await outcome(() => load()); });") }, true],
+  ['a call after an early return behind an opaque condition', DIRECT, { ...MOD, [T]: directTest("it('x', () => { if (Date.now() < 0) return; load(); });") }, true],
+  ['a call after an unconditional return', DIRECT, { ...MOD, [T]: directTest("it('x', () => { return; load(); });") }, false],
+  ['a call after a return behind a literal true condition', DIRECT, { ...MOD, [T]: directTest("it('x', () => { if (true) return; load(); });") }, false],
+  ['a call only in a nested function the test never calls', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const later = () => load(); });") }, false],
+  ['a call only in a callback a helper never runs', DIRECT, { ...MOD, [T]: directTest("const keep = (f: () => unknown) => f;\nit('x', () => { keep(() => load()); });") }, false],
+  ['a called helper that only registers a skipped test', DIRECT, { ...MOD, [T]: directTest("const go = () => { it.skip('y', () => load()); };\nit('x', () => { go(); });") }, false],
+  ['a call in a test disabled by runIf(false)', DIRECT, { ...MOD, [T]: directTest("it.runIf(false)('x', () => load());") }, false],
+  ['a call in a test skipped by its options', DIRECT, { ...MOD, [T]: directTest("it('x', { skip: true }, () => load());") }, false],
+  ['a call in a test that takes its context, which can skip it', DIRECT, { ...MOD, [T]: directTest("it('x', (ctx) => { ctx.skip(); load(); });") }, false],
+  ['a call behind a condition', DIRECT, { ...MOD, [T]: directTest("it('x', () => { if (Date.now() < 0) load(); });") }, false],
+  ['a call in a test while another test in the file is only', DIRECT, { ...MOD, [T]: directTest("it('x', () => load());\nit.only('y', () => 1);") }, false],
+  ['a call in a test registered by a local it, not vitest', DIRECT, { ...MOD, [T]: "import { load } from '../deploy/client/routes/r/+page.server.ts';\nconst it = (_n: string, _f: () => unknown) => {};\nit('x', () => load());" }, false],
+  ['a harness dispatch that calls its route handler through a handler table', VIA, { ...MOD, [H]: TABLE_HARNESS("return h();"), [T]: viaTest("it('x', async () => { await dispatch('GET'); });") }, true],
+  ['a harness dispatch that only mentions the route and answers 405', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport async function dispatch() { void r; return new Response(null, { status: 405 }); }\n", [T]: viaTest("it('x', async () => { await dispatch(); });") }, false],
+  ['a harness dispatch that builds the handler table but never calls a handler', VIA, { ...MOD, [H]: TABLE_HARNESS("return new Response(null, { status: h ? 200 : 405 });"), [T]: viaTest("it('x', async () => { await dispatch('GET'); });") }, false],
+  ['a harness dispatch that calls the route only after its return', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport async function dispatch() { return new Response(null, { status: 405 }); r.load(); }\n", [T]: viaTest("it('x', async () => { await dispatch(); });") }, false],
  ];
  test.each(cases)('%s', (_name, ev, files, ok) => {
   const problems = evidenceProblems(put3(files), ROUTE, ev, always);

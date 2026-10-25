@@ -2,12 +2,18 @@
 // and integrity logic run against the real migration. They are not Cloudflare's D1 or R2: nothing here is evidence of
 // remote behaviour, limits or latency, and no production path can reach them.
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { CloudD1, CloudD1Statement, CloudR2, CloudR2Body, CloudR2Head, D1Value } from '../../../src/lib/storage/cloud/bindings.ts';
 
-const MIGRATION = path.join(import.meta.dirname, '../../../src/lib/storage/cloud/migrations/0001_rs_results_storage.sql');
+// Every rs_ migration in order, then the client intake's (GRS-137) submissions_ migration: one client's D1 holds both, and the
+// original facts read the finalized submission rows next to the rs_ rows.
+const dir = (d: string) => path.join(import.meta.dirname, '../../../src/lib', d);
+const MIGRATIONS = [
+  ...readdirSync(dir('storage/cloud/migrations')).filter((f) => f.endsWith('.sql')).sort().map((f) => path.join(dir('storage/cloud/migrations'), f)),
+  path.join(dir('submissions/migrations'), '0001_submissions_intake.sql'),
+];
 const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 
 export class SqliteD1 implements CloudD1 {
@@ -16,7 +22,7 @@ export class SqliteD1 implements CloudD1 {
   failNext: RegExp | null = null;
   constructor() {
     this.sqlite.exec('PRAGMA foreign_keys = ON');
-    this.sqlite.exec(readFileSync(MIGRATION, 'utf8'));
+    for (const m of MIGRATIONS) this.sqlite.exec(readFileSync(m, 'utf8'));
   }
   prepare(sql: string): CloudD1Statement {
     const db = this;

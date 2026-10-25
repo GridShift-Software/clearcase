@@ -12,6 +12,8 @@ import { id, resultsVersion, type CaseId, type ClientId } from '../../../src/lib
 import type { CaseOperation, Identity, SessionId } from '../../../src/lib/server/runtime/contracts.ts';
 import { SqliteD1, MemoryR2 } from './doubles.ts';
 import { createOriginalIntake } from '../../../src/lib/storage/cloud/intake.ts';
+import { createIntakeController } from '../../../src/lib/submissions/controller.ts';
+import { d1SubmissionRepository } from '../../../src/lib/submissions/repository.ts';
 
 const utf8 = (s: string) => new TextEncoder().encode(s);
 export const pdf = (tag: string) => utf8(`%PDF-1.4\n% SYNTHETIC ONLY ${tag}\n%%EOF\n`);
@@ -132,6 +134,11 @@ export async function originalsPackage(caseId: string, tag: string, disks: reado
     const onDisk = disk === 'case' ? `DISCOVERY/${ref} ${name.toUpperCase()}.pdf` : disk === 'nfd' ? path.normalize('NFD') : path;
     return { ref, disk, path, onDisk, bytes: disk === 'html' ? html(`${tag}-${i + 1}`) : pdf(`${tag}-${i + 1}`) };
   });
+  return packageOver(caseId, tag, docs);
+}
+
+/** The package and canonical local projection over `docs`, each indexed at `path` and held on disk at `onDisk` (none when missing). */
+export async function packageOver<D extends { ref: string; disk: Disk; path: string; onDisk: string; bytes: Uint8Array }>(caseId: string, tag: string, docs: D[]) {
   const rows = docs.map((d, i) => ({
     n: String(i + 1), ref: d.ref, date: `2001-01-0${i + 1}`, filename: d.path.split('/').pop()!, subject: `Synthetic ${tag} ${i + 1}`, sender: '', to: '', cc: '',
     excerpt: '', doc_type: 'other', bundle: '', amount: '', also_in: [], text_status: 'pending', url: '', refs: [], invoice_no: '', size: d.bytes.byteLength, seq: String(i + 1), attachments: [],
@@ -165,3 +172,44 @@ export async function originalsPackage(caseId: string, tag: string, disks: reado
     };
   } finally { await rm(dir, { recursive: true, force: true }); }
 }
+
+// ---- NATIVE24 integration fix: originals as the real client intake (GRS-137) leaves them ----
+
+export interface Submitted { ref: string; path: string; bytes: Uint8Array }
+/** The operation id the intake fixture uses for one upload (the intake's own id format: 16 to 64 letters, digits or dashes). */
+export const submissionOp = (caseId: string, ref: string) => `opn24-${caseId}-${ref}`.padEnd(16, '0');
+/**
+ * Uploads each original through the REAL client intake controller (submissions/controller.ts) over the real submissions
+ * repository and the real GRS-115 original intake, on the world's own D1 and R2: declared under `sub-<operationId>` with the
+ * basename as `filename`, the case-relative path recorded only in the finalized submission. `commit: false` injects a fault
+ * at the final mark, so the upload stays `reserved` (the original is bound by GRS-115 but the submission is not final).
+ * Its own allow-all upload grant and writer; fixture plumbing only.
+ */
+export async function submit(dep: Dep, caseId: string, uploads: readonly Submitted[], o: { commit?: boolean } = {}) {
+  const writer = { bindings: { db: dep.db, bucket: dep.bucket }, clientId: ids.clientA, budgets: BUDGETS, quotas: QUOTAS, authorize: async () => {}, now: caseNow };
+  const repository = d1SubmissionRepository(dep.db);
+  const ports = {
+    clientId: ids.clientA, budget: { maxMetadataBytes: 4096, maxFileBytes: BUDGETS.maxOriginalBytes }, authorizeUpload: async () => {}, now: caseNow,
+    originals: createOriginalIntake(writer as never),
+    repository: o.commit === false ? { ...repository, commitRevision: async () => { throw new Error('injected fault at the final mark'); } } : repository,
+  };
+  const controller = createIntakeController(ports as never);
+  const identity = grantedIdentity(ids.clientA, [caseId]).identity;
+  const origin = 'https://client-a.example';
+  const out: { operationId: string; status: number }[] = [];
+  for (const u of uploads) {
+    const operationId = submissionOp(caseId, u.ref);
+    const declareUrl = new URL(`${origin}/client/intake/${caseId}/submissions`);
+    const body = JSON.stringify({ operationId, path: u.path, size: u.bytes.byteLength, sha256: shaOf(u.bytes), mediaType: 'application/pdf' });
+    const d = await controller.declare({ request: new Request(declareUrl, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body }), url: declareUrl, params: { caseId }, identity });
+    if (d.status !== 201 && d.status !== 200) throw new Error(`fixture declare of ${u.ref} failed: ${d.status} ${await d.text()}`);
+    const putUrl = new URL(`${origin}/client/intake/${caseId}/submissions/${operationId}`);
+    const p = await controller.upload({ request: new Request(putUrl, { method: 'PUT', headers: { origin, 'content-type': 'application/pdf' }, body: u.bytes }), url: putUrl, params: { caseId, operationId }, identity });
+    if (o.commit !== false && p.status !== 201 && p.status !== 200) throw new Error(`fixture upload of ${u.ref} failed: ${p.status} ${await p.text()}`);
+    out.push({ operationId, status: p.status });
+  }
+  return out;
+}
+
+/** Verification work bounds (NATIVE24 M2), generous enough that no test of the original behaviour meets one. */
+export const VERIFY_BUDGETS = { maxVerifyObjects: 256, maxVerifyBytes: 16 << 20, maxVerifyObjectsPerCaseWindow: 4096, maxVerifyBytesPerCaseWindow: 256 << 20, verifyWindowSeconds: 3600 };

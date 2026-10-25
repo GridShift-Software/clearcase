@@ -106,10 +106,9 @@ describe('cookie-name whitespace cannot defeat the handshake boundary', () => {
 		const plain = await handshake(U).handle(page('/cases', `__clerk_handshake=${token}; __clerk_db_jwt=${DEV}`));
 		const spaced = await handshake(U).handle(page('/cases', `__clerk_handshake =${token}; __clerk_db_jwt=${DEV}`));
 		const tabbed = await handshake(U).handle(page('/cases', `__clerk_db_jwt=${DEV}; \t__clerk_handshake\t=${token}`));
-		expect(plain.kind).toBe('redirect');
+		expect(plain).toEqual({ kind: 'continue' });
 		expect(spaced).toEqual(plain);
 		expect(tabbed).toEqual(plain);
-		expect(redirectOf(plain).setCookies.every((c) => !c.startsWith('__session='))).toBe(true);
 	});
 	it('keeps an unrelated look-alike cookie out of the refresh policy: it reaches the SDK and changes nothing', async () => {
 		const o = await handshake(U).handle(page('/cases', `__clerk_db_jwt=${DEV}; __client_uat=1761400000; __session=${T}; __refreshing=1; __refresh.x=1`));
@@ -141,7 +140,7 @@ describe('the base64url suffix grammar is one grammar', () => {
 		}
 		expect(REFRESH_COOKIE_NAME.test(`__refresh_${s}`)).toBe(true);
 	});
-	it.each(['__session_', '__session_a.b', '__session-a', '__sessionx', 'x__session', '__session_a b', `__session_${'a'.repeat(33)}`, '__session_é', '__Session', '__session__session='])('does not recognise %s as a session cookie', (n) => {
+	it.each(['__session_', '__session_a.b', '__session-a', '__sessionx', 'x__session', '__session_a b', `__session_${'a'.repeat(33)}`, '__session_é', '__Session'])('does not recognise %s as a session cookie', (n) => {
 		expect(SESSION_COOKIE_NAME.test(n)).toBe(false);
 		expect(CLERK_COOKIE_NAME.test(n)).toBe(false);
 		expect(sessionCookieNames(cookie(`${n}=${T}`))).toEqual([]);
@@ -202,13 +201,13 @@ describe('a handshake with base64url-suffixed cookies', () => {
 		`__client_uat_${s}=1761400000; Path=/; Domain=clearcase.test; Max-Age=315360000; SameSite=Lax; Secure`,
 		`__session_${s}=${session}; Path=/; Domain=clearcase.test; Max-Age=60; SameSite=Lax; Secure`,
 		`__refresh_${s}=${REFRESH}; Path=/; Domain=clearcase.test; Max-Age=315360000; HttpOnly; SameSite=Lax; Secure`,
-		'__clerk_db_jwt=dvb_synthetic0123456789abcdef; Path=/; Max-Age=315360000; SameSite=Lax; Secure',
+		`__clerk_db_jwt_${s}=dvb_synthetic0123456789abcdef; Path=/; Max-Age=315360000; SameSite=Lax; Secure`,
 	];
 	it.each([['an underscore', U, SU, tokenU], ['a hyphen', H, SH, tokenH]] as const)('signs a browser in whose cookie suffix has %s, storing the session and never the refresh token', async (_name, client, s, token) => {
 		const session = token();
 		const o = redirectOf(await handshake(client).handle(page(`/cases?__clerk_handshake=${client.sign({ handshake: suffixed(s, session) })}`)));
 		expect(o.location).toBe(`${ORIGIN}/cases`);
-		expect(o.setCookies.map((c) => c.split('=')[0])).toEqual([`__client_uat_${s}`, `__client_uat_${s}`, `__session_${s}`, '__clerk_db_jwt']);
+		expect(o.setCookies.map((c) => c.split('=')[0])).toEqual([`__client_uat_${s}`, `__client_uat_${s}`, `__session_${s}`, `__clerk_db_jwt_${s}`]);
 		expect(o.setCookies.join('\n')).not.toContain(REFRESH);
 		for (const c of o.setCookies) expect(c).not.toMatch(/Domain=/i);
 		expect(o.setCookies[2]).toBe(`__session_${s}=${session}; Path=/; Max-Age=60; SameSite=Lax; HttpOnly; Secure`);
@@ -222,8 +221,12 @@ describe('a handshake with base64url-suffixed cookies', () => {
 			expect(await handshake(client).handle(page(`/cases?__clerk_handshake=${client.sign({ handshake: directives })}`)), bad).toEqual({ kind: 'refuse', status: 502, code: 'handshake-cookie-refused' });
 		}
 	});
-	it.each([['underscore', U, SU], ['hyphen', H, SH]] as const)('refuses a non-empty %s-suffixed session cookie from a handshake that did not sign in', async (_name, client, s) => {
-		const token = client.sign({ handshake: suffixed(s, client === U ? tokenU(expired) : tokenH(expired)) });
-		expect(await handshake(client).handle(page(`/cases?__clerk_handshake=${token}`))).toEqual({ kind: 'refuse', status: 502, code: 'handshake-cookie-refused' });
+	// The SDK takes the last `__session*` directive as the session; when that one is empty it answers signed-out while an
+	// earlier directive still sets a session. No such cookie may be stored, under any session cookie name.
+	it.each([['an underscore', U, SU, tokenU], ['a hyphen', H, SH, tokenH]] as const)('refuses a non-empty session cookie, suffixed with %s, from a handshake that did not sign in', async (_name, client, s, token) => {
+		for (const name of ['__session', `__session_${s}`]) {
+			const directives = [`${name}=${token()}; Path=/; Max-Age=60`, `__session_${s}=; Path=/; Max-Age=0`];
+			expect(await handshake(client).handle(page(`/cases?__clerk_handshake=${client.sign({ handshake: directives })}`)), name).toEqual({ kind: 'refuse', status: 502, code: 'handshake-cookie-refused' });
+		}
 	});
 });

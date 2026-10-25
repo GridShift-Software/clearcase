@@ -40,6 +40,19 @@ The declared exact devDependency and installed package name/version must be `pdf
 3. In the parent-owned `scripts/ci/source-check.ts`, narrowly register the built import target `src/lib/viewer/hosted/static/pdf.min.mjs`, naming this helper as its producer. Preserve syntax/import checks for the reader and all other modules; do not add a directory-wide exemption or put PDF.js in the Worker import allowlist.
 4. Wire the hosted viewer CSP (`worker-src`, same-origin script/resource loading), build invocation and cleanup in parent-owned files. Check browser rendering and real service composition separately. This unit changes none of those files.
 
+## Emitted-artifact scope
+
+`scripts/ci/hosted-artifact.ts` refuses every use of the `process` or `Bun` global in the emitted modules. `scripts/ci/hosted-artifact-scope.ts` resolves each name by scope with the TypeScript parser and binder. A module-scoped object, a parameter, a catch, import or hoisted binding named `process`, and the text of comments and strings are not uses. That covers the SDK JSDoc link `https://nodejs.org/api/process.html` that reaches `hooks.server.js` from `@cloudflare/puppeteer` `common/FileChooser.js`. An alias (`const p = process`), a destructure, a shorthand property, `process["env"]`, `globalThis.process.x`, `self.process.x` and `globalThis.Bun.x` are uses. The allowed probes are unchanged: `typeof process`, `process.versions…` and optional chaining. A module the parser cannot read is refused.
+
+`pdfjs/pdf.min.mjs` and `pdfjs/pdf.worker.min.mjs` feature-detect Node (`process+""`, `process.type`), and `pdf.min.mjs` keeps six `process.getBuiltinModule` calls behind that branch. Their uses are accepted only when all of these hold:
+
+- the path is exactly `.svelte-kit/cloudflare/pdfjs/<file>`;
+- the size and SHA-256 equal that file's entry in the inventory whose digest is `HOSTED_PDF_PACKAGE_DIGEST` (the scoped tests rebuild the inventory from the frozen install and compare);
+- Kit's `.svelte-kit/output/server/manifest.js` lists `pdfjs/<file>` in `assets`;
+- the uses equal the reviewed list exactly.
+
+The same bytes anywhere else, any changed byte (a newline, CRLF, one character), an extra import and grafted code all fail. The Worker entry or any server module importing a pinned file also fails. The import, test-double and hosted-gate checks run on every file, the pinned ones included. Gap carried over from the regex scanner: an optional-chained `globalThis.process?.getBuiltinModule?.(...)` is a probe and is not refused, because Kit emits that form and workerd defines no `process` without `nodejs_compat`.
+
 ## Lightweight verification
 
 After frozen install and Kit sync, run only the private replacement-include suite and its scoped TypeScript check:
@@ -50,3 +63,10 @@ scripts/agent-tools/receipt --name pdf-static-tsc -- bun run --bun tsc -p tests/
 ```
 
 The suite uses one worker and disposable directories. It checks exact copied bytes/inventory, deterministic repetition, required reader references, excluded decoys, missing/tampered/renamed/extra inputs, version identity, input/output ancestor symlinks, output ownership and CLI argument strictness. It does not run a full build, browser, workerd, provider call or full suite.
+
+The emitted-artifact scope has its own scoped suite (one worker, synthetic artifacts plus the real pinned bytes from the frozen install):
+
+```sh
+scripts/agent-tools/receipt --name artifact-scope-tests -- bun run --bun vitest run --config tests/hosted-foundation/artifact-scope/vitest.config.ts
+scripts/agent-tools/receipt --name artifact-scope-tsc -- bun run --bun tsc -p tests/hosted-foundation/artifact-scope/tsconfig.json
+```

@@ -52,6 +52,24 @@ Additional output pins are exported in `NATIVE_SDK_WORKER_OUTPUTS`:
 | `common/BrowserConnector.js` | Generic URL/transport connector always throws. |
 | `common/BrowserWebSocketTransport.js` | Both construction and creation always throw. |
 | `api/Page.js`, `cdp/HTTPResponse.js` | Lexical Buffer imports, no protected global assignment. |
+| `util/disposable.js` | Removes the `Symbol.dispose ??=` and `Symbol.asyncDispose ??=` writes; the SDK keys disposal on the host's own symbols. |
+| `cdp/Binding.js` | `run` always throws, with no browser-serialized `globalThis[name]` callback. |
+| `cdp/utils.js` | `addPageBinding` and `pageBindingInitString` throw in the Worker. |
+| `cdp/Frame.js` | `addExposedFunctionBinding` and `removeExposedFunctionBinding` throw before `Runtime.addBinding`/`removeBinding`. |
+| `cdp/ExecutionContext.js` | `#addBinding` throws before `Runtime.addBinding`. |
+
+The last five replace an exact `[from, until)` span whose two markers each occur
+once, then must match their output pin. They close the parent's da9fa8ca
+`scanArtifact` failure (11 errors) without a scanner change. Page bindings are
+unsupported: `Page.exposeFunction` rejects before any state or CDP command, and
+the internal `aria/` query bindings are not installed (`puppeteerUtil` swallows
+the refusal, so an `aria/` selector then fails in the page). The renderer uses
+`launch`, `newPage`, request interception, `goto`, a function `evaluate`, page
+close, disconnect and a root CDP `Browser.close`, none of which add a binding.
+`NATIVE_SDK_HOST_SYMBOLS` (`Symbol.dispose`, `Symbol.asyncDispose`) joins the
+policy identity, the renderer fingerprint and the receipt's `hostRequirements`.
+The factory returns no checker on a host without either symbol. Nothing defines
+them.
 
 Two private, edge-restricted adapters exist: native `node:buffer` re-export,
 and a throwing Node-debug adapter for the optional SDK-only `debug` branch.
@@ -98,6 +116,7 @@ After frozen install and Kit sync:
 ```sh
 scripts/agent-tools/receipt --name native-sdk-tests --tool bun -- \
   bun run --bun test --maxWorkers=1 tests/hosted-foundation/native-sdk-build \
+  tests/hosted-foundation/native-render-check \
   tests/hosted-foundation/runtime/hosted-imports.test.ts \
   tests/hosted-smoke/pdf-static-assets
 scripts/agent-tools/receipt --name native-sdk-closure --tool bun -- \
@@ -109,6 +128,9 @@ factory and installed SDK**, with the exact production plugin, without evaluatin
 that entry. It preserves its private emitted bytes/receipt for inspection and
 runs `scanModule` plus `uploadModuleProblems` from the unchanged native checker.
 It exits nonzero on refusal; it is not an alternate acceptance path.
+`artifact-scan.test.ts` places the same real chunk as Worker-run server output
+under the unchanged `scanArtifact`, and proves that scanner still refuses each
+original retained SDK site in that position.
 
 ## Exact remaining parent integration requirement
 

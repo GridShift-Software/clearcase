@@ -6,7 +6,7 @@ import type { Plugin } from 'vite';
 import { applyNativeRenderSdkPolicy, NATIVE_RENDER_SDK_POLICY } from './native-render-sdk-policy.ts';
 import type { HostedProfile } from './ci/hosted-imports.ts';
 
-import { NATIVE_SDK_BUILD_SCHEMA, NATIVE_SDK_INPUT_PINS, NATIVE_SDK_WORKER_OUTPUTS, NATIVE_SDK_BUFFER_SOURCE as BUFFER_SOURCE, NATIVE_SDK_DEBUG_SOURCE as DEBUG_SOURCE } from '../src/lib/viewer/hosted/sdk-build-contract.ts';
+import { NATIVE_SDK_BUILD_SCHEMA, NATIVE_SDK_INPUT_PINS, NATIVE_SDK_WORKER_OUTPUTS, NATIVE_SDK_HOST_SYMBOLS, NATIVE_SDK_BUFFER_SOURCE as BUFFER_SOURCE, NATIVE_SDK_DEBUG_SOURCE as DEBUG_SOURCE } from '../src/lib/viewer/hosted/sdk-build-contract.ts';
 export { NATIVE_SDK_BUILD_SCHEMA, NATIVE_SDK_INPUT_PINS, NATIVE_SDK_WORKER_OUTPUTS } from '../src/lib/viewer/hosted/sdk-build-contract.ts';
 const SDK = '@cloudflare/puppeteer';
 const FACTORY = 'src/lib/viewer/hosted/native-render-check.ts';
@@ -39,7 +39,26 @@ const edits = {
  'puppeteer/cdp/HTTPResponse.js': [
   ["import { HTTPResponse }", "import { Buffer } from 'clearcase-native-render:host-buffer';\nimport { HTTPResponse }"],
  ],
-} as const;
+ // Host disposal symbols only. The factory refuses a host without them; the Symbol intrinsic is never written.
+ 'puppeteer/util/disposable.js': [
+  ["Symbol.dispose ??= Symbol('dispose');\nSymbol.asyncDispose ??= Symbol('asyncDispose');\n", ''],
+ ],
+ // Page bindings and exposed functions are unsupported: each refuses in the Worker before any CDP command or
+ // browser-serialized global callback. A three-part edit replaces [from, until) and both markers must be unique.
+ 'puppeteer/cdp/Binding.js': [
+  ['    async run(context, id, args, isTrivial) {', '\n}\n//# sourceMappingURL', "    async run() {\n        throw new Error('native render SDK page binding refused');\n    }"],
+ ],
+ 'puppeteer/cdp/utils.js': [
+  ['export function addPageBinding(type, name, prefix) {', '/**\n * @internal\n */\nexport const CDP_BINDING_PREFIX', "export function addPageBinding() {\n    throw new Error('native render SDK page binding refused');\n}\n"],
+  ['    return evaluationString(addPageBinding, type, name, CDP_BINDING_PREFIX);', "    throw new Error('native render SDK page binding refused');"],
+ ],
+ 'puppeteer/cdp/Frame.js': [
+  ['        async addExposedFunctionBinding(binding) {', '        async waitForDevicePrompt(options = {}) {', "        async addExposedFunctionBinding() {\n            throw new Error('native render SDK page binding refused');\n        }\n        async removeExposedFunctionBinding() {\n            throw new Error('native render SDK page binding refused');\n        }\n"],
+ ],
+ 'puppeteer/cdp/ExecutionContext.js': [
+  ['    async #addBinding(binding) {', '    async #onBindingCalled(event) {', "    async #addBinding() {\n        throw new Error('native render SDK page binding refused');\n    }\n"],
+ ],
+} as const satisfies Record<string, readonly (readonly [string, string] | readonly [string, string, string])[]>;
 const CONNECTOR = 'puppeteer/common/BrowserConnector.js';
 const CONNECTOR_SOURCE = "/** @license Copyright 2023 Google Inc. SPDX-License-Identifier: Apache-2.0 */\nexport async function _connectToBrowser() { throw Error('native render SDK generic connector refused'); }\n";
 const TRANSPORT = 'puppeteer/common/BrowserWebSocketTransport.js';
@@ -96,9 +115,15 @@ async function transform(module: string, source: string): Promise<{ code: string
   const inputSha256 = sha(code);
   if (module === CONNECTOR) code = CONNECTOR_SOURCE;
   else if (module === TRANSPORT) code = TRANSPORT_SOURCE;
-  else for (const [before, after] of edits[module as keyof typeof edits]) {
-   if (code.split(before).length !== 2) refused('Worker transform shape: ' + module);
-   code = code.replace(before, after);
+  else for (const edit of edits[module as keyof typeof edits]) {
+   if (edit.length === 2) {
+    if (code.split(edit[0]).length !== 2) refused('Worker transform shape: ' + module);
+    code = code.replace(edit[0], edit[1]);
+   } else {
+    const [from, until, insert] = edit, start = code.indexOf(from), end = code.indexOf(until);
+    if (code.split(from).length !== 2 || code.split(until).length !== 2 || end < start) refused('Worker transform shape: ' + module);
+    code = code.slice(0, start) + insert + code.slice(end);
+   }
   }
   code = code.replace(/\n\/\/# sourceMappingURL=[^\n]*/g, '');
   if (sha(code) !== NATIVE_SDK_WORKER_OUTPUTS[module]) refused('Worker transform output: ' + module);
@@ -228,7 +253,7 @@ export function nativeRenderSdkBuild(a: { root: string; target: 'local' | 'hoste
    const receipt = {
     schema: NATIVE_SDK_BUILD_SCHEMA, policy: NATIVE_RENDER_SDK_POLICY, pins: NATIVE_SDK_INPUT_PINS,
     profile: a.profile, environment: this.environment.name, evidence: 'SCOPED-BUNDLE-NOT-NATIVE',
-    hostRequirements: [{ module: 'node:buffer', compatibilityFlag: 'nodejs_compat' }],
+    hostRequirements: [{ module: 'node:buffer', compatibilityFlag: 'nodejs_compat' }, ...NATIVE_SDK_HOST_SYMBOLS.map(intrinsic => ({ intrinsic }))],
     entryModules: graph.filter(id => this.getModuleInfo(id)?.isEntry).map(id => slash(path.relative(root, id))),
     factory: FACTORY, modules,
     adapters: reached.filter(id => id === BUFFER || id === DEBUG).map(id => ({ module: id, outputSha256: sha(id === BUFFER ? BUFFER_SOURCE : DEBUG_SOURCE) })),

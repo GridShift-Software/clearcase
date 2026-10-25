@@ -2,6 +2,8 @@ import { env } from 'cloudflare:workers';
 import { createHandle, handleError } from './handle.ts';
 import { hostedServices } from './services.ts';
 import { clerkBrowserHandshakeFromEnv, handshakeResponse } from '../../../auth/clerk/browser.ts';
+import { installNativeCompositions } from './compositions.ts';
+installNativeCompositions();
 
 // Only the deployment's static handshake configuration is isolate-scoped, never a request's identity or audit sink.
 let browser: ReturnType<typeof clerkBrowserHandshakeFromEnv> | undefined;

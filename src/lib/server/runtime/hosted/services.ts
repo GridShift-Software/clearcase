@@ -1,5 +1,5 @@
 import type { Readiness } from './handle.ts';
-import type { Identity, IdentityState, RequestServices } from '../contracts.ts';
+import type { Identity, IdentityState, Principal, RequestServices, SessionId } from '../contracts.ts';
 import { createUnavailableServices } from '../unavailable.ts';
 import { contractError } from '../errors.ts';
 import { id } from '../ids.ts';
@@ -10,6 +10,16 @@ import type { ClerkIdentityConfig } from '../../../auth/clerk/config.ts';
 import { createCaseAuthorizer, d1GrantRepository, resolveExactDeployment, validateClientManifest, type ClientResourceIdentity } from '../../../tenancy/index.ts';
 import { d1CaseDirectory } from '../../../tenancy/case-directory.ts';
 import { auditConfig, requestAuditSink, type AuditConfig } from '../../../audit/index.ts';
+import { cloudBindings } from '../../../storage/cloud/bindings.ts';
+import { storageBudgets } from '../../../storage/cloud/budgets.ts';
+import { createCloudResults } from '../../../results/hosted/index.ts';
+import { createD1UserWork, d1WorkRevision, userWorkConfig } from '../../../user-work/hosted/index.ts';
+import { createUploadAuthorizer, d1UploadGrantReader } from '../../../tenancy/upload-capability.ts';
+import { createOriginalIntake } from '../../../storage/cloud/intake.ts';
+import { storageQuotas } from '../../../storage/cloud/quotas.ts';
+import { d1SubmissionRepository } from '../../../submissions/repository.ts';
+import { intakeBudget } from '../../../submissions/budget.ts';
+import { bindNativeRequestCompositions } from './compositions.ts';
 
 type NativeContext = {
 	db: D1;
@@ -53,7 +63,9 @@ function nativeContext(env: Readonly<Record<string, unknown>>, b: Bindings, cler
 export async function hostedServices(request: Request, env: Readonly<Record<string, unknown>>): Promise<Readiness> {
 	const b = bindings(env), now = () => new Date();
 	const services: RequestServices = createUnavailableServices({ clientId: b.clientId ?? id('client', 'unconfigured'), now });
-	services.runtime = { get build() { return buildStamp('production'); }, gate: null, testIdentity: null, now, probe: () => probe(b) };
+	let dataReady = false;
+	services.runtime = { get build() { return buildStamp('production'); }, gate: null, testIdentity: null, now,
+		probe: async () => { const result = await probe(b); return { ...result, ok: result.ok && dataReady }; } };
 	let native: NativeContext | null = null;
 	const clerk = clerkIdentityProviderFromEnv(env, {
 		authorizeCase: async (a) => {
@@ -74,7 +86,65 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 	} catch {
 		return { ready: false, reason: 'the identity provider is unavailable', services };
 	}
-	if (native) services.audit = requestAuditSink({ db: native.db, config: native.audit, requester: stateOf(services.identity), now });
+	if (native) {
+		const context = native;
+		services.audit = requestAuditSink({ db: native.db, config: native.audit, requester: stateOf(services.identity), now });
+		const cloud = cloudBindings(env), budgets = storageBudgets(native.settings.storageBudgets);
+		if (cloud && budgets) {
+			try {
+				const config = userWorkConfig({ clientId: clerk.config.clientId, limits: native.settings.userWorkLimits });
+				const results = createCloudResults({
+					bindings: { db: native.db, bucket: cloud.bucket }, clientId: clerk.config.clientId, budgets,
+					identity: services.identity, stateRevision: d1WorkRevision({ db: native.db, config }), now,
+					record: async (event) => {
+						await services.audit.append({ ...event, eventId: crypto.randomUUID(), actor: stateOf(services.identity), at: now().toISOString() });
+					},
+					viewerRoute: (asset) => asset.kind === 'original'
+						? `/cases/${encodeURIComponent(asset.caseId)}/originals/${encodeURIComponent(asset.assetId)}/view` : null,
+				});
+				const work = createD1UserWork({ db: native.db, config, identity: services.identity, audit: services.audit, store: results.store, now, tableDefinitions: null });
+				services.store = results.store; services.assets = results.assets; services.userWork = work;
+				const identity = services.identity;
+				const session = async (a: { principal: Principal; sessionId: SessionId }) => {
+					if (identity.kind !== 'verified') throw contractError('unauthenticated');
+					if (a.sessionId !== identity.sessionId || a.principal.issuer !== identity.principal.issuer ||
+						a.principal.subject !== identity.principal.subject || a.principal.kind !== identity.principal.kind) throw contractError('invalid-session');
+					await identity.checkRevocation();
+				};
+				const cases = d1CaseDirectory({ db: context.db, deployment: context.deployment });
+				const grants = d1GrantRepository(context.db);
+				const authorizer = () => createCaseAuthorizer({ deployment: context.deployment, grants, cases, audit: services.audit, now });
+				const upload = createUploadAuthorizer({ deployment: context.deployment, grants,
+					uploads: d1UploadGrantReader(context.db, context.deployment), cases, session, audit: services.audit, now });
+				const authorizeUpload: NonNullable<typeof upload> = async (a) => {
+					const scoped = { ...a, principal: { ...a.principal } };
+					await session(scoped); await upload!(scoped);
+				};
+				const authorizeOperate: ReturnType<typeof authorizer>['authorizeCapability'] = async (a) => {
+					const scoped = { ...a, principal: { ...a.principal } };
+					await session(scoped); await authorizer().authorizeCapability(scoped);
+				};
+				const quotas = storageQuotas(context.settings.storageQuotas);
+				const budget = intakeBudget(context.settings.intakeBudget, { maxOriginalBytes: budgets.maxOriginalBytes });
+				if (quotas && budget && upload) {
+					const originals = createOriginalIntake({ bindings: { db: context.db, bucket: cloud.bucket },
+						clientId: clerk.config.clientId, budgets, quotas, now, authorize: async (mutation) => {
+							if (identity.kind !== 'verified') throw contractError('unauthenticated');
+							if (mutation.capability !== 'original.upload' || mutation.clientId !== clerk.config.clientId) throw contractError('forbidden');
+							await authorizeUpload({ principal: identity.principal, sessionId: identity.sessionId, clientId: mutation.clientId, caseId: mutation.caseId });
+						} });
+					const repository = d1SubmissionRepository(context.db);
+					bindNativeRequestCompositions(request, {
+						intake: { clientId: clerk.config.clientId, budget, authorizeUpload, originals, repository, now },
+						downloads: { clientId: clerk.config.clientId, authorizeOperate, repository, assets: results.assets, audit: services.audit, now },
+					});
+					dataReady = true;
+				}
+			} catch {
+				// A malformed trusted budget/configuration never supplies partial or unbounded data adapters.
+			}
+		}
+	}
 	// Anonymous is a configured identity state: sign-in must remain reachable. Features not yet composed retain their
 	// unavailable contracts rather than pretending a missing data adapter is an empty case or a successful write.
 	return { ready: true, services };

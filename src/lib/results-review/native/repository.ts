@@ -7,7 +7,8 @@ import { contractError } from '../../server/runtime/errors.ts';
 import type { CandidateImportLink, ImportLinkCoverage } from '../../server/runtime/hosted/alpha-contracts.ts';
 import { id, resultsVersion as brandVersion, sha256 as brandSha } from '../../server/runtime/ids.ts';
 import { sha256Text } from './digest.ts';
-import type { ChangeFact, CommittedCandidateAudit, CorrectionRecord, LinkedCandidate, NativeCandidateRepository, NativeD1, Origin, Scoped } from './ports.ts';
+import type { ChangeFact, CommittedCandidateAudit, CorrectionRecord, LinkedCandidate, NativeCandidateRepository, NativeD1, Origin, Scoped, SqlCondition } from './ports.ts';
+import { guard } from '../../storage/cloud/d1.ts';
 
 const unavailable = (): never => { throw contractError('storage-unavailable', true); };
 const integrity = (): never => { throw contractError('integrity', false); };
@@ -74,10 +75,12 @@ export function d1NativeCandidateRepository(db: NativeD1): NativeCandidateReposi
     }
     return freeze(JSON.parse(JSON.stringify({ candidateId: r.candidate_id, origin: r.origin, parentCandidateId: r.parent_candidate_id, current: r.superseded_by === null && r.audit_settled === 1, supersededBy: r.superseded_by, link, correction })) as LinkedCandidate);
   }
-  const one = async (s: Scoped, where: string, value: string) => {
-    const r = await db.prepare(`${SELECT} WHERE c.client_id = ? AND c.case_id = ? AND ${where} = ?`).bind(s.clientId, s.caseId, value).first<Row>().catch(unavailable);
-    return r ? hydrate(s, r) : null;
+  const read = async (s: Scoped, where: string, value: string, visible?: SqlCondition) => {
+    const r = await db.prepare(`${SELECT} WHERE c.client_id = ? AND c.case_id = ? AND ${where} = ?${visible ? ` AND ${visible.sql}` : ''}`)
+      .bind(s.clientId, s.caseId, value, ...(visible?.values ?? [])).first<Row>().catch(unavailable);
+    return r ? { row: r, candidate: await hydrate(s, r) } : null;
   };
+  const one = async (s: Scoped, where: string, value: string) => (await read(s, where, value))?.candidate ?? null;
 
   async function auditIntent(a: Scoped & { candidateId: string }): Promise<CommittedCandidateAudit> {
     const row = await db.prepare('SELECT event_id, event_json, event_sha256 FROM native_candidate_audit_intent WHERE client_id = ? AND case_id = ? AND candidate_id = ?')
@@ -95,16 +98,17 @@ export function d1NativeCandidateRepository(db: NativeD1): NativeCandidateReposi
     async claim(a) {
       const same = (p: Attempt) => p.kind === a.kind && p.operator_issuer === a.operator.issuer && p.operator_subject === a.operator.subject && p.request_sha256 === a.requestSha256
         && p.submission_revision_id === a.submissionRevisionId && p.base_candidate_id === a.baseCandidateId;
+      // INSERT ... WHERE NOT EXISTS: a prior or concurrent claim of the same operation inserts nothing here (and the migration's
+      // BEFORE INSERT trigger refuses a colliding insert, even one with ON CONFLICT), nor does a claim whose guard fails.
+      // RETURNING answers a fresh claim in one call.
+      const { results } = await db.prepare(`INSERT INTO native_import_attempt (client_id, case_id, operation_id, kind, operator_issuer, operator_subject, request_sha256, submission_revision_id, base_candidate_id, declared_at)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM native_import_attempt WHERE client_id = ? AND case_id = ? AND operation_id = ?)${a.guard ? ` AND ${a.guard.sql}` : ''}
+        RETURNING kind, operator_issuer, operator_subject, request_sha256, submission_revision_id, base_candidate_id, declared_at`)
+        .bind(a.clientId, a.caseId, a.operationId, a.kind, a.operator.issuer, a.operator.subject, a.requestSha256, a.submissionRevisionId, a.baseCandidateId, a.at, a.clientId, a.caseId, a.operationId, ...(a.guard?.values ?? [])).all<Attempt>().catch(unavailable);
+      if (results.length === 1) return same(results[0]!) ? { kind: 'claimed', at: results[0]!.declared_at } : { kind: 'operation-reused' };
       const prior = await attempt(a, a.operationId);
-      if (prior) return same(prior) ? { kind: 'repeated', at: prior.declared_at } : { kind: 'operation-reused' };
-      // INSERT ... WHERE NOT EXISTS: a concurrent claim of the same operation inserts nothing here (and the migration's BEFORE
-      // INSERT trigger refuses a colliding insert, even one with ON CONFLICT).
-      await db.prepare(`INSERT INTO native_import_attempt (client_id, case_id, operation_id, kind, operator_issuer, operator_subject, request_sha256, submission_revision_id, base_candidate_id, declared_at)
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM native_import_attempt WHERE client_id = ? AND case_id = ? AND operation_id = ?)`)
-        .bind(a.clientId, a.caseId, a.operationId, a.kind, a.operator.issuer, a.operator.subject, a.requestSha256, a.submissionRevisionId, a.baseCandidateId, a.at, a.clientId, a.caseId, a.operationId).run().catch(unavailable);
-      const row = await attempt(a, a.operationId);
-      if (!row) return unavailable();
-      return same(row) ? { kind: 'claimed', at: row.declared_at } : { kind: 'operation-reused' };
+      if (!prior) return unavailable();
+      return same(prior) ? { kind: 'repeated', at: prior.declared_at } : { kind: 'operation-reused' };
     },
     byOperation: (a) => one(a, 'c.operation_id', a.operationId),
     async byResultsVersion(a) {
@@ -132,13 +136,14 @@ export function d1NativeCandidateRepository(db: NativeD1): NativeCandidateReposi
       }
       statements.push(db.prepare('INSERT INTO native_candidate_audit_intent (client_id, case_id, candidate_id, event_id, event_json, event_sha256) VALUES (?, ?, ?, ?, ?, ?)')
         .bind(s.clientId, s.caseId, l.candidate.candidateId, a.auditEvent.eventId, eventJson, eventSha));
+      if (a.guard) statements.unshift(guard(db, a.guard.sql, ...a.guard.values));
       try { await db.batch(statements); } catch { /* the outcome is unknown from here (a lost answer can follow a commit): read again below */ }
-      const now = await one(s, 'c.operation_id', a.operationId);
+      const now = await read(s, 'c.operation_id', a.operationId);
       // Only a recorded link equal to the one this call wrote is success; anything else is a fault, never a pass.
-      if (!now || (await linkDigest(now.link)) !== digest) return unavailable();
-      const intent = await auditIntent({ ...s, candidateId: now.candidateId });
-      if (canonicalJson(intent.event) !== eventJson) return integrity();
-      return now;
+      if (!now || (await linkDigest(now.candidate.link)) !== digest) return unavailable();
+      // hydrate verified the committed intent's bytes against its digest and this link; it must be the event written here.
+      if (now.row.event_json !== eventJson || now.row.event_id !== a.auditEvent.eventId) return integrity();
+      return { candidate: now.candidate, audit: freeze({ clientId: a.clientId, caseId: a.caseId, candidateId: now.candidate.candidateId, event: parseStrictJson(eventJson) as unknown as AuditEvent }) };
     },
     auditIntent,
     async pendingAudits(a) {
@@ -150,15 +155,18 @@ export function d1NativeCandidateRepository(db: NativeD1): NativeCandidateReposi
       for (const r of rows.results) intents.push(await auditIntent({ ...a, candidateId: r.candidate_id }));
       return intents;
     },
-    async settleAudit(a) {
-      const intent = await auditIntent(a);
-      if (canonicalJson(intent.event) !== canonicalJson(a.event)) return integrity();
+    async settleAudit(a, visible) {
+      // Only the exact committed intent settles: the insert is conditional on its event id and digest, in the same statement.
+      const eventSha = await sha256Text(canonicalJson(a.event));
       await db.prepare(`INSERT INTO native_candidate_audit_settlement (client_id, case_id, candidate_id, event_id)
-        SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM native_candidate_audit_settlement WHERE client_id = ? AND case_id = ? AND candidate_id = ?)`)
-        .bind(a.clientId, a.caseId, a.candidateId, a.event.eventId, a.clientId, a.caseId, a.candidateId).run().catch(() => undefined);
-      const row = await db.prepare('SELECT event_id FROM native_candidate_audit_settlement WHERE client_id = ? AND case_id = ? AND candidate_id = ?')
-        .bind(a.clientId, a.caseId, a.candidateId).first<{ event_id: string }>().catch(unavailable);
-      if (row?.event_id !== a.event.eventId) return unavailable();
+        SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM native_candidate_audit_settlement WHERE client_id = ? AND case_id = ? AND candidate_id = ?)
+          AND EXISTS (SELECT 1 FROM native_candidate_audit_intent WHERE client_id = ? AND case_id = ? AND candidate_id = ? AND event_id = ? AND event_sha256 = ?)`)
+        .bind(a.clientId, a.caseId, a.candidateId, a.event.eventId, a.clientId, a.caseId, a.candidateId, a.clientId, a.caseId, a.candidateId, a.event.eventId, eventSha).run().catch(() => undefined);
+      const now = await read(a, 'c.candidate_id', a.candidateId, visible);
+      if (!now) return visible ? null : unavailable();
+      if (now.row.event_id !== a.event.eventId || now.row.event_sha256 !== eventSha) return integrity();
+      if (now.row.audit_settled !== 1) return unavailable();
+      return now.candidate;
     },
     candidate: (a) => one(a, 'c.candidate_id', a.candidateId),
     async list(a) {

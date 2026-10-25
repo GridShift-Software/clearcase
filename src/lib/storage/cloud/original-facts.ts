@@ -113,14 +113,15 @@ function linksByKey(links: readonly RequiredOriginalLink[] | undefined): Map<str
   return out;
 }
 
-export async function readOriginalFacts(s: Pick<OpenStorage, 'db' | 'bucket' | 'budgets' | 'clientId'>, caseId: CaseId, assets: readonly FileAssetClaim[], links?: readonly RequiredOriginalLink[]): Promise<OriginalFactsResult> {
+/** `folder`, when given, is this case's `caseFolder` read by the same caller in the same phase; the bytes are still read here. */
+export async function readOriginalFacts(s: Pick<OpenStorage, 'db' | 'bucket' | 'budgets' | 'clientId'>, caseId: CaseId, assets: readonly FileAssetClaim[], links?: readonly RequiredOriginalLink[], folder?: readonly FolderOriginal[]): Promise<OriginalFactsResult> {
   const linked = linksByKey(links);
   if (!linked) return { kind: 'refused', reason: 'integrity', problems: ['an original link is malformed or names a package key twice'] };
   const keys = new Set(assets.map((a) => a.key));
   const stray = [...linked.keys()].filter((k) => !keys.has(k)).sort();
   if (stray.length) return { kind: 'refused', reason: 'integrity', problems: stray.slice(0, 20).map((k) => `original link for ${k}: the package has no file asset ${k}`) };
   if (assets.length === 0) return { kind: 'ok', facts: new Map(), attribution: new Map() };
-  const ix = index(await caseFolder(s.db, s.clientId, caseId));
+  const ix = index(folder ?? await caseFolder(s.db, s.clientId, caseId));
 
   const facts = new Map<string, OriginalFact>(), attribution = new Map<string, OriginalAttribution>();
   const refusals: { key: string; reason: OriginalFactsRefusal; problem: string }[] = [];

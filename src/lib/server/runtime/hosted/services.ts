@@ -20,7 +20,7 @@ import { storageQuotas } from '../../../storage/cloud/quotas.ts';
 import { d1SubmissionRepository } from '../../../submissions/repository.ts';
 import { intakeBudget } from '../../../submissions/budget.ts';
 import { bindNativeRequestCompositions } from './compositions.ts';
-import { caseAuthority, nativeImportPorts } from './import-composition.ts';
+import { caseAuthority, nativeImportPorts, WORKERS_FREE_REQUEST } from './import-composition.ts';
 import { canonicalText } from '../../../case-package/canonical.ts';
 import { committedAuditRecovery, type RecoveryD1 } from '../../../audit/recovery.ts';
 import { createPublicationMaterialReader } from './publication-material.ts';
@@ -143,8 +143,8 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 					if (requestActor.kind === 'verified') Object.freeze(requestActor.principal);
 					Object.freeze(requestActor);
 					const imports = nativeImportPorts({ clientId: clerk.config.clientId, identity, db: context.db, bucket: cloud.bucket, budgets, quotas,
-						importBudget: context.settings.importBudget, authority, audit: services.audit, submissions: repository,
-						historical: historical.candidate, requestActor, now });
+						importBudget: context.settings.importBudget, authority, audit: services.audit,
+						historical: historical.candidate, requestActor, requestBudget: WORKERS_FREE_REQUEST, now });
 					const validationLimits = hostedValidationPolicy(budgets);
 					const browserBinding = env.BROWSER;
 					const assetsBinding = env.ASSETS as { fetch?: (request: Request) => Promise<Response> } | undefined;

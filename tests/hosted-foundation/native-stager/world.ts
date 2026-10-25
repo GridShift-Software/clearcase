@@ -9,7 +9,7 @@ import { contractError } from '../../../src/lib/server/runtime/errors.ts';
 import type { AuditEvent, Identity, SessionId } from '../../../src/lib/server/runtime/contracts.ts';
 import type { StageRequest } from '../../../src/lib/results-review/native/ports.ts';
 import { submissionSnapshotReader } from '../../../src/lib/results-review/native/submission-reader.ts';
-import { d1SubmissionRepository, revisionIdOf } from '../../../src/lib/submissions/repository.ts';
+import { revisionIdOf } from '../../../src/lib/submissions/repository.ts';
 import { d1NativeCandidateRepository } from '../../../src/lib/results-review/native/repository.ts';
 import { createNativeResultsImport } from '../../../src/lib/results-review/native/service.ts';
 import { validateHostedPackage } from '../../../src/lib/case-package/hosted-validation.ts';
@@ -31,15 +31,17 @@ export function world(ds: Doc[] = docs(1), authored = false) {
   const authorizeOperate: HostedCandidateStagerOptions['authorizeOperate'] = async (a) => {
     if (!state.allowed || a.clientId !== ids.clientA || a.caseId !== caseId) throw contractError('forbidden');
   };
+  // The same grant as SQL, read when the guard statement runs.
+  const operateCondition: HostedCandidateStagerOptions['operateCondition'] = (a) => ({ sql: '? = 1', values: [state.allowed && a.clientId === ids.clientA && a.caseId === caseId ? 1 : 0] });
   const audit: HostedCandidateStagerOptions['audit'] = { async append(e) {
     if (state.auditFails) throw contractError('audit-unavailable', true);
     events.push(e);
     await state.onAudit?.();
     return { eventId: e.eventId };
   } };
-  const config: HostedCandidateStagerOptions = { bindings: dep, clientId: ids.clientA, budgets: { ...BUDGETS, maxDocuments: 5000 }, quotas: { ...QUOTAS }, identity, authorizeOperate, audit, now };
+  const config: HostedCandidateStagerOptions = { bindings: dep, clientId: ids.clientA, budgets: { ...BUDGETS, maxDocuments: 5000 }, quotas: { ...QUOTAS }, identity, authorizeOperate, operateCondition, audit, now };
   const ports = createHostedCandidateStager(config);
-  const submissions = submissionSnapshotReader(d1SubmissionRepository(dep.db));
+  const submissions = submissionSnapshotReader(dep.db);
   const repository = d1NativeCandidateRepository(dep.db);
   async function upload(path = ds[0].path, bytes = ds[0].bytes, ref = 'selected', target = caseId, commit = true) {
     await submit(dep, target, [{ path, bytes, ref }], { commit });

@@ -9,6 +9,8 @@ import type { Browser, BrowserWorker, HTTPRequest, Page } from '@cloudflare/pupp
 import type { CloudD1, CloudD1Statement } from '../../../src/lib/storage/cloud/bindings.ts';
 import { id, resultsVersion } from '../../../src/lib/server/runtime/ids.ts';
 import { prepareHostedPdfAssets } from '../../../scripts/hosted-pdf-assets.ts';
+import { NATIVE_SDK_BUILD_SCHEMA, NATIVE_SDK_INPUT_PINS, NATIVE_SDK_WORKER_OUTPUTS } from '../../../scripts/native-render-sdk-build.ts';
+import { NATIVE_SDK_BUFFER_SOURCE, NATIVE_SDK_DEBUG_SOURCE } from '../../../src/lib/viewer/hosted/sdk-build-contract.ts';
 import { createNativePreviewRenderChecker, NATIVE_PDF_RENDER_CEILINGS, type NativePreviewRenderOptions } from '../../../src/lib/viewer/hosted/native-render-check.ts';
 
 const sdk = vi.hoisted(() => ({ launch: vi.fn() }));
@@ -296,7 +298,8 @@ describe('native PDF SDK boundary orchestration (NOT renderer acceptance)', () =
   const html = String(boundary.served.get('/__clearcase_native_pdf__/inspect')!.body);
   const csp = boundary.served.get('/__clearcase_native_pdf__/inspect')!.headers!['content-security-policy'];
   const digest = async (v: unknown) => Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(v)))).toString('hex');
-  const expected = await digest({ algorithm: 'clearcase.native-pdf/2', sdkVersion: '1.4.0', sdkIntegrity: 'sha512-39lo96Y7ErOJFmu/KIJU1VLaOibhynx/BauKCZOW5+RVH/mG0jZrAEGJlqCdx5ZxLHyWppm78YX3jLNPCBB+fA==', pdfjsVersion: pins.pdfjsVersion,
+  const expected = await digest({ algorithm: 'clearcase.native-pdf/2', sdkVersion: '1.4.0', sdkIntegrity: 'sha512-39lo96Y7ErOJFmu/KIJU1VLaOibhynx/BauKCZOW5+RVH/mG0jZrAEGJlqCdx5ZxLHyWppm78YX3jLNPCBB+fA==',
+   sdkWorkerPolicy: { schema: NATIVE_SDK_BUILD_SCHEMA, inputs: NATIVE_SDK_INPUT_PINS, transforms: NATIVE_SDK_WORKER_OUTPUTS, hostBuffer: NATIVE_SDK_BUFFER_SOURCE, deniedNodeDiagnostics: NATIVE_SDK_DEBUG_SOURCE }, pdfjsVersion: pins.pdfjsVersion,
    packageDigest: pins.packageDigest, browser: pins.files.find(f => f.path === 'pdfjs/pdf.min.mjs'), worker: pins.files.find(f => f.path === 'pdfjs/pdf.worker.min.mjs'), program: await digest([html, csp, program]) });
   expect(first.rendererVersion).toBe('clearcase.native-pdf/2;sha256:' + expected);
   const altered = { ...db.sqlite.prepare('SELECT * FROM npr_success_receipts').get()!, renderer_version: 'clearcase.native-pdf/2;sha256:' + '0'.repeat(64) };

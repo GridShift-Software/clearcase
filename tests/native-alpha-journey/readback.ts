@@ -20,7 +20,7 @@ export interface Readback {
 /** The readback body (everything but its digest), with arrays in a fixed order, sealed with its digest. */
 export function sealReadback(body: Omit<Readback, 'digest' | 'schema'>): Readback {
   const sorted = {
-    ...body, schema: READBACK_SCHEMA,
+    ...body, schema: READBACK_SCHEMA as typeof READBACK_SCHEMA,
     originals: [...body.originals].sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : 0)),
     chronology: [...body.chronology].sort((a, b) => (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0)),
     notes: [...body.notes].sort((a, b) => (a.body < b.body ? -1 : a.body > b.body ? 1 : 0)),

@@ -126,7 +126,7 @@ export async function uploadImport(ctx: Ctx): Promise<{ obs: Obs[]; state: State
   const rec = new Rec(), f = ctx.fixture, A = ctx.actors.clientA, B = ctx.actors.operatorB;
   if (!(await checkHealth(ctx, rec, 'p1'))) return { obs: rec.obs, state: null };
 
-  const si = await rec.guard('p1.sign-in', () => call(ctx, ctx.actors.anon, 'signIn', {}));
+  const si = await rec.guard('p1.sign-in', () => call(ctx, ctx.actors.anon, 'page.sign-in', {}));
   if (si) rec.add('p1.sign-in', si.status === 200 && !/name="identity"/.test(si.text) && !/data-test-identity/.test(si.text), si.status === 200 ? 'the sign-in page offers no test identity' : `status ${si.status}`, si.status);
   await refusedBy(ctx, rec, 'p1.case-page-unsigned', [['anon', ctx.actors.anon]], (a) => call(ctx, a, 'case.page', v(ctx)));
 
@@ -166,7 +166,7 @@ export async function uploadImport(ctx: Ctx): Promise<{ obs: Obs[]; state: State
   if (unk) { const j = refusal(unk, forbidden(ctx)); rec.add('p1.unknown-case', j.ok && unk.status === 403, `${j.detail}; an unknown case must give the uniform 403`, unk.status); }
   if (unk && ctx.plan.foreignCaseId) {
     const foreign = await rec.guard('p1.foreign-case', () => call(ctx, A, 'intake.declare', { caseId: ctx.plan.foreignCaseId! }, jsonBody(fresh())));
-    if (foreign) { const j = sameRefusal(unk, foreign); rec.add('p1.foreign-case', j.ok, j.detail, foreign.status); }
+    if (foreign) { const j = sameRefusal(unk, foreign, [unknownCase, ctx.plan.foreignCaseId!]); rec.add('p1.foreign-case', j.ok, j.detail, foreign.status); }
   }
   const list1 = await rec.guard('p1.no-extra-upload', () => call(ctx, A, 'intake.list', v(ctx)));
   const subs1 = list1 && isPlain(json(list1)) ? (json(list1) as { submissions?: unknown }).submissions : undefined;
@@ -325,7 +325,6 @@ export async function signoffPublish(ctx: Ctx, state: State, human: { reviewerRe
 
   // the refusal sweep, with preservation: nothing the sweep touched may differ afterwards
   const assetId = state.assetId;
-  const pre = await readSnapshot(ctx, A, rec, 'p2.pre-sweep');
   const targets: [string, (a: Actor) => Promise<Reply>][] = [
     ['case-page', (a) => call(ctx, a, 'case.page', v(ctx))], ['chronology', (a) => call(ctx, a, 'case.chronology', v(ctx, { resultsVersion: rv }))],
     ['notes-page', (a) => call(ctx, a, 'case.notes', v(ctx))], ['original', (a) => call(ctx, a, 'original.get', v(ctx, { assetId }))],
@@ -340,12 +339,13 @@ export async function signoffPublish(ctx: Ctx, state: State, human: { reviewerRe
   if (unkPage) { const j = refusal(unkPage, forbidden(ctx)); rec.add('p2.sweep.unknown-case', j.ok && (unkPage.status === 404 || unkPage.status === 403), j.detail, unkPage.status); }
   if (unkPage && ctx.plan.foreignCaseId) {
     const fp = await rec.guard('p2.sweep.foreign-case', () => call(ctx, A, 'case.page', { caseId: ctx.plan.foreignCaseId! }));
-    if (fp) { const j = sameRefusal(unkPage, fp); rec.add('p2.sweep.foreign-case', j.ok, j.detail, fp.status); }
+    if (fp) { const j = sameRefusal(unkPage, fp, [unknown, ctx.plan.foreignCaseId!]); rec.add('p2.sweep.foreign-case', j.ok, j.detail, fp.status); }
   }
   const exportSha = await exportChecks(ctx, rec);
   const post = await readSnapshot(ctx, A, rec, 'p2.post-sweep', exportSha);
-  if (pre && post) {
-    const diff = compareReadbacks(pre.readback, post.readback, { exportMustMatch: false });
+  // `withNotes` was read after the last accepted write; the stale delete, the cross-origin and outsider note writes and the whole sweep sit between it and `post`
+  if (withNotes && post) {
+    const diff = compareReadbacks(withNotes.readback, post.readback, { exportMustMatch: false });
     rec.add('p2.preserved', diff.length === 0, diff.length ? `changed by refused requests: ${diff.join(', ')}` : 'originals, chronology, notes and publication are exactly as before the refusals');
   }
   await checkHealth(ctx, rec, 'p2.end');
@@ -402,7 +402,8 @@ export async function afterRestart(ctx: Ctx, before: Readback): Promise<{ obs: O
   rec.add('p3.export-present', exportSha !== null, 'the export is available after the restart');
   await refusedBy(ctx, rec, 'p3.case-page-refused', outsiders(ctx), (a) => call(ctx, a, 'case.page', v(ctx)));
   await refusedBy(ctx, rec, 'p3.original-refused', outsiders(ctx), (a) => call(ctx, a, 'original.get', v(ctx, { assetId: before.originals[0]?.assetId ?? 'none' })));
-  return { obs: rec.obs, readback: snap && rec.failed.length === 0 ? sealReadback({ ...snap.readback, exportSha256: exportSha }) : null };
+  const { digest: _digest, schema: _schema, ...body } = snap?.readback ?? ({} as Readback);
+  return { obs: rec.obs, readback: snap && rec.failed.length === 0 ? sealReadback({ ...body, exportSha256: exportSha }) : null };
 }
 
 export { Rec };

@@ -24,7 +24,7 @@ export interface Port {
 
 export const DEFAULT_PORTS = {
   health: { method: 'GET', path: '/health' },
-  signIn: { method: 'GET', path: '/sign-in' },
+  'page.sign-in': { method: 'GET', path: '/sign-in' },
   'intake.declare': { method: 'POST', path: '/client/intake/{caseId}/submissions' },
   'intake.list': { method: 'GET', path: '/client/intake/{caseId}/submissions' },
   'intake.upload': { method: 'PUT', path: '/client/intake/{caseId}/submissions/{operationId}' },

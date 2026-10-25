@@ -35,10 +35,11 @@ describe('real SDK scoped build, NOT native evidence', () => {
    expect(chunk.code).toContain('native render SDK close refused');
    const facts = scanModule(chunk.code);
    expect(facts).toMatchObject({ syntaxErrors: [], specifiers: ['node:buffer'], requireCalls: 0, computedSpecifiers: 0, dynamicImports: 0 });
-   // No waiver or test replacement of the acceptance scanner: report its EXACT remaining refusal.
-   const problems = uploadModuleProblems(facts, chunk.fileName, ['nodejs_compat']);
-   expect(problems).toHaveLength(1);
-   expect(problems[0]).toContain('imports "node:buffer"');
+   // The parent now admits only this exact static Worker host under explicit compatibility policy.
+   // This parser/closure result is not a workerd or real renderer acceptance claim.
+   expect(uploadModuleProblems(facts, chunk.fileName, ['nodejs_compat'])).toEqual([]);
+   expect(uploadModuleProblems(facts, chunk.fileName)).not.toEqual([]);
+   expect(uploadModuleProblems(facts, chunk.fileName, [])).not.toEqual([]);
   }
  });
  it('fails if the production renderer is uncalled/unreached; clears prior receipts', async () => {

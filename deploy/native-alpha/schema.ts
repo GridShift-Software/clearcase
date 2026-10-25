@@ -65,16 +65,22 @@ export function assembleNativeSchema(inputs: readonly { path: string; bytes: Uin
 	return freeze({ sql, manifest, manifestText: json(manifest) });
 }
 
+// Validate raw spelling before lexical resolution can erase a symlink/.. traversal.
+function location(value: unknown): string {
+	if (typeof value !== 'string' || !value || value.includes('\0')) throw new Error('expected path');
+	if (value.split(path.sep).some(part => part === '.' || part === '..')) throw new Error('path traversal is not permitted');
+	return path.resolve(value);
+}
 // Refuse symlinks, including parents, rather than following them to another worker's files.
 function realPath(file: string, directory: boolean) {
-	for (let at = path.resolve(file), first = true; ; at = path.dirname(at), first = false) {
+	for (let at = location(file), first = true; ; at = path.dirname(at), first = false) {
 		const stat = lstatSync(at);
 		if (stat.isSymbolicLink() || !(first && !directory ? stat.isFile() : stat.isDirectory())) throw new Error(`${at}: expected a real ${first && !directory ? 'file' : 'directory'}`);
 		if (at === path.dirname(at)) break;
 	}
 }
 function fromRoot(root: string) {
-	if (typeof root !== 'string' || !root) throw new Error('root must be a path');
+	root = location(root);
 	realPath(root, true);
 	return assembleNativeSchema(NATIVE_SCHEMA_INPUTS.map(pin => {
 		const file = path.resolve(root, pin.path);
@@ -90,8 +96,7 @@ function files(plan: ReturnType<typeof assembleNativeSchema>) {
 export function prepareNativeSchema(value: { root: string; out: string }) {
 	exact(value, ['root', 'out'], 'prepare');
 	const plan = fromRoot(value.root);
-	if (typeof value.out !== 'string' || !value.out) throw new Error('out must be a path');
-	const out = path.resolve(value.out);
+	const out = location(value.out);
 	realPath(path.dirname(out), true);
 	if (existsSync(out)) throw new Error('schema out must not exist');
 	mkdirSync(out);
@@ -106,8 +111,7 @@ export function prepareNativeSchema(value: { root: string; out: string }) {
 export function readNativeSchema(value: { root: string; stage: string }) {
 	exact(value, ['root', 'stage'], 'read');
 	const plan = fromRoot(value.root);
-	if (typeof value.stage !== 'string' || !value.stage) throw new Error('stage must be a path');
-	const stage = path.resolve(value.stage);
+	const stage = location(value.stage);
 	realPath(stage, true);
 	const expected = files(plan);
 	const entries: string[] = [];
@@ -132,8 +136,9 @@ export function checkNativeSchemaInvocation(value: { root: string; stage: string
 	const checked = readNativeSchema({ root: value.root, stage: value.stage });
 	const target = checked.manifest.targets.find(t => t.slot === value.slot);
 	if (!target) throw new Error('not an approved client database target');
-	if (typeof value.cwd !== 'string') throw new Error('cwd must be a path');
-	realPath(value.cwd, true);
-	if (path.resolve(value.cwd) !== checked.stage || JSON.stringify(value.argv) !== JSON.stringify(target.argv)) throw new Error('invocation differs from exact schema plan');
+	// Require the exact verified absolute spelling before any normalization of cwd.
+	if (value.cwd !== checked.stage) throw new Error('invocation differs from exact schema plan');
+	realPath(checked.stage, true);
+	if (JSON.stringify(value.argv) !== JSON.stringify(target.argv)) throw new Error('invocation differs from exact schema plan');
 	return freeze({ ...checked, target });
 }

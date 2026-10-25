@@ -8,7 +8,7 @@ import { createOriginalIntake } from '../../../src/lib/storage/cloud/intake.ts';
 import { storageBudgets } from '../../../src/lib/storage/cloud/budgets.ts';
 import { id, resultsVersion, type CaseRevision } from '../../../src/lib/server/runtime/ids.ts';
 import type { AssetRef } from '../../../src/lib/server/runtime/contracts.ts';
-import { BUDGETS, GET, QUOTAS, deployment, grantedIdentity, ids, pdf, publish, shaOf, syntheticPackage, withdraw } from './fixture.ts';
+import { BUDGETS, GET, QUOTAS, deployment, grantedIdentity, ids, pdf, provideOriginals, publish, shaOf, syntheticPackage, withdraw } from './fixture.ts';
 import type { MemoryR2, SqliteD1 } from './doubles.ts';
 
 const now = () => new Date('2001-01-01T00:00:00Z');
@@ -163,6 +163,7 @@ describe('client isolation and budgets', () => {
 describe('results versions (D1 read model, R2 package files)', () => {
   it('stores an imported candidate without publishing it, and refuses its derivatives', async () => {
     const w = world(), pkg = await syntheticPackage('case-a', 'candidate'), rv = pkg.identity.resultsVersion;
+    await provideOriginals(w, 'case-a', pkg); // plumbing: the verified original facts the canonical projection stands on
     expect(await stage(w, pkg)).toEqual({ kind: 'stored', resultsVersion: rv, repeated: false });
     expect(await stage(w, pkg, { operationId: 'import-again' })).toEqual({ kind: 'stored', resultsVersion: rv, repeated: true });
     expect(await w.store.activeVersionId({ caseId: ids.caseA })).toBeNull();
@@ -174,6 +175,7 @@ describe('results versions (D1 read model, R2 package files)', () => {
 
   it('reads a published version’s canonical projection, package files and verification', async () => {
     const w = world(), pkg = await syntheticPackage('case-a', 'published'), rv = pkg.identity.resultsVersion, scope = { caseId: ids.caseA, resultsVersion: rv };
+    await provideOriginals(w, 'case-a', pkg);
     await stage(w, pkg);
     publish(w.db, 'case-a', rv);
     expect(await w.store.activeVersionId({ caseId: ids.caseA })).toBe(rv);
@@ -196,6 +198,7 @@ describe('results versions (D1 read model, R2 package files)', () => {
 
   it('refuses a package file changed at rest, and verification reports it', async () => {
     const w = world(), pkg = await syntheticPackage('case-a', 'rot'), rv = pkg.identity.resultsVersion, scope = { caseId: ids.caseA, resultsVersion: rv };
+    await provideOriginals(w, 'case-a', pkg);
     await stage(w, pkg);
     publish(w.db, 'case-a', rv);
     const key = [...w.bucket.objects.keys()].find((k) => k.startsWith('pkg/') && w.bucket.objects.get(k)!.sha256 === shaOf(pkg.files.get('datasets/chronology.json')!))!;
@@ -206,6 +209,7 @@ describe('results versions (D1 read model, R2 package files)', () => {
 
   it('refuses every derivative of a withdrawn version, Keep-marked included, while originals stay readable', async () => {
     const w = world(), pkg = await syntheticPackage('case-a', 'withdrawn'), rv = pkg.identity.resultsVersion, scope = { caseId: ids.caseA, resultsVersion: rv };
+    await provideOriginals(w, 'case-a', pkg);
     await stage(w, pkg);
     await upload(w, 'a1', pdf('kept original'));
     w.db.exec('UPDATE rs_results_version SET keep = 1 WHERE version_id = ?', rv);
@@ -225,6 +229,7 @@ describe('results versions (D1 read model, R2 package files)', () => {
 
   it('a failed import leaves nothing readable, and a retry stores the version whole', async () => {
     const w = world(), pkg = await syntheticPackage('case-a', 'failed'), rv = pkg.identity.resultsVersion, scope = { caseId: ids.caseA, resultsVersion: rv };
+    await provideOriginals(w, 'case-a', pkg);
     const files = new Map(pkg.files);
     const chronology = new Uint8Array(files.get('datasets/chronology.json')!);
     chronology[20]! ^= 1;

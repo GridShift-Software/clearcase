@@ -16,17 +16,29 @@ export interface StorageBudgets {
   maxBufferedObjectBytes: number;
   /** Declared size of one uploaded original. */
   maxOriginalBytes: number;
+  /** R2 objects (package files plus distinct originals) one `verifyVersion` call may read; a larger plan is refused before any read. */
+  maxVerifyObjects: number;
+  /** Bytes one `verifyVersion` call may read and hash, planned from D1 before any read. */
+  maxVerifyBytes: number;
+  /** R2 objects all `verifyVersion` calls of one case may read in one window, reserved atomically in D1 before any read. */
+  maxVerifyObjectsPerCaseWindow: number;
+  /** Bytes all `verifyVersion` calls of one case may read in one window, reserved with the objects. */
+  maxVerifyBytesPerCaseWindow: number;
+  /** Length of the verification work window, in seconds. */
+  verifyWindowSeconds: number;
 }
-const KEYS = ['maxPackageFiles', 'maxPackageFileBytes', 'maxPackageBytes', 'maxDocuments', 'maxRowsPerBatch', 'maxBufferedObjectBytes', 'maxOriginalBytes'] as const satisfies readonly (keyof StorageBudgets)[];
+const KEYS = ['maxPackageFiles', 'maxPackageFileBytes', 'maxPackageBytes', 'maxDocuments', 'maxRowsPerBatch', 'maxBufferedObjectBytes', 'maxOriginalBytes',
+  'maxVerifyObjects', 'maxVerifyBytes', 'maxVerifyObjectsPerCaseWindow', 'maxVerifyBytesPerCaseWindow', 'verifyWindowSeconds'] as const satisfies readonly (keyof StorageBudgets)[];
 
 /**
  * The relations every budget set must keep. An original is verified whole in memory before it is bound, so it may not be
  * declared larger than what can be buffered (else a body is stored that no finalize can ever accept), and one package
- * file may not exceed its whole package. Checked by `storageBudgets` and again by every writer, because a raw object can
+ * file may not exceed its whole package. One verification call may not plan more than its case's whole window. Checked by `storageBudgets` and again by every writer, because a raw object can
  * reach a factory without passing through the parser.
  */
 export function budgetsConsistent(b: StorageBudgets): boolean {
-  return KEYS.every((k) => Number.isSafeInteger(b[k]) && b[k] >= 1) && b.maxOriginalBytes <= b.maxBufferedObjectBytes && b.maxPackageFileBytes <= b.maxPackageBytes;
+  return KEYS.every((k) => Number.isSafeInteger(b[k]) && b[k] >= 1) && b.maxOriginalBytes <= b.maxBufferedObjectBytes && b.maxPackageFileBytes <= b.maxPackageBytes
+    && b.maxVerifyObjects <= b.maxVerifyObjectsPerCaseWindow && b.maxVerifyBytes <= b.maxVerifyBytesPerCaseWindow;
 }
 
 /** The budgets from trusted deployment configuration (an object or its JSON text), or null when any is missing, invalid or inconsistent. */

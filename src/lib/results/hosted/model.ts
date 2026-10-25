@@ -5,7 +5,7 @@ import { unavailable } from './versions.ts';
 
 export type DocRow = { ref: string; ord: number; row_json: string; state_json: string; list_json: string; attachments_json: string };
 export type SeedRow = { ord: number; dataset_key: string; seed_id: string; seed_sha256: string; record_json: string };
-export interface LoadedModel { docs: readonly DocRow[]; seeds: readonly SeedRow[] }
+export interface LoadedModel { docs: readonly DocRow[]; seeds: readonly SeedRow[]; assets: readonly StagedAsset[] }
 
 /**
  * One stored version's read model, read from D1 and checked against the version's own record before anything is served:
@@ -23,15 +23,16 @@ export async function loadVerifiedModel(db: CloudD1, rv: string): Promise<Loaded
     db.prepare('SELECT ord, dataset_key, seed_id, seed_sha256, record_json FROM rs_seed WHERE version_id = ? ORDER BY ord').bind(rv).all<SeedRow>(),
   ]).catch(unavailable);
   if (docs.results.length !== version.expected_documents || assets.results.length !== version.expected_assets || seeds.results.length !== version.expected_seeds) throw contractError('integrity');
-  let digest: string;
+  let digest: string, parsed: StagedAsset[];
   try {
+    parsed = assets.results.map((r) => JSON.parse(r.row_json) as StagedAsset);
     digest = await readModelDigest({
       documents: docs.results, seeds: seeds.results, overview: version.overview,
-      assets: assets.results.map((r) => JSON.parse(r.row_json) as StagedAsset),
+      assets: parsed,
       chronologyJson: JSON.stringify(docs.results.map((d) => JSON.parse(d.list_json))),
       expect: { documents: version.expected_documents, assets: version.expected_assets, seeds: version.expected_seeds, files: version.expected_files },
     });
   } catch { throw contractError('integrity'); }
   if (digest !== version.read_model_sha256) throw contractError('integrity');
-  return { docs: docs.results, seeds: seeds.results };
+  return { docs: docs.results, seeds: seeds.results, assets: parsed };
 }

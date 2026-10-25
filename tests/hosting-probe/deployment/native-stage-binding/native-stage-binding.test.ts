@@ -42,6 +42,13 @@ const copy = (src: string, edit: (dir: string) => void = () => {}) => {
 	edit(dir);
 	return dir;
 };
+/** The fixture's synthetic Kit-shaped entry with its static Set, response body or a trailing line changed: still a valid pinned entry shape. */
+const kitEntry = (o: { assets?: string[]; body?: string; tail?: string } = {}) => {
+	let text = readFileSync(path.join(FIXTURES, 'artifact/cloudflare/_worker.js'), 'utf8');
+	if (o.assets) text = text.replace('new Set(["favicon.svg"])', `new Set(${JSON.stringify(o.assets)})`);
+	if (o.body) text = text.replace('<main id="app"></main>', `<main id="app">${o.body}</main>`);
+	return `${text}${o.tail ?? ''}`;
+};
 const editJson = (file: string, edit: (v: Record<string, any>) => void) => {
 	const v = JSON.parse(readFileSync(file, 'utf8'));
 	edit(v);
@@ -272,7 +279,7 @@ describe('the real checked evidence issuer and parent bridge', () => {
 
 	test('real assets, exact adapter headers and nonempty dynamic host facts survive the expanded contract', () => {
 		const artifact = copy(w.artifact, (dir) => {
-			writeFileSync(path.join(dir, 'cloudflare/_worker.js'), 'export default { fetch() { return new Response("synthetic"); } }; const load = () => import("node:async_hooks");');
+			writeFileSync(path.join(dir, 'cloudflare/_worker.js'), kitEntry({ assets: ['favicon.svg', 'synthetic.txt'], tail: 'const load = () => import("node:async_hooks");\n' }));
 			writeFileSync(path.join(dir, 'public/_headers'), NATIVE_ADAPTER_HEADERS);
 			writeFileSync(path.join(dir, 'public/synthetic.txt'), 'synthetic asset');
 		});
@@ -282,7 +289,8 @@ describe('the real checked evidence issuer and parent bridge', () => {
 		const upload = JSON.parse(reader.read('client-a').files.stageJson).upload;
 		expect(upload.dynamicHostImports).toEqual([{ specifier: 'node:async_hooks', via: 'literal', sites: 1 }]);
 		expect(upload.assets.headers.path).toBe('artifact/public/_headers');
-		expect(upload.assets.files).toHaveLength(2);
+		expect(upload.assets.files).toHaveLength(5);
+		expect(upload.assets.files.map((f: any) => f.path)).toContain('artifact/public/synthetic.txt');
 		expect(bindCheckedNativeStages(input(expanded, { reader })).problems).toEqual([]);
 	});
 
@@ -369,7 +377,7 @@ describe('wrong artifact', () => {
 	});
 
 	test('a different but fully valid reviewed stage (other bytes, honestly pinned and staged) does not bind to the original observation', () => {
-		const artifact = copy(path.join(FIXTURES, 'artifact'), (d) => writeFileSync(path.join(d, 'cloudflare/_worker.js'), 'export default { fetch() { return new Response("other"); } };'));
+		const artifact = copy(path.join(FIXTURES, 'artifact'), (d) => writeFileSync(path.join(d, 'cloudflare/_worker.js'), kitEntry({ body: 'other' })));
 		const clients = copy(path.join(FIXTURES, 'clients'), (d) => {
 			for (const c of CLIENTS) editJson(path.join(d, c, 'target.json'), (t) => (t.runtime.artifactSha256 = digestDir(artifact)));
 		});
@@ -762,13 +770,6 @@ describe('the actual artifact bytes carried by the evidence', () => {
 	const issue = (wld: World, client: string) => readNativeStageEvidence({ client, stage: wld.stages[client]!, clients: wld.clients, pins: wld.pins[client]!, now: () => READ_AT });
 	const b64 = (s: string | Buffer) => Buffer.from(s).toString('base64');
 	const withBytes = (edit: (a: NativeStageEvidence['artifact']) => unknown) => realReader(w, READ_AT, (c, e) => void (c === 'client-a' && (e.artifact = (edit(e.artifact) ?? e.artifact) as NativeStageEvidence['artifact'])));
-	/** The fixture's synthetic Kit-shaped entry with its static Set, response body or a trailing line changed: still a valid pinned entry shape. */
-	const kitEntry = (o: { assets?: string[]; body?: string; tail?: string } = {}) => {
-		let text = readFileSync(path.join(FIXTURES, 'artifact/cloudflare/_worker.js'), 'utf8');
-		if (o.assets) text = text.replace('new Set(["favicon.svg"])', `new Set(${JSON.stringify(o.assets)})`);
-		if (o.body) text = text.replace('<main id="app"></main>', `<main id="app">${o.body}</main>`);
-		return `${text}${o.tail ?? ''}`;
-	};
 	const rebuilt = (edit: (dir: string) => void) => {
 		const artifact = copy(path.join(FIXTURES, 'artifact'), edit);
 		const clients = copy(path.join(FIXTURES, 'clients'), (d) => { for (const c of CLIENTS) editJson(path.join(d, c, 'target.json'), (t) => void (t.runtime.artifactSha256 = digestDir(artifact))); });

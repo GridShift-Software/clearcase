@@ -48,6 +48,9 @@ const valid = (): BootstrapSettings => ({ pins: { source: SOURCE, artifact: `sha
 const cfg = (text: string): Record<string, any> => JSON.parse(text);
 
 describe('separate workers.dev bootstrap planner', () => {
+	it('uses provider-enforced Workers Free CPU limits without a paid-plan override', () => {
+		for (const target of planWorkersDevBootstrap(valid()).targets) expect(cfg(target.configText)).not.toHaveProperty('limits');
+	});
 	it('fixes all three names, the approved account and isolated real stores; staff gets no client authority', () => {
 		const input = valid(), plan = planWorkersDevBootstrap(input);
 		expect(plan).toEqual(planWorkersDevBootstrap(input));

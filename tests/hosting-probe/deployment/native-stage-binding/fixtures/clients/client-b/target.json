@@ -1,0 +1,24 @@
+{
+  "schema": "clearcase.deploy-target.native/1",
+  "client": "client-b",
+  "accountId": "fb4c31b91c5d89b7a54afbdc34823170",
+  "worker": "cc-sbx-b-20261023",
+  "zone": { "id": "db7c322907320aba562d64015ee7d673", "name": "gridshift.co.za" },
+  "customDomain": { "hostname": "b.sandbox.gridshift.co.za", "zoneId": "db7c322907320aba562d64015ee7d673" },
+  "workersDev": false,
+  "previewUrls": false,
+  "limits": { "cpu_ms": 1000 },
+  "d1": { "binding": "DB", "name": "cc-sbx-b-20261023-db", "id": "00000000-0000-4000-8000-0000000b0107", "jurisdiction": "eu" },
+  "r2": { "binding": "BUCKET", "bucket": "cc-sbx-b-20261023-files", "jurisdiction": "eu", "publicAccess": false },
+  "secrets": ["CLERK_SECRET_KEY"],
+  "vars": { "CLEARCASE_CLIENT_ID": "client-b" },
+  "runtime": {
+    "profile": "production",
+    "sourceSha": "0000000000000000000000000000000000000107",
+    "artifactSha256": "sha256:527f3699b9bf4c6412afe8949034696b8ea3d3bb00a866360e7369eeec95f4eb",
+    "migrationsSha256": "sha256:c36a1b35b79cc2ae520907cd9bd43df5daf9c67ea9b9391be934442dd1f5efbb",
+    "compatibilityDate": "2026-10-12",
+    "compatibilityFlags": ["nodejs_als"],
+    "assetsBinding": "ASSETS"
+  }
+}

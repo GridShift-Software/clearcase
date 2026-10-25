@@ -86,7 +86,19 @@ function sdkBoundary() {
   }),
   close: vi.fn(async () => {}),
  };
- const browser = { newPage: vi.fn(async () => page as unknown as Page), close: vi.fn(async () => {}), disconnect: vi.fn(async () => {}) };
+ // Preserve the original close spy/assertions as an inert root-CDP close-command observation.
+ // This double does NOT execute SDK Browser.close(); security-regressions tests that real faulty callback separately.
+ const closedListeners = new Set<() => void>();
+ let connected = true;
+ const browser = {
+  newPage: vi.fn(async () => page as unknown as Page), close: vi.fn(async () => {}), disconnect: vi.fn(async () => {}),
+  get connected() { return connected; },
+  on(_name: string, listener: () => void) { closedListeners.add(listener); },
+  off(_name: string, listener: () => void) { closedListeners.delete(listener); },
+  target: () => ({ createCDPSession: async () => ({ connection: () => ({
+   send: async () => { await browser.close(); connected = false; for (const listener of closedListeners) listener(); return {}; },
+  }) }) }),
+ };
  return { page, browser, request, served, emit: (name: string, ...args: unknown[]) => { for (const fn of listeners.get(name) ?? []) fn(...args); } };
 }
 function options(db = rawDatabase()): NativePreviewRenderOptions {

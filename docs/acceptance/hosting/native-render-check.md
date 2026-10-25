@@ -44,7 +44,10 @@ full reviewed resource digest, and the actual source-owned HTML/CSP/render progr
 Changing those inputs changes the fingerprint. Changes to the server-side receipt/
 transcript algorithm must bump the explicit algorithm family. This pins the PDF.js
 browser/worker program, not Cloudflare's managed Chromium binary, whose deployment
-and operation remain part of the parent's real native acceptance.
+and operation remain part of the parent's real native acceptance. The new XFA
+metadata check and required SDK-policy ID/output hashes in the owned HTML change this fingerprint,
+so earlier (pre-hardening) receipts cannot be reused. The policy ID names a required
+build policy, **not** proof that the parent applied it.
 
 ## Browser program, not a flag
 
@@ -72,8 +75,13 @@ sequential completions, dimensions, aggregate pixels, input identity and rendere
 version before persisting a success receipt and producing `rendered`.
 
 PDF scripting, eval, XFA and WASM are disabled. No annotation/text DOM layer is
-constructed. JavaScript actions, pure XFA, parser/render errors, recovery warnings,
-password-required/unsupported documents, partial results and exceeded limits fail.
+constructed. Before reading any page, `getMetadata().info.IsXFAPresent` must be
+exactly `false`: pure or mixed XFA, missing/unknown metadata and metadata errors fail.
+`isPureXfa` is only an additional check; with `enableXfa:false`, PDF.js suppresses
+that flag even for pure XFA with fallback PDF pages. XFA is never enabled to detect
+it, and fallback pages cannot certify XFA content. JavaScript actions, parser/render
+errors, recovery warnings, password-required/unsupported documents, partial results
+and exceeded limits fail.
 Warnings are counted without retaining/logging their text, in the page and worker.
 Font faces/system font substitution are disabled; pinned font resources and PDF.js
 canvas paths are used. This is a bounded rendering check, not a claim of semantic
@@ -89,12 +97,23 @@ hashed; unique pinned static bytes are capped at 8,000,000, and requests at 220.
 
 The whole-run deadline covers launch, navigation, resource loading and evaluation,
 not just an in-page flag. Launch/upgrade HTTP is aborted on expiry. Late sockets
-are closed; late browser/page results are closed, not accepted. Finally always
-attempts page close (without beforeunload), then Browser.close, with a total 2 s
-cleanup bound, then transport close/disconnect. The launch explicitly pins
-keep_alive=60,000 ms (the documented default, not an extension). A stuck page close cannot prevent
-the browser-close attempt. Failure to complete cleanup cannot yield `rendered`.
-A default SDK protocol wait cannot extend the live transport beyond cleanup.
+are closed; late browser/page results are never accepted. Finally attempts page
+close (without beforeunload, at most 500 ms), then source-owned root CDP termination.
+It obtains the browser target's CDP session and its pinned SDK root connection,
+sends `Browser.close` directly, and requires both a matched empty success reply
+**and peer disconnection** before our own disconnect/transport close. It never calls
+the SDK's `Browser.close()` callback, which swallows failures via `.catch(console.log)`.
+A resolved promise, local disconnect, missing/malformed reply or peer-only closure
+is not proof of termination. Raw/coded failures cross this boundary only as failure
+booleans, not provider/session errors in results or logs. Cleanup/disconnect faults
+and unknown outcomes hold without a receipt; the consumed reservation is retained.
+
+The total cleanup budget is 2 s, including local transport/disconnect release.
+A stuck page close cannot prevent the root-CDP attempt. Late SDK results cannot
+issue cleanup commands beyond the original run deadline plus 2 s; they only release
+local resources after that. The launch explicitly pins keep_alive=60,000 ms (the
+documented default, not an extension). Failure to complete cleanup cannot yield
+`rendered`. A default SDK wait cannot extend our live transport beyond cleanup.
 
 Cloudflare documents a **60 s idle timeout**, not a hard maximum session lifetime.
 Therefore admission charges **maxRunMs + 2,000 + 60,000 ms per launch**, including
@@ -115,7 +134,17 @@ and one row/case. Immutable reservations and successful transcript receipts each
 by at most four/client/day. Success insert guards require the exact launch reservation
 and completion window. Receipts contain only identifiers, hashes, dimensions and
 completion metadata, not bytes, URLs, credentials, extracted text or authority flags.
-Updates/deletes are refused. Do not prune counters or receipts to retry.
+Reservation and receipt updates/deletes are refused. BEFORE INSERT guards also
+reject conflicts through **all** receipt unique keys and reservation tokens before
+SQLite REPLACE can silently delete an old row (even with recursive_triggers off).
+An entirely identical receipt insertion is an ignored no-op, never a replacement;
+verified exact-file readback/reuse remains idempotent. All four tables are WITHOUT
+ROWID, closing the alternate rowid replacement identity. Counter inserts reject
+conflicts; updates must retain identity and equal the immutable reservation
+projection, with no day rollback, same-day refund or lease shortening. Counter
+deletes, forged future resets and direct quota-row fabrication fail. The legitimate
+reservation trigger uses atomic UPDATE/conditional INSERT for counters, so it needs
+no replacement bypass or mutable authorization flag. Do not prune/reset to retry.
 
 **Account allocation is a parent deployment responsibility.** Free is 10 minutes/day
 and three concurrent browsers **per account**, not per client Worker. Reserve at
@@ -139,7 +168,20 @@ provider-enforced Free limit are the fallback, not evidence of confirmed closure
    and reader digest `sha256:820552a25492432c3ca0943e1842f2283c5e3e284d670557c91c42bb2622fdb1`.
    All 191 inventory entries must match. Copy pinned static bytes through normal
    build provenance; do not import the node:fs preparer into the Worker.
-4. Review the SDK's module closure before allowing its import at this trusted seam.
+4. Install the narrowly scoped [SDK policy hook](../../../scripts/native-render-sdk-policy.ts)
+   in the parent's renderer artifact build, then review the SDK's module closure
+   before allowing its import at this trusted seam. The pure hook accepts only the
+   exact SHA-256-pinned `common/Debug.js` and `cloudflare/utils.js` from SDK 1.4.0;
+   unknown/changed/reapplied bytes and unexpected output hashes fail. Apply both
+   transforms and bind their
+   input/output digests and policy ID to the artifact manifest. It preserves enabled
+   SDK diagnostic events and Node capture while replacing payloads with fixed event
+   text; it also makes the otherwise-unused default close callback reject with a
+   fixed error instead of swallowing/logging. No global console/process patching
+   or audit muting is used. This is not a cleanup success shim: the checker still
+   requires its own root-CDP reply and peer termination. The parent must verify both
+   transformed modules in the final artifact, not just add a policy marker.
+   **Hook wiring and native artifact verification remain UNRUN parent work.**
    The unchanged app guard passes because it does **not** reach this new module yet.
    The forced-root `parent-import-check.ts` fails on the absent SDK package allowance.
    A scoped Bun browser bundle includes 122 modules: SDK, debug/ms and ws's browser
@@ -151,12 +193,17 @@ provider-enforced Free limit are the fallback, not evidence of confirmed closure
    or claimed the scoped Bun bundle is a deployable workerd artifact.
 5. Run final **real native** synthetic acceptance on the integrated exact SHA with
    BROWSER/ASSETS/D1: valid multi-page and blank PDFs; malformed/truncated/password/
-   unsupported and over-budget PDFs; non-PDF; wrong scope/hash; timeout/cleanup;
+   unsupported and over-budget PDFs (including pure XFA with fallback pages while
+   XFA generation stays disabled); non-PDF; wrong scope/hash; timeout/cleanup;
    real worker startup, all-page canvas completion/readbacks and exact pins;
    resource/network denial, concurrent daily reservations and failed-preview
    publication hold; persistent exact-file success reuse across readiness/sign-off/
    publish, and failure to reuse after any bound input/renderer change. Check actual
-   session closure/idle tails and shared Free usage without resetting launch quotas.
+   root-CDP acknowledgement plus peer closure/idle tails and shared Free usage
+   without resetting launch quotas. Exercise D1 REPLACE/UPSERT with recursive
+   triggers off/on across all four tables, exact receipt no-op/reuse, forged resets
+   and failed trigger rollback. Enable SDK diagnostics in acceptance and confirm
+   only fixed event metadata survives provider/session error canaries.
    Keep case bytes, screenshots and credentials out of logs and committed evidence.
 
 ## What ran here
@@ -165,7 +212,12 @@ The targeted tests use clearly labelled SDK and D1 API boundary doubles plus act
 SQLite migration/trigger execution. They exercise orchestration and negative
 protections, not canvas rendering, provider behaviour or D1 acceptance. Artificial
 transcripts even use deliberately non-renderable synthetic input to make that
-boundary unmistakable. Run with `--maxWorkers=1` through agent-tools receipts.
+boundary unmistakable. The original 38 tests retain their names and assertions;
+new regressions cover the real SDK callback with inert CDP construction, owned
+close faults/acknowledgement/peer termination, XFA detection with inert PDF/Worker/
+canvas APIs, all-table SQLite conflict strategies, and pinned SDK-policy source.
+None are native rendering/closure evidence. Run with a private scoped config and
+`--maxWorkers=1` through agent-tools receipts.
 Scoped tsc checks the new module/tests against the real SDK types. The static
 forced-root guard reports the missing parent package allowance without changing it.
 **Real browser/provider/workerd rendering, full build and full suite: UNRUN.**

@@ -11,6 +11,7 @@ try {
  const module = 'src/lib/viewer/hosted/native-render-check.ts';
  const put = (file: string, data: string) => { mkdirSync(dirname(join(scratch, file)), { recursive: true }); writeFileSync(join(scratch, file), data); };
  put(module, readFileSync(module, 'utf8'));
+ put('scripts/native-render-sdk-policy.ts', readFileSync('scripts/native-render-sdk-policy.ts', 'utf8'));
  put('routes/+server.ts', 'export {};');
  put('tsconfig.json', JSON.stringify({ compilerOptions: { target: 'ESNext', module: 'Preserve', moduleResolution: 'Bundler', verbatimModuleSyntax: true } }));
  put('deploy/client/hosted-files.json', JSON.stringify({ routes: 'routes', hooks: { server: module.slice(0, -3) } }));

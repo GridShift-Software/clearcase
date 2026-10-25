@@ -1,5 +1,6 @@
 import puppeteer, { type Browser, type BrowserWorker, type HTTPRequest, type Page } from '@cloudflare/puppeteer';
 import { packageVersion as sdkVersion } from '@cloudflare/puppeteer/lib/esm/puppeteer/generated/version.js';
+import { NATIVE_RENDER_SDK_POLICY } from '../../../../scripts/native-render-sdk-policy.ts';
 import type { ClientId } from '../../server/runtime/contracts.ts';
 import type { CloudD1 } from '../../storage/cloud/bindings.ts';
 import type { NativePreviewRenderBudget, NativePreviewRenderChecker } from './render-check-contract.ts';
@@ -45,7 +46,8 @@ export interface NativePreviewRenderOptions {
  now(): Date;
 }
 
-const HTML = '<!doctype html><meta charset="utf-8"><title>Private PDF inspection</title><script type="module" src="' + SCRIPT + '"></script>';
+// Names the REQUIRED parent SDK build policy, not an attestation that a bundler applied it.
+const HTML = '<!doctype html><meta charset="utf-8"><meta name="clearcase-sdk-policy" content="' + NATIVE_RENDER_SDK_POLICY + '"><title>Private PDF inspection</title><script type="module" src="' + SCRIPT + '"></script>';
 const CSP = "default-src 'none'; script-src 'self'; worker-src blob:; connect-src 'self'; font-src blob:; img-src blob: data:; style-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 // SOURCE-OWNED BROWSER PROGRAM. No caller HTML, strings-as-code, annotations DOM, PDF scripting or eval.
@@ -83,7 +85,10 @@ window.clearcaseNativePdfInspect = async function (a) {
   });
   const doc = await loading.promise;
   check();
-  if (!Number.isInteger(doc.numPages) || doc.numPages < 1 || doc.numPages > a.maxPages || doc.isPureXfa || await doc.getJSActions()) throw Error('unsupported PDF');
+  // enableXfa:false deliberately suppresses isPureXfa; document metadata does not depend on XFA generation.
+  const metadata = await doc.getMetadata();
+  check();
+  if (metadata?.info?.IsXFAPresent !== false || !Number.isInteger(doc.numPages) || doc.numPages < 1 || doc.numPages > a.maxPages || doc.isPureXfa || await doc.getJSActions()) throw Error('unsupported PDF');
   const pages = [];
   let pixels = 0;
   for (let n = 1; n <= doc.numPages; n++) {
@@ -325,12 +330,13 @@ async function inspect(a: {
   check();
   browser = await puppeteer.launch(boundedBinding, { keep_alive: IDLE_TAIL_MS, recording: false, guardrails: { allowedDomains: [] } });
   if (timedOut) {
-   void browser.close().catch(() => {}); void browser.disconnect().catch(() => {});
+   // Never call the SDK close callback: it swallows Browser.close failures into console.log.
+   void terminateOwnedBrowser(browser, a.stopAt + CLEANUP_MS).finally(() => { try { void browser!.disconnect().catch(() => {}); } catch { /* sanitized late cleanup */ } });
    throw Error('late browser');
   }
   check();
   page = await browser.newPage();
-  if (timedOut) { void page.close({ runBeforeUnload: false }).catch(() => {}); throw Error('late page'); }
+  if (timedOut) { if (performance.now() < a.stopAt + CLEANUP_MS) void page.close({ runBeforeUnload: false }).catch(() => {}); throw Error('late page'); }
   page.setDefaultTimeout(Math.max(1, remaining()));
   page.setDefaultNavigationTimeout(Math.max(1, remaining()));
   await page.setBypassServiceWorker(true);
@@ -365,6 +371,14 @@ async function inspect(a: {
   timedOut = true; abort.abort();
   // Work may complete after a launch timeout. The binding wrapper rejects late upgrades and closes their socket;
   // the SDK cannot issue further HTTP requests. Disconnect the live transport after bounded explicit cleanup.
+  const cleanupDeadline = Math.min(performance.now() + CLEANUP_MS, a.stopAt + CLEANUP_MS);
+  let releasing: Promise<boolean> | undefined;
+  const release = () => releasing ??= (async () => {
+   let okay = true;
+   try { transport?.close(); } catch { okay = false; }
+   try { if (browser) await browser.disconnect(); } catch { okay = false; }
+   return okay;
+  })();
   const cleanup = async () => {
    let okay = true, pageTimer: ReturnType<typeof setTimeout> | undefined;
    try {
@@ -373,23 +387,63 @@ async function inspect(a: {
      page.close({ runBeforeUnload: false }).catch(() => { okay = false; }),
      new Promise<void>(resolve => { pageTimer = setTimeout(() => { okay = false; resolve(); }, 500); }),
     ]);
-   } finally { if (pageTimer) clearTimeout(pageTimer); }
-   if (browser) await browser.close().catch(() => { okay = false; });
+   } catch { okay = false; }
+   finally { if (pageTimer) clearTimeout(pageTimer); }
+   try { if (browser && !await terminateOwnedBrowser(browser, cleanupDeadline)) okay = false; }
+   finally { if (!await release()) okay = false; }
    return okay;
   };
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-   const closed = await Promise.race([cleanup(), new Promise<false>(resolve => { timer = setTimeout(() => resolve(false), CLEANUP_MS); })]);
+   const closed = await Promise.race([cleanup(), new Promise<false>(resolve => { timer = setTimeout(() => resolve(false), Math.max(0, cleanupDeadline - performance.now())); })]);
    if (!closed) outcome = result('failed', 'render-cleanup-failed');
   } finally {
    if (timer) clearTimeout(timer);
-   // Closing CDP alone is not Browser.close: the reservation includes the full documented 60-second idle tail.
-   try { transport?.close(); } catch { /* already closed */ }
-   if (browser) void browser.disconnect().catch(() => {});
+   // Always release our transport even if cleanup exceeded its budget. This is NOT proof of peer termination.
+   // The reservation still includes the full documented 60-second idle tail; no refunds on any outcome.
+   void release();
   }
  }
  if (violated && outcome!.state === 'rendered') outcome = result('failed', 'render-failed');
  return { outcome: outcome!, transcript: outcome!.state === 'rendered' ? accepted : null };
+}
+
+/**
+ * Source-owned root CDP command, NOT Browser.close()'s swallowed SDK callback.
+ * A matched empty Browser.close reply AND peer disconnection are required, before OUR disconnect/transport close.
+ * Missing/errored/late acknowledgement or transport-only closure is unknown, never successful cleanup.
+ * Errors cross this boundary only as a boolean; no provider/session data is logged or copied into the result.
+ */
+async function terminateOwnedBrowser(browser: Browser, deadline: number): Promise<boolean> {
+ let timer: ReturnType<typeof setTimeout> | undefined, expired = false, peerClosed = false;
+ let resolvePeer!: () => void;
+ const peer = new Promise<void>(resolve => { resolvePeer = resolve; });
+ const onDisconnected = () => { peerClosed = true; resolvePeer(); };
+ const remaining = () => Math.max(0, deadline - performance.now());
+ const work = async () => {
+  if (expired || remaining() <= 0 || !browser.connected) return false;
+  const session = await browser.target().createCDPSession();
+  if (expired || remaining() <= 0) return false;
+  // Use the ROOT connection, not a page-target command and not the SDK's close callback.
+  const connection = session.connection();
+  if (!connection || !browser.connected) return false;
+  const acknowledgement: unknown = await connection.send('Browser.close', undefined, { timeout: Math.max(1, remaining()) });
+  if (!acknowledgement || typeof acknowledgement !== 'object' || Object.getPrototypeOf(acknowledgement) !== Object.prototype || Object.keys(acknowledgement).length !== 0 || expired || remaining() <= 0) return false;
+  await peer;
+  return !expired && remaining() > 0 && peerClosed && !browser.connected;
+ };
+ try {
+  browser.on('disconnected', onDisconnected);
+  return await Promise.race([
+   work().catch(() => false),
+   new Promise<false>(resolve => { timer = setTimeout(() => { expired = true; resolve(false); }, remaining()); }),
+  ]);
+ } catch { return false; }
+ finally {
+  expired = true;
+  if (timer) clearTimeout(timer);
+  try { browser.off('disconnected', onDisconnected); } catch { return false; }
+ }
 }
 
 async function readExact(response: Response, size: number, signal: AbortSignal): Promise<Uint8Array> {

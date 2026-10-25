@@ -113,6 +113,20 @@ export type NativeTarget = {
 	runtime: { profile: 'production'; sourceSha: string; artifactSha256: string; migrationsSha256: string; compatibilityDate: string; compatibilityFlags: string[]; assetsBinding: string };
 };
 
+// Error properties are caller-executable, even on an Error we once issued (it may have been mutated or proxied).
+// Only this module issues entries; consumers may retrieve the separately stored immutable primitive by identity.
+// WeakMap lookup never inspects a key. A Proxy of an issued Error is a different key and receives no diagnostic.
+const nativeMessages = new WeakMap<object, string>();
+function nativeRefusal(message: string): Error {
+	const error = new Error(message);
+	nativeMessages.set(error, message);
+	return error;
+}
+/** @internal Diagnostic channel for the native file boundary; never reads, coerces or serializes the thrown value. */
+export function nativeDiagnosticText(error: unknown): string | undefined {
+	return typeof error === 'object' && error !== null ? nativeMessages.get(error) : undefined;
+}
+
 const NAME = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const BINDING = /^[A-Z][A-Z0-9_]{0,62}$/;
 const ACCOUNT = /^[0-9a-f]{32}$/;
@@ -139,7 +153,7 @@ export function parseNativeJson(text: string, comments = false): unknown {
 	const src = comments ? text.split('\n').filter((l) => !l.trimStart().startsWith('//')).join('\n') : text;
 	let i = 0;
 	const err = (m: string): never => {
-		throw new Error(`${m} at offset ${i}`);
+		throw nativeRefusal(`${m} at offset ${i}`);
 	};
 	const ws = () => {
 		while (src[i] === ' ' || src[i] === '\t' || src[i] === '\n' || src[i] === '\r') i++;
@@ -222,27 +236,35 @@ function exactKeys(value: Record<string, unknown>, required: readonly string[], 
  */
 export function plainData(value: unknown, at: string, depth = 0): unknown {
 	if (value === null || typeof value !== 'object') {
-		if (typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint') throw new Error(`${at} is not plain data`);
+		if (typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint') throw nativeRefusal(`${at} is not plain data`);
 		return value;
 	}
-	if (depth > 32) throw new Error(`${at} is nested deeper than 32`);
-	const proto = Object.getPrototypeOf(value);
-	const descriptors = Object.getOwnPropertyDescriptors(value);
+	if (depth > 32) throw nativeRefusal(`${at} is nested deeper than 32`);
+	let proto: object | null;
+	let descriptors: PropertyDescriptorMap;
+	try {
+		proto = Object.getPrototypeOf(value);
+		descriptors = Object.getOwnPropertyDescriptors(value);
+	} catch {
+		// Descriptor traps are the one permitted caller-execution phase. Do not let their thrown values become errors
+		// that a later diagnostic consumer could inspect. In particular, do not read even a previously issued Error.
+		throw nativeRefusal(`${at} descriptor capture failed; caller data is refused`);
+	}
 	const keys = Reflect.ownKeys(descriptors);
 	const data = (key: string) => {
 		const d = descriptors[key];
-		if (!d || !Object.hasOwn(d, 'value') || !d.enumerable) throw new Error(`${at}.${key} is a hidden, inherited or accessor field, not plain data`);
+		if (!d || !Object.hasOwn(d, 'value') || !d.enumerable) throw nativeRefusal(`${at}.${key} is a hidden, inherited or accessor field, not plain data`);
 		return d.value as unknown;
 	};
 	if (Array.isArray(value)) {
 		const length = (descriptors.length as PropertyDescriptor | undefined)?.value;
-		if (proto !== Array.prototype || typeof length !== 'number' || keys.length !== length + 1) throw new Error(`${at} is not a dense plain array (a hole, extra member, symbol key or subclass is refused)`);
+		if (proto !== Array.prototype || typeof length !== 'number' || keys.length !== length + 1) throw nativeRefusal(`${at} is not a dense plain array (a hole, extra member, symbol key or subclass is refused)`);
 		return Array.from({ length }, (_, i) => plainData(data(String(i)), `${at}[${i}]`, depth + 1));
 	}
-	if (proto !== Object.prototype && proto !== null) throw new Error(`${at} is not a plain object (an inherited field or class instance is refused)`);
+	if (proto !== Object.prototype && proto !== null) throw nativeRefusal(`${at} is not a plain object (an inherited field or class instance is refused)`);
 	const copy: Record<string, unknown> = {};
 	for (const key of keys) {
-		if (typeof key !== 'string') throw new Error(`${at} has a symbol-keyed field, not plain data`);
+		if (typeof key !== 'string') throw nativeRefusal(`${at} has a symbol-keyed field, not plain data`);
 		Object.defineProperty(copy, key, { value: plainData(data(key), `${at}.${key}`, depth + 1), enumerable: true, writable: true, configurable: true });
 	}
 	return copy;
@@ -255,13 +277,13 @@ const approvedClient = (client: unknown) => APPROVED_NATIVE_SCOPE.clients.find((
 export function parseNativeTarget(value: unknown, file: string): NativeTarget {
 	const problems: string[] = [];
 	const fail = (m: string) => problems.push(`${file}: ${m}`);
-	if (!isObject(value)) throw new Error(`${file}: not an object`);
+	if (!isObject(value)) throw nativeRefusal(`${file}: not an object`);
 	// One snapshot: everything below validates, and the caller then receives, these captured bytes of the target.
 	let snapshot: unknown;
 	try {
 		snapshot = plainData(value, 'target');
 	} catch (e) {
-		throw new Error(`${file}: ${(e as Error).message}`);
+		throw nativeRefusal(`${file}: ${nativeDiagnosticText(e) ?? 'caller data could not be captured or validated'}`);
 	}
 	const target = snapshot as Record<string, unknown>;
 	const keyProblems: string[] = [];
@@ -323,7 +345,7 @@ export function parseNativeTarget(value: unknown, file: string): NativeTarget {
 		if (isObject(v.vars) && Object.hasOwn(v.vars, NATIVE_BROWSER_BINDING)) fail(`vars.${NATIVE_BROWSER_BINDING} collides with the browser binding`);
 		if (Array.isArray(v.secrets) && v.secrets.includes(NATIVE_BROWSER_BINDING)) fail(`secret ${NATIVE_BROWSER_BINDING} collides with the browser binding`);
 	}
-	if (problems.length) throw new Error(problems.join('\n'));
+	if (problems.length) throw nativeRefusal(problems.join('\n'));
 	return target as NativeTarget;
 }
 
@@ -336,12 +358,12 @@ export function distinctNative(targets: NativeTarget[]): NativeTarget[] {
 	const owner = new Map<string, string>();
 	const clients = new Set<string>();
 	for (const t of targets) {
-		if (clients.has(t.client)) throw new Error(`client ${t.client} has two native targets`);
+		if (clients.has(t.client)) throw nativeRefusal(`client ${t.client} has two native targets`);
 		clients.add(t.client);
 		for (const [kind, values] of Object.entries(fromTarget(t)))
 			for (const x of values) {
 				const prior = owner.get(x);
-				if (prior && prior !== t.client) throw new Error(`${kind} ${x} is in both ${prior}'s and ${t.client}'s native targets`);
+				if (prior && prior !== t.client) throw nativeRefusal(`${kind} ${x} is in both ${prior}'s and ${t.client}'s native targets`);
 				owner.set(x, t.client);
 			}
 	}
@@ -371,10 +393,10 @@ export function checkNativeWrangler(input: { client: string; targets: NativeTarg
 	let a: { client: string; targets: NativeTarget[]; text: string };
 	try {
 		const v = plainData(input, 'check');
-		if (!isObject(v) || typeof v.client !== 'string' || typeof v.text !== 'string' || !Array.isArray(v.targets)) throw new Error('expected { client, targets, text }: a client name, a list of native targets and the config text');
+		if (!isObject(v) || typeof v.client !== 'string' || typeof v.text !== 'string' || !Array.isArray(v.targets)) throw nativeRefusal('expected { client, targets, text }: a client name, a list of native targets and the config text');
 		a = { client: v.client, text: v.text, targets: v.targets.map((t, i) => parseNativeTarget(t, `targets[${i}]`)) };
 	} catch (e) {
-		return [`the native check input is refused: ${(e as Error).message}`];
+		return [`the native check input is refused: ${nativeDiagnosticText(e) ?? 'caller data could not be captured or validated'}`];
 	}
 	const target = a.targets.find((t) => t.client === a.client);
 	if (!target) return [`no native target for ${a.client}`];
@@ -382,7 +404,7 @@ export function checkNativeWrangler(input: { client: string; targets: NativeTarg
 	try {
 		config = parseNativeJson(a.text, true);
 	} catch (e) {
-		return [`the native Wrangler config is not JSON with whole-line comments: ${(e as Error).message}`];
+		return [`the native Wrangler config is not JSON with whole-line comments: ${nativeDiagnosticText(e) ?? 'invalid native JSON text'}`];
 	}
 	if (!isObject(config)) return ['the native Wrangler config is not an object'];
 	const problems: string[] = [];
@@ -696,7 +718,7 @@ export function pinProblems(pins: NativePins, observed: ObservedPins, t: NativeT
 export function nativeStageRecord(target: NativeTarget, facts: { files: Record<string, string>; artifact: string; migrations: string; upload: NativeUpload }) {
 	const t = parseNativeTarget(target, 'target');
 	const copy = plainData(facts, 'stage record facts');
-	if (!isObject(copy)) throw new Error('stage record facts are not an object');
+	if (!isObject(copy)) throw nativeRefusal('stage record facts are not an object');
 	const a = copy as typeof facts;
 	return {
 		schema: NATIVE_STAGE_SCHEMA,
@@ -725,7 +747,7 @@ export function versionProblems(text: string | null, t: NativeTarget): string[] 
 	try {
 		v = parseNativeJson(text);
 	} catch (e) {
-		return [`${NATIVE_STAGED.version} is not JSON: ${(e as Error).message}`];
+		return [`${NATIVE_STAGED.version} is not JSON: ${nativeDiagnosticText(e) ?? 'invalid native JSON text'}`];
 	}
 	if (!isObject(v) || v.version !== t.runtime.sourceSha) return [`${NATIVE_STAGED.version} names ${show(isObject(v) ? v.version : v)}, not the target's source ${t.runtime.sourceSha}`];
 	return [];

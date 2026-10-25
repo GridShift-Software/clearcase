@@ -44,7 +44,21 @@ Every entry point takes one snapshot of everything it will use before it reads a
 - `checkNative`, `stageNative`, `checkNativeStage`/`readNativeStage` and `checkNativeUploadInvocation` copy their argument objects first; `nativeUploadInvocationProblems` compares and shows argv only as the primitive strings it copied, so no element's `toJSON` or `toString` runs.
 - `pipeline.ts` cannot detect a proxy (no `node:util`): a proxy's descriptor traps run while the copy is taken and can only change what the copy holds and is then validated as. No get trap runs.
 - `planWorkersDevBootstrap` captures the settings, `pins`, `compatibilityFlags` and `browserClients` once from own data descriptors (dense plain arrays of primitive strings; proxies refused) and returns copies. `prepare`, `read` and the invocation guard capture their own argument objects once and reuse one plan. The invocation guard captures and types `argv`, `cwd` and `slot` before it reads the stage, so no caller getter, proxy, inherited field, `toJSON`, boxed string or overridden `some`/`includes` is ever run or re-read.
-- Not covered: strict JSON file loading never produces these objects; no on-disk bypass was claimed.
+- Strict JSON file loading never produces these objects; no on-disk bypass was claimed.
+
+### Refusal diagnostics
+
+Descriptor traps may throw arbitrary executable values. `plainData` replaces such
+throws with a fixed capture refusal before they can escape. Every native catch
+formats only a fixed fallback or an immutable primitive message stored separately
+in a private WeakMap when that module issues a validation error. The pipeline
+exposes only an internal identity lookup to the file boundary, not an issuer.
+No catch reads a thrown value's `message`, `name`, `stack` or `code`, tests its
+prototype, coerces it, iterates it or serializes it. A Proxy of an issued Error is
+not its identity; changing an issued Error's properties cannot change its stored
+message. Strict-JSON offsets, accessor locations and other internally generated
+validation details remain useful without trusting caller-owned error properties.
+The bootstrap's catches do not format errors and remain unchanged.
 
 ## Checks (synthetic, scoped, no provider, workerd or browser)
 
@@ -54,7 +68,10 @@ scripts/agent-tools/receipt --name native-browser-binding-tsc -- bun node_module
 ```
 
 The unit suite holds `browser-binding` (70), `input-boundary` (56) and
-`snapshot-consumers` (42). Existing suites that must stay green:
+`snapshot-consumers` (42), plus `error-diagnostics` (172: thrown getter, Proxy,
+coercion/serialization/name/stack/iterator controls, immutable diagnostic identity,
+checked-stage preservation and genuine malformed-input diagnostics). Existing
+suites that must stay green:
 `workers-dev-bootstrap` (103) and `native-alpha-pipeline` (471; the four
 `public-asset-provenance-reviewfix` cases need `NATIVE_PUBLIC_REAL_TREE` and fail
 without it). `native-stage-binding` fails

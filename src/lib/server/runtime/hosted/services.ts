@@ -20,9 +20,17 @@ import { storageQuotas } from '../../../storage/cloud/quotas.ts';
 import { d1SubmissionRepository } from '../../../submissions/repository.ts';
 import { intakeBudget } from '../../../submissions/budget.ts';
 import { bindNativeRequestCompositions } from './compositions.ts';
+import { createHostedCandidateStager } from './candidate-stager.ts';
+import { nativeImportBudget } from '../../../results-review/native/budget.ts';
+import { d1NativeCandidateRepository } from '../../../results-review/native/repository.ts';
+import { submissionSnapshotReader } from '../../../results-review/native/submission-reader.ts';
+import type { NativeImportPorts } from '../../../results-review/native/ports.ts';
+import { canonicalText } from '../../../case-package/canonical.ts';
+import { committedAuditRecovery, type RecoveryD1 } from '../../../audit/recovery.ts';
 
 type NativeContext = {
 	db: D1;
+	rawDb: RecoveryD1;
 	deployment: ClientResourceIdentity;
 	audit: AuditConfig;
 	settings: Readonly<Record<string, unknown>>;
@@ -52,7 +60,7 @@ function nativeContext(env: Readonly<Record<string, unknown>>, b: Bindings, cler
 		const db = raw.withSession('first-primary');
 		if (!db || typeof db.prepare !== 'function' || typeof db.batch !== 'function') return null;
 		const audit = auditConfig({ clientId: deployment.clientId, trustedIssuers: [deployment.clientIssuer, deployment.staffIssuer], limits: settings.auditLimits });
-		return { db, deployment, audit, settings: Object.freeze(settings) };
+		return { db, rawDb: raw as RecoveryD1, deployment, audit, settings: Object.freeze(settings) };
 	} catch {
 		// Never echo a configuration value, provider credential or parser excerpt.
 		return null;
@@ -134,9 +142,35 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 							await authorizeUpload({ principal: identity.principal, sessionId: identity.sessionId, clientId: mutation.clientId, caseId: mutation.caseId });
 						} });
 					const repository = d1SubmissionRepository(context.db);
+					const importBudget = nativeImportBudget(context.settings.importBudget, { stagerMaxPackageBytes: budgets.maxPackageBytes });
+					let imports: NativeImportPorts | null = null;
+					if (importBudget && importBudget.maxFiles <= budgets.maxPackageFiles && importBudget.maxFileBytes <= budgets.maxPackageFileBytes) {
+						const operate: NonNullable<NativeImportPorts['authorizeOperate']> = (a) => authorizeOperate({ ...a, capability: 'operate' });
+						const staged = createHostedCandidateStager({ bindings: { db: context.db, bucket: cloud.bucket },
+							clientId: clerk.config.clientId, budgets, quotas, identity, authorizeOperate: operate, audit: services.audit, now });
+						const candidates = d1NativeCandidateRepository(context.db);
+						const historical = committedAuditRecovery({ db: context.rawDb, config: context.audit, now });
+						const requestActor = structuredClone(stateOf(identity));
+						if (requestActor.kind === 'verified') Object.freeze(requestActor.principal);
+						Object.freeze(requestActor);
+						imports = { clientId: clerk.config.clientId, budget: importBudget, authorizeOperate: operate,
+							submissions: submissionSnapshotReader(repository), stager: staged.stager, packages: staged.packages, repository: candidates, now,
+							audit: { append: async (event) => {
+								if (canonicalText(event.actor) === canonicalText(requestActor)) return services.audit.append(event);
+								// A new session cannot impersonate an old one. Only this exact immutable committed candidate
+								// envelope may be delivered historically; ordinary reads/refusals retain the request sink.
+								if (event.actor.kind !== 'verified' || event.object.kind !== 'candidate' || !event.object.caseId ||
+									!['results.import-candidate', 'results.correct-candidate'].includes(event.action)) throw contractError('invalid-event');
+								const intent = await candidates.auditIntent({ clientId: clerk.config.clientId, caseId: event.object.caseId, candidateId: event.object.id });
+								if (canonicalText(intent.event) !== canonicalText(event)) throw contractError('invalid-event');
+								return historical.candidate.appendCommitted(intent);
+							} },
+						};
+					}
 					bindNativeRequestCompositions(request, {
 						intake: { clientId: clerk.config.clientId, budget, authorizeUpload, originals, repository, now },
 						downloads: { clientId: clerk.config.clientId, authorizeOperate, repository, assets: results.assets, audit: services.audit, now },
+						imports,
 					});
 					dataReady = true;
 				}

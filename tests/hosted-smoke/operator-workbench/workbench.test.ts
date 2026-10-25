@@ -14,6 +14,8 @@ import Page from '../../../deploy/client/routes/operator/cases/[caseId]/+page.sv
 import { createNativePublication } from '../../../src/lib/publication/hosted/controller.ts';
 import { createPublicationReadiness, type ReadinessView } from '../../../src/lib/publication/hosted/readiness.ts';
 import { CASE, FP, RV, candidate, signoff, submission, world } from './fixtures.ts';
+import {validateHostedPackage} from '../../../src/lib/case-package/hosted-validation.ts';
+import {factsFor,fixture} from '../../hosted-foundation/hosted-validation/fixture.ts';
 
 async function readiness(): Promise<ReadinessView> {
   const w = world();
@@ -30,6 +32,22 @@ describe('operator workbench exact controller payloads', () => {
     expect(() => requireUnchangedReadiness(v, { ...v, materialSha256: 'd'.repeat(64) })).toThrow(/changed/);
     expect(() => requireUnchangedReadiness(v, { ...v, requiredAcknowledgements: [] })).toThrow(/changed/);
     expect(() => requireUnchangedReadiness(v, { ...v, identity: { ...v.identity, snapshotRevision: 'd1:2' } })).toThrow(/changed/);
+  });
+  it('accepts the genuine canonical diagnostic encoding without changing exact reviewed identity',async()=>{
+    const f=fixture(),validation=validateHostedPackage({files:f.files,originals:factsFor(f.docs,f.stored)}).result;
+    expect(validation.diagnosticsSha256).toMatch(/^sha256:[0-9a-f]{64}$/);
+    const v=await readiness();v.identity.diagnosticsSha256=validation.diagnosticsSha256;v.identity.validatorVersion=validation.validatorVersion;
+    expect(()=>assertReadiness(v,CASE,candidate(),submission())).not.toThrow();
+    const body=signoffPayload(v,OP,{[FP]:'Synthetic canonical diagnostic reviewed'},true,RV);
+    expect(body.identity.diagnosticsSha256).toBe(validation.diagnosticsSha256);
+    expect(()=>requireUnchangedReadiness(v,{...v,identity:{...v.identity,diagnosticsSha256:validation.diagnosticsSha256.slice(7)}})).toThrow(/changed/);
+  });
+  it('keeps malformed diagnostics and tagged material hashes invalid',async()=>{
+    const v=await readiness();
+    for(const diagnosticsSha256 of ['sha256:'+'A'.repeat(64),'SHA256:'+'a'.repeat(64),'sha256:'+'a'.repeat(63),'sha256:'+'a'.repeat(64)+':extra']){
+      expect(()=>assertReadiness({...v,identity:{...v.identity,diagnosticsSha256}},CASE,candidate(),submission())).toThrow(/does not match/);
+    }
+    expect(()=>assertReadiness({...v,materialSha256:'sha256:'+v.materialSha256},CASE,candidate(),submission())).toThrow(/does not match/);
   });
   it('requires version review, reasoned exact warnings and deliberate self-approval without altering draft reasons on refusal', async () => {
     const v = await readiness(), reasons = { [FP]: 'Synthetic reason' };

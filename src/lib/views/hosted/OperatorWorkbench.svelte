@@ -141,7 +141,7 @@
       || i.packageInputRevisionId !== pin.packageInputRevisionId || i.submissionRevisionId !== s.revisionId
       || i.submissionRevisionId !== c.link.submissionRevisionId || i.submissionManifestSha256 !== s.manifestSha256
       || i.submissionManifestSha256 !== c.link.submissionManifestSha256 || !/^[0-9a-f]{64}$/.test(v.materialSha256)
-      || !i.snapshotRevision || !i.validatorVersion || !/^[0-9a-f]{64}$/.test(i.diagnosticsSha256)
+      || !i.snapshotRevision || !i.validatorVersion || !/^(?:sha256:)?[0-9a-f]{64}$/.test(i.diagnosticsSha256)
       || !Array.isArray(v.requiredAcknowledgements) || v.requiredAcknowledgements.length > 200
       || new Set(v.requiredAcknowledgements).size !== v.requiredAcknowledgements.length
       || v.requiredAcknowledgements.some((f) => !/^[0-9a-f]{32}$/.test(f)) || typeof v.selfApprovalRequired !== 'boolean')

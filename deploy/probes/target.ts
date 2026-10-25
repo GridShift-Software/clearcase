@@ -773,11 +773,13 @@ const artifactFiles = (files: { rel: string; bytes: number; sha256: string }[]) 
  */
 function nativeArtifactUpload(artifactDir: string, flags: readonly string[], onFile?: (rel: string, bytes: Buffer) => void): { problems: string[]; digest?: string; upload?: NativeUpload; entrySha?: string } {
 	const problems: string[] = [];
+	const publicFiles = new Map<string, Buffer>();
 	let entry: Buffer | undefined, headers: Buffer | undefined;
 	let tree: ReturnType<typeof nativeTree>;
 	try {
 		tree = nativeTree(artifactDir, (rel, bytes) => {
 			const at = path.posix.join('artifact', rel.split(path.sep).join('/'));
+			if (at.startsWith(`${NATIVE_STAGED.assets}/`)) publicFiles.set(at, bytes);
 			if (bytes.includes(HOSTED_GATE_MARKER)) problems.push(`${at} holds the hosted-gate test-double marker: not a production artifact`);
 			if (at === NATIVE_STAGED.entry) entry = bytes;
 			if (at === `${NATIVE_STAGED.assets}/_headers`) headers = bytes;
@@ -789,7 +791,7 @@ function nativeArtifactUpload(artifactDir: string, flags: readonly string[], onF
 	if (entry === undefined) return { problems: [...problems, `${NATIVE_STAGED.entry} is not a regular file in the staged artifact`], digest: tree.digest };
 	const entrySha = sha256Of(entry);
 	const files = artifactFiles(tree.files);
-	const layout = nativeArtifactLayout({ files, entrySha256: entrySha, headersText: headers === undefined ? null : headers.toString('utf8') });
+	const layout = nativeArtifactLayout({ files, entrySha256: entrySha, headersText: headers === undefined ? null : headers.toString('utf8'), entryText: entry.toString('utf8'), publicFiles });
 	problems.push(...layout.problems);
 	let facts: ModuleFacts;
 	try {

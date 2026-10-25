@@ -53,7 +53,9 @@
 // as routing rules. `nativeArtifactLayout` refuses an .assetsignore (an empty one also silences Wrangler's own
 // _worker.js guard), `_redirects`, `_routes.json`, any `_headers` other than the exact adapter-cloudflare 8.0.1 rules,
 // source maps, dotfiles, `_worker.js*`, a byte-identical copy of the entry and Wrangler's 25 MiB / 20,000 limits, and it
-// classifies every public file by its own hash: what is hashed is exactly what is uploaded.
+// classifies every public file by its own hash: what is hashed is exactly what is uploaded. Positive provenance also
+// requires the used Kit manifest in the pinned final entry and its actual browser dependency graph (public-assets.ts).
+// A missing descriptor-byte hook fails closed; hash inequality or arbitrary adapter membership grants nothing.
 //
 // Workers refuse code generation from strings at runtime (eval/new Function), so a string cannot reopen a proven import;
 // the forwarding proof also refuses any `eval` identifier. The proof assumes JavaScript intrinsics (Object.defineProperty,
@@ -69,6 +71,7 @@
 // Evidence: a PASS here is LOCAL unit/structural only. It is not funded admission, a controls proof, a real EU
 // placement, an applied migration or a deploy.
 import { APPROVED_NATIVE_SCOPE } from './controls.ts';
+import { nativePublicAssetProvenance } from './public-assets.ts';
 
 export const NATIVE_TARGET_SCHEMA = 'clearcase.deploy-target.native/1';
 export const NATIVE_STAGE_SCHEMA = 'clearcase.deploy-stage.native/1';
@@ -516,11 +519,14 @@ export const NATIVE_MAX_ASSET_COUNT = 20_000;
 
 /**
  * The artifact's layout and public-asset policy, from every artifact file (`artifact/...` posix paths, own sizes and
- * hashes) and the `_headers` text when the public root holds one: problems, and the public assets classified. Only
- * artifact/cloudflare/_worker.js may sit outside artifact/public, and the public tree must hold exactly what is served.
+ * hashes), `_headers` text, actual entry text and actual descriptor-read public bytes: problems and the public assets
+ * classified. Missing provenance inputs fail closed. Only artifact/cloudflare/_worker.js may sit outside artifact/public,
+ * and the public tree must hold exactly what is served.
  */
-export function nativeArtifactLayout(a: { files: UploadFile[]; entrySha256: string; headersText: string | null }): { problems: string[]; assets: NativeAssets } {
-	const problems: string[] = [];
+export function nativeArtifactLayout(a: { files: UploadFile[]; entrySha256: string; headersText: string | null; entryText?: string; publicFiles?: ReadonlyMap<string, Buffer> }): { problems: string[]; assets: NativeAssets } {
+	const problems: string[] = a.entryText === undefined || a.publicFiles === undefined
+		? ['public provenance requires the actual final entry text and descriptor-read public bytes (install the target.ts provenance hook)']
+		: nativePublicAssetProvenance({ entryText: a.entryText, publicFiles: a.publicFiles, files: a.files });
 	const assets: NativeAssets = { directory: NATIVE_STAGED.assets, files: [], headers: null };
 	const pub = `${NATIVE_STAGED.assets}/`;
 	for (const f of a.files) {

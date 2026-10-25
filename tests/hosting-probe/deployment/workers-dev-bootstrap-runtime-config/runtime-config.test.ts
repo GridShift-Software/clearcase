@@ -207,6 +207,73 @@ describe('the runtime configuration must match the exact bootstrap targets', () 
 	});
 });
 
+describe('the account workers.dev subdomain is pinned by the bootstrap, never trusted from the caller', () => {
+	// The observed account subdomain (public provider metadata). Written out here on purpose: the test must not import the pin it checks.
+	const PINNED = 'shiny-sunset-211d';
+	const hostFor = (slot: 'client-a' | 'client-b', label: string) => `${TUPLE[slot].worker}.${label}.workers.dev`;
+	const rehost = (input: any, i: number, hostname: string) => {
+		input.manifest.clients[i].hostname = hostname;
+		input.clients[i].deployment.hostname = hostname;
+		input.clients[i].appOrigin = `https://${hostname}`;
+	};
+	const labelled = (mode: Mode, labels: readonly [string, string]) => {
+		const input = runtime(mode);
+		SLOTS.forEach((slot, i) => rehost(input, i, hostFor(slot, labels[i]!)));
+		return input;
+	};
+	const settingsFor = (mode: Mode, input: unknown) => ({ ...shellSettings(), ...(BROWSERS[mode].length ? { browserClients: [...BROWSERS[mode]] } : {}), runtimeConfig: input });
+	const PIN_REFUSAL = 'runtimeConfig: a planned hostname is not this Worker on the pinned workers.dev account subdomain';
+
+	it('accepts exactly <worker>.<pinned label>.workers.dev for every configured client, and puts it in the origin and the deployment record', () => {
+		const plan = planWorkersDevBootstrap(settingsFor('both', labelled('both', [PINNED, PINNED])));
+		for (const [i, slot] of SLOTS.entries()) {
+			const vars = cfg(plan.targets[i]!.configText).vars;
+			expect(vars.CLEARCASE_APP_ORIGIN).toBe(`https://${hostFor(slot, PINNED)}`);
+			expect(JSON.parse(vars[NATIVE_RUNTIME_CONFIG_VAR]).deployment.hostname).toBe(hostFor(slot, PINNED));
+		}
+	});
+	it('refuses the exact attacker-acct origin for the only configured client, before any IO', () => {
+		const f = fixture(), input = labelled('a', ['attacker-acct', 'attacker-acct']);
+		const settings = { ...f.settings, runtimeConfig: input };
+		expect(input.clients[0].appOrigin).toBe('https://cc-sbx-a-20261023.attacker-acct.workers.dev');
+		expect(refusal(settings)).toBe(PIN_REFUSAL);
+		expect(() => prepareWorkersDevBootstrap({ artifact: f.artifact, out: f.out, settings })).toThrow(PIN_REFUSAL);
+		expect(existsSync(f.out)).toBe(false);
+	});
+	it.each([
+		['attacker-acct on both clients', ['attacker-acct', 'attacker-acct']],
+		['the pinned label on A and a foreign one on B', [PINNED, 'attacker-acct']],
+		['a foreign label on A and the pinned one on B', ['attacker-acct', PINNED]],
+		['two different foreign labels', ['attacker-acct', 'other-acct']],
+		['an invented but well-formed label on both', ['synthetic-sub', 'synthetic-sub']],
+		['the pinned label with a suffix', [`${PINNED}x`, `${PINNED}x`]],
+		['the pinned label with a prefix', [`x${PINNED}`, `x${PINNED}`]],
+	] as const)('refuses %s, whatever the planner accepts', (_, labels) => {
+		expect(refusal(settingsFor('both', labelled('both', labels)))).toBe(PIN_REFUSAL);
+	});
+	it.each([
+		['another worker under the pinned label', hostFor('client-b', PINNED)],
+		['no account label', 'cc-sbx-a-20261023.workers.dev'],
+		['an extra label before the pinned one', `cc-sbx-a-20261023.x.${PINNED}.workers.dev`],
+		['a custom domain carrying the pinned label', `cc-sbx-a-20261023.${PINNED}.example.test`],
+	])('keeps refusing %s for client A', (_, hostname) => {
+		const input = runtime('a');
+		rehost(input, 0, hostname);
+		expect(() => planWorkersDevBootstrap(settingsFor('a', input))).toThrow(REFUSED);
+	});
+	it('never echoes the caller label or the pinned label in the refusal', () => {
+		const message = refusal(settingsFor('a', labelled('a', ['attacker-acct', 'attacker-acct'])));
+		for (const label of ['attacker-acct', PINNED]) expect(message).not.toContain(label);
+	});
+	it('does not accept a foreign label through the reread or an invocation either', () => {
+		const f = fixture('both');
+		f.prepare();
+		const foreign = { ...f.settings, runtimeConfig: labelled('both', ['attacker-acct', 'attacker-acct']) };
+		expect(() => f.read(foreign)).toThrow(REFUSED);
+		expect(() => f.invoke('client-a', foreign)).toThrow(REFUSED);
+	});
+});
+
 describe('the Browser opt-in agrees with the planned renderers', () => {
 	it.each([
 		['renderer A without browserClients', { runtimeConfig: runtime('a') }],

@@ -39,6 +39,9 @@ export function presentedToken(request: Request): string | null | 'malformed' {
 }
 
 const FORBIDDEN_HEADERS = ['jku', 'x5u', 'x5c', 'x5t', 'x5t#S256', 'jwk', 'crit'];
+// The `cat` Clerk puts in a session token's header (@clerk/backend JWT_CATEGORY_SESSION_TOKEN); tokens minted before
+// the category rollout have none. Every other category (M2M, JWT template, ignore, unknown) is not a session token.
+const SESSION_CATEGORY = 'cl_B7d4PD111AAA';
 const plain = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const decodePart = (part: string): unknown => {
 	const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
@@ -49,9 +52,10 @@ const finite = (v: unknown) => v === undefined || (typeof v === 'number' && Numb
 const text = (v: unknown) => v === undefined || typeof v === 'string';
 
 /**
- * The shape gate in front of the SDK: true only for a three-part base64url token with an RS256 header and an object
- * payload whose registered claims have their registered types. A token that fails is refused as invalid-session, with no
- * SDK call and no network. It decides shape, never validity: signature and claims are verified afterwards.
+ * The shape gate in front of the SDK: true only for a three-part base64url token with an RS256 header (no category, or the
+ * session-token one) and an object payload whose registered claims have their registered types. A token that fails is
+ * refused as invalid-session, with no SDK call and no network. It decides shape, never validity: signature and claims
+ * are verified afterwards.
  */
 export function inspectToken(token: string): boolean {
 	const parts = token.split('.');
@@ -60,7 +64,7 @@ export function inspectToken(token: string): boolean {
 		const header = decodePart(parts[0]!), payload = decodePart(parts[1]!);
 		if (!plain(header) || !plain(payload)) return false;
 		if (header.alg !== 'RS256' || (header.typ !== undefined && header.typ !== 'JWT') || !(header.kid === undefined || (typeof header.kid === 'string' && header.kid.length <= 200))) return false;
-		if (FORBIDDEN_HEADERS.some((h) => h in header) || header.cat !== undefined) return false;
+		if (FORBIDDEN_HEADERS.some((h) => h in header) || (header.cat !== undefined && header.cat !== SESSION_CATEGORY)) return false;
 		const aud = payload.aud;
 		return text(payload.iss) && text(payload.sub) && text(payload.sid) && text(payload.azp) && text(payload.sts) && finite(payload.exp) && finite(payload.nbf) && finite(payload.iat)
 			&& (aud === undefined || typeof aud === 'string' || (Array.isArray(aud) && aud.every((a) => typeof a === 'string')));

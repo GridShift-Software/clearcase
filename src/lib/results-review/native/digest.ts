@@ -3,7 +3,7 @@
 // library through verifyCandidateBytes, so there is exactly one definition. These helpers hash only this module's own values
 // (request digests, derived ids, the link digest), and tests prove they equal the library's sha256Hex over the same bytes.
 import { canonicalJson } from '../../case-package/canonical.ts';
-import { digest } from '../../server/runtime/data.ts';
+import { digest } from '../../shared/data.ts';
 
 const encoder = new TextEncoder();
 export const sha256Bytes = (bytes: Uint8Array): Promise<string> => digest(bytes);

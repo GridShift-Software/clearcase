@@ -57,7 +57,8 @@ export function planWorkersDevBootstrap(value: unknown) {
 			name: client?.worker ?? 'cc-sbx-staff-20261023', account_id: ACCOUNT,
 			main: NATIVE_STAGED.entry, no_bundle: true, find_additional_modules: false, minify: false,
 			compatibility_date: s.compatibilityDate, compatibility_flags: s.compatibilityFlags,
-			send_metrics: false, workers_dev: true, preview_urls: false, routes: [], limits: { cpu_ms: 10 },
+			// Workers Free enforces its own CPU ceiling and rejects even a 10ms custom limit.
+			send_metrics: false, workers_dev: true, preview_urls: false, routes: [],
 			assets: { directory: NATIVE_STAGED.assets, binding: 'ASSETS' },
 			vars: { CLEARCASE_INSTANCE_ROLE: client ? 'client' : 'staff', CLEARCASE_CLIENT_ID: client ? slot : '' },
 			// No migrations, secrets, service bindings or raw config escape hatch. Staff has no client stores.

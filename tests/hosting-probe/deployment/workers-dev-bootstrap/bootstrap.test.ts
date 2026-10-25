@@ -60,7 +60,7 @@ describe('separate workers.dev bootstrap planner', () => {
 		expect(configs.map((c) => c.name)).toEqual(['cc-sbx-a-20261023', 'cc-sbx-b-20261023', 'cc-sbx-staff-20261023']);
 		for (const c of configs) {
 			expect(c.account_id).toBe('fb4c31b91c5d89b7a54afbdc34823170');
-			expect(c).toMatchObject({ main: 'artifact/cloudflare/_worker.js', no_bundle: true, find_additional_modules: false, minify: false, compatibility_flags: ['nodejs_compat'], workers_dev: true, preview_urls: false, routes: [], limits: { cpu_ms: 10 }, assets: { directory: 'artifact/public', binding: 'ASSETS' } });
+			expect(c).toMatchObject({ main: 'artifact/cloudflare/_worker.js', no_bundle: true, find_additional_modules: false, minify: false, compatibility_flags: ['nodejs_compat'], workers_dev: true, preview_urls: false, routes: [], assets: { directory: 'artifact/public', binding: 'ASSETS' } });
 			expect(c).not.toHaveProperty('secrets');
 		}
 		expect(configs[0]!.d1_databases).toEqual([{ binding: 'DB', database_name: 'cc-sbx-a-20261023-db', database_id: 'cd257736-7bf3-49f6-8544-ac58c2207802' }]);

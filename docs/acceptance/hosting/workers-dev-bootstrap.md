@@ -25,11 +25,17 @@ D1 jurisdiction is not a Wrangler binding field. R2 jurisdiction is `eu` in the
 config; the parent must keep both buckets private with development URLs disabled.
 
 Every config has `workers_dev: true`, `preview_urls: false`, `routes: []`,
-`limits.cpu_ms: 10`, `no_bundle: true`, `find_additional_modules: false`,
-`minify: false` and
+`no_bundle: true`, `find_additional_modules: false`, `minify: false` and
 `ASSETS` pointing only to `artifact/public`. The entry is
 `artifact/cloudflare/_worker.js`. Compatibility flags must be exactly
 `["nodejs_compat"]`; the parent selects this mode and builds the artifact for it.
+
+No `limits` property is emitted. Workers Free applies its provider-enforced CPU
+ceiling; the first actual upload returned code 100328 because even a 10ms custom
+CPU setting is paid-plan-only. Removing that override does not upgrade a plan or
+change the checked artifact. Canonical config checking still refuses an injected
+`limits` field. The original failed upload and its accepted static assets remain
+recorded separately from a successful Worker deployment.
 
 The configs explicitly set `CLEARCASE_INSTANCE_ROLE` to `client` or `staff`,
 and `CLEARCASE_CLIENT_ID` to the corresponding client, or an empty string for

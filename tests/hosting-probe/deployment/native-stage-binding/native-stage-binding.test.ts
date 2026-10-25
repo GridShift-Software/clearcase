@@ -8,7 +8,7 @@ import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } f
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { NATIVE_CONTROLS_SCHEMA, bindStageRecord, parseNativeManifest, type NativeManifest, type ProviderReadback } from '../../../../deploy/native-alpha/controls.ts';
-import { bindNativeStages, nativeBindingProblems, type BindInput, type NativeStageEvidence, type NativeStageReader } from '../../../../deploy/native-alpha/native-stage-binding.ts';
+import { bindNativeStages, nativeBindingProblems, sha256Text, type BindInput, type NativeStageEvidence, type NativeStageReader } from '../../../../deploy/native-alpha/native-stage-binding.ts';
 import { nativeStageRecord, parseNativeJson, parseNativeTarget, type NativePins } from '../../../../deploy/native-alpha/pipeline.ts';
 import { checkNativeStage, digestDir, readRegular, stageNative } from '../../../../deploy/probes/target.ts';
 
@@ -268,7 +268,7 @@ describe('foreign client and shared identifiers', () => {
 		const aId = JSON.parse(readFileSync(path.join(w.clients, 'client-a/target.json'), 'utf8')).d1.id as string;
 		const bId = JSON.parse(readFileSync(path.join(w.clients, 'client-b/target.json'), 'utf8')).d1.id as string;
 		const f = forge(w, 'client-b', { target: (t) => (t.d1.id = aId), config: (t) => t.replace(bId, aId) });
-		hold(bind(w, lying(w, 'client-b', f)), /d1 id|shared|both|client-b/i);
+		hold(bind(w, lying(w, 'client-b', f)), /shares an identifier.*d1 id.*both client-a's and client-b's/i);
 	});
 
 	test('a manifest where two clients share a domain, version or D1 identifier is refused before any binding', () => {
@@ -353,6 +353,14 @@ describe('no external pins', () => {
 		hold(bind(w, { reader }), /pin/i);
 	});
 
+	test('a pin that is not the hash of the staged target.json or wrangler.jsonc is a HOLD even when the evidence echoes the same wrong pin', () => {
+		const wrong = sha('not the reviewed bytes');
+		hold(bind(w, lying(w, 'client-a', forge(w, 'client-a', { pins: { target: wrong } }))), /target\.json bytes .* not the external pin target/);
+		hold(bind(w, lying(w, 'client-a', forge(w, 'client-a', { pins: { config: wrong } }))), /wrangler\.jsonc bytes .* not the external pin config/);
+		hold(bind(w, lying(w, 'client-a', forge(w, 'client-a', { pins: { migrations: wrong } }))), /migrations/);
+		hold(bind(w, lying(w, 'client-a', forge(w, 'client-a', { pins: { source: '8'.repeat(40) } }))), /source/);
+	});
+
 	test('pins that match a forged stage but not the observed manifest cannot bind it', () => {
 		const f = forge(w, 'client-a', { target: (t) => (t.runtime.sourceSha = '9'.repeat(40)), pins: { source: '9'.repeat(40) } });
 		hold(bind(w, lying(w, 'client-a', f)), /source|version/i);
@@ -374,7 +382,7 @@ describe('old schema, no legacy conversion', () => {
 
 	test('a legacy deploy-stage/1 record is refused and is never converted, even from a reader that reports no problems', () => {
 		const f = forge(w, 'client-a', { stageText: legacy('client-a') });
-		hold(bind(w, lying(w, 'client-a', f)), /legacy|deploy-stage\/1|schema/i);
+		hold(bind(w, lying(w, 'client-a', f)), /legacy clearcase\.deploy-stage\/1 record: refused.*never converted/);
 	});
 
 	test('the legacy controller binder stays legacy-only and refuses the native record (the incompatibility is explicit, not papered over)', () => {
@@ -573,6 +581,14 @@ describe('no caller boolean is proof: checked-owner evidence only', () => {
 		expect(res.controlReady).toBe(false);
 		expect(res.funded).toBe(false);
 		expect(res.state).toBe('HOLD');
+	});
+});
+
+describe('the hashing the binder does itself', () => {
+	test('the pure SHA-256 equals node:crypto for block-boundary, multi-block and non-ASCII text', () => {
+		const samples = ['', 'abc', 'a'.repeat(55), 'a'.repeat(56), 'a'.repeat(63), 'a'.repeat(64), 'a'.repeat(65), 'a'.repeat(1000), 'é€😀 stage.json\n', JSON.stringify({ a: [1, 2, 3] }).repeat(300)];
+		for (const s of samples) expect(sha256Text(s), JSON.stringify(s.slice(0, 20))).toBe(sha(s));
+		expect(sha256Text('abc')).toBe('sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
 	});
 });
 

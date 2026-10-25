@@ -4,6 +4,126 @@
   import type { ReadinessView } from '../../publication/hosted/readiness.ts';
   import type { PublicationState } from '../../publication/hosted/ports.ts';
   import { canonicalJson } from '../../case-package/canonical.ts';
+  import { candidateIdOf, linkIdOf, sha256Text } from '../../results-review/native/digest.ts';
+
+  type ImportBody = { operationId: string; submissionRevisionId: string; files: Record<string, string> };
+  type CorrectionBody = { operationId: string; reason: string; replacements: { key: string; data: unknown }[] };
+  type ImportExpectation = { clientId: string; caseId: string; submissionRevisionId: string; submissionManifestSha256: string;
+    resultsVersion: string; manifestSha256: string; packageInputRevisionId: string };
+  export type Pending = { path: string } & (
+    | { kind: 'import'; body: ImportBody; expected: ImportExpectation }
+    | { kind: 'correction'; body: CorrectionBody; expected: LinkedCandidate }
+    | { kind: 'signoff'; body: ReturnType<typeof signoffPayload> }
+    | { kind: 'publish'; body: ReturnType<typeof publishPayload>; expected: { resultsVersion: string } }
+  );
+  const SHA = /^[0-9a-f]{64}$/, RV = /^sha256:[0-9a-f]{64}$/, PART = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+  const text = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 1000;
+  function requireResponse(ok: unknown): asserts ok { if (!ok) throw new Error('Unconfirmed controller response.'); }
+  function object(v: unknown, keys: string[]): Record<string, unknown> {
+    requireResponse(v !== null && typeof v === 'object' && !Array.isArray(v));
+    requireResponse(Object.keys(v).sort().join() === [...keys].sort().join());
+    return v as Record<string, unknown>;
+  }
+  function list(v: unknown): unknown[] { requireResponse(Array.isArray(v)); return v; }
+  function digestSize(v: unknown) {
+    const x = object(v, ['sha256', 'size']);
+    requireResponse(typeof x.sha256 === 'string' && SHA.test(x.sha256) && Number.isSafeInteger(x.size) && Number(x.size) >= 0);
+  }
+  function operator(v: unknown, staff = false) {
+    const x = object(v, staff ? ['issuer', 'subject', 'kind'] : ['issuer', 'subject']);
+    requireResponse(text(x.issuer) && text(x.subject) && (!staff || x.kind === 'staff'));
+  }
+  function timestamp(v: unknown) { requireResponse(typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) && Number.isFinite(Date.parse(v))); }
+  function strings(v: unknown) { requireResponse(list(v).every(text)); }
+  // Validate the entire linked-success DTO, not merely the existence of a candidate property.
+  function linkedResponse(v: unknown): LinkedCandidate {
+    const out = object(v, ['kind', 'repeated', 'candidate']);
+    requireResponse(out.kind === 'linked' && typeof out.repeated === 'boolean');
+    const c = object(out.candidate, ['candidateId', 'origin', 'parentCandidateId', 'current', 'supersededBy', 'link', 'correction']);
+    requireResponse(text(c.candidateId) && PART.test(c.candidateId) && ['import', 'correction'].includes(String(c.origin))
+      && typeof c.current === 'boolean' && (c.supersededBy === null || text(c.supersededBy))
+      && (c.parentCandidateId === null || text(c.parentCandidateId)) && (!c.current || c.supersededBy === null));
+    const l = object(c.link, ['format', 'linkId', 'clientId', 'caseId', 'submissionRevisionId', 'submissionManifestSha256', 'candidate', 'coverage', 'operator', 'linkedAt', 'attribution', 'state']);
+    requireResponse(l.format === 'clearcase.candidate-import-link/1' && l.state === 'private-candidate-linked'
+      && l.attribution === 'manual-operator-link-not-processing-proof' && text(l.linkId)
+      && text(l.clientId) && text(l.caseId) && text(l.submissionRevisionId)
+      && typeof l.submissionManifestSha256 === 'string' && SHA.test(l.submissionManifestSha256));
+    const pin = object(l.candidate, ['clientId', 'caseId', 'candidateId', 'resultsVersion', 'manifestSha256', 'packageInputRevisionId']);
+    requireResponse(pin.clientId === l.clientId && pin.caseId === l.caseId && pin.candidateId === c.candidateId
+      && typeof pin.resultsVersion === 'string' && RV.test(pin.resultsVersion)
+      && typeof pin.manifestSha256 === 'string' && SHA.test(pin.manifestSha256)
+      && typeof pin.packageInputRevisionId === 'string' && RV.test(pin.packageInputRevisionId));
+    operator(l.operator, true); timestamp(l.linkedAt);
+    const coverage = object(l.coverage, ['policy', 'mappedOriginals', 'unavailableOriginals']);
+    requireResponse(coverage.policy === 'exact-required-file-set/1');
+    for (const value of list(coverage.mappedOriginals)) {
+      const warning = (value as { pathMatch?: unknown } | null)?.pathMatch === 'case-nfc-unique';
+      const m = object(value, ['packageRefs', 'packagePath', 'storedPath', 'submissionAssetId', 'sha256', 'size', 'pathMatch', ...(warning ? ['preservedWarning'] : [])]);
+      strings(m.packageRefs); requireResponse(list(m.packageRefs).length > 0 && text(m.packagePath) && text(m.storedPath) && text(m.submissionAssetId));
+      digestSize({ sha256: m.sha256, size: m.size });
+      requireResponse(m.pathMatch === 'literal' || warning);
+      if (warning) {
+        const w = object(m.preservedWarning, ['code', 'fingerprints']);
+        requireResponse(w.code === 'ORIG_CASE_MISMATCH' && list(w.fingerprints).length > 0
+          && list(w.fingerprints).every((f) => typeof f === 'string' && /^[0-9a-f]{32}$/.test(f)));
+      }
+    }
+    for (const value of list(coverage.unavailableOriginals)) {
+      const missing = (value as { kind?: unknown } | null)?.kind === 'missing';
+      const u = object(value, ['kind', 'ref', missing ? 'path' : 'parentRef']);
+      requireResponse((u.kind === 'missing' || u.kind === 'embedded') && text(u.ref) && text(missing ? u.path : u.parentRef));
+    }
+    if (c.origin === 'import') requireResponse(c.parentCandidateId === null && c.correction === null);
+    else {
+      requireResponse(text(c.parentCandidateId) && c.parentCandidateId !== c.candidateId);
+      const correction = object(c.correction, ['reason', 'operator', 'at', 'changes']);
+      requireResponse(text(correction.reason)); operator(correction.operator); timestamp(correction.at);
+      requireResponse(correction.at === l.linkedAt);
+      requireResponse(canonicalJson(correction.operator) === canonicalJson({ issuer: (l.operator as Record<string, unknown>).issuer, subject: (l.operator as Record<string, unknown>).subject }));
+      const changes = list(correction.changes); requireResponse(changes.length > 0 && changes.length <= 8);
+      const paths = new Set();
+      for (const value of changes) {
+        const change = object(value, ['path', 'before', 'after']);
+        requireResponse(text(change.path) && /^datasets\/[a-z][a-z0-9-]*\.json$/.test(change.path) && !paths.has(change.path));
+        paths.add(change.path);
+        if (change.before !== null) digestSize(change.before);
+        digestSize(change.after);
+      }
+    }
+    return out.candidate as LinkedCandidate;
+  }
+  export async function assertOperationSuccess(request: Pending, status: number, value: unknown): Promise<void> {
+    requireResponse(status === 200 || status === 201);
+    if (request.kind === 'signoff') {
+      const v = object(value, ['signoffId', 'state', 'resultsVersion', 'selfApproval']);
+      requireResponse(v.signoffId === `so-${request.body.operationId}` && v.state === 'signed-off'
+        && v.resultsVersion === request.body.identity.resultsVersion && v.selfApproval === request.body.selfApproval);
+    } else if (request.kind === 'publish') {
+      const v = object(value, ['operationId', 'publication']), p = object(v.publication, ['kind', 'resultsVersion']);
+      requireResponse(status === 200 && v.operationId === request.body.operationId && p.kind === 'published'
+        && p.resultsVersion === request.expected.resultsVersion);
+    } else {
+      const c = linkedResponse(value), l = c.link, pin = l.candidate;
+      requireResponse(status === ((value as { repeated: boolean }).repeated ? 200 : 201));
+      requireResponse(c.candidateId === await candidateIdOf(pin)
+        && l.linkId === await linkIdOf({ candidateId: c.candidateId, submissionRevisionId: l.submissionRevisionId, submissionManifestSha256: l.submissionManifestSha256 }));
+      if (request.kind === 'import') {
+        const e = request.expected;
+        requireResponse(c.origin === 'import' && l.clientId === e.clientId && l.caseId === e.caseId
+          && l.submissionRevisionId === request.body.submissionRevisionId && l.submissionRevisionId === e.submissionRevisionId
+          && l.submissionManifestSha256 === e.submissionManifestSha256 && pin.resultsVersion === e.resultsVersion
+          && pin.manifestSha256 === e.manifestSha256 && pin.packageInputRevisionId === e.packageInputRevisionId);
+      } else {
+        const parent = request.expected, old = parent.link;
+        requireResponse(c.origin === 'correction' && c.parentCandidateId === parent.candidateId
+          && l.clientId === old.clientId && l.caseId === old.caseId && l.submissionRevisionId === old.submissionRevisionId
+          && l.submissionManifestSha256 === old.submissionManifestSha256 && pin.packageInputRevisionId === old.candidate.packageInputRevisionId
+          && pin.resultsVersion !== old.candidate.resultsVersion && pin.manifestSha256 !== old.candidate.manifestSha256
+          && c.correction?.reason === request.body.reason
+          && c.correction.changes.every((x) => request.body.replacements.some((r) => x.path === `datasets/${r.key}.json`)));
+      }
+    }
+  }
 
   export interface WorkbenchData {
     caseId: string;
@@ -65,7 +185,6 @@
   let importOperation = $state(''), correctionOperation = $state(''), signoffOperation = $state(''), publishOperation = $state('');
   let correctionReason = $state(''), replacements = $state('[\n  { "key": "matter", "data": {} }\n]');
   let expectedKind = $state(''), expectedVersion = $state('');
-  type Pending = { path: string; body: unknown; kind: 'import' | 'correction' | 'signoff' | 'publish' };
   let pending = $state<Pending | null>(null);
   const casePath = $derived(`/operator/results/${encodeURIComponent(data.caseId)}`);
   const publicationPath = $derived(`/operator/publication/${encodeURIComponent(data.caseId)}`);
@@ -148,6 +267,13 @@
     if (!pending) return;
     const request = pending;
     const r = await jsonRequest(request.path, request.body);
+    // No state, id rotation, or retry cleanup until the COMPLETE success matches the frozen submitted identity.
+    try {
+      if ((request.kind === 'import' || request.kind === 'correction') && (r.value?.kind !== 'linked' || !r.value.candidate))
+        throw new Error('The response did not confirm a linked candidate.');
+      await assertOperationSuccess(request, r.status, r.value);
+    }
+    catch { throw new Error(`HTTP ${r.status}: the response did not confirm the exact ${request.kind} outcome. Outcome is unconfirmed; retry the identical request with the same operation id.`); }
     // A controller response, not candidate status or pointer equality, is the only success displayed.
     detail = JSON.stringify(r.value, null, 2);
     status = `HTTP ${r.status}: ${request.kind} controller confirmed the response below.`;
@@ -157,7 +283,6 @@
       signoffId = r.value.signoffId;
       signoffOperation = newOperation();
     } else if (request.kind === 'import' || request.kind === 'correction') {
-      if (r.value.kind !== 'linked' || !r.value.candidate) throw new Error('The response did not confirm a linked candidate.');
       const c = r.value.candidate as LinkedCandidate;
       candidates = [c, ...candidates.filter((old) => old.candidateId !== c.candidateId).map((old) => old.candidateId === c.parentCandidateId ? { ...old, current: false, supersededBy: c.candidateId } : old)];
       candidateId = c.candidateId; signoffId = '';
@@ -167,7 +292,13 @@
   async function importPackage() {
     await run(async () => {
       if (!chosenSubmission || !packageFiles) throw new Error('Select a finalized submission and an already-processed results package.');
-      pending = { path: `${casePath}/imports`, kind: 'import', body: { operationId: importOperation, submissionRevisionId: chosenSubmission.revisionId, files: packageFiles } };
+      const s = chosenSubmission, files = packageFiles;
+      const manifest = JSON.parse(files['manifest.json']);
+      const expected: ImportExpectation = { clientId: s.clientId, caseId: data.caseId, submissionRevisionId: s.revisionId,
+        submissionManifestSha256: s.manifestSha256, resultsVersion: manifest.resultsVersion,
+        manifestSha256: await sha256Text(files['manifest.json']), packageInputRevisionId: manifest.inputRevision?.id };
+      pending = { path: `${casePath}/imports`, kind: 'import', expected,
+        body: { operationId: importOperation, submissionRevisionId: s.revisionId, files: { ...files } } };
       await performPending();
     });
   }
@@ -176,7 +307,8 @@
       if (!chosenCandidate?.current || !correctionReason.trim()) throw new Error('Choose a current candidate and supply a correction reason.');
       const parsed: unknown = JSON.parse(replacements);
       if (!Array.isArray(parsed)) throw new Error('Replacements must be a JSON array of {key, data}.');
-      pending = { path: `${casePath}/candidates/${encodeURIComponent(candidateId)}/corrections`, kind: 'correction', body: { operationId: correctionOperation, reason: correctionReason, replacements: parsed } };
+      pending = { path: `${casePath}/candidates/${encodeURIComponent(candidateId)}/corrections`, kind: 'correction',
+        expected: JSON.parse(JSON.stringify(chosenCandidate)), body: { operationId: correctionOperation, reason: correctionReason, replacements: parsed } };
       await performPending();
     });
   }
@@ -201,7 +333,7 @@
       const payload = publishPayload(reviewed, publishOperation, expected, publishVersion);
       const fresh = await readFresh();
       try { requireUnchangedReadiness(reviewed, fresh); } catch (e) { invalidateReview(); throw e; }
-      pending = { path: `${publicationPath}/publish`, kind: 'publish', body: payload };
+      pending = { path: `${publicationPath}/publish`, kind: 'publish', body: payload, expected: { resultsVersion: reviewed.identity.resultsVersion } };
       await performPending();
     });
   }

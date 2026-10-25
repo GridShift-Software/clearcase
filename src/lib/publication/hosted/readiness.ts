@@ -135,11 +135,13 @@ export function createPublicationReadiness(ports: NativePublicationPorts | null)
         signoff: so ? { signoffId: so.signoffId, identity: signedIdentity(so), state: so.state, invalidated: so.invalidatedAt !== null, blockers } : null,
       };
       await audit('succeeded', 'publication.readiness.read', candidateId);
-      // Required audit/hash/ledger awaits cannot grant a lasting verdict. Reread full material and exact sign-off,
-      // then current authority, before synchronous comparison/release. Parent reader must fence snapshot assembly.
+      // Required audit/hash/ledger awaits cannot grant a lasting verdict. Finish the authority checks BEFORE
+      // taking the release observations: comparing copies read before an authority await misses edits in that await.
       await authority();
-      const latest = await snapshot(), latestSignoff = await signoff();
       await authority();
+      // Observe the exact ledger record first, then freshly assembled material. The parent's candidate reader must
+      // fence its complete D1 assembly/generation; an external Clerk check is an earlier observation, not a D1 lock.
+      const latestSignoff = await signoff(), latest = await snapshot();
       if (canonicalJson(latest) !== material || (latestSignoff ? canonicalJson(latestSignoff) : null) !== signed)
         return refuse(409, 'readiness-stale', 'The candidate or sign-off changed during the read. Refresh and review again.');
       return json(200, view);

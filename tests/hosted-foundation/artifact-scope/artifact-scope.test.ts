@@ -3,7 +3,8 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { scanArtifact } from '../../../scripts/ci/hosted-artifact.ts';
-import { KIT_PROBES, PINNED_BROWSER_MODULES } from '../../../scripts/ci/hosted-artifact-scope.ts';
+import { PINNED_BROWSER_MODULES } from '../../../scripts/ci/hosted-artifact-scope.ts';
+import { adaptKitDiagnostics, KIT_DIAGNOSTIC_MODULES } from '../../../scripts/hosted-kit-diagnostics-build.ts';
 import { HOSTED_PDF_PACKAGE_DIGEST, prepareHostedPdfAssets, type PdfAssetInventory } from '../../../scripts/hosted-pdf-assets.ts';
 
 const REPO = path.resolve(import.meta.dirname, '../../..');
@@ -142,14 +143,18 @@ describe('getBuiltinModule and optional chains on the process global', () => {
 	// Kit 3's server runtime: sourcemaps.js (fs, url, path, module, cwd) and internal.js (util), as Rolldown emits them.
 	const kit = ['fs', 'url', 'path', 'module'].map((m) => `var ${m} = globalThis.process?.getBuiltinModule?.("node:${m}");`)
 		.concat('var cwd = globalThis.process?.cwd?.();', 'var styleText = globalThis.process?.getBuiltinModule?.("node:util")?.styleText ?? ((_format, text) => text);');
+	// The hosted build adapts these two modules (scripts/hosted-kit-diagnostics-build.ts); the scan exempts no Kit text.
+	const KIT_PROBES = new Set(Object.values(KIT_DIAGNOSTIC_MODULES).flatMap((m) => m.probes));
 	it('pins each probe to the installed Kit source and nothing more', () => {
 		const source = ['sourcemaps.js', 'internal.js'].map((f) => readFileSync(path.join(REPO, 'node_modules/@sveltejs/kit/src/runtime/server', f), 'utf8')).join('\n');
-		const found = [...source.matchAll(/globalThis\.process\?\.[^;]*?\)/g)].map((m) => m[0].replaceAll("'", '"'));
+		const found = [...source.matchAll(/globalThis\.process\?\.[^;]*?\)/g)].map((m) => m[0]);
 		expect(new Set(found)).toEqual(KIT_PROBES);
 		expect(found).toHaveLength(KIT_PROBES.size);
 	});
 	it('passes the exact Kit server probes in Kit\'s server output', () => {
-		expect(errors({ [KIT_SERVER]: kit.join('\n') })).toEqual([]);
+		const adapted = Object.keys(KIT_DIAGNOSTIC_MODULES).map((m) => adaptKitDiagnostics(m, readFileSync(path.join(REPO, 'node_modules/@sveltejs/kit', m), 'utf8')));
+		expect(errors({ [KIT_SERVER]: adapted.join('\n') })).toEqual([]);
+		expect(errors({ [KIT_SERVER]: kit.join('\n') })).toContain(`hosted-artifact: ${KIT_SERVER}: uses process.cwd`);
 	});
 	it.each([
 		['node:child_process', 'globalThis.process?.getBuiltinModule?.("node:child_process");', 'process.getBuiltinModule'],
@@ -188,5 +193,111 @@ describe('getBuiltinModule and optional chains on the process global', () => {
 		const found = errors({ ...pinned(), [name]: kit.join('\n') });
 		expect(found.filter((e) => e === `hosted-artifact: ${name}: uses process.getBuiltinModule`)).toHaveLength(5);
 		expect(found).toContain(`hosted-artifact: ${name}: uses process.cwd`);
+	});
+});
+
+// The source review of 87724051 (native24-artifact-scope-source-review.md): its probes, verbatim, all accepted there.
+describe('review probes: global-object origins, Kit provenance, manifest role and Worker reachability', () => {
+	const SERVER = '.svelte-kit/output/server/chunks/forged.js', WORKER_ENTRY = '.svelte-kit/cloudflare/_worker.js';
+	const exact = 'globalThis.process?.getBuiltinModule?.("node:module")';
+	it.each([
+		['a global-object alias', 'const g = globalThis; export const value = g.process?.getBuiltinModule?.("node:child_process");', /forged\.js: unresolved global object access \(const g = globalThis\)/],
+		['a destructured global alias', 'const { process: p } = globalThis; export const value = p?.getBuiltinModule?.("node:child_process");', /forged\.js: uses process$/],
+		['a parenthesized global', 'export const value = (globalThis).process?.getBuiltinModule?.("node:child_process");', /forged\.js: uses process\.getBuiltinModule$/],
+		['a computed global key', 'const k = "process"; export const value = globalThis[k]?.getBuiltinModule?.("node:child_process");', /forged\.js: uses process\.getBuiltinModule$/],
+		['Bun through a global alias', 'const g = globalThis; export const value = g.Bun?.spawn?.(["synthetic"]);', /forged\.js: unresolved global object access/],
+	])('M2 refuses %s in server output', (_, source, error) => {
+		expect(errors({ [SERVER]: source }).join('\n')).toMatch(new RegExp(error.source, 'm'));
+	});
+	it.each([
+		['a forged Kit source region with an fs read', '// #region node_modules/@sveltejs/kit/src/runtime/server/sourcemaps.js\nconst fs = globalThis.process?.getBuiltinModule?.("node:fs"); export const value = fs.readFileSync("synthetic-path");', 'process.getBuiltinModule'],
+		['the exact node:module call creating an aliased loader', `const mod = ${exact}; const load = mod.createRequire(import.meta.url); export const value = load("node:child_process");`, 'process.getBuiltinModule'],
+		['the exact node:module call with a dynamic target', `const mod = ${exact}; export const load = name => mod.createRequire(import.meta.url)(name);`, 'process.getBuiltinModule'],
+		['the exact node:module call with an element loader', `${exact}["createRequire"](import.meta.url)("node:fs");`, 'process.getBuiltinModule'],
+		['an arbitrary exported cwd', 'export const cwd = globalThis.process?.cwd?.();', 'process.cwd'],
+	])('M1 refuses %s in server output', (_, source, use) => {
+		expect(errors({ [SERVER]: source })).toContain(`hosted-artifact: ${SERVER}: uses ${use}`);
+	});
+	it.each([
+		['decoy assets beside an empty exported manifest', 'const decoy = { assets: new Set(["pdfjs/pdf.min.mjs", "pdfjs/pdf.worker.min.mjs"]) }; export const manifest = { assets: new Set([]) };'],
+		['assets overridden by a later spread', 'export const manifest = { assets: new Set(["pdfjs/pdf.min.mjs", "pdfjs/pdf.worker.min.mjs"]), ...{ assets: new Set([]) } };'],
+	])('M3 refuses the exact bytes with %s', (_, manifest) => {
+		const found = errors(pinned({ [MANIFEST]: manifest }));
+		expect(found.join('\n')).toMatch(/manifest\.js: Kit's server manifest is not exactly one exported manifest with one literal assets set/);
+		expect(found).toContain(`hosted-artifact: ${PDF}: pdfjs/pdf.min.mjs is not a static asset in Kit's server manifest`);
+		expect(found).toContain(`hosted-artifact: ${PDF}: uses process.getBuiltinModule`);
+	});
+	it('M4 refuses a Worker import through a public wrapper', () => {
+		const found = errors(pinned({ [WORKER_ENTRY]: 'import { pdfjs } from "./pdfjs/bridge.mjs"; export { pdfjs };', '.svelte-kit/cloudflare/pdfjs/bridge.mjs': 'import * as pdfjs from "./pdf.min.mjs"; export { pdfjs };' }));
+		expect(found).toContain('hosted-artifact: .svelte-kit/cloudflare/pdfjs/bridge.mjs: imports the browser-only PDF.js module ./pdf.min.mjs');
+		expect(found).toContain(`hosted-artifact: ${PDF}: reachable from the Worker (.svelte-kit/cloudflare/_worker.js -> .svelte-kit/cloudflare/pdfjs/bridge.mjs -> ${PDF})`);
+		expect(found).toContain(`hosted-artifact: ${PDF}: uses process.getBuiltinModule`);
+	});
+	it('M4 refuses a computed Worker import of a pinned file', () => {
+		const found = errors(pinned({ [WORKER_ENTRY]: 'const target = "./pdfjs/pdf.min.mjs"; export const load = () => import(target);' }));
+		expect(found.join('\n')).toMatch(/_worker\.js: import\(\) target is not proven at line 1: /);
+	});
+});
+
+describe('global-object origins, manifest binding and Worker reachability around the review probes', () => {
+	const SERVER = '.svelte-kit/output/server/chunks/forged.js', CLIENT = '.svelte-kit/cloudflare/_app/immutable/chunks/c.js';
+	// Kit's own global state key and Svelte's WebCrypto fallback, as Rolldown emits them.
+	const KIT_STATE = 'var symbol = Symbol.for("sveltekit.global_state"); globalThis[symbol] ??= {}; export const s = globalThis[symbol];';
+	const SVELTE_FORWARDER = 'var obfuscated_import = (module_name) => import(\n\t/* @vite-ignore */\n\tmodule_name\n);\nexport const c = async () => globalThis.crypto?.subtle?.digest ? globalThis.crypto : (await obfuscated_import("node:crypto")).webcrypto;';
+	it.each([
+		['Kit\'s symbol-keyed global state', KIT_STATE],
+		['Svelte\'s proven import forwarder', SVELTE_FORWARDER],
+		['static members, typeof and a destructure of the global object', 'export const f = globalThis.fetch, w = globalThis?.window?.trustedTypes, t = typeof self; const { crypto } = globalThis; globalThis.app = {}; export { crypto };'],
+		['symbol reads and calls', 'export const i = Symbol.iterator, a = Symbol("x"), t = typeof Symbol, k = Symbol.for("k");'],
+	])('passes %s in server output', (_, source) => {
+		expect(errors({ [SERVER]: source })).toEqual([]);
+	});
+	it.each([
+		['a reassigned symbol key', 'var symbol = Symbol.for("x"); symbol = "process"; globalThis[symbol].exit(1);', /unresolved global object access \(globalThis\[symbol\]\)/],
+		['a key declared twice', 'var k = "x"; var k = "process"; globalThis[k].exit(1);', /unresolved global object access \(globalThis\[k\]\)/],
+		['a rewritten Symbol.for', 'Symbol.for = () => "process"; const k = Symbol.for("x"); export const p = globalThis[k];', /unresolved global object access \(Symbol\.for\)/],
+		['globalThis.Symbol', 'globalThis.Symbol = { for: () => "process" };', /unresolved global object access \(globalThis\.Symbol\)/],
+		['the global object passed to a call', 'export const d = Reflect.get(globalThis, "process");', /unresolved global object access \(Reflect\.get\(globalThis, "process"\)\)/],
+		['a rest destructure', 'const { ...all } = globalThis; export const p = all.process;', /unresolved global object access \(\.\.\.all\)/],
+		['the global object through its own member', 'globalThis.self.process.exit(1);', /uses process\.exit$/],
+		['a global key read through window', 'export const p = globalThis.window.process.env;', /uses process\.env$/],
+		['node:process by import', 'import { getBuiltinModule } from "node:process"; export const m = getBuiltinModule("node:fs");', /imports node:process$/],
+		['node:module by dynamic import', 'export const m = await import("node:module");', /imports node:module$/],
+		['a forwarder called with a local-only module', 'var load = (m) => import(m); export const c = () => load("node:child_process");', /imports node:child_process$/],
+		['an unproven import()', 'export const load = (m, o) => import(m, o);', /import\(\) target is not proven at line 1: /],
+		['a data: import', 'export const m = () => import("data:text/javascript,export default 1");', /imports data:text\/javascript,export default 1, outside the artifact graph$/],
+	])('refuses %s in server output', (_, source, error) => {
+		expect(errors({ [SERVER]: source }).join('\n')).toMatch(new RegExp(error.source, 'm'));
+	});
+	it('scopes unresolved global access and unproven import() to modules the Worker runs', () => {
+		const browser = 'export const v = (e, t) => new globalThis[e](t); export const go = (u) => import(u);';
+		expect(errors({ [CLIENT]: browser })).toEqual([]);
+		const reached = errors({ [CLIENT]: browser, '.svelte-kit/cloudflare/_worker.js': 'import { v } from "./_app/immutable/chunks/c.js"; export default { v };' });
+		expect(reached).toContain(`hosted-artifact: ${CLIENT}: unresolved global object access (globalThis[e])`);
+		expect(reached.join('\n')).toMatch(/c\.js: import\(\) target is not proven at line 1: /);
+		expect(errors({ [CLIENT]: 'const g = globalThis; g.process.exit(1); process.exit(1);' })).toEqual([`hosted-artifact: ${CLIENT}: uses process.exit`]);
+	});
+	it('passes a manifest in the shape Kit 3 emits', () => {
+		const kit = 'export const manifest = (() => {\nfunction __memo(fn) {\n\tlet value;\n\treturn () => value ??= (value = fn());\n}\n\nreturn {\n\tapp_dir: "_app",\n\tassets: new Set(["favicon.svg","pdfjs/pdf.min.mjs","pdfjs/pdf.worker.min.mjs"]),\n\tmime_types: {".svg":"image/svg+xml"},\n\tnodes: [\n\t\t__memo(() => import(\'./nodes/0.js\'))\n\t],\n\tmatchers: async () => {\n\t\treturn {  };\n\t}\n}\n})();\n';
+		expect(errors(pinned({ [MANIFEST]: kit }))).toEqual([]);
+	});
+	it.each([
+		['two assets properties', 'export const manifest = { assets: new Set(["pdfjs/pdf.min.mjs", "pdfjs/pdf.worker.min.mjs"]), assets: new Set([]) };'],
+		['a computed key', 'export const manifest = { assets: new Set(["pdfjs/pdf.min.mjs", "pdfjs/pdf.worker.min.mjs"]), ["ass" + "ets"]: new Set([]) };'],
+		['a mutable binding', 'export let manifest = { assets: new Set(["pdfjs/pdf.min.mjs", "pdfjs/pdf.worker.min.mjs"]) };'],
+		['a later statement', 'export const manifest = { assets: new Set(["pdfjs/pdf.min.mjs", "pdfjs/pdf.worker.min.mjs"]) }; manifest.assets.clear();'],
+		['a computed element', 'const p = "pdfjs/pdf.min.mjs"; export const manifest = { assets: new Set([p, "pdfjs/pdf.worker.min.mjs"]) };'],
+		['an accessor', 'export const manifest = { get assets() { return new Set(["pdfjs/pdf.min.mjs", "pdfjs/pdf.worker.min.mjs"]); } };'],
+		['an IIFE with other statements', 'export const manifest = (() => { const o = { assets: new Set(["pdfjs/pdf.min.mjs", "pdfjs/pdf.worker.min.mjs"]) }; return { assets: new Set(["pdfjs/pdf.min.mjs", "pdfjs/pdf.worker.min.mjs"]) }; })();'],
+		['a shadowed Set', 'export const manifest = (() => { function Set() { return new globalThis.Set(); } return { assets: new Set(["pdfjs/pdf.min.mjs", "pdfjs/pdf.worker.min.mjs"]) }; })();'],
+	])('refuses a manifest with %s', (_, manifest) => {
+		const found = errors(pinned({ [MANIFEST]: manifest }));
+		expect(found.join('\n')).toMatch(/manifest\.js: Kit's server manifest is not exactly one exported manifest with one literal assets set: /);
+		expect(found).toContain(`hosted-artifact: ${PDF}: pdfjs/pdf.min.mjs is not a static asset in Kit's server manifest`);
+	});
+	it('refuses a server module that reaches a pinned file through a proven forwarder', () => {
+		const found = errors(pinned({ [SERVER]: 'var load = (m) => import(m); export const p = () => load("../../../cloudflare/pdfjs/pdf.min.mjs");' }));
+		expect(found).toContain(`hosted-artifact: ${SERVER}: imports the browser-only PDF.js module ../../../cloudflare/pdfjs/pdf.min.mjs`);
+		expect(found).toContain(`hosted-artifact: ${PDF}: reachable from the Worker (${SERVER} -> ${PDF})`);
 	});
 });

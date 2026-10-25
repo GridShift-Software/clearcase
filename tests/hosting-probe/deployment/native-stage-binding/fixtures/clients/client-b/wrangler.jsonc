@@ -14,7 +14,7 @@
   "preview_urls": false,
   "routes": [{ "pattern": "b.sandbox.gridshift.co.za", "zone_id": "db7c322907320aba562d64015ee7d673", "custom_domain": true }],
   "limits": { "cpu_ms": 1000 },
-  "assets": { "directory": "artifact/cloudflare", "binding": "ASSETS" },
+  "assets": { "directory": "artifact/public", "binding": "ASSETS" },
   "vars": { "CLEARCASE_CLIENT_ID": "client-b" },
   "secrets": { "required": ["CLERK_SECRET_KEY"] },
   "d1_databases": [{ "binding": "DB", "database_name": "cc-sbx-b-20261023-db", "database_id": "00000000-0000-4000-8000-0000000b0107", "migrations_dir": "migrations" }],

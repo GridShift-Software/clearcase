@@ -15,7 +15,7 @@
   "runtime": {
     "profile": "production",
     "sourceSha": "0000000000000000000000000000000000000107",
-    "artifactSha256": "sha256:6f9cbbe9255a52f5e3e2eaf0f6de5e391e75c5f679131ceb89371406a22feae1",
+    "artifactSha256": "sha256:527f3699b9bf4c6412afe8949034696b8ea3d3bb00a866360e7369eeec95f4eb",
     "migrationsSha256": "sha256:c36a1b35b79cc2ae520907cd9bd43df5daf9c67ea9b9391be934442dd1f5efbb",
     "compatibilityDate": "2026-10-12",
     "compatibilityFlags": ["nodejs_als"],

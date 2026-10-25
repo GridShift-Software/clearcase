@@ -60,7 +60,7 @@ const pinsFor = (clients: string, artifact: string, client: string): NativePins 
 
 /** The observed ControlManifest a deploy of exactly this reviewed source would leave: ids that only exist after a deploy are synthetic observations. */
 function manifestFor(clients: string, artifact: string): NativeManifest {
-	const version = sha(readFileSync(path.join(artifact, 'cloudflare/_app/version.json')));
+	const version = sha(readFileSync(path.join(artifact, 'public/_app/version.json')));
 	const entry = (letter: 'a' | 'b', c: string, d: string) => {
 		const t = JSON.parse(readFileSync(path.join(clients, `client-${letter}`, 'target.json'), 'utf8'));
 		return {
@@ -162,6 +162,45 @@ function forge(w: World, client: string, o: { target?: (t: Record<string, any>) 
 const lying = (w: World, client: string, f: ReturnType<typeof forge>) => ({
 	reader: realReader(w, READ_AT, (c, e) => c === client && Object.assign(e, f.evidence)),
 	pins: { ...w.pins, [client]: f.pins },
+});
+
+describe('reviewer regressions M1–M4', () => {
+	const w = world();
+
+	test('M1: a reader cannot replace the reviewed profile revision after validation', () => {
+		const a = input(w, { profileRevision: 'd'.repeat(40) });
+		a.reader = realReader(w, READ_AT, () => void (a.profileRevision = PROFILE));
+		hold(bindNativeStages(a), /profile revision/);
+	});
+
+	test('M2: honest completion timestamps use a clock sampled after every read', () => {
+		let clock = NOW;
+		const reader: NativeStageReader = { read(client) { return realReader(w, ++clock).read(client); } };
+		const r = bind(w, { reader, now: () => clock });
+		expect(r.problems).toEqual([]);
+		expect(r.state).toBe('BOUND-STRUCTURAL');
+	});
+
+	test('M3: copied provider observation must still be fresh after the last read', () => {
+		let clock = NOW;
+		let reads = 0;
+		const observed = { manifest: w.manifest, readback: readbackFor(w.manifest) };
+		const reader: NativeStageReader = { read(client) {
+			const e = realReader(w).read(client);
+			if (++reads === 4) { clock += 120_000; observed.readback.observedAt = clock; }
+			return e;
+		} };
+		hold(bind(w, { observed, reader, now: () => clock }), /readback.*stale|readback.*old/i);
+	});
+
+	test('M4: expanded real native upload evidence binds without dropping assets or dynamic imports', () => {
+		const e = realReader(w).read('client-a');
+		const upload = JSON.parse(e.files.stageJson).upload;
+		expect(upload.assets.directory).toBe('artifact/public');
+		expect(upload.assets.files.some((f: any) => f.path === 'artifact/public/_app/version.json')).toBe(true);
+		expect(upload.dynamicHostImports).toEqual([]);
+		expect(bind(w).problems).toEqual([]);
+	});
 });
 
 describe('the honest bound set (control)', () => {

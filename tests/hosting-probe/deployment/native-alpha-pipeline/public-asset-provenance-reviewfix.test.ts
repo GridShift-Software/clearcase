@@ -1,6 +1,6 @@
 // Light structural checks only. The optional real tree is read-only; all mutations are in our scratch directory.
 import { createHash } from 'node:crypto';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, test } from 'vitest';
@@ -19,7 +19,7 @@ const publicFiles = () => new Map(Object.entries({
 	'_app/version.json': '{"version":"synthetic"}', '_app/start.js': 'export {};',
 	'_app/app.js': 'import "./chunk.js"; const __vite__mapDeps = (i,m=__vite__mapDeps,d=(m.f||(m.f=["./app.css"])))=>i.map(i=>d[i]);',
 	'_app/chunk.js': 'export {};', '_app/app.css': '@font-face { src: url("../fonts/test.woff2"); }',
-}).map(([k, v]) => [`artifact/public/${k}`, Buffer.from(v)])));
+}).map(([k, v]) => [`artifact/public/${k}`, Buffer.from(v)]));
 const layout = (entry: string, bytes: Map<string, Buffer>) => nativeArtifactLayout({
 	files: [{ path: 'artifact/cloudflare/_worker.js', bytes: Buffer.byteLength(entry), sha256: SHA(Buffer.from(entry)) }, ...[...bytes].map(([p,b]) => ({path:p, bytes:b.length, sha256:SHA(b)}))],
 	entrySha256: SHA(Buffer.from(entry)), headersText: null, entryText: entry, publicFiles: bytes,

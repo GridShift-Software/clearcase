@@ -12,7 +12,7 @@ const TARGET = path.join(ROOT, 'deploy/probes/target.ts');
 const FIXTURES = path.join(import.meta.dirname, 'fixtures');
 const CLIENTS = path.join(FIXTURES, 'clients');
 const ARTIFACT = path.join(FIXTURES, 'artifact');
-const DIGEST = 'sha256:527f3699b9bf4c6412afe8949034696b8ea3d3bb00a866360e7369eeec95f4eb';
+const DIGEST = 'sha256:001037af86631416bcf9af6dccde9e6d25a75192bff42e97be49af825e6ae52f';
 const SCRATCH = path.join(ROOT, '.local/hosting-probe/deployment', `native-red-${process.pid}`);
 mkdirSync(SCRATCH, { recursive: true });
 afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));

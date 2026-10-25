@@ -14,6 +14,8 @@ import * as pipeline from '../../../../deploy/native-alpha/pipeline.ts';
 import * as target from '../../../../deploy/probes/target.ts';
 import { checkNativeStage, digestDir, loadNativeTargets, stageNative } from '../../../../deploy/probes/target.ts';
 
+import { KIT_SERVER, KIT_WORKER } from './fixtures/kit.ts';
+
 const ROOT = path.join(import.meta.dirname, '../../../..');
 const TARGET = path.join(ROOT, 'deploy/probes/target.ts');
 const FIXTURES = path.join(import.meta.dirname, 'fixtures');
@@ -84,10 +86,13 @@ describe('M1: the upload is the final, closed, prebundled module graph, bound by
 		const record = JSON.parse(readFileSync(path.join(okStage(), 'stage.json'), 'utf8'));
 		const entry = readFileSync(path.join(ARTIFACT, 'cloudflare/_worker.js'));
 		expect(record.upload).toMatchObject({ mode: 'prebundled-no-bundle', additionalModules: false, entry: { path: NATIVE_STAGED.entry, sha256: sha(entry), bytes: entry.length } });
-		// NATIVE24 adaptation: version.json moved to the separate public tree, so it now sorts after the entry.
+		// The exact synthetic Kit browser/static inventory, sorted after the server entry.
 		const files = [
 			['cloudflare/_worker.js', entry],
+			['public/_app/immutable/entry/app.js', readFileSync(path.join(ARTIFACT, 'public/_app/immutable/entry/app.js'))],
+			['public/_app/immutable/entry/start.js', readFileSync(path.join(ARTIFACT, 'public/_app/immutable/entry/start.js'))],
 			['public/_app/version.json', readFileSync(path.join(ARTIFACT, 'public/_app/version.json'))],
+			['public/favicon.svg', readFileSync(path.join(ARTIFACT, 'public/favicon.svg'))],
 		] as const;
 		expect(record.upload.files).toEqual(files.map(([p, b]) => ({ path: `artifact/${p}`, bytes: b.length, sha256: sha(b) })));
 	});
@@ -144,17 +149,17 @@ describe('M1: the upload is the final, closed, prebundled module graph, bound by
 	])('stage refuses %s', (_what, worker, reason) => refusedWith(stageWorker(worker).problems, reason));
 	test('import.meta, a regex and a string that look like imports, and a very long expression chain are accepted without a stack overflow', () => {
 		const chain = Array.from({ length: 30_000 }, () => 'a').join(' + ');
-		const worker = `const a = 1; const u = import.meta.url; const r = /import\\(['"]x['"]\\)/; const t = \`require('x')\`; const sum = ${chain};\nexport default { fetch() { return new Response(String([u, r, t, sum])); } };\n`;
+		const worker = `${KIT_SERVER}const a = 1; const u = import.meta.url; const r = /import\\(['"]x['"]\\)/; const t = \`require('x')\`; const sum = ${chain};\nexport default { fetch(request) { void [u, r, t, sum]; return server.respond(request); } };\n`;
 		expect(stageWorker(worker).problems).toEqual([]);
 	});
 	test('the documented host module (cloudflare:workers) in a closed bundle is accepted, and is recorded', () => {
-		const worker = "import { env } from 'cloudflare:workers';\nexport default { fetch() { return new Response(String(env)); } };\n";
+		const worker = KIT_SERVER + "import { env } from 'cloudflare:workers';\nexport default { fetch(request) { void env; return server.respond(request); } };\n";
 		const r = stageWorker(worker);
 		expect(r.problems).toEqual([]);
 		expect(JSON.parse(readFileSync(path.join(r.out, 'stage.json'), 'utf8')).upload.hostImports).toEqual(['cloudflare:workers']);
 	});
 	test('a comment or string that merely mentions an import is not an import', () => {
-		const worker = "// import x from 'devalue'\nconst s = \"import('devalue') require('x')\";\nexport default { fetch() { return new Response(s); } };\n";
+		const worker = KIT_SERVER + "// import x from 'devalue'\nconst s = \"import('devalue') require('x')\";\nexport default { fetch(request) { void s; return server.respond(request); } };\n";
 		expect(stageWorker(worker).problems).toEqual([]);
 	});
 });
@@ -167,7 +172,7 @@ describe('M2: prebuilt needs externally pinned reviewed identity, independent of
 
 	/** Reviewed sources an attacker rewrote consistently (new D1 UUID in target and config, new Worker, new digests), staged honestly: the stage agrees with itself. */
 	const forged = () => {
-		const worker = 'export default { fetch() { return new Response("forged"); } };\n';
+		const worker = KIT_WORKER.replace('<main id="app"></main>', '<main id="app">forged</main>');
 		const artifact = artifactCopy((d) => writeFileSync(path.join(d, 'cloudflare/_worker.js'), worker));
 		const uuid = '00000000-0000-4000-8000-0000000f0107';
 		const clients = clientsCopy((d) => {

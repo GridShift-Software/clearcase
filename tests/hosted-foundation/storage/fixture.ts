@@ -19,7 +19,9 @@ const utf8 = (s: string) => new TextEncoder().encode(s);
 export const pdf = (tag: string) => utf8(`%PDF-1.4\n% SYNTHETIC ONLY ${tag}\n%%EOF\n`);
 export const shaOf = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 
-export const BUDGETS = { maxPackageFiles: 64, maxPackageFileBytes: 1 << 20, maxPackageBytes: 4 << 20, maxDocuments: 1000, maxRowsPerBatch: 3, maxBufferedObjectBytes: 1 << 20, maxOriginalBytes: 1 << 20 };
+/** Verification work bounds (NATIVE24 M2), generous enough that no test of the original behaviour meets one. */
+export const VERIFY_BUDGETS = { maxVerifyObjects: 256, maxVerifyBytes: 16 << 20, maxVerifyObjectsPerCaseWindow: 4096, maxVerifyBytesPerCaseWindow: 256 << 20, verifyWindowSeconds: 3600 };
+export const BUDGETS = { maxPackageFiles: 64, maxPackageFileBytes: 1 << 20, maxPackageBytes: 4 << 20, maxDocuments: 1000, maxRowsPerBatch: 3, maxBufferedObjectBytes: 1 << 20, maxOriginalBytes: 1 << 20, ...VERIFY_BUDGETS };
 
 /** Cumulative quotas (storage/cloud/quotas.ts), generous enough that no test of the original behaviour meets one. */
 export const QUOTAS = {
@@ -204,12 +206,9 @@ export async function submit(dep: Dep, caseId: string, uploads: readonly Submitt
     const d = await controller.declare({ request: new Request(declareUrl, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body }), url: declareUrl, params: { caseId }, identity });
     if (d.status !== 201 && d.status !== 200) throw new Error(`fixture declare of ${u.ref} failed: ${d.status} ${await d.text()}`);
     const putUrl = new URL(`${origin}/client/intake/${caseId}/submissions/${operationId}`);
-    const p = await controller.upload({ request: new Request(putUrl, { method: 'PUT', headers: { origin, 'content-type': 'application/pdf' }, body: u.bytes }), url: putUrl, params: { caseId, operationId }, identity });
+    const p = await controller.upload({ request: new Request(putUrl, { method: 'PUT', headers: { origin, 'content-type': 'application/pdf' }, body: new Uint8Array(u.bytes) as Uint8Array<ArrayBuffer> }), url: putUrl, params: { caseId, operationId }, identity });
     if (o.commit !== false && p.status !== 201 && p.status !== 200) throw new Error(`fixture upload of ${u.ref} failed: ${p.status} ${await p.text()}`);
     out.push({ operationId, status: p.status });
   }
   return out;
 }
-
-/** Verification work bounds (NATIVE24 M2), generous enough that no test of the original behaviour meets one. */
-export const VERIFY_BUDGETS = { maxVerifyObjects: 256, maxVerifyBytes: 16 << 20, maxVerifyObjectsPerCaseWindow: 4096, maxVerifyBytesPerCaseWindow: 256 << 20, verifyWindowSeconds: 3600 };

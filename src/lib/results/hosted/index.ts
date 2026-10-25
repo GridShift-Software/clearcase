@@ -26,6 +26,8 @@ export interface CloudResultsOptions {
    * only when it lies under the asset's own case (`/cases/<case>/...`), so a viewer link can never point at another case.
    */
   viewerRoute?(asset: AssetRef): string | null;
+  /** The clock of the verification work window (`verifyVersion`); the system clock when absent. */
+  now?(): Date;
 }
 /**
  * The hosted results reader and asset access for one request. With a missing binding, client id or budget, or a
@@ -34,7 +36,7 @@ export interface CloudResultsOptions {
  */
 export function createCloudResults(o: CloudResultsOptions): { store: CaseReader; assets: AssetsAccess } {
   return {
-    store: createCloudReader({ open: storageAccess(o, 'storage-unavailable'), identity: o.identity, record: o.record, stateRevision: o.stateRevision }),
+    store: createCloudReader({ open: storageAccess(o, 'storage-unavailable'), identity: o.identity, record: o.record, stateRevision: o.stateRevision, now: o.now ?? (() => new Date()) }),
     assets: createCloudAssets({ open: storageAccess(o, 'asset-unavailable'), identity: o.identity, record: o.record, ...(o.viewerRoute ? { viewerRoute: o.viewerRoute } : {}) }),
   };
 }

@@ -21,7 +21,7 @@ function world(o: { dep?: ReturnType<typeof deployment>; budgets?: Budgets; cloc
   const bindings = { db: dep.db, bucket: dep.bucket };
   // A read-only grantee: a client user with case read grants and nothing else.
   const who = grantedIdentity(ids.clientA, ['case-a', 'case-b']);
-  const results = createCloudResults({ bindings, clientId: ids.clientA, budgets, identity: who.identity, record: async () => {}, stateRevision: async () => id('case-revision', 'rev-1') as CaseRevision, now: o.clock ?? at(T0) } as never);
+  const results = createCloudResults({ bindings, clientId: ids.clientA, budgets, identity: who.identity, record: async () => {}, stateRevision: async () => id('case-revision', 'rev-1') as CaseRevision, now: o.clock ?? at(T0) });
   const staging = createResultsStaging({ bindings, clientId: ids.clientA, budgets, quotas: QUOTAS, authorize: async () => {}, now: at(T0) });
   return { ...dep, ...results, staging, who };
 }

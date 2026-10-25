@@ -8,7 +8,7 @@ import type { CloudD1Statement } from './bindings.ts';
 import type { StorageContext } from './context.ts';
 import { guard } from './d1.ts';
 import { packageKey } from './keys.ts';
-import { readOriginalFacts } from './original-facts.ts';
+import { readOriginalFacts, type RequiredOriginalLink } from './original-facts.ts';
 import { writerAccess, type OpenWriter } from './mutation.ts';
 import { writeOnce } from './objects.ts';
 
@@ -27,8 +27,15 @@ export interface StageInput {
   identity: { resultsVersion: ResultsVersion; manifestSha256: string };
   validation: { verdict: 'accept' | 'report'; validatorVersion: string; diagnosticsSha256: string; warningFingerprints: readonly string[] };
   projection: StagedProjection;
+  /**
+   * The immutable import link's `coverage.mappedOriginals` (server/runtime/hosted/alpha-contracts.ts), when the importer holds
+   * one. Optional: an original found at its path with one fingerprint needs no link. Required (`original-link-required`) only
+   * for a key whose path holds finalized revisions with different bytes; storage never picks one. A link is checked against the
+   * case's finalized originals and is never a status: a link that does not name exactly one of them refuses the import.
+   */
+  originalLinks?: readonly RequiredOriginalLink[];
 }
-export type StageRefusal = 'over-budget' | 'integrity' | 'wrong-case' | 'unknown-case' | 'inconsistent-projection' | 'version-of-another-case' | 'conflicting-object' | 'over-quota';
+export type StageRefusal = 'over-budget' | 'integrity' | 'wrong-case' | 'unknown-case' | 'inconsistent-projection' | 'version-of-another-case' | 'conflicting-object' | 'over-quota' | 'original-link-required';
 export type StageOutcome = { kind: 'stored'; resultsVersion: ResultsVersion; repeated: boolean } | { kind: 'refused'; reason: StageRefusal; detail: readonly string[] };
 /**
  * Stores a candidate as an immutable results version: `staging` while its objects and rows are written, `stored` in
@@ -91,7 +98,7 @@ export function createResultsStaging(ctx: StorageContext): ResultsStaging {
       // The projection is derived from the verified bytes and the case's own verified original facts (D1 association, R2 bytes);
       // the caller's is only compared with it, and no status it carries is ever an input. A genuine fingerprint mismatch of an
       // original refuses the import here, before any write; it is never relabelled.
-      const originals = await readOriginalFacts(s, a.caseId, prepared.fileAssets);
+      const originals = await readOriginalFacts(s, a.caseId, prepared.fileAssets, a.originalLinks);
       if (originals.kind === 'refused') return refused(originals.reason, originals.problems);
       const derived = prepared.project(originals.facts);
       if (!derived.ok) return refused('integrity', derived.problems);

@@ -69,17 +69,18 @@ describe('resolved hosted import boundary', () => {
       'src/lib/tenancy/provisioning.ts': "export const createManagerBootstrap = () => ({ grantManager: async () => ({}) });",
       'src/lib/audit/provisioning.ts': "export const provisioningAuditPort = () => ({ append: async () => ({}) });",
       'src/lib/tenancy/case-provisioning.ts': 'export const provision = () => ({});',
+      'src/lib/tenancy/case-grant-provisioning.ts': 'export const provision = () => ({});',
       'src/lib/tenancy/upload-provisioning.ts': 'export const provision = () => ({});',
       'src/lib/user-work/hosted/provision.ts': 'export const provision = () => ({});',
       'src/lib/audit/index.ts': "export { requestAuditSink } from './facades';",
       'src/lib/audit/facades.ts': 'export const requestAuditSink = () => ({ append: async () => ({}) });',
     };
     const make = (hooks: string, files: Record<string, string> = {}) => project(hooks, { ...modules, 'src/hosted/gate.server.ts': hooks, ...files });
-    it.each(['$lib/tenancy/provisioning', '$lib/audit/provisioning', '$lib/tenancy/case-provisioning', '$lib/tenancy/upload-provisioning', '$lib/user-work/hosted/provision'])('rejects a deep import from a route: %s', async (specifier) => {
+    it.each(['$lib/tenancy/provisioning', '$lib/audit/provisioning', '$lib/tenancy/case-provisioning', '$lib/tenancy/case-grant-provisioning', '$lib/tenancy/upload-provisioning', '$lib/user-work/hosted/provision'])('rejects a deep import from a route: %s', async (specifier) => {
       const root = await make('export {};', { 'src/hosted/routes/boot/+server.ts': `import '${specifier}';` });
       expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('provisioning-only module is unreachable from the hosted request graph');
     });
-    it.each(['$lib/tenancy/case-provisioning', '$lib/tenancy/upload-provisioning', '$lib/user-work/hosted/provision'])('rejects the new provisioner behind trusted composition and a barrel: %s', async (specifier) => {
+    it.each(['$lib/tenancy/case-provisioning', '$lib/tenancy/case-grant-provisioning', '$lib/tenancy/upload-provisioning', '$lib/user-work/hosted/provision'])('rejects the new provisioner behind trusted composition and a barrel: %s', async (specifier) => {
       const root = await make("import '$lib/server/runtime/hosted/services';", {
         'src/lib/server/runtime/hosted/services.ts': "export * from '$bridge';",
         'src/bridge.ts': `export const invoke = () => import('${specifier}');`,

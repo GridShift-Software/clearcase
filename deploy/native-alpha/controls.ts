@@ -135,7 +135,7 @@ export type CanaryObservation = {
 		| { type: 'response'; status: number; tlsHostname: string; servedSourceSha: string | null; bodySha256: string; cache: 'miss' | 'hit' | 'unknown' }
 		| { type: 'network-error'; code: 'dns-nxdomain' | 'connection-refused' | 'connection-reset' | 'tls-handshake' | 'timeout' };
 };
-export type ProofState = 'HOLD' | 'UNIT-CONTRACT-ONLY' | 'NEGATIVE-PROOF-CONTRACT-SATISFIED';
+export type ProofState = 'HOLD' | 'UNIT-CONTRACT-ONLY' | 'NETWORK-LABELLED-STRUCTURALLY-CONSISTENT';
 
 const HEX32 = /^[0-9a-f]{32}$/;
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -772,5 +772,5 @@ export function checkNegativeProof(a: { manifest: NativeManifest; stop: StopResu
 				if (out.cache !== 'miss') problems.push(`${at}: cache state ${show(out.cache)} could be a cached success`);
 			}
 		}
-	return done(obs.some((o) => o.transport !== 'network') ? 'UNIT-CONTRACT-ONLY' : 'NEGATIVE-PROOF-CONTRACT-SATISFIED');
+	return done(obs.some((o) => o.transport !== 'network') ? 'UNIT-CONTRACT-ONLY' : 'NETWORK-LABELLED-STRUCTURALLY-CONSISTENT');
 }

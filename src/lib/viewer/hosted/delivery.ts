@@ -32,7 +32,8 @@ const varied = (r: Response) => {
 export async function deliverAsset({ assets, asset, method, url, headers }: DeliveryInput): Promise<Response> {
   const request: ByteRequest = { method, range: headers.get('range'), ifRange: headers.get('if-range') };
   // Existence and authority first, with no byte read: an inaccessible asset reads as absent before anything is probed.
-  const m = await assets.metadata({ asset });
+  // `for: 'read'` only names the operation a refusal is audited under; a refusal here throws and `get` is never reached.
+  const m = await assets.metadata({ asset, for: 'read' });
   const policy = servePolicy(m.mediaType, m.filename);
   const dest = headers.get('sec-fetch-dest');
   const candidate = url.searchParams.get('download') !== '1' && policy.mode === 'inline-isolated' && (dest === 'empty' || dest === 'image');

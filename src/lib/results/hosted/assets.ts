@@ -57,10 +57,10 @@ export function createCloudAssets(a: { open: () => Promise<OpenStorage>; identit
     await authorize(s, asset); // authority and publication read again after the slow read
     return { bytes: (r as { bytes: Uint8Array }).bytes, metadata: metadata(row) };
   }
-  async function described<T>(asset: C.AssetRef, run: () => Promise<T>): Promise<T> {
+  async function described<T>(asset: C.AssetRef, run: () => Promise<T>, action = 'asset.describe'): Promise<T> {
     try { return await run(); }
     catch (e) {
-      if (isDenial(e)) await a.record({ action: 'asset.describe', object: { kind: 'asset', id: asset.assetId, caseId: asset.caseId }, version: versionOf(asset), outcome: 'denied' }).catch(() => undefined);
+      if (isDenial(e)) await a.record({ action, object: { kind: 'asset', id: asset.assetId, caseId: asset.caseId }, version: versionOf(asset), outcome: 'denied' }).catch(() => undefined);
       throw e;
     }
   }
@@ -79,7 +79,7 @@ export function createCloudAssets(a: { open: () => Promise<OpenStorage>; identit
       try { return { kind: 'available', metadata: (await read(asset)).metadata }; }
       catch (e) { if (isUnavailable(e)) return { kind: 'unavailable', reason: codeOf(e) === 'missing-original' ? 'missing' : 'changed', parent: null }; throw e; }
     }),
-    metadata: ({ asset }) => described(asset, async () => metadata((await located(asset)).row)),
+    metadata: ({ asset, for: intent }) => described(asset, async () => metadata((await located(asset)).row), intent === 'read' ? `asset.${asset.kind === 'original' ? 'read-original' : 'read-preview'}` : 'asset.describe'),
     links: ({ asset }) => described(asset, async () => {
       await located(asset);
       const base = `/cases/${encodeURIComponent(asset.caseId)}`;

@@ -54,7 +54,9 @@ export interface OriginalEntry { assetId: string; filename: string; mediaType: s
 export interface AssetsAccess {
   /** The case's originals, a case-level input: listed through the case grant alone, with or without a publication. */
   originals(a: Scope): Promise<readonly OriginalEntry[]>;
-  availability(a: { asset: AssetRef }): Promise<AssetAvailability>; metadata(a: { asset: AssetRef }): Promise<AssetMetadata>;
+  availability(a: { asset: AssetRef }): Promise<AssetAvailability>;
+  /** `for: 'read'` marks a preflight for a byte read: a refusal is audited as the requested `asset.read-original`/`asset.read-preview`, not `asset.describe`. It still releases no bytes. */
+  metadata(a: { asset: AssetRef; for?: 'read' }): Promise<AssetMetadata>;
   links(a: { asset: AssetRef }): Promise<{ originalHref: string; downloadHref: string; viewerHref: string | null }>;
   get(a: { asset: AssetRef; request: ByteRequest }): Promise<Response>; // integrity-checked 200/206/416; HEAD has no body
 }

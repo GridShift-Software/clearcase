@@ -24,10 +24,10 @@ export function createMemoryAssets(ctx: MemoryContext, fault: (asset: C.AssetRef
     }
   }
   // Metadata and links release no bytes but are still protected reads: a refusal appends its scoped denial.
-  async function described<T>(asset: C.AssetRef, read: () => Promise<T>): Promise<T> {
+  async function described<T>(asset: C.AssetRef, read: () => Promise<T>, action = 'asset.describe'): Promise<T> {
     try { return await read(); }
     catch (e) {
-      if (isDenial(e)) try { ctx.record({ action: 'asset.describe', object: { kind: 'asset', id: asset.assetId, caseId: asset.caseId }, version: asset.kind === 'preview' ? asset.resultsVersion : null, outcome: 'denied' }); } catch { /* the refusal stands */ }
+      if (isDenial(e)) try { ctx.record({ action, object: { kind: 'asset', id: asset.assetId, caseId: asset.caseId }, version: asset.kind === 'preview' ? asset.resultsVersion : null, outcome: 'denied' }); } catch { /* the refusal stands */ }
       throw e;
     }
   }
@@ -43,7 +43,7 @@ export function createMemoryAssets(ctx: MemoryContext, fault: (asset: C.AssetRef
       try { return { kind: 'available', metadata: (await read(asset)).metadata }; }
       catch (e) { if (e instanceof Error && 'code' in e && (e.code === 'missing-original' || e.code === 'changed-original')) return { kind: 'unavailable', reason: e.code === 'missing-original' ? 'missing' : 'changed', parent: null }; throw e; }
     }),
-    metadata: ({ asset }) => described(asset, async () => (await read(asset)).metadata),
+    metadata: ({ asset, for: intent }) => described(asset, async () => (await read(asset)).metadata, intent === 'read' ? `asset.${asset.kind === 'original' ? 'read-original' : 'read-preview'}` : 'asset.describe'),
     links: ({ asset }) => described(asset, async () => { await read(asset); const href = `/cases/${encodeURIComponent(asset.caseId)}/assets/${encodeURIComponent(asset.assetId)}`; return { originalHref: href, downloadHref: `${href}?download=1`, viewerHref: null }; }),
     async get({ asset, request }) {
       const action = `asset.${asset.kind === 'original' ? 'read-original' : 'read-preview'}`;

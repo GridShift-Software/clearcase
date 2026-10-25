@@ -81,20 +81,23 @@ export function createResultsStaging(ctx: StorageContext): ResultsStaging {
       // read, and an idempotent repeat of a stored version, cost no R2 read).
       const prepared = preparePackage(a.files);
       if (!prepared.ok) return refused('integrity', prepared.problems);
-      if (!(await s.db.prepare('SELECT 1 AS x FROM rs_case WHERE case_id = ?').bind(a.caseId).first().catch(unavailable))) return refused('unknown-case');
-
-      // Identity of an existing version: a stored one is immutable, a staging one of this case starts a new attempt.
-      const prior = await s.db.prepare('SELECT case_id, state, attempt, manifest_sha256 FROM rs_results_version WHERE version_id = ?').bind(rv).first<Version>().catch(unavailable);
-      if (prior && prior.case_id !== a.caseId) return refused('version-of-another-case');
-      if (prior?.state === 'stored') return prior.manifest_sha256 === a.identity.manifestSha256 ? { kind: 'stored', resultsVersion: rv, repeated: true } : refused('integrity', ['a stored version with another manifest']);
       // The reservation is the condition of the batch that writes the version row: a new version needs a free version slot,
       // free package bytes (case and client) and a free attempt; a retry needs a free attempt and no new bytes. A refusal
       // here comes before any object is written, and a retry draws on the same case-wide attempt budget.
-      const reserve = prior
-        ? { condition: attemptsFree, values: [a.caseId, q.maxStagingAttemptsPerCase] }
-        : { condition: newVersionFree, values: [a.caseId, q.maxVersionsPerCase, a.caseId, q.maxStagingAttemptsPerCase, a.caseId, total, q.maxPackageBytesPerCase, total, q.maxPackageBytesPerClient] };
+      const fresh = { condition: newVersionFree, values: [a.caseId, q.maxVersionsPerCase, a.caseId, q.maxStagingAttemptsPerCase, a.caseId, total, q.maxPackageBytesPerCase, total, q.maxPackageBytesPerClient] };
+      const retry = { condition: attemptsFree, values: [a.caseId, q.maxStagingAttemptsPerCase] };
+      // The case, any existing version and both reservations, in one read: nothing is written before it.
+      const pre = await s.db.prepare(`SELECT EXISTS (SELECT 1 FROM rs_case WHERE case_id = ?) AS known, p.case_id, p.state, p.attempt, p.manifest_sha256,
+        (${fresh.condition}) AS fresh_ok, (${retry.condition}) AS retry_ok FROM (SELECT 1) LEFT JOIN rs_results_version p ON p.version_id = ?`)
+        .bind(a.caseId, ...fresh.values, ...retry.values, rv).first<Partial<Version> & { known: number; fresh_ok: number; retry_ok: number }>().catch(unavailable);
+      if (pre?.known !== 1) return refused('unknown-case');
+      // Identity of an existing version: a stored one is immutable, a staging one of this case starts a new attempt.
+      const prior: Version | null = pre.case_id == null ? null : { case_id: pre.case_id, state: pre.state!, attempt: pre.attempt!, manifest_sha256: pre.manifest_sha256! };
+      if (prior && prior.case_id !== a.caseId) return refused('version-of-another-case');
+      if (prior?.state === 'stored') return prior.manifest_sha256 === a.identity.manifestSha256 ? { kind: 'stored', resultsVersion: rv, repeated: true } : refused('integrity', ['a stored version with another manifest']);
+      const reserve = prior ? retry : fresh;
+      if ((prior ? pre.retry_ok : pre.fresh_ok) !== 1) return refused('over-quota', ['the case or the client has no quota left for this import']);
       const reserved = async () => ((await s.db.prepare(`SELECT (${reserve.condition}) AS ok`).bind(...reserve.values).first<{ ok: number }>().catch(unavailable))?.ok ?? 0) === 1;
-      if (!(await reserved())) return refused('over-quota', ['the case or the client has no quota left for this import']);
       // The projection is derived from the verified bytes and the case's own verified original facts (D1 association, R2 bytes);
       // the caller's is only compared with it, and no status it carries is ever an input. A genuine fingerprint mismatch of an
       // original refuses the import here, before any write; it is never relabelled.
@@ -118,16 +121,17 @@ export function createResultsStaging(ctx: StorageContext): ResultsStaging {
         : [guard(s.db, reserve.condition, ...reserve.values),
           s.db.prepare(`INSERT INTO rs_results_version (version_id, case_id, state, attempt, operation_id, manifest_sha256, input_revision_id, case_label, created, verdict, validator_version, diagnostics_sha256, warning_fingerprints,
             expected_documents, expected_assets, expected_seeds, expected_files, read_model_sha256, overview, package_bytes, staged_at, import_seq) VALUES (?, ?, 'staging', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(import_seq), 0) + 1 FROM rs_results_version))`).bind(rv, ...values)];
-      try { await s.db.batch(head); } catch {
+      // Package files: rows first, so every object written below is traced to a staging version, then the objects. The first
+      // rows ride in the batch that writes the version row.
+      const listed = new Map(manifest.files.map((f) => [f.path, f]));
+      const files = [...a.files.entries()].map(([path, bytes]) => ({ path, bytes, sha256: path === 'manifest.json' ? a.identity.manifestSha256 : listed.get(path)!.sha256 }));
+      const fileRows = files.map((f) => s.db.prepare('INSERT INTO rs_package_file (version_id, path, sha256, size, object_key) VALUES (?, ?, ?, ?, ?)').bind(rv, f.path, f.sha256, f.bytes.byteLength, packageKey(rv, f.sha256)));
+      try { await s.db.batch([...head, ...fileRows.slice(0, s.budgets.maxRowsPerBatch)]); } catch {
         // Either the quota was taken by a concurrent import between the check and the batch, or a concurrent import of the same version won the attempt; this one stops without writing.
         if (!(await reserved())) return refused('over-quota', ['the case or the client has no quota left for this import']);
         unavailable();
       }
-
-      // Package files: rows first, so every object written below is traced to a staging version, then the objects.
-      const listed = new Map(manifest.files.map((f) => [f.path, f]));
-      const files = [...a.files.entries()].map(([path, bytes]) => ({ path, bytes, sha256: path === 'manifest.json' ? a.identity.manifestSha256 : listed.get(path)!.sha256 }));
-      await rows(s, rv, attempt, files.map((f) => s.db.prepare('INSERT INTO rs_package_file (version_id, path, sha256, size, object_key) VALUES (?, ?, ?, ?, ?)').bind(rv, f.path, f.sha256, f.bytes.byteLength, packageKey(rv, f.sha256))));
+      await rows(s, rv, attempt, fileRows.slice(s.budgets.maxRowsPerBatch));
       for (const f of files) {
         const w = await writeOnce(s.bucket, packageKey(rv, f.sha256), f.bytes, f.sha256);
         if (w === 'unreachable') unavailable();

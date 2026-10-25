@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest';
 import { canonicalJson, canonicalText } from '../../../src/lib/case-package/canonical.ts';
 import { inputRevisionId, resultsVersionOf, sha256Hex } from '../../../src/lib/case-package/hash.ts';
 import { id } from '../../../src/lib/server/runtime/ids.ts';
-import { d1SubmissionRepository, type IntakeD1 } from '../../../src/lib/submissions/index.ts';
 import { candidateIdOf, d1NativeCandidateRepository, linkDigest, linkIdOf, nativeImportBudget, submissionSnapshotReader, type NativeD1 } from '../../../src/lib/results-review/native/index.ts';
 import { CASE_A, CASE_B, CLIENT, SqliteD1, finalizeSubmission } from './doubles.ts';
 import { pdf, shaOf, buildFixture, asText } from './fixtures.ts';
@@ -35,7 +34,7 @@ describe('hosted-safe hashing equals the library, byte for byte', () => {
   it('the submission manifest digest is the library sha256 of the library canonical text', async () => {
     const db = new SqliteD1(MIGRATIONS), file = { path: 'Letters/A.pdf', bytes: pdf('a') };
     const m = await finalizeSubmission(db, { operationId: op(), file });
-    const snap = await submissionSnapshotReader(d1SubmissionRepository(db as unknown as IntakeD1)).finalized({ clientId: CLIENT, caseId: CASE_A, revisionId: m.revisionId });
+    const snap = await submissionSnapshotReader(db).finalized({ clientId: CLIENT, caseId: CASE_A, revisionId: m.revisionId });
     if (snap.state !== 'finalized') throw new Error('not finalized');
     expect(snap.storedManifestSha256).toBe(sha256Hex(canonicalText(m)));
     expect(snap.storedManifestBytes).toBe(utf8(canonicalText(m)).byteLength);
@@ -73,7 +72,7 @@ describe('the finalized submission reader', () => {
     const fin = await finalizeSubmission(db, { operationId: op(), file: { path: 'Letters/A.pdf', bytes: pdf('a') } });
     const res = await finalizeSubmission(db, { operationId: op(), file: { path: 'Letters/B.pdf', bytes: pdf('b') }, finalize: false });
     const theirs = await finalizeSubmission(db, { caseId: CASE_B, operationId: op(), file: { path: 'Letters/C.pdf', bytes: pdf('c') } });
-    const r = submissionSnapshotReader(d1SubmissionRepository(db as unknown as IntakeD1));
+    const r = submissionSnapshotReader(db);
     const read = (revisionId: string, caseId = CASE_A) => r.finalized({ clientId: CLIENT, caseId, revisionId });
     expect((await read(fin.revisionId)).state).toBe('finalized');
     expect(await read(res.revisionId)).toEqual({ state: 'not-final' });

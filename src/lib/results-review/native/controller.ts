@@ -32,6 +32,7 @@ const REFUSAL: Record<RefusalCode, [number, string]> = {
   'submission-not-found': [404, 'No such finalized submission in this case.'],
   'base-not-found': [404, 'Not found.'],
   'stager-identity-mismatch': [502, 'The stager reported an identity other than the supplied package\'s.'],
+  'over-budget': [413, 'This import is more work than one request on this deployment may do.'],
 };
 
 function authorityRefusal(e: unknown, access: 'read' | 'write'): never {

@@ -7,7 +7,6 @@ import * as candidates from '../../../deploy/client/routes/operator/results/[cas
 import * as candidate from '../../../deploy/client/routes/operator/results/[caseId]/candidates/[candidateId]/+server.ts';
 import * as corrections from '../../../deploy/client/routes/operator/results/[caseId]/candidates/[candidateId]/corrections/+server.ts';
 import { d1NativeCandidateRepository, setNativeImportComposition, submissionSnapshotReader, type NativeD1, type NativeImportPorts } from '../../../src/lib/results-review/native/index.ts';
-import { d1SubmissionRepository, type IntakeD1 } from '../../../src/lib/submissions/index.ts';
 import { AuditRecorder, CASE_A, CLIENT, NOW, SqliteD1, StoredPackages, ValidatingStager, operateAuthority, type OperateCall } from './doubles.ts';
 import type { CaseId } from '../../../src/lib/server/runtime/contracts.ts';
 
@@ -31,7 +30,7 @@ export function world(o: { operate?: readonly CaseId[]; null?: string | null; bu
   const ports: Record<string, unknown> = {
     clientId: CLIENT, budget: o.budget === undefined ? BUDGET : o.budget, authorizeOperate: operateAuthority(o.operate ?? [CASE_A], operateCalls),
     stager, packages, audit, now: () => new Date(NOW),
-    submissions: o.submissions ?? submissionSnapshotReader(d1SubmissionRepository(db as unknown as IntakeD1)),
+    submissions: o.submissions ?? submissionSnapshotReader(db),
     repository: d1NativeCandidateRepository(db as unknown as NativeD1),
   };
   if (o.null) ports[o.null] = null;

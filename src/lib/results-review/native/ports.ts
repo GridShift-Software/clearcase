@@ -1,5 +1,6 @@
 import type { AuditEvent, AuditSink, CaseId, ClientId, Principal, ResultsVersion, SessionId } from '../../server/runtime/contracts.ts';
 import type { CandidateImportLink, FinalizedSubmissionSnapshot } from '../../server/runtime/hosted/alpha-contracts.ts';
+import type { RequestBudget } from './budget.ts';
 
 /** The part of a Cloudflare D1 binding this module uses. The parent passes the client's per-deployment `DB`. */
 export type NativeD1Value = string | number | null;
@@ -34,6 +35,13 @@ export interface OperateIntent { principal: Principal; sessionId: SessionId; cli
  * `identity-unavailable`) to refuse. An unknown case and a case without the capability give the same `forbidden`.
  */
 export type AuthorizeOperate = (a: OperateIntent) => Promise<void>;
+/**
+ * The same operate check as one SQL boolean expression over this client's database (tenancy's `d1OperateObservation`).
+ * Placed in a guard statement, it holds atomically with the write in that statement's D1 batch; placed in a read's
+ * WHERE clause, the read returns nothing once the operator has lost the case. It never audits.
+ */
+export type OperateCondition = (a: OperateIntent) => SqlCondition;
+export interface SqlCondition { readonly sql: string; readonly values: readonly NativeD1Value[] }
 
 /**
  * The trusted reader of finalized submissions. It must check the upload state (not only that a revision row exists), and
@@ -100,17 +108,27 @@ export type AttemptClaim =
  * outcome reads back and succeeds only on the recorded row. Nothing here publishes or records a sign-off.
  */
 export interface NativeCandidateRepository {
-  /** Records the attempt once: same actor and request digest repeats, anything else is `operation-reused`. */
-  claim(a: Scoped & { operationId: string; kind: Origin; operator: OperatorRef; requestSha256: string; submissionRevisionId: string; baseCandidateId: string | null; at: string }): Promise<AttemptClaim>;
+  /**
+   * Records the attempt once: same actor and request digest repeats, anything else is `operation-reused`. A new attempt is
+   * written only while `guard` holds; a fresh claim it stops rejects `storage-unavailable`.
+   */
+  claim(a: Scoped & { operationId: string; kind: Origin; operator: OperatorRef; requestSha256: string; submissionRevisionId: string; baseCandidateId: string | null; at: string; guard?: SqlCondition }): Promise<AttemptClaim>;
   byOperation(a: Scoped & { operationId: string }): Promise<LinkedCandidate | null>;
   byResultsVersion(a: Scoped & { resultsVersion: ResultsVersion }): Promise<{ candidateId: string; manifestSha256: string } | null>;
-  /** One atomic batch: candidate, link, success audit intent and any correction/supersession records. Verified by readback. */
-  record(a: Scoped & { operationId: string; origin: Origin; parentCandidateId: string | null; link: CandidateImportLink; correction: CorrectionRecord | null; auditEvent: AuditEvent }): Promise<LinkedCandidate>;
+  /**
+   * One atomic batch: candidate, link, success audit intent and any correction/supersession records, verified by readback.
+   * A `guard` condition is checked in the same batch, so nothing is written unless it holds then. Answers the recorded
+   * candidate and its committed intent.
+   */
+  record(a: Scoped & { operationId: string; origin: Origin; parentCandidateId: string | null; link: CandidateImportLink; correction: CorrectionRecord | null; auditEvent: AuditEvent; guard?: SqlCondition }): Promise<{ candidate: LinkedCandidate; audit: CommittedCandidateAudit }>;
   /** Committed intent only; includes the original actor/session, never exposed in candidate responses. */
   auditIntent(a: Scoped & { candidateId: string }): Promise<CommittedCandidateAudit>;
   pendingAudits(a: Scoped & { limit: number }): Promise<readonly CommittedCandidateAudit[]>;
-  /** Trusted caller only, AFTER the audit sink acknowledges these exact bytes. Idempotent, verified readback. */
-  settleAudit(a: CommittedCandidateAudit): Promise<void>;
+  /**
+   * Trusted caller only, AFTER the audit sink acknowledges these exact bytes. Idempotent, verified readback, which answers
+   * the settled candidate. With `visible`, the readback holds that condition too and answers null when it does not.
+   */
+  settleAudit(a: CommittedCandidateAudit, visible?: SqlCondition): Promise<LinkedCandidate | null>;
   candidate(a: Scoped & { candidateId: string }): Promise<LinkedCandidate | null>;
   list(a: Scoped): Promise<readonly LinkedCandidate[]>;
 }
@@ -137,7 +155,21 @@ export interface CandidateAuditRecovery { appendCommitted(intent: CommittedCandi
 export interface NativeImportPorts {
   readonly clientId: ClientId;
   readonly budget: NativeImportBudget | null;
+  /** The audited admission of an operator request: called once per request, before any body is read. */
   readonly authorizeOperate: AuthorizeOperate | null;
+  /**
+   * A fresh, unaudited observation of the same authority, for the request's later boundaries. Without it each later
+   * boundary calls `authorizeOperate` again, which is stricter and audits every time.
+   */
+  readonly observeOperate?: AuthorizeOperate | null;
+  /** The observation as SQL, so the link write and the final readback hold it atomically. Without it they observe first. */
+  readonly operateCondition?: OperateCondition | null;
+  /**
+   * The per-request call limit of the deployment's plan. With it, an import whose package already shows more work than one
+   * request may make is refused `over-budget` before its attempt is recorded, and every correction is refused so (it reads
+   * back and stages a whole package). The stager checks the exact cost again before its first staging write.
+   */
+  readonly requestBudget?: RequestBudget | null;
   readonly submissions: FinalizedSubmissionReader | null;
   readonly stager: CandidateStager | null;
   /** Required for corrections only; null makes corrections 503 and leaves imports available. */

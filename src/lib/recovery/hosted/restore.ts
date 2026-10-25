@@ -4,7 +4,7 @@ import { canonicalJson, encode, fail, ID, SHA, sha256Hex } from './bytes.ts';
 import { exportScopes, loadExport, type VerifyRequest, type Verified } from './verify.ts';
 import type { Accounting, PrivateObjectPort, RecoveryDeps } from './types.ts';
 import { recheckExportAuthority } from './visibility.ts';
-import { loadNativeExport, nativeAuthorityDeps } from './native-evidence.ts';
+import { loadNativeExport, recheckNative } from './native-evidence.ts';
 
 /** An isolated restore target: a scope that is not the live client instance. Nothing in it is ever the live case's data. */
 export interface RestoreTarget {
@@ -56,7 +56,9 @@ function buildPlan(v: Verified & { caseId: CaseId; sealedManifest?: Uint8Array }
 }
 async function plan(deps: RestoreDeps, req: RestoreRequest, action: string, scopes: typeof writeScope, native = false) {
   const t = requireTarget(deps); // required-null and isolation refuse before authority, reads or any byte
-  const v = await (native ? loadNativeExport : loadExport)(deps, req, scopes, action);
+  const nv = native ? await loadNativeExport(deps, req, scopes, action) : null;
+  const v = nv ?? await loadExport(deps, req, scopes, action);
+  const recheck = (s: Parameters<typeof recheckExportAuthority>[2]) => nv ? recheckNative(deps, nv.nativeManifest, s) : recheckExportAuthority(deps, v.manifest, s);
   try {
     const revision = await t.stateRevision();
     if (v.manifest.userWork) await emptyUserWork(t);
@@ -65,7 +67,7 @@ async function plan(deps: RestoreDeps, req: RestoreRequest, action: string, scop
     const prefix = prefixOf(t, req.exportId);
     for (const [sha, bytes] of v.blobs) await conflict(t.objects, `${prefix}/blobs/${sha}`, bytes);
     if ('sealedManifest' in v && v.sealedManifest instanceof Uint8Array) await conflict(t.objects, `${prefix}/manifest.json`, v.sealedManifest);
-    return { v, t, revision, plan: { ...p, planSha256: await sha256Hex(encode(canonicalJson(p))) } as RestorePlan };
+    return { v, t, revision, recheck, plan: { ...p, planSha256: await sha256Hex(encode(canonicalJson(p))) } as RestorePlan };
   } catch (e) { await recordFailure(deps, { action, objectKind: 'case-export', objectId: req.exportId, caseId: v.caseId }, e); throw e; }
 }
 async function conflict(o: PrivateObjectPort, key: string, bytes: Uint8Array) {
@@ -77,12 +79,11 @@ async function conflict(o: PrivateObjectPort, key: string, bytes: Uint8Array) {
 export const planRestore = (deps: RestoreDeps, req: RestoreRequest): Promise<RestorePlan> => planRestoreUsing(deps, req, false);
 export const planNativeRestore = (deps: RestoreDeps, req: RestoreRequest): Promise<RestorePlan> => planRestoreUsing(deps, req, true);
 async function planRestoreUsing(deps: RestoreDeps, req: RestoreRequest, native: boolean): Promise<RestorePlan> {
-  const auth = native ? nativeAuthorityDeps(deps) : deps;
-  const { plan: p, v } = await plan(deps, req, 'recovery.restore.plan', exportScopes, native);
+  const { plan: p, v, recheck } = await plan(deps, req, 'recovery.restore.plan', exportScopes, native);
   const audit = { action: 'recovery.restore.plan', objectKind: 'case-export', objectId: req.exportId, caseId: v.caseId };
   try {
     await recordAfter(deps, { ...audit, outcome: 'succeeded' });
-    await recheckExportAuthority(auth, v.manifest, exportScopes(v.caseId));
+    await recheck(exportScopes(v.caseId));
     return p;
   } catch (e) { await recordFailure(deps, audit, e); throw e; }
 }
@@ -95,9 +96,8 @@ async function planRestoreUsing(deps: RestoreDeps, req: RestoreRequest, native: 
 export const applyRestore = (deps: RestoreDeps, req: ApplyRequest): Promise<RestoreReport> => applyRestoreUsing(deps, req, false);
 export const applyNativeRestore = (deps: RestoreDeps, req: ApplyRequest): Promise<RestoreReport> => applyRestoreUsing(deps, req, true);
 async function applyRestoreUsing(deps: RestoreDeps, req: ApplyRequest, native: boolean): Promise<RestoreReport> {
-  const auth = native ? nativeAuthorityDeps(deps) : deps;
   if (!SHA.test(req.confirmedPlanSha256) || !ID.test(req.operationId)) throw fail('invalid-request');
-  const { plan: p, v, t, revision } = await plan(deps, req, 'recovery.restore.apply', writeScope, native);
+  const { plan: p, v, t, revision, recheck } = await plan(deps, req, 'recovery.restore.apply', writeScope, native);
   const audit = { action: 'recovery.restore.apply', objectKind: 'case-export', objectId: req.exportId, caseId: v.caseId };
   try {
     if (p.planSha256 !== req.confirmedPlanSha256) throw fail('plan-mismatch');
@@ -117,12 +117,12 @@ async function applyRestoreUsing(deps: RestoreDeps, req: ApplyRequest, native: b
     await conflict(t.objects, seal[0], seal[1]);
     const objects = { planned: items.length, written: 0, alreadyPresent: 0, verified: 0 };
     // Pre-restore snapshot of the target's own work, before the first change to it.
-    await recheckExportAuthority(auth, v.manifest, writeScope(v.caseId));
+    await recheck(writeScope(v.caseId));
     if (snapshot) snapshotId = await t.userWork.snapshots.put({ caseId: t.caseId, snapshot: await emptyUserWork(t), revision });
     for (const [key, bytes] of items) {
       const sha256 = await sha256Hex(bytes);
-      await recheckExportAuthority(auth, v.manifest, writeScope(v.caseId));
-      const r = await t.objects.putIfAbsent({ key, bytes, sha256, beforeCommit: () => recheckExportAuthority(auth, v.manifest, writeScope(v.caseId)) }).catch(() => { throw fail('storage-unavailable', true); });
+      await recheck(writeScope(v.caseId));
+      const r = await t.objects.putIfAbsent({ key, bytes, sha256, beforeCommit: () => recheck(writeScope(v.caseId)) }).catch(() => { throw fail('storage-unavailable', true); });
       if (r.kind === 'created') objects.written += 1; else objects.alreadyPresent += 1;
     }
     for (const [key, bytes] of items) {
@@ -134,7 +134,7 @@ async function applyRestoreUsing(deps: RestoreDeps, req: ApplyRequest, native: b
     if (objects.verified !== objects.planned || objects.written + objects.alreadyPresent !== objects.planned) throw fail('restore-failed');
     if (snapshot && !snapshotId) throw fail('restore-failed');
     if (snapshot && snapshotId) {
-      await recheckExportAuthority(auth, v.manifest, writeScope(v.caseId));
+      await recheck(writeScope(v.caseId));
       // The expected-revision guard also prevents importing into a target that moved since the plan.
       const r = await t.userWork.importAll({ caseId: t.caseId, expectedRevision: revision, operationId: req.operationId, snapshot, preRestore: snapshotId as never });
       if (r.kind === 'stale') throw fail('stale-state');
@@ -145,7 +145,7 @@ async function applyRestoreUsing(deps: RestoreDeps, req: ApplyRequest, native: b
     }
     if (native && !invariants.every((i) => i.ok)) throw fail('restore-failed');
     await recordAfter(deps, { ...audit, outcome: invariants.every((i) => i.ok) ? 'succeeded' : 'failed' });
-    await recheckExportAuthority(auth, v.manifest, writeScope(v.caseId));
+    await recheck(writeScope(v.caseId));
     return { ok: invariants.every((i) => i.ok), planSha256: p.planSha256, preRestoreSnapshot: snapshotId, objects, userWork: { planned: { tables: uw?.tables ?? 0, rows: uw?.rows ?? 0 }, imported }, invariants, activated: false };
   } catch (e) { await recordFailure(deps, audit, e); throw e; }
 }

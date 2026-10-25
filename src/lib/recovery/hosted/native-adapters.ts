@@ -10,9 +10,9 @@ import { requirePublished } from '../../results/hosted/versions.ts';
 import { createD1UserWork, d1WorkRevision, userWorkConfig, type D1UserWorkConfig } from '../../user-work/hosted/d1-user-work.ts';
 import { resolveExactDeployment, validateClientManifest, type ClientResourceIdentity, type ExactDeploymentTuple } from '../../tenancy/manifest.ts';
 import { canonicalJson, ID, SHA, sha256Hex } from './bytes.ts';
-import type { Limits, PreviewCatalog, PrivateObjectPort, RecoveryDeps, VersionVisibilityPort } from './types.ts';
+import type { CaseAuditPort, Limits, PreviewCatalog, PrivateObjectPort, RecoveryDeps, VersionVisibilityPort } from './types.ts';
 import type { RestoreDeps, RestoreTarget } from './restore.ts';
-import { expectedReferences, nativeLimits, primaryEvidenceReader, type NativeEvidencePort, type NativeRecoveryPolicy, type ImmutableReference } from './native-evidence.ts';
+import { expectedReferences, nativeLimits, primaryEvidenceReader, type AuditScope, type NativeEvidencePort, type NativeRecoveryPolicy, type ImmutableReference } from './native-evidence.ts';
 
 /** R2's native streaming body is required: arrayBuffer() alone cannot enforce a read bound. */
 export interface RecoveryR2 extends CloudR2 {
@@ -240,7 +240,8 @@ export async function createNativeRecoveryAdapters(input: NativeRecoveryOptions)
   let evidenceLimits: ReturnType<typeof nativeLimits> | null = null;
   if (policy) {
     try {
-      if (Object.keys(policy).some((k) => !['maxLineageRows', 'maxLineageBytes', 'visibility'].includes(k))) return unavailable();
+      if (Object.keys(policy).some((k) => !['maxLineageRows', 'maxLineageBytes', 'visibility', 'audit'].includes(k))) return unavailable();
+      if ('audit' in policy && typeof policy.audit?.caseAudit !== 'function') return unavailable();
       evidenceLimits = nativeLimits({ ...limits, maxLineageRows: policy.maxLineageRows, maxLineageBytes: policy.maxLineageBytes });
       if ('visibility' in policy && (!policy.visibility || policy.visibility.kind !== 'current-policy' || typeof policy.visibility.isVisible !== 'function')) return unavailable();
     } catch { return unavailable(); }
@@ -362,12 +363,25 @@ export async function createNativeRecoveryAdapters(input: NativeRecoveryOptions)
       } catch (e) { if (isDenial(e) || codeOf(e) === 'not-found') return false; return unavailable(); }
     },
   }) : visibility;
+  const caseAudit = policy?.audit ? policy.audit.caseAudit.bind(policy.audit) : null;
+  // Exactly this request's principal, session and case on the existing gate; no Identity a caller supplies is trusted.
+  const auditPort: CaseAuditPort | null = caseAudit ? Object.freeze<CaseAuditPort>({
+    kind: 'current-policy',
+    async requireCaseAudit(q) {
+      if (q.identity !== a.identity || q.caseId !== a.caseId || a.identity.kind !== 'verified') throw contractError('forbidden');
+      await check();
+      try { await caseAudit({ principal: a.identity.principal, sessionId: a.identity.sessionId, caseId: a.caseId }); }
+      catch (e) { if (isDenial(e)) throw contractError('forbidden'); return unavailable(); }
+      await check(); // the gate's own IO has the same late-authority boundary as publication IO
+    },
+  }) : null;
   const captured = new Set<string>();
   const capture = evidenceLimits ? primaryEvidenceReader({ openPrimary: () => a.resources.db.withSession('first-primary'), clientId, caseId: a.caseId, limits: evidenceLimits, now: a.now, check: async () => { if (await s.gate()) return unavailable(); await check(); } }) : null;
   const nativeEvidence: NativeEvidencePort | null = evidenceLimits ? Object.freeze({
-    limits: evidenceLimits, visibility: nativeVisibility,
-    async capture() {
-      const c = await capture!();
+    limits: evidenceLimits, visibility: nativeVisibility, audit: auditPort,
+    async capture(q: { audit: AuditScope }) {
+      if (q?.audit !== 'none' && (q?.audit !== 'case-audit/1' || !auditPort)) return unavailable();
+      const c = await capture!(q.audit);
       captured.clear();
       for (const ref of expectedReferences(c.evidence)) captured.add(canonicalJson(ref));
       return c;

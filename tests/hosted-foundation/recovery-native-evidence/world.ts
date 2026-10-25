@@ -10,7 +10,14 @@ import { submissionSnapshotReader } from '../../../src/lib/results-review/native
 import { d1SubmissionRepository, revisionIdOf } from '../../../src/lib/submissions/repository.ts';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
 import type { HostedCandidateStagerOptions } from '../../../src/lib/server/runtime/hosted/candidate-stager.ts';
-export const POLICY = { maxLineageRows: 5000, maxLineageBytes: 2 << 20 };
+import type { AuditReadGate } from '../../../src/lib/audit/index.ts';
+type AuditView = Parameters<AuditReadGate['caseAudit']>[0];
+// Fixture composition of the parent's existing case-audit gate: an explicit, separately held view grant per exact
+// principal, session and case. A content grant, operator grant or staff kind never adds an entry.
+export const auditViewers = new Set<string>();
+export const auditViewKey = (a: AuditView) => JSON.stringify([a.principal.issuer, a.principal.subject, a.principal.kind, a.sessionId, a.caseId]);
+export const AUDIT_GATE: Pick<AuditReadGate, 'caseAudit'> = { async caseAudit(a) { if (!auditViewers.has(auditViewKey(a))) throw contractError('forbidden'); } };
+export const POLICY = { maxLineageRows: 5000, maxLineageBytes: 2 << 20, audit: AUDIT_GATE };
 export const req = { caseId: CASE, exportId: 'native-e1', includeUserWork: true };
 export async function nativeWorld(correction = false, isolated = false, path = 'folder/source.pdf') {
   const w = await world(isolated, true, true);
@@ -40,6 +47,7 @@ export async function nativeWorld(correction = false, isolated = false, path = '
     current = out.candidate;
   }
   w.publish(current.link.candidate.resultsVersion);
+  auditViewers.add(auditViewKey({ principal: w.identity.principal!, sessionId: w.identity.sessionId!, caseId: CASE }));
   // Explicit live version entitlement: real operator grant AND exact stored/case ownership/withdrawal.
   // This is fixture composition of the parent policy hook, not a provider acceptance claim or a case-read waiver.
   w.options.nativeEvidence = { ...POLICY, visibility: {

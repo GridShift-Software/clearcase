@@ -4,7 +4,7 @@ import { authorizeAndAudit, recordAfter, recordFailure, requireCaseId, requireOb
 import { canonicalJson, encode, fail, ID, objectKeys, sha256Hex } from './bytes.ts';
 import { DEFAULT_LIMITS, EXPORT_FORMAT, type Accounting, type BlobRef, type EmbeddedRecord, type ExportManifest, type ExportResult, type Limits, type OriginalRecord, type PreviewRecord, type RecoveryDeps, type VersionRecord } from './types.ts';
 import { recheckExportAuthority, requireVisibility, requireVisible } from './visibility.ts';
-import { evidenceVersions, expectedReferences, legacyView, nativeAuthorityDeps, nativePort, NATIVE_EXPORT_FORMAT, parseNativeManifest, verifyNativeBytes, type ImmutableReference, type NativeExportManifest, type NativeExportResult } from './native-evidence.ts';
+import { auditScopeOf, evidenceVersionIds, evidenceVersions, expectedReferences, nativeAuthorityDeps, nativePort, NATIVE_EXPORT_FORMAT, parseNativeManifest, recheckNative, requireAuditView, verifyNativeBytes, type ImmutableReference, type NativeExportManifest, type NativeExportResult } from './native-evidence.ts';
 
 export interface ExportRequest { caseId: string; exportId: string; includeUserWork: boolean }
 
@@ -19,9 +19,12 @@ export async function exportNativeCase(deps: RecoveryDeps, req: ExportRequest): 
   try {
     const keys = objectKeys(deps.identity.clientId, caseId, req.exportId);
     if (await objects.get(keys.manifest)) throw fail('export-exists');
-    const capture = await port.capture(), evidence = capture.evidence;
+    const scope = auditScopeOf(deps), capture = await port.capture({ audit: scope }), evidence = capture.evidence;
+    if (evidence.audit !== scope) throw fail('manifest-invalid');
+    // Captured rows are only in memory here: nothing is read from R2, released or written before both entitlements hold.
+    await requireAuditView(deps, evidence, caseId);
+    for (const id of evidenceVersionIds(evidence)) await requireVisible(auth, caseId, id);
     const versions = evidenceVersions(evidence);
-    for (const v of versions) await requireVisible(auth, caseId, v.id);
     const expected = expectedReferences(evidence), budget: Budget = { files: 0, bytes: 0, limits: port.limits };
     for (const ref of expected) take(budget, ref.size); // bound every declared reference before touching any protected bytes
     const references: ImmutableReference[] = [], blobs = new Map<string, Uint8Array>();
@@ -67,25 +70,26 @@ export async function exportNativeCase(deps: RecoveryDeps, req: ExportRequest): 
     const bytes = encode(canonicalJson(manifest));
     await parseNativeManifest(bytes, port.limits);
     await verifyNativeBytes(manifest, blobs);
-    if (deps.identity.sessionId && new TextDecoder().decode(bytes).includes(deps.identity.sessionId)) throw fail('manifest-invalid');
-    const view = legacyView(manifest);
+    const session = deps.identity.sessionId, text = new TextDecoder().decode(bytes);
+    if (session && (text.includes(session) || text.includes(await sha256Hex(encode(session))))) throw fail('manifest-invalid');
+    const recheck = () => recheckNative(deps, manifest, scopes);
     for (const [sha256, b] of blobs) {
-      await recheckExportAuthority(auth, view, scopes);
-      await objects.putIfAbsent({ key: `${keys.base}/blobs/${sha256}`, bytes: b, sha256, beforeCommit: () => recheckExportAuthority(auth, view, scopes) });
+      await recheck();
+      await objects.putIfAbsent({ key: `${keys.base}/blobs/${sha256}`, bytes: b, sha256, beforeCommit: recheck });
     }
     for (const [sha, b] of blobs) {
       const back = await objects.get(`${keys.base}/blobs/${sha}`);
       if (!back) throw fail('export-incomplete', true);
       if (back.length !== b.length || await sha256Hex(back) !== sha) throw fail('export-corrupt');
     }
-    await recheckExportAuthority(auth, view, scopes);
+    await recheck();
     const manifestSha256 = await sha256Hex(bytes);
-    const result = await objects.putIfAbsent({ key: keys.manifest, bytes, sha256: manifestSha256, beforeCommit: () => recheckExportAuthority(auth, view, scopes) });
+    const result = await objects.putIfAbsent({ key: keys.manifest, bytes, sha256: manifestSha256, beforeCommit: recheck });
     if (result.kind === 'exists') throw fail('export-exists');
     const back = await objects.get(keys.manifest);
     if (!back || await sha256Hex(back) !== manifestSha256 || back.length !== bytes.length) throw fail('export-incomplete', true);
     await recordAfter(deps, { ...audit, outcome: 'succeeded' });
-    await recheckExportAuthority(auth, view, scopes);
+    await recheck();
     return { manifest, manifestSha256, manifestKey: keys.manifest, accounting: manifest.accounting };
   } catch (e) { await recordFailure(deps, audit, e); throw e; }
 }

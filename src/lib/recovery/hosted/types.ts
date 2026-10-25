@@ -32,7 +32,15 @@ export interface VersionVisibilityPort {
   isVisible(a: { identity: Identity; caseId: CaseId; resultsVersion: ResultsVersion }): Promise<boolean>;
 }
 
-export type ReaderPort = Pick<CaseReader, 'getCase' | 'versionsOf' | 'activeVersionId' | 'stateRevision' | 'verifyVersion' | 'packageFile' | 'packageFilePaths'>;
+/** The live case-audit view entitlement (AuditReadGate.caseAudit) of this exact request identity and case. Content grants,
+ * staff kind and preview authority never satisfy it. Resolves only when held; a denial is `forbidden`, a fault refuses.
+ */
+export interface CaseAuditPort {
+  readonly kind: 'current-policy' | 'test-standin';
+  requireCaseAudit(a: { identity: Identity; caseId: CaseId }): Promise<void>;
+}
+
+export type ReaderPort =Pick<CaseReader, 'getCase' | 'versionsOf' | 'activeVersionId' | 'stateRevision' | 'verifyVersion' | 'packageFile' | 'packageFilePaths'>;
 export type AssetsPort = Pick<AssetsAccess, 'originals' | 'availability' | 'get'>;
 
 export interface RecoveryDeps {

@@ -79,7 +79,7 @@ describe('pinned native schema', () => {
 	it('emits a bounded stage, checks exact invocation and never targets staff', () => {
 		const result = stage();
 		expect(readNativeSchema({ root, stage: result.stage })).toEqual(result);
-		expect(result.manifest.targets.map(t => t.databaseName)).toEqual(['cc-sbx-a-20261023-db', 'cc-sbx-b-20261023-db']);
+		expect(result.manifest.targets.map(t => t.databaseName)).toEqual(['cc-sbx-a-20261023-db', 'cc-sbx-b-20261025-r1-db']);
 		for (const target of result.manifest.targets) {
 			const invocation = { root, stage: result.stage, cwd: result.stage, slot: target.slot, argv: target.argv };
 			expect(checkNativeSchemaInvocation(invocation).target).toEqual(target);

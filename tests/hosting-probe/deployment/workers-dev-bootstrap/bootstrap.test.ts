@@ -64,7 +64,7 @@ describe('separate workers.dev bootstrap planner', () => {
 			expect(c).not.toHaveProperty('secrets');
 		}
 		expect(configs[0]!.d1_databases).toEqual([{ binding: 'DB', database_name: 'cc-sbx-a-20261023-db', database_id: 'cd257736-7bf3-49f6-8544-ac58c2207802' }]);
-		expect(configs[1]!.d1_databases).toEqual([{ binding: 'DB', database_name: 'cc-sbx-b-20261023-db', database_id: '3322ef6b-6735-4922-b029-8fb58f06f623' }]);
+		expect(configs[1]!.d1_databases).toEqual([{ binding: 'DB', database_name: 'cc-sbx-b-20261025-r1-db', database_id: '7c340891-9fcc-4398-8128-68abe726f130' }]);
 		expect(configs[0]!.r2_buckets).toEqual([{ binding: 'BUCKET', bucket_name: 'cc-sbx-a-20261023-files', jurisdiction: 'eu' }]);
 		expect(configs[1]!.r2_buckets).toEqual([{ binding: 'BUCKET', bucket_name: 'cc-sbx-b-20261023-files', jurisdiction: 'eu' }]);
 		expect(configs[0]!.vars).toEqual({ CLEARCASE_INSTANCE_ROLE: 'client', CLEARCASE_CLIENT_ID: 'client-a' });
@@ -146,7 +146,7 @@ describe('file-checking owner and bounded upload guard', () => {
 		expect(() => checkWorkersDevBootstrapInvocation({ ...args, env: {} } as typeof args)).toThrow(/exactly/);
 	});
 	it.each([
-		['client-a', 'd1_databases', [{ binding: 'DB', database_name: 'cc-sbx-b-20261023-db', database_id: '3322ef6b-6735-4922-b029-8fb58f06f623' }]],
+		['client-a', 'd1_databases', [{ binding: 'DB', database_name: 'cc-sbx-b-20261025-r1-db', database_id: '7c340891-9fcc-4398-8128-68abe726f130' }]],
 		['client-b', 'r2_buckets', [{ binding: 'BUCKET', bucket_name: 'cc-sbx-a-20261023-files', jurisdiction: 'eu' }]],
 		['staff', 'd1_databases', [{ binding: 'DB', database_id: 'cd257736-7bf3-49f6-8544-ac58c2207802' }]],
 		['staff', 'r2_buckets', [{ binding: 'BUCKET', bucket_name: 'cc-sbx-a-20261023-files' }]],

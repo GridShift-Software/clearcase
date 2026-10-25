@@ -14,10 +14,10 @@ Account: `fb4c31b91c5d89b7a54afbdc34823170`.
 | Slot | Desired Worker name | D1 database UUID | Private EU R2 bucket |
 | --- | --- | --- | --- |
 | client-a | cc-sbx-a-20261023 | cd257736-7bf3-49f6-8544-ac58c2207802 | cc-sbx-a-20261023-files |
-| client-b | cc-sbx-b-20261023 | 3322ef6b-6735-4922-b029-8fb58f06f623 | cc-sbx-b-20261023-files |
+| client-b | cc-sbx-b-20261023 | 7c340891-9fcc-4398-8128-68abe726f130 | cc-sbx-b-20261023-files |
 | staff | cc-sbx-staff-20261023 | none | none |
 
-D1 names are `cc-sbx-a-20261023-db` and `cc-sbx-b-20261023-db`.
+D1 names are `cc-sbx-a-20261023-db` and `cc-sbx-b-20261025-r1-db`.
 Client bindings are exactly `DB` and `BUCKET`; staff has neither. EU D1
 jurisdiction and disabled R2 development URLs were verified by the parent before
 this brief. The manifest records desired policy, not a new provider readback.

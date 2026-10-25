@@ -8,7 +8,7 @@ export const NATIVE_SCHEMA_SOURCE = 'c6f0d9536e381dc8eebbf2035f49834409434761';
 const ACCOUNT = 'fb4c31b91c5d89b7a54afbdc34823170';
 const CLIENTS = {
 	'client-a': { name: 'cc-sbx-a-20261023-db', id: 'cd257736-7bf3-49f6-8544-ac58c2207802' },
-	'client-b': { name: 'cc-sbx-b-20261023-db', id: '3322ef6b-6735-4922-b029-8fb58f06f623' },
+	'client-b': { name: 'cc-sbx-b-20261025-r1-db', id: '7c340891-9fcc-4398-8128-68abe726f130' },
 } as const;
 export type NativeSchemaSlot = keyof typeof CLIENTS;
 const SQL_FILE = 'migrations/0001_native_alpha.sql';

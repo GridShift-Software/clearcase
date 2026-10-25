@@ -53,7 +53,7 @@ Only account `fb4c31b91c5d89b7a54afbdc34823170` and these existing approved D1 t
 | Slot | Database | UUID |
 | --- | --- | --- |
 | client-a | cc-sbx-a-20261023-db | cd257736-7bf3-49f6-8544-ac58c2207802 |
-| client-b | cc-sbx-b-20261023-db | 3322ef6b-6735-4922-b029-8fb58f06f623 |
+| client-b | cc-sbx-b-20261025-r1-db | 7c340891-9fcc-4398-8128-68abe726f130 |
 
 There is no staff database target, arbitrary SQL input, source-pin override, ID override or additional argv option.
 
@@ -73,7 +73,7 @@ immediately before **each** remote command with the corresponding returned `targ
 
 ```text
 wrangler d1 migrations apply cc-sbx-a-20261023-db --remote --config client-a.wrangler.json
-wrangler d1 migrations apply cc-sbx-b-20261023-db --remote --config client-b.wrangler.json
+wrangler d1 migrations apply cc-sbx-b-20261025-r1-db --remote --config client-b.wrangler.json
 ```
 
 These are logical Wrangler argument arrays; the parent launches the installed pinned Wrangler through real Node,

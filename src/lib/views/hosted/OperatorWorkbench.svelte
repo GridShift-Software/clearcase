@@ -387,6 +387,7 @@
       </label>
       {#if chosenCandidate}
         <p>Private candidate: {chosenCandidate.current ? 'current and durably audited' : 'not current; not eligible for this workbench sign-off'}. Origin: {chosenCandidate.origin}.</p>
+        {#if chosenCandidate.current}<p><a data-action="open-private-preview" href={`/operator/cases/${encodeURIComponent(data.caseId)}/preview/${encodeURIComponent(chosenCandidate.candidateId)}`}>Open private preview of {chosenCandidate.link.candidate.resultsVersion} (not published)</a></p>{/if}
         <details open><summary>Exact candidate link and correction details</summary><pre>{JSON.stringify(chosenCandidate, null, 2)}</pre></details>
         <details><summary>Reasoned correction of authored datasets (advanced)</summary>
           <p>Each replacement is {`{key, data}`}. Generated datasets and originals cannot be edited. A saved correction creates a new candidate requiring fresh review.</p>

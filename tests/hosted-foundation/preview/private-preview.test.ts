@@ -30,7 +30,7 @@ describe('private candidate preview: authority', () => {
     p.grant('synthetic-client', 'viewer', 'client');
     const client = p.identityOf({ issuer: CLIENT, subject: 'synthetic-client', kind: 'client' });
     await expect(read(p, {}, client)).rejects.toMatchObject({ code: 'forbidden' });
-    expect(events(p, 'results.preview-candidate')).toEqual([]);
+    expect(events(p, 'results.preview-candidate').map((e) => e.outcome)).toEqual(['denied']);
   });
 
   it('refuses a candidate of another case, even to an operator of both cases, as not found', async () => {
@@ -62,7 +62,7 @@ describe('private candidate preview: stored state', () => {
   it('refuses a superseded candidate as not found', async () => {
     const p = await setup();
     // Storage state only: a correction's supersession row, written past the migration's trigger, which needs a real correction.
-    p.w.db.sqlite.exec('DROP TRIGGER native_supersession_insert_once');
+    p.w.db.sqlite.exec('DROP TRIGGER native_supersession_insert_once; PRAGMA foreign_keys = OFF');
     p.w.db.exec("INSERT INTO native_candidate_supersession (client_id, case_id, old_candidate_id, new_candidate_id, reason, operator_issuer, operator_subject, at) VALUES (?, ?, ?, 'cand-synthetic-newer', 'synthetic', ?, 'synthetic-operator', ?)",
       ids.clientA, caseId, p.candidate.candidateId, STAFF, now().toISOString());
     await expect(read(p)).rejects.toMatchObject({ code: 'not-found' });
@@ -90,7 +90,9 @@ describe('private candidate preview: the read', () => {
     console.log('[preview-cost]', JSON.stringify({ clerk: p.clerk.calls, d1: n.d1, r2: n.r2 }));
     expect(p.clerk.calls).toBeLessThanOrEqual(FREE.external);
     expect(n.d1).toBeLessThanOrEqual(FREE.d1);
-    expect(n.r2).toBe(0);
+    // Measured: two admission checks and one release check of the session; operate and content admission, the
+    // candidate, version and verified model reads, the read event, the release content check and the final fence.
+    expect({ clerk: p.clerk.calls, d1: n.d1, r2: n.r2 }).toEqual({ clerk: 3, d1: 21, r2: 0 });
     const pin = p.candidate.link.candidate;
     expect(out).toMatchObject({ state: 'private-candidate-not-published', caseId, candidateId: p.candidate.candidateId, linkId: p.candidate.link.linkId,
       resultsVersion: pin.resultsVersion, manifestSha256: pin.manifestSha256, packageInputRevisionId: pin.packageInputRevisionId,
@@ -123,7 +125,7 @@ describe('private candidate preview: the read', () => {
     const p = await setup();
     p.clerk.calls = 0;
     const total = await measured();
-    p.w.db.sqlite.exec('DROP TRIGGER native_supersession_insert_once');
+    p.w.db.sqlite.exec('DROP TRIGGER native_supersession_insert_once; PRAGMA foreign_keys = OFF');
     p.clerk.onClerk = (c) => {
       if (c === total) p.w.db.exec("INSERT INTO native_candidate_supersession (client_id, case_id, old_candidate_id, new_candidate_id, reason, operator_issuer, operator_subject, at) VALUES (?, ?, ?, 'cand-synthetic-newer', 'synthetic', ?, 'synthetic-operator', ?)",
         ids.clientA, caseId, p.candidate.candidateId, STAFF, now().toISOString());

@@ -24,6 +24,7 @@ import { caseAuthority, nativeImportPorts, WORKERS_FREE_REQUEST } from './import
 import { canonicalText } from '../../../case-package/canonical.ts';
 import { committedAuditRecovery, type RecoveryD1 } from '../../../audit/recovery.ts';
 import { createPublicationMaterialReader } from './publication-material.ts';
+import { createPrivatePreview } from './private-preview.ts';
 import { hostedValidationPolicy } from './validation-policy.ts';
 import { createNativePreviewRenderChecker, type NativePreviewRenderOptions } from '../../../viewer/hosted/native-render-check.ts';
 import { compiledPdfAssetPins } from './render-pins.ts';
@@ -184,11 +185,15 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 							? services.audit.append(event)
 							: historical.publication.append(event) },
 					} : null;
+					// The operator's private candidate preview: audited operate and read-preview admission, the operate grant as
+					// SQL in its final fence, over the same primary session. It shares no permit with the import or readiness.
+					const preview = createPrivatePreview({ clientId: clerk.config.clientId, identity, db: context.db, audit: services.audit, now,
+						authorizeOperate: (o) => authorizeOperate({ ...o, capability: 'operate' }), operateCondition: (o) => authority.operate.condition(o) });
 					bindNativeRequestCompositions(request, {
 						intake: { clientId: clerk.config.clientId, budget, authorizeUpload, originals, repository, now },
 						downloads: { clientId: clerk.config.clientId, authorizeOperate, repository, assets: results.assets, audit: services.audit, now,
 							...(scheduler ? { waitUntil: (work: Promise<void>) => scheduler.waitUntil(work) } : {}) },
-						imports, publication,
+						imports, publication, preview,
 					});
 					dataReady = true;
 				}

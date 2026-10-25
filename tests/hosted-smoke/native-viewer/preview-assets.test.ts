@@ -3,16 +3,20 @@
 import { describe, expect, it } from 'vitest';
 import * as preview from '../../../deploy/client/routes/cases/[caseId]/v/[version]/assets/[assetId]/+server.ts';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
-import { bigPdf, call, fetchDest, getOriginal, publish, shaOf, syntheticPackage, withdraw, world, type World } from './world.ts';
+import { bigPdf, call, fetchDest, getOriginal, packageOver, pdf, provide, publish, shaOf, withdraw, world, type World } from './world.ts';
 
 const FETCH = fetchDest('empty');
 const getPreview = (w: World, caseId: string, version: string, assetId: string, o: { headers?: Record<string, string>; method?: 'GET' | 'HEAD' } = {}) =>
   call(preview, o.method ?? 'GET', `/cases/${caseId}/v/${version}/assets/${assetId}`, { caseId, version, assetId }, { assets: w.assets, headers: o.headers ?? FETCH });
 
+// The stager derives each original's status from this case's finalized uploads and refuses a projection that claims more,
+// so the case's originals are uploaded through the real intake first. Every version of a case lists the same originals.
 async function stageWithPreview(w: World, tag: string, caseId = 'case-a') {
-  const pkg = await syntheticPackage(caseId, tag), rv = pkg.identity.resultsVersion, bytes = bigPdf(`preview-${tag}`);
+  const docs = [1, 2].map((n) => { const ref = `OD-00${n}`, path = `DISCOVERY/${ref} letter ${n}.pdf`; return { ref, disk: 'ok' as const, path, onDisk: path, bytes: pdf(`${caseId}-${n}`) }; });
+  const pkg = await packageOver(caseId, tag, docs), rv = pkg.identity.resultsVersion, bytes = bigPdf(`preview-${tag}`);
+  if (!w.db.rows('SELECT 1 FROM rs_case_original WHERE case_id = ? AND asset_id = ?', caseId, 'OD-001').length) await provide(w, caseId, pkg.uploads);
   const staged = await w.staging.stage({ caseId: caseId as never, operationId: `import-${tag}`, files: pkg.files, identity: pkg.identity, validation: pkg.validation, projection: pkg.projection });
-  if (staged.kind === 'refused') throw new Error(`fixture stage refused: ${staged.reason}`);
+  if (staged.kind === 'refused') throw new Error(`fixture stage refused: ${staged.reason}: ${staged.detail?.join('; ')}`);
   const key = `preview/${shaOf(bytes)}`;
   await w.bucket.put(key, bytes, { sha256: shaOf(bytes) });
   w.db.exec('INSERT INTO rs_preview (version_id, asset_id, sha256, size, media_type, filename, object_key) VALUES (?, ?, ?, ?, ?, ?, ?)', rv, 'p1', shaOf(bytes), bytes.byteLength, 'application/pdf', 'p1.pdf', key);

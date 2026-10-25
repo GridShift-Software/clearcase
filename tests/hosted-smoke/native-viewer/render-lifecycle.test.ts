@@ -1,8 +1,10 @@
 // Real PDF.js RenderTasks, paused mid-render, not a browser or byte-route acceptance check.
-import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
+import { join } from 'node:path';
 import { createCanvas, DOMMatrix, ImageData, Path2D } from '@napi-rs/canvas';
 // @ts-expect-error Test-only transport controls for the pinned PDF.js module.
-import { controls } from './pdfjs-transport.mjs';
+import { controls, withSyntheticTransport } from './pdfjs-transport.mjs';
+import { generatePdfAssets } from './pdf-assets.ts';
 function pdf() {
   const ops = '0 0 20 20 re f\n';
   const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>',
@@ -14,14 +16,18 @@ function pdf() {
   text += 'xref\n0 6\n0000000000 65535 f \n' + offsets.map((n) => `${String(n).padStart(10, '0')} 00000 n \n`).join('') + `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${start}\n%%EOF\n`;
   return new TextEncoder().encode(text);
 }
-let reader: any;
+let reader: any, assets: ReturnType<typeof generatePdfAssets>;
+afterAll(() => assets?.dispose());
 beforeAll(async () => {
+  assets = generatePdfAssets();
   Object.assign(globalThis, { DOMMatrix, ImageData, Path2D, window: Object.assign(new EventTarget(), {
     requestAnimationFrame: (run: FrameRequestCallback) => setTimeout(() => run(performance.now()), 0),
     cancelAnimationFrame: (id: ReturnType<typeof setTimeout>) => clearTimeout(id),
   }) });
-  // @ts-expect-error Static browser adapter is intentionally not a Worker/TypeScript module.
-  await import('../../../src/lib/viewer/hosted/static/pdf-reader.mjs');
+  // The reviewed reader and the real pinned pdf.min.mjs sit side by side, as in the published tree; only getDocument's transport is replaced.
+  const bundle = join(assets.dir, 'pdf.min.mjs');
+  vi.doMock(bundle, async () => withSyntheticTransport(await vi.importActual(bundle)));
+  await import(/* @vite-ignore */ join(assets.dir, 'pdf-reader.mjs'));
 });
 beforeEach(() => { Object.assign(controls, { bytes: pdf(), pauseNext: false, paused: null, tasks: [], loads: [], holdPage: null }); });
 afterEach(async () => { reader?.destroy(); reader = null; await Promise.allSettled(controls.loads.map((t: any) => t.destroy())); });

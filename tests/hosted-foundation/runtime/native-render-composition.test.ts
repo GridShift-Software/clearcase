@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import {
  NATIVE_SDK_BUILD_SCHEMA, NATIVE_SDK_INPUT_PINS, NATIVE_SDK_WORKER_OUTPUTS,
- NATIVE_SDK_BUFFER_SOURCE, NATIVE_SDK_DEBUG_SOURCE, NATIVE_SDK_POLICY_IDENTITY,
+ NATIVE_SDK_BUFFER_SOURCE, NATIVE_SDK_DEBUG_SOURCE, NATIVE_SDK_HOST_SYMBOLS, NATIVE_SDK_POLICY_IDENTITY,
 } from '../../../src/lib/viewer/hosted/sdk-build-contract.ts';
 import { fixture, bundle } from '../native-sdk-build/harness.ts';
 import type { Identity } from '../../../src/lib/server/runtime/contracts.ts';
@@ -96,11 +96,17 @@ describe('native renderer build identity (unit/build-only)',()=>{
   expect(NATIVE_SDK_INPUT_PINS).toMatchObject({version:pkg.version,modules:files.length,esmInventorySha256:hash(inventory)});
   expect(NATIVE_SDK_BUFFER_SOURCE).toBe("export { Buffer } from 'node:buffer';\n");
   expect(NATIVE_SDK_DEBUG_SOURCE).toBe("export default function debug() { throw Error('native render SDK Node diagnostics refused'); }\n");
-  expect(NATIVE_SDK_POLICY_IDENTITY).toEqual({schema:NATIVE_SDK_BUILD_SCHEMA,inputs:NATIVE_SDK_INPUT_PINS,transforms:NATIVE_SDK_WORKER_OUTPUTS,hostBuffer:NATIVE_SDK_BUFFER_SOURCE,deniedNodeDiagnostics:NATIVE_SDK_DEBUG_SOURCE});
+  expect(NATIVE_SDK_POLICY_IDENTITY).toEqual({schema:NATIVE_SDK_BUILD_SCHEMA,inputs:NATIVE_SDK_INPUT_PINS,transforms:NATIVE_SDK_WORKER_OUTPUTS,hostBuffer:NATIVE_SDK_BUFFER_SOURCE,deniedNodeDiagnostics:NATIVE_SDK_DEBUG_SOURCE,hostSymbols:NATIVE_SDK_HOST_SYMBOLS});
+  expect(NATIVE_SDK_HOST_SYMBOLS).toEqual(['Symbol.dispose','Symbol.asyncDispose']);
   expect(Object.isFrozen(NATIVE_SDK_INPUT_PINS)).toBe(true);
   expect(Object.isFrozen(NATIVE_SDK_WORKER_OUTPUTS)).toBe(true);
   expect(Object.isFrozen(NATIVE_SDK_POLICY_IDENTITY)).toBe(true);
-  expect(Object.keys(NATIVE_SDK_WORKER_OUTPUTS)).toHaveLength(8);
+  expect(Object.isFrozen(NATIVE_SDK_HOST_SYMBOLS)).toBe(true);
+  expect(Object.keys(NATIVE_SDK_WORKER_OUTPUTS).sort()).toEqual([
+   'puppeteer/api/Page.js','puppeteer/cdp/Binding.js','puppeteer/cdp/ElementHandle.js','puppeteer/cdp/ExecutionContext.js','puppeteer/cdp/Frame.js',
+   'puppeteer/cdp/HTTPResponse.js','puppeteer/cdp/utils.js','puppeteer/cloudflare/PuppeteerWorkers.js','puppeteer/common/BrowserConnector.js',
+   'puppeteer/common/BrowserWebSocketTransport.js','puppeteer/common/util.js','puppeteer/environment.js','puppeteer/util/disposable.js',
+  ]);
  });
  it('agrees with actual scoped build receipts without claiming native SDK/render evidence',async()=>{
   const f=fixture();fixtures.push(f);await bundle(f.root);

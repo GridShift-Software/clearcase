@@ -29,6 +29,12 @@ export interface ClerkBrowserHandshake {
 export const cookiePairs = (request: Request): { name: string; value: string }[] =>
 	(request.headers.get('cookie') ?? '').split(';').map((p) => p.trim()).filter(Boolean).map((p) => { const i = p.indexOf('='); return i < 0 ? { name: p, value: '' } : { name: p.slice(0, i), value: p.slice(i + 1) }; });
 
+/** The browser's one `__clerk_db_jwt` (the dev browser a handshake set host-only here), or null when absent or repeated. */
+export function devBrowserOf(request: Request): string | null {
+	const values = cookiePairs(request).filter((c) => c.name === '__clerk_db_jwt').map((c) => c.value);
+	return values.length === 1 ? values[0]! : null;
+}
+
 /** The cookie directives that delete exactly the Clerk session cookies a request carries (host-only, as they were set). */
 export function clerkCookieClears(request: Request, secure: boolean): string[] {
 	return clearableNames(request).map((name) => `${name}=; Path=/; Max-Age=0${name.startsWith('__client_uat') ? '' : '; HttpOnly'}; SameSite=Lax${secure ? '; Secure' : ''}`);

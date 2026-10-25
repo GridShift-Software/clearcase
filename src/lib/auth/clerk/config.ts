@@ -59,6 +59,7 @@ const SECRET = /^sk_(test|live)_[A-Za-z0-9]{8,256}$/;
 const HOST = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
 const PEM = /^-----BEGIN PUBLIC KEY-----[A-Za-z0-9+/=\s]{64,4096}-----END PUBLIC KEY-----$/;
 const AUDIENCE = /^[A-Za-z0-9._:/-]{1,200}$/;
+const DEV_BROWSER = /^[A-Za-z0-9._-]{16,4096}$/;
 // @clerk/backend 3.26.0 loads a PEM key by deleting this exact RSA-2048 SPKI prefix and the exponent suffix (AQAB) and
 // taking the rest as the modulus. Any other key (EC, RSA of another size, exponent) would turn every token into an
 // SDK failure, so the configuration refuses it up front instead of per request.
@@ -170,14 +171,21 @@ export function readClerkIdentityConfig(env: Readonly<Record<string, unknown>>, 
 /**
  * What the public sign-in page may show: the sign-in URL of the client instance (default) or of the staff instance for the
  * per-client operator route, never a key. Null when unconfigured or when the return target is not on this origin.
+ *
+ * `devBrowser` is the browser's `__clerk_db_jwt` on this origin. A development instance keeps one Clerk client per dev
+ * browser, so a portal on another origin signs in this browser's client only when handed it, as @clerk/backend's
+ * redirectToSignIn does; without it the portal signs in a client of its own and the handshake here stays signed out. It is
+ * added for the client instance only: the cookie name is shared on this origin and nothing shows which instance minted it.
  */
-export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, returnTo: string, kind: InstanceKind = 'client'): { href: string } | null {
+export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, returnTo: string, kind: InstanceKind = 'client', devBrowser: string | null = null): { href: string } | null {
 	const read = readClerkIdentityConfig(env, { keys: 'optional' });
 	const signInUrl = read.ok ? (kind === 'client' ? read.config.signInUrl : read.config.staffSignInUrl) : null;
 	if (!read.ok || signInUrl === null) return null;
 	const target = new URL(signInUrl), back = new URL(returnTo, read.config.appOrigin);
 	if (back.origin !== read.config.appOrigin) return null;
 	target.searchParams.set('redirect_url', back.href);
+	const development = read.config[kind].publishableKey.startsWith('pk_test_');
+	if (kind === 'client' && development && devBrowser !== null && DEV_BROWSER.test(devBrowser) && target.origin !== read.config.appOrigin) target.searchParams.set('__clerk_db_jwt', devBrowser);
 	return { href: target.href };
 }
 

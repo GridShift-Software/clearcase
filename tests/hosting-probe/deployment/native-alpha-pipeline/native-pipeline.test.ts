@@ -74,8 +74,12 @@ const mutants = (value: unknown) =>
 	);
 
 describe('the native profile shares the legacy staged paths and keeps the legacy parser closed', () => {
+	// NATIVE24 adaptation: the entry and migrations are still the legacy STAGED paths; the public assets moved out of the
+	// legacy assets directory (which held the entry) to artifact/public, so the server bundle is never a public asset.
 	test('the native staged entry, assets and migrations are the legacy STAGED paths', () => {
-		expect({ entry: NATIVE_STAGED.entry, assets: NATIVE_STAGED.assets, migrations: NATIVE_STAGED.migrations }).toEqual({ ...STAGED });
+		expect({ entry: NATIVE_STAGED.entry, assets: STAGED.assets, migrations: NATIVE_STAGED.migrations }).toEqual({ ...STAGED });
+		expect(NATIVE_STAGED.assets).toBe('artifact/public');
+		expect(NATIVE_STAGED.entry.startsWith(`${NATIVE_STAGED.assets}/`)).toBe(false);
 	});
 	test('the legacy loader still refuses a native target (its /1 schema check is not widened)', () => {
 		expect(() => loadTargets(CLIENTS)).toThrow(/schema is "clearcase\.deploy-target\.native\/1", not clearcase\.deploy-target\/1/);
@@ -151,7 +155,7 @@ describe('the native Wrangler config is compared key by key with its native targ
 		['an R2 binding with no jurisdiction', ', "jurisdiction": "eu" }', ' }', /r2_buckets\[0\]\.jurisdiction is missing/],
 		['migrations outside the stage', '"migrations_dir": "migrations"', '"migrations_dir": "../client-b/migrations"', /the migrations directory is "\.\.\/client-b\/migrations"/],
 		['an entry outside the staged artifact', '"main": "artifact/cloudflare/_worker.js"', '"main": "./artifact/cloudflare/../../src/_worker.js"', /the Worker entry is/],
-		['an assets directory outside the staged artifact', '"directory": "artifact/cloudflare"', '"directory": "static"', /the assets directory is "static"/],
+		['an assets directory outside the staged artifact', '"directory": "artifact/public"', '"directory": "static"', /the assets directory is "static"/],
 		['another assets binding', '"binding": "ASSETS"', '"binding": "FILES"', /the assets binding is "FILES"/],
 		['another compatibility flag', '["nodejs_als"]', '["nodejs_compat"]', /compatibility_flags is \["nodejs_compat"\]/],
 		['send_metrics on', '"send_metrics": false', '"send_metrics": true', /send_metrics is true, not false/],
@@ -308,11 +312,11 @@ describe('the native stage binds the checked config, the artifact and the migrat
 	test('a --digest other than the target artifact identity is refused', () => refusedStage({ digest: `sha256:${'0'.repeat(64)}` }, /not the reviewed sha256:0{64}/));
 	const retarget = (art: string) => clientsCopy((d) => editJson(path.join(d, 'client-a', 'target.json'), (t) => (t.runtime.artifactSha256 = digestDir(art))));
 	test('an artifact whose version file names another source is refused, even when the target names its digest', () => {
-		const art = artifactCopy((d) => writeFileSync(path.join(d, 'cloudflare/_app/version.json'), '{"version":"1111111111111111111111111111111111111111"}\n'));
+		const art = artifactCopy((d) => writeFileSync(path.join(d, 'public/_app/version.json'), '{"version":"1111111111111111111111111111111111111111"}\n'));
 		refusedStage({ artifact: art, digest: digestDir(art), clients: retarget(art) }, /_app\/version\.json names "1{40}", not the target's source/);
 	});
 	test('a hosted-gate artifact (test-double marker) is refused, even when the target names its digest', () => {
-		const art = artifactCopy((d) => writeFileSync(path.join(d, 'cloudflare/_app/double.js'), 'export const m = "clearcase-test-double:hosted-gate";\n'));
+		const art = artifactCopy((d) => writeFileSync(path.join(d, 'public/_app/double.js'), 'export const m = "clearcase-test-double:hosted-gate";\n'));
 		refusedStage({ artifact: art, digest: digestDir(art), clients: retarget(art) }, /holds the hosted-gate test-double marker/);
 	});
 	test("client B's D1 id in client A's committed native config is refused and nothing is staged", () =>

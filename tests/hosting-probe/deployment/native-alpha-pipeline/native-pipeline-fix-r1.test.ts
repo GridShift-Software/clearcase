@@ -84,9 +84,10 @@ describe('M1: the upload is the final, closed, prebundled module graph, bound by
 		const record = JSON.parse(readFileSync(path.join(okStage(), 'stage.json'), 'utf8'));
 		const entry = readFileSync(path.join(ARTIFACT, 'cloudflare/_worker.js'));
 		expect(record.upload).toMatchObject({ mode: 'prebundled-no-bundle', additionalModules: false, entry: { path: NATIVE_STAGED.entry, sha256: sha(entry), bytes: entry.length } });
+		// NATIVE24 adaptation: version.json moved to the separate public tree, so it now sorts after the entry.
 		const files = [
-			['cloudflare/_app/version.json', readFileSync(path.join(ARTIFACT, 'cloudflare/_app/version.json'))],
 			['cloudflare/_worker.js', entry],
+			['public/_app/version.json', readFileSync(path.join(ARTIFACT, 'public/_app/version.json'))],
 		] as const;
 		expect(record.upload.files).toEqual(files.map(([p, b]) => ({ path: `artifact/${p}`, bytes: b.length, sha256: sha(b) })));
 	});

@@ -31,8 +31,25 @@ describe('planned allocation arithmetic', () => {
 		expect(refusalOf(browsers)).toMatch(/aggregate policy/);
 	});
 	it('plans no allocation at all, and says so, when the caller supplies no aggregate policy', () => {
+		// A null allocation is allowed only when no client opts in to rendering; with any opt-in the aggregate policy is required.
 		const withBudgets = exampleWithBrowserAllocation(); withBudgets.browserAllocation = null;
-		expect(planNativeRuntimeConfig(withBudgets).manifest.plannedBrowserAllocation).toBeNull();
+		expect(refusalOf(withBudgets)).toMatch(/input\.browserAllocation: .*explicit.*opted in/);
+	});
+	it('refuses a null allocation when only one client opts in, and when every client opts in', () => {
+		const one = exampleInput(); one.browserAllocation = null;
+		expect(refusalOf(one)).toMatch(/input\.browserAllocation: .*explicit.*opted in/);
+		const both = exampleWithBrowserAllocation(); both.browserAllocation = null;
+		expect(refusalOf(both)).toMatch(/input\.browserAllocation: .*explicit.*opted in/);
+	});
+	it('plans a null allocation, no BROWSER binding and no render budget when no client opts in to rendering', () => {
+		const noRenderer = exampleInput();
+		for (const c of noRenderer.clients) c.policy.nativeRenderBudget = null;
+		noRenderer.browserAllocation = null;
+		const plan = planNativeRuntimeConfig(noRenderer);
+		expect(plan.manifest.plannedBrowserAllocation).toBeNull();
+		expect(plan.clients.map((c) => c.bindings.browser)).toEqual([null, null]);
+		expect(plan.manifest.clients.map((c) => c.browserBinding)).toEqual([null, null]);
+		for (const c of plan.clients) expect(Object.hasOwn(JSON.parse(c.vars.CLEARCASE_NATIVE_CONFIG!), 'nativeRenderBudget')).toBe(false);
 	});
 });
 

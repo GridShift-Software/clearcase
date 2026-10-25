@@ -11,7 +11,7 @@ beforeAll(() => { root = realpathSync(mkdtempSync(path.join(tmpdir(), 'native-ru
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 let n = 0;
 const fresh = () => path.join(root, `stage-${++n}`);
-const refused = (work: () => unknown) => { try { work(); } catch (error) { return nativeRuntimeConfigDiagnostic(error) ?? 'foreign error'; } throw new Error('accepted'); };
+const refused = (work: () => unknown) => { try { work(); } catch (error) { const message = nativeRuntimeConfigDiagnostic(error); if (message === undefined) throw new Error('refusal was not issued by the planner'); return message; } throw new Error('accepted'); };
 const names = (dir: string) => readdirSync(dir).sort();
 
 describe('prepare and read', () => {
@@ -104,6 +104,16 @@ describe('changed stage bytes', () => {
 		refused(() => read(out, other));
 		const noClerkChange = exampleInput(); noClerkChange.clients[1]!.clerk.mfaRequired = true;
 		refused(() => read(out, noClerkChange));
+	});
+	it('refuses a stage whose directory or files are not private (0700 directory, 0600 files)', () => {
+		const loose = stage(); chmodSync(loose, 0o755); expect(refused(() => read(loose))).toMatch(/exactly the planned/); chmodSync(loose, 0o700);
+		const group = stage(); chmodSync(group, 0o770); refused(() => read(group)); chmodSync(group, 0o700);
+		for (const name of ['client-a.runtime.json', 'client-b.runtime.json', NATIVE_RUNTIME_CONFIG_MANIFEST]) {
+			for (const mode of [0o644, 0o640, 0o666, 0o400, 0o700]) {
+				const out = stage(); chmodSync(path.join(out, name), mode);
+				expect(refused(() => read(out))).toMatch(/exactly the planned/);
+			}
+		}
 	});
 	it('does not change a stage it refuses', () => {
 		const out = stage(); writeFileSync(path.join(out, 'extra.txt'), 'x');

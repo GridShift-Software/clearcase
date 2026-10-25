@@ -76,12 +76,14 @@ const refusals: Mutation[] = [
 	['a render client run count above its ceiling', (i) => { i.clients[0].policy.nativeRenderBudget.maxRunsPerClientPerDay = 5; }],
 	['a render case run count above the client\'s', (i) => { i.clients[0].policy.nativeRenderBudget.maxRunsPerCasePerDay = 2; i.clients[0].policy.nativeRenderBudget.maxRunsPerClientPerDay = 1; }],
 	['a render budget that is not an object', (i) => { i.clients[0].policy.nativeRenderBudget = 'on'; }],
+	['a render opt-in with no explicit planned allocation', (i) => { i.browserAllocation = null; }],
 	['a missing render decision (no default to a null budget)', (i) => { delete i.clients[1].policy.nativeRenderBudget; }],
 	['a manifest with duplicate resources', (i) => { i.manifest.clients[1].r2Bucket = i.manifest.clients[0].r2Bucket; }],
 	['a manifest staff issuer with a path', (i) => { i.manifest.staffIssuer = 'https://staff.clerk.test/x'; }],
 	['a manifest with an extra field', (i) => { i.manifest.extra = 1; }],
 ];
 const allocations: Mutation[] = [
+	['a null allocation while both clients opted in', (i) => { i.browserAllocation = null; }],
 	['an allocation with no opted-in client', (i) => { for (const c of i.clients) c.policy.nativeRenderBudget = null; }],
 	['one browser short of the planned clients', (i) => { i.browserAllocation.maxConcurrentBrowsers = 1; }],
 	['one millisecond short of the worst-case day', (i) => { i.browserAllocation.maxReservedBrowserMsPerDay = 210_999; }],

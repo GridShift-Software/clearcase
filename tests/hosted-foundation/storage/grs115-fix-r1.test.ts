@@ -12,9 +12,11 @@ import { readModelDigest } from '../../../src/lib/local-case/project.server.ts';
 import { id, type CaseRevision } from '../../../src/lib/server/runtime/ids.ts';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
 import type { AssetRef } from '../../../src/lib/server/runtime/contracts.ts';
-import { BUDGETS, GET, QUOTAS, deployment, grantedIdentity, ids, pdf, publish, shaOf, syntheticPackage } from './fixture.ts';
+import { BUDGETS, GET, QUOTAS, deployment, grantedIdentity, ids, pdf, provideOriginals, publish, shaOf, syntheticPackage } from './fixture.ts';
 
 const now = () => new Date('2001-01-01T00:00:00Z');
+/** The verified originals of a `syntheticPackage`'s case folder (every document present, at its indexed path), as `projectPackage` takes them. */
+const facts = (pkg: { docs: { ref: string; path: string; bytes: Uint8Array }[] }) => new Map(pkg.docs.map((d) => [d.ref, { path: d.path, sha256: shaOf(d.bytes), size: d.bytes.byteLength, mediaType: 'application/pdf', status: 'verified' as const, downloadOnly: false }]));
 const allow = async () => {};
 type Mutation = { clientId: string; caseId: string; capability: string; step: string; operationId: string };
 interface Options { dep?: ReturnType<typeof deployment>; budgets?: typeof BUDGETS; quotas?: typeof QUOTAS | null; authorize?: ((m: Mutation) => Promise<void>) | null; grants?: string[] }
@@ -138,6 +140,7 @@ describe('M4: the projection is derived from the verified package bytes, never t
   ];
   for (const [what, sql] of tamper) it(`refuses to serve ${what} that changed in D1`, async () => {
     const w = world(), pkg = await syntheticPackage('case-a', `m4-${what}`), rv = pkg.identity.resultsVersion, scope = { caseId: ids.caseA, resultsVersion: rv };
+    await provideOriginals(w, 'case-a', pkg); // plumbing: verified original facts for the canonical projection
     await stage(w, pkg);
     publish(w.db, 'case-a', rv);
     expect((await w.store.documentRows(scope)).rows).toHaveLength(2);
@@ -148,6 +151,7 @@ describe('M4: the projection is derived from the verified package bytes, never t
   });
   it('catches rows rewritten together with their stored digest when the version is verified against its bytes', async () => {
     const w = world(), pkg = await syntheticPackage('case-a', 'm4-digest'), rv = pkg.identity.resultsVersion, scope = { caseId: ids.caseA, resultsVersion: rv };
+    await provideOriginals(w, 'case-a', pkg);
     await stage(w, pkg);
     publish(w.db, 'case-a', rv);
     w.db.exec("UPDATE rs_document SET state_json = replace(state_json, 'present', 'missing') WHERE ref = 'OD-001'");
@@ -244,6 +248,7 @@ describe('M6: cumulative quotas are reserved in D1 before any provider write', (
   });
   it('caps versions per case and staging attempts per case, retries included, before any object is written', async () => {
     const versions = world({ quotas: { ...QUOTAS, maxVersionsPerCase: 1 } }), one = await syntheticPackage('case-a', 'm6-v1'), two = await syntheticPackage('case-a', 'm6-v2');
+    await provideOriginals(versions, 'case-a', one);
     expect(await stage(versions, one)).toMatchObject({ kind: 'stored' });
     const before = objects(versions).length;
     expect(await stage(versions, two, { operationId: 'import-2' })).toMatchObject({ kind: 'refused', reason: 'over-quota' });
@@ -251,6 +256,7 @@ describe('M6: cumulative quotas are reserved in D1 before any provider write', (
     expect(versions.db.rows('SELECT * FROM rs_results_version')).toHaveLength(1);
 
     const attempts = world({ quotas: { ...QUOTAS, maxStagingAttemptsPerCase: 2 } }), n = counted(attempts);
+    await provideOriginals(attempts, 'case-a', one); // plumbing before the counted baseline below
     for (const op of ['import-1', 'import-2']) { attempts.db.failNext = /INSERT INTO rs_document/; await expect(stage(attempts, one, { operationId: op })).rejects.toMatchObject({ code: 'storage-unavailable' }); }
     const puts = n.put;
     expect(await stage(attempts, one, { operationId: 'import-3' })).toMatchObject({ kind: 'refused', reason: 'over-quota' });
@@ -260,6 +266,7 @@ describe('M6: cumulative quotas are reserved in D1 before any provider write', (
   it('counts package bytes against the case and the client', async () => {
     const pkg = await syntheticPackage('case-a', 'm6-bytes'), total = [...pkg.files.values()].reduce((s, b) => s + b.byteLength, 0);
     const w = world({ quotas: { ...QUOTAS, maxPackageBytesPerCase: total, maxPackageBytesPerClient: total } });
+    await provideOriginals(w, 'case-a', pkg);
     expect(await stage(w, pkg)).toMatchObject({ kind: 'stored' });
     expect(await stage(w, await syntheticPackage('case-a', 'm6-bytes-2'), { operationId: 'import-2' })).toMatchObject({ kind: 'refused', reason: 'over-quota' });
   });
@@ -283,9 +290,11 @@ describe('related Low classes (L1 atomic put, L2 identity size, L3 oracles, view
   });
   it('L3: an unknown version and a version of a case the caller has no grant for answer alike, and the list etag names no client', async () => {
     const w = world({ grants: ['case-a'] }), pkg = await syntheticPackage('case-a', 'l3'), rv = pkg.identity.resultsVersion;
+    await provideOriginals(w, 'case-a', pkg);
     await stage(w, pkg);
     publish(w.db, 'case-a', rv);
     const other = await syntheticPackage('case-b', 'l3-b');
+    await provideOriginals(w, 'case-b', other); // case-b's own originals, in case-b only
     await stage(w, other, { caseId: ids.caseB, operationId: 'import-b' });
     const unknown = await w.store.getVersion({ resultsVersion: `sha256:${'d'.repeat(64)}` as never }).catch((e) => e.code);
     const foreign = await w.store.getVersion({ resultsVersion: other.identity.resultsVersion }).catch((e) => e.code);
@@ -315,12 +324,12 @@ describe('related Low classes (L1 atomic put, L2 identity size, L3 oracles, view
     expect(storageQuotas(undefined)).toBeNull();
   });
   it('the hosted projector derives the read model of a package from its bytes alone and refuses bytes that do not validate', async () => {
-    const pkg = await syntheticPackage('case-a', 'projector'), derived = projectPackage(pkg.files);
+    const pkg = await syntheticPackage('case-a', 'projector'), derived = projectPackage(pkg.files, facts(pkg)); // facts: the originals the fixture's case folder holds
     expect(derived.ok && derived.projection.documents).toEqual(pkg.projection.documents);
     expect(derived.ok && derived.projection.assets).toEqual(pkg.projection.assets);
     expect(derived.ok && derived.projection.chronologyJson).toEqual(pkg.projection.chronologyJson);
     const files = new Map(pkg.files);
     files.set('datasets/chronology.json', new TextEncoder().encode('{"not":"a dataset"}'));
-    expect(projectPackage(files)).toMatchObject({ ok: false });
+    expect(projectPackage(files, facts(pkg))).toMatchObject({ ok: false });
   });
 });

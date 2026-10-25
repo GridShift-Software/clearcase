@@ -9,8 +9,9 @@ import { readViewContent } from '../../case-package/view-content.ts';
 import { verifyCandidateBytes } from '../../case-package/verify-bytes.ts';
 import type { OpenStorage } from '../../storage/cloud/access.ts';
 import { verifiedRead } from '../../storage/cloud/objects.ts';
+import { claimedFacts, readOriginalFacts } from '../../storage/cloud/original-facts.ts';
 import { loadVerifiedModel, type LoadedModel } from './model.ts';
-import { projectPackage } from './project.ts';
+import { preparePackage } from './project.ts';
 import { readModelDigest } from './read-model.ts';
 import type { StorageEvent } from './index.ts';
 import { caseOfVersion, caseRow, caseRows, requirePublished, unavailable, versionInfo } from './versions.ts';
@@ -125,8 +126,17 @@ export function createCloudReader(a: { open: () => Promise<OpenStorage>; identit
       if (ok && v) {
         // The authoritative check: the rows in D1 are the read model of these package bytes. Rows rewritten together with the
         // stored digest pass the load check above; they do not pass this one.
-        try { await model(s, scope.resultsVersion); } catch (e) { if (codeOf(e) === 'integrity') ok = false; else throw e; }
-        if (ok) { const derived = projectPackage(files); ok = derived.ok && (await readModelDigest(derived.projection)) === v.read_model_sha256; }
+        let loaded: LoadedModel | null = null;
+        try { loaded = await model(s, scope.resultsVersion); } catch (e) { if (codeOf(e) === 'integrity') ok = false; else throw e; }
+        if (ok && loaded) {
+          // Every original the stored model calls verified must still be what it says (this case's own association and R2 bytes, hashed
+          // now); an original that was unavailable stays as stored. The model is then derived from the bytes under exactly those facts.
+          const prepared = preparePackage(files);
+          const current = prepared.ok ? await readOriginalFacts(s, scope.caseId, prepared.fileAssets) : null;
+          const facts = current?.kind === 'ok' ? claimedFacts(loaded.assets, current.facts) : null;
+          if (!prepared.ok || !facts) ok = false;
+          else { const derived = prepared.project(facts); ok = derived.ok && (await readModelDigest(derived.projection)) === v.read_model_sha256; }
+        }
       }
       return release(s, scope, { ok, ms: Date.now() - started, ...(ok ? {} : { reason: 'integrity' }) });
     },

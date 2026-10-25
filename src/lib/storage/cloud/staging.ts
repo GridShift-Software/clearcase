@@ -2,12 +2,13 @@ import type { CaseId, ResultsVersion } from '../../server/runtime/contracts.ts';
 import { contractError } from '../../server/runtime/errors.ts';
 import { verifyCandidateBytes } from '../../case-package/verify-bytes.ts';
 import { decodeUtf8Strict, parseStrictJson } from '../../case-package/strict-json.ts';
-import { projectPackage } from '../../results/hosted/project.ts';
+import { preparePackage } from '../../results/hosted/project.ts';
 import { projectionDifferences, readModelDigest, type StagedAsset, type StagedProjection } from '../../results/hosted/read-model.ts';
 import type { CloudD1Statement } from './bindings.ts';
 import type { StorageContext } from './context.ts';
 import { guard } from './d1.ts';
 import { packageKey } from './keys.ts';
+import { readOriginalFacts } from './original-facts.ts';
 import { writerAccess, type OpenWriter } from './mutation.ts';
 import { writeOnce } from './objects.ts';
 
@@ -16,8 +17,8 @@ export type { StagedAsset, StagedProjection };
  * One validated candidate, as the operator import controller (GRS-30) hands it over after the case-package library
  * accepted it: the exact package bytes, the identity the validator computed, its verdict, and the projection it
  * computed (`project()` of local-case/project.server.ts). The projection is a claim, not an input: storage derives the
- * canonical projection from the verified package bytes with the hosted-safe projector, refuses a claim that differs, and
- * stores and digests only what it derived. The verdict and diagnostics are the import controller's own and are recorded as given.
+ * canonical projection from the verified package bytes and the case's own verified original facts with the hosted-safe
+ * projector, refuses a claim that differs, and stores and digests only what it derived. The verdict and diagnostics are the import controller's own and are recorded as given.
  */
 export interface StageInput {
   caseId: CaseId;
@@ -69,14 +70,10 @@ export function createResultsStaging(ctx: StorageContext): ResultsStaging {
       if (!verdict.ok) return refused('integrity', verdict.problems);
       const manifest = parseStrictJson(decodeUtf8Strict(a.files.get('manifest.json')!)) as { case: { id: string; label?: string }; inputRevision: { id: string }; created: string; files: { path: string; sha256: string; size: number }[] };
       if (manifest.case.id !== a.caseId) return refused('wrong-case', ['the package names another case']);
-      // The projection is derived from the verified bytes; the caller's is only compared with it.
-      const derived = projectPackage(a.files);
-      if (!derived.ok) return refused('integrity', derived.problems);
-      const p = derived.projection;
-      if (p.documents.length > s.budgets.maxDocuments) return refused('over-budget', ['the package has more documents than maxDocuments']);
-      const differences = projectionDifferences(a.projection, p);
-      if (differences.length) return refused('inconsistent-projection', differences.slice(0, 20));
-      const list = new Map((JSON.parse(p.chronologyJson) as { ref: string }[]).map((e) => [e.ref, e]));
+      // Validated once here; projected below, once the case, the version and the quota are known (so a refusal that needs no original
+      // read, and an idempotent repeat of a stored version, cost no R2 read).
+      const prepared = preparePackage(a.files);
+      if (!prepared.ok) return refused('integrity', prepared.problems);
       if (!(await s.db.prepare('SELECT 1 AS x FROM rs_case WHERE case_id = ?').bind(a.caseId).first().catch(unavailable))) return refused('unknown-case');
 
       // Identity of an existing version: a stored one is immutable, a staging one of this case starts a new attempt.
@@ -91,6 +88,18 @@ export function createResultsStaging(ctx: StorageContext): ResultsStaging {
         : { condition: newVersionFree, values: [a.caseId, q.maxVersionsPerCase, a.caseId, q.maxStagingAttemptsPerCase, a.caseId, total, q.maxPackageBytesPerCase, total, q.maxPackageBytesPerClient] };
       const reserved = async () => ((await s.db.prepare(`SELECT (${reserve.condition}) AS ok`).bind(...reserve.values).first<{ ok: number }>().catch(unavailable))?.ok ?? 0) === 1;
       if (!(await reserved())) return refused('over-quota', ['the case or the client has no quota left for this import']);
+      // The projection is derived from the verified bytes and the case's own verified original facts (D1 association, R2 bytes);
+      // the caller's is only compared with it, and no status it carries is ever an input. A genuine fingerprint mismatch of an
+      // original refuses the import here, before any write; it is never relabelled.
+      const originals = await readOriginalFacts(s, a.caseId, prepared.fileAssets);
+      if (originals.kind === 'refused') return refused(originals.reason, originals.problems);
+      const derived = prepared.project(originals.facts);
+      if (!derived.ok) return refused('integrity', derived.problems);
+      const p = derived.projection;
+      if (p.documents.length > s.budgets.maxDocuments) return refused('over-budget', ['the package has more documents than maxDocuments']);
+      const differences = projectionDifferences(a.projection, p);
+      if (differences.length) return refused('inconsistent-projection', differences.slice(0, 20));
+      const list = new Map((JSON.parse(p.chronologyJson) as { ref: string }[]).map((e) => [e.ref, e]));
       const attempt = (prior?.attempt ?? 0) + 1, at = ctx.now().toISOString(), v = a.validation;
       const values = [a.caseId, attempt, a.operationId, a.identity.manifestSha256, manifest.inputRevision.id, manifest.case.label ?? null, manifest.created, v.verdict, v.validatorVersion, v.diagnosticsSha256, JSON.stringify([...v.warningFingerprints].sort()),
         p.expect.documents, p.expect.assets, p.expect.seeds, p.expect.files, await readModelDigest(p), p.overview, total, at] as const;

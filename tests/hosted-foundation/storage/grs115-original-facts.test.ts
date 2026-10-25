@@ -78,7 +78,7 @@ describe('a claimed status is never evidence', () => {
     const w = world(), claimed = await originalsPackage('case-a', 'f-claim', ['ok', 'ok']);
     const result = await stage(w, claimed);
     expect(result).toMatchObject({ kind: 'refused', reason: 'inconsistent-projection' });
-    expect((result as { detail: string[] }).detail.join('\n')).toMatch(/asset OD-001 differs/);
+    expect((result as { detail: readonly string[] }).detail.join('\n')).toMatch(/asset OD-001 differs/);
     none(w);
   });
 
@@ -100,6 +100,18 @@ describe('a claimed status is never evidence', () => {
     expect(await stage(w, pkg)).toMatchObject({ kind: 'refused', reason: 'inconsistent-projection' });
     expect(await stage(w, honestMissing)).toMatchObject({ kind: 'stored' });
     expect(stored(w).map((r) => [r.key, r.status])).toEqual([['OD-001', 'unavailable'], ['OD-002', 'verified']]);
+  });
+
+  it('a bare association row with no finalized upload of this case behind it is no verified fact', async () => {
+    const w = world(), claimed = await originalsPackage('case-a', 'f-bare', ['ok', 'ok']), honestMissing = await originalsPackage('case-a', 'f-bare', ['missing', 'ok']);
+    const first = claimed.docs[0]!, sha = shaOf(first.bytes);
+    w.bucket.setRaw(`orig/${sha}`, first.bytes);
+    w.db.exec('INSERT INTO rs_original (sha256, size, object_key) VALUES (?, ?, ?)', sha, first.bytes.byteLength, `orig/${sha}`);
+    w.db.exec("INSERT INTO rs_case_original (case_id, asset_id, sha256, filename, media_type, finalized_at) VALUES ('case-a', 'OD-001', ?, ?, 'application/pdf', '2001-01-01T00:00:00Z')", sha, first.path);
+    await provide(w, 'case-a', [claimed.uploads[1]!]);
+    expect(await stage(w, claimed)).toMatchObject({ kind: 'refused', reason: 'inconsistent-projection' });
+    expect(await stage(w, honestMissing)).toMatchObject({ kind: 'stored' });
+    expect(stored(w).map((r) => r.status)).toEqual(['unavailable', 'verified']);
   });
 
   it('a wrong-case name is a case mismatch, never verified, even when the claim says verified', async () => {
@@ -127,7 +139,7 @@ describe('a genuine digest mismatch stays fail-closed', () => {
     for (const claim of [pkg, honestMissing]) {
       const result = await stage(w, claim);
       expect(result).toMatchObject({ kind: 'refused', reason: 'integrity' });
-      expect((result as { detail: string[] }).detail.join('\n')).toContain('OD-001');
+      expect((result as { detail: readonly string[] }).detail.join('\n')).toContain('OD-001');
     }
     none(w);
   });
@@ -151,7 +163,7 @@ describe('a genuine digest mismatch stays fail-closed', () => {
     const forged = { ...pkg.projection, documents: [{ ...d0, row_json: JSON.stringify({ ...JSON.parse(d0.row_json), subject: 'forged subject' }) }, ...pkg.projection.documents.slice(1)] };
     const result = await stage(w, pkg, { projection: forged });
     expect(result).toMatchObject({ kind: 'refused', reason: 'inconsistent-projection' });
-    expect((result as { detail: string[] }).detail).toEqual(['document OD-001 differs from the package']);
+    expect((result as { detail: readonly string[] }).detail).toEqual(['document OD-001 differs from the package']);
   });
 });
 

@@ -40,13 +40,16 @@ export type CraftedInstance = ReturnType<typeof craftedInstance>;
 export async function statusDouble() {
 	const sessions = new Map<string, { status: string; user_id: string }>();
 	const calls: string[] = [];
-	let outage = false;
+	const bearers: { call: string; key: string }[] = [];
+	let outage = false, failRevoke = false;
 	const server: Server = createServer((req, res) => {
 		calls.push(`${req.method} ${req.url} ${req.headers.authorization ? 'auth' : 'no-auth'}`);
+		bearers.push({ call: `${req.method} ${req.url}`, key: String(req.headers.authorization ?? '').replace(/^Bearer /, '') });
 		const send = (status: number, body: unknown) => (res.writeHead(status, { 'content-type': 'application/json' }), res.end(JSON.stringify(body)));
 		if (outage) return send(503, { errors: [{ code: 'service_unavailable', message: 'synthetic outage' }] });
 		const revoke = /^\/v1\/sessions\/([^/?]+)\/revoke$/.exec(req.url ?? '');
 		if (revoke && req.method === 'POST') {
+			if (failRevoke) return send(500, { errors: [{ code: 'internal_error', message: 'synthetic revoke failure' }] });
 			const row = sessions.get(revoke[1]!);
 			if (!row) return send(404, { errors: [{ code: 'resource_not_found', message: 'not found' }] });
 			row.status = 'revoked';
@@ -62,6 +65,12 @@ export async function statusDouble() {
 	return {
 		url: `http://127.0.0.1:${port}`,
 		calls,
+		/** The bearer key each request carried (revocation-evidence tests), additive to `calls`. */
+		bearers,
+		/** The status the double holds for a session, or undefined when it has none. */
+		statusOf: (sid: string) => sessions.get(sid)?.status,
+		/** Only the revoke POST answers 500; the session lookup still works. */
+		failRevoke: (on: boolean) => void (failRevoke = on),
 		set: (sid: string, userId: string, status = 'active') => void sessions.set(sid, { status, user_id: userId }),
 		outage: (on: boolean) => void (outage = on),
 		close: () => new Promise<void>((r) => server.close(() => r())),

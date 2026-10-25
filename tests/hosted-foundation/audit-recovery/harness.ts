@@ -44,7 +44,9 @@ export class SqlD1 implements D1 {
   auditFault: 'none' | 'drop' | 'lost-ack' | 'lost-readback' = 'none';
   failAuditReads = false;
   sourceHook: (() => void) | null = null;
-  constructor(readonly path: string, migrate = false) {
+  readonly path: string;
+  constructor(path: string, migrate = false) {
+    this.path = path;
     this.sql = new DatabaseSync(path);
     this.sql.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 1000');
     if (migrate) for (const p of migrations) this.sql.exec(readFileSync(p, 'utf8'));

@@ -29,8 +29,12 @@ function contentOnly(w: World) {
 }
 it('P1: actual content-only export gates before any native_audit_events statement, like the public reader', async () => {
   const w = await source(), { identity: who, requester } = contentOnly(w), reads: string[] = [];
-  const prepare = w.db.prepare.bind(w.db);
-  w.db.prepare = (sql) => { if (/\bSELECT\b/i.test(sql) && /\bnative_audit_events\b/.test(sql)) reads.push(sql); return prepare(sql); };
+  // Observe the protected primary capture, not the audit sink's mandatory append/readback of its own event.
+  const open = w.resources.db.withSession.bind(w.resources.db);
+  w.resources.db.withSession = (constraint) => {
+    const db = open(constraint);
+    return { prepare(sql) { if (/\bnative_audit_events\b/.test(sql) && !/WHERE \(?0\)?/.test(sql)) reads.push(sql); return db.prepare(sql); }, batch: db.batch!.bind(db) };
+  };
   w.options.nativeEvidence = { ...noAudit };
   await expect(exportNativeCase(await w.deps(), req)).rejects.toMatchObject({ code: 'recovery-unavailable' });
   expect(reads).toEqual([]);

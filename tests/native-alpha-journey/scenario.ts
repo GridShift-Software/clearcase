@@ -7,12 +7,13 @@
 //   3 after-restart      the same facts read again after the parent restarts or redeploys the same revision.
 // Every request goes to the real origin with a real Clerk session. A failed check is recorded and the phase goes on where
 // that is safe, so one run shows every failure; a check whose input is missing is a failure, never a skip.
-import { PART, canon, isPlain, sha256Hex, randomHex } from './common.ts';
+import { PART, SHA, canon, isPlain, sha256Hex, randomHex } from './common.ts';
 import type { Actor, Reply } from './http.ts';
 import { tagsWith, visibleText } from './html.ts';
 import { privateUntilPublished, refusal, sameRefusal } from './judge.ts';
 import { compareReadbacks, sealReadback, type Readback, type ReadbackChronologyRow, type ReadbackNote, type ReadbackOriginal } from './readback.ts';
-import { IDENTITY_KEYS, expand, pointer, type Port, type PortName, type Var } from './routes.ts';
+import { IDENTITY_KEYS, UNRESOLVED_PORTS, expand, pointer, portProblems, type Port, type PortName, type Var } from './routes.ts';
+import { validateExport } from './export.ts';
 import type { JourneyFixture } from './fixtures.ts';
 
 export interface Obs { id: string; ok: boolean; status: number | null; detail: string }
@@ -59,6 +60,17 @@ async function refusedBy(ctx: Ctx, rec: Rec, id: string, who: [string, Actor][],
 }
 const outsiders = (ctx: Ctx): [string, Actor][] => [['anon', ctx.actors.anon], ['other-client', ctx.actors.otherClient], ['revoked', ctx.actors.revoked]];
 
+/** Direct phase callers fail closed too; CLI configuration HOLDs before creating this context. */
+function prerequisites(ctx: Ctx, rec: Rec, label: string): boolean {
+  const problems: string[] = [];
+  if (!ctx.plan.foreignCaseId || !PART.test(ctx.plan.foreignCaseId) || ctx.plan.foreignCaseId === ctx.plan.caseId) problems.push('a provisioned ungranted foreign case is required');
+  for (const name of UNRESOLVED_PORTS) {
+    const p = ctx.plan.ports[name];
+    problems.push(...(p ? portProblems(name, p) : [`route port ${name} is unresolved`]));
+  }
+  return rec.add(`${label}.prerequisites`, problems.length === 0, problems.join('; ') || 'required case and owning route contracts supplied');
+}
+
 // ---- health and the exact deployed revision -------------------------------------------------------------------------
 export async function checkHealth(ctx: Ctx, rec: Rec, label: string): Promise<boolean> {
   const r = await rec.guard(`${label}.health`, () => call(ctx, ctx.actors.anon, 'health', {}));
@@ -93,7 +105,7 @@ export async function readSnapshot(ctx: Ctx, who: Actor, rec: Rec, label: string
   const originals: ReadbackOriginal[] = [];
   for (const l of links) {
     const bytes = await rec.guard(`${label}.original`, () => call(ctx, who, 'original.get', v(ctx, { assetId: l['data-asset-id'] })));
-    if (!bytes) continue;
+    if (!bytes) { problems.push('original request failed'); continue; }
     if (bytes.status !== 200) problems.push(`original ${l['data-asset-id']} answered ${bytes.status}`);
     originals.push({ assetId: l['data-asset-id'], sha256: bytes.sha256, size: bytes.bytes.byteLength || 1 });
   }
@@ -118,13 +130,17 @@ export async function readSnapshot(ctx: Ctx, who: Actor, rec: Rec, label: string
       if (body) notes.push({ body, annotation: text.includes(f.ref) && body.startsWith('journey-annotation') ? f.ref : null });
     }
   }
+  if (!chrono) problems.push('chronology request failed');
+  if (!notesPage) problems.push('notes request failed');
+  rec.add(`${label}.snapshot`, problems.length === 0, problems.join('; ') || 'all snapshot requests succeeded and publication matches');
+  if (problems.length) return null;
   return { readback: sealReadback({ deployedSha: ctx.plan.expectedSha, caseId: ctx.plan.caseId, resultsVersion: f.resultsVersion, publication, originals, chronology, notes, exportSha256: withExport }), problems };
 }
 
 // ---- phase 1 ------------------------------------------------------------------------------------------------------
 export async function uploadImport(ctx: Ctx): Promise<{ obs: Obs[]; state: State | null }> {
   const rec = new Rec(), f = ctx.fixture, A = ctx.actors.clientA, B = ctx.actors.operatorB;
-  if (!(await checkHealth(ctx, rec, 'p1'))) return { obs: rec.obs, state: null };
+  if (!prerequisites(ctx, rec, 'p1') || !(await checkHealth(ctx, rec, 'p1'))) return { obs: rec.obs, state: null };
 
   const si = await rec.guard('p1.sign-in', () => call(ctx, ctx.actors.anon, 'page.sign-in', {}));
   if (si) rec.add('p1.sign-in', si.status === 200 && !/name="identity"/.test(si.text) && !/data-test-identity/.test(si.text), si.status === 200 ? 'the sign-in page offers no test identity' : `status ${si.status}`, si.status);
@@ -142,7 +158,7 @@ export async function uploadImport(ctx: Ctx): Promise<{ obs: Obs[]; state: State
   rec.add('p1.declare', d.status === 201, `status ${d.status}`, d.status);
   const up = await rec.guard('p1.upload', () => call(ctx, A, 'intake.upload', v(ctx, { operationId }), { headers: { 'content-type': 'application/pdf' }, body: f.pdf.bytes }));
   if (!up) return { obs: rec.obs, state: null };
-  const uj = json(up) as { stage?: string; results?: string; manifest?: { files?: { path?: string; sha256?: string; size?: number }[] }; handoff?: { href?: string }[] } | undefined;
+  const uj = json(up) as { stage?: string; results?: string; manifest?: { revisionId?: string; files?: { path?: string; sha256?: string; size?: number }[] }; handoff?: { href?: string }[] } | undefined;
   const file = uj?.manifest?.files?.[0];
   const manifestOk = up.status === 201 && uj?.stage === 'finalized' && uj.results === 'none' && uj.manifest?.files?.length === 1 && file?.path === f.pdf.path && file?.sha256 === f.pdf.sha256 && file?.size === f.pdf.size;
   rec.add('p1.upload', manifestOk, manifestOk ? 'finalized with the exact path, sha256 and size; results none' : `status ${up.status}; stage ${uj?.stage}; manifest does not match the uploaded PDF`, up.status);
@@ -174,8 +190,23 @@ export async function uploadImport(ctx: Ctx): Promise<{ obs: Obs[]; state: State
 
   // operator B: the manifest and the original
   const mget = await rec.guard('p1.operator-manifest', () => call(ctx, B, 'operator.submission.get', v(ctx, { operationId, assetId })));
+  let submissionRevisionId: string | null = null, submissionManifestSha256: string | null = null;
   if (mget) {
-    const files = pointer(json(mget), port(ctx, 'operator.submission.get').captures!.files);
+    const body = json(mget), caps = port(ctx, 'operator.submission.get').captures!;
+    const files = pointer(body, caps.files);
+    const revision = pointer(body, caps.revisionId), digest = stripSha(pointer(body, caps.manifestSha256));
+    const encoded = pointer(body, caps.manifestBase64);
+    let persisted: unknown;
+    let exactDigest: string | null = null;
+    if (typeof encoded === 'string' && encoded.length > 0) {
+      const bytes = Buffer.from(encoded, 'base64');
+      if (bytes.toString('base64') === encoded) {
+        try { persisted = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); exactDigest = sha256Hex(bytes); } catch { /* failed observation below */ }
+      }
+    }
+    const lineageOk = mget.status === 200 && manifestOk && pointer(body, caps.stage) === 'finalized' && typeof revision === 'string' && PART.test(revision) && revision === uj?.manifest?.revisionId && typeof digest === 'string' && SHA.test(digest) && digest === exactDigest && isPlain(persisted) && persisted.caseId === ctx.plan.caseId && persisted.operationId === operationId && canon(persisted) === canon(uj?.manifest ?? null);
+    rec.add('p1.submission-lineage', lineageOk, lineageOk ? 'finalized revision and digest of exact persisted manifest bytes match the uploaded submission' : 'missing, unfinalized or mismatched authoritative submission identity', mget.status);
+    if (lineageOk) { submissionRevisionId = revision as string; submissionManifestSha256 = digest as string; }
     const ok = mget.status === 200 && Array.isArray(files) && files.length === 1 && isPlain(files[0]) && files[0].path === f.pdf.path && files[0].sha256 === f.pdf.sha256 && files[0].size === f.pdf.size;
     rec.add('p1.operator-manifest', ok, ok ? 'the operator reads the same immutable manifest' : `status ${mget.status}; the manifest does not match the client's upload`, mget.status);
   }
@@ -188,6 +219,8 @@ export async function uploadImport(ctx: Ctx): Promise<{ obs: Obs[]; state: State
   await refusedBy(ctx, rec, 'p1.manifest-refused', [['client-a', A], ...outsiders(ctx)], (a) => call(ctx, a, 'operator.submission.get', opVars));
   await refusedBy(ctx, rec, 'p1.download-refused', [['client-a', A], ...outsiders(ctx)], (a) => call(ctx, a, 'operator.submission.download', opVars));
 
+  // Never import or present a human sign-off identity without authoritative finalized submission lineage.
+  if (!submissionRevisionId || !submissionManifestSha256) return { obs: rec.obs, state: null };
   // import of the precomputed synthetic package, private
   const imp = await rec.guard('p1.import', () => call(ctx, B, 'operator.import', v(ctx, { operationId }), { headers: { 'content-type': port(ctx, 'operator.import').contentType ?? 'application/zip' }, body: f.packageZip }));
   let candidateId = '', identity: Record<string, string> = {}, newWarnings: string[] = [];
@@ -199,6 +232,8 @@ export async function uploadImport(ctx: Ctx): Promise<{ obs: Obs[]; state: State
     if (typeof cid !== 'string' || !PART.test(cid)) problems.push('no candidate id');
     if (!isPlain(idn) || Object.keys(idn).sort().join() !== [...IDENTITY_KEYS].sort().join() || !Object.values(idn).every((x) => typeof x === 'string' && x.length > 0)) problems.push('the identity does not have exactly the nine sign-off keys');
     else {
+      if (!submissionRevisionId || idn.submissionRevisionId !== submissionRevisionId) problems.push('the import is not linked to this finalized submission revision');
+      if (!submissionManifestSha256 || stripSha(idn.submissionManifestSha256) !== submissionManifestSha256) problems.push('the import is not linked to the exact persisted submission manifest bytes');
       if (idn.resultsVersion !== f.resultsVersion) problems.push('the imported resultsVersion differs from the supplied package');
       if (stripSha(idn.manifestSha256) !== f.packageManifestSha256) problems.push('the package manifest sha256 differs from the supplied package');
       if (idn.packageInputRevisionId !== f.inputRevisionId) problems.push('the package inputRevision id differs from the supplied package');
@@ -227,7 +262,7 @@ export async function uploadImport(ctx: Ctx): Promise<{ obs: Obs[]; state: State
 // ---- phase 2 ------------------------------------------------------------------------------------------------------
 export async function signoffPublish(ctx: Ctx, state: State, human: { reviewerRef: string }): Promise<{ obs: Obs[]; readback: Readback | null }> {
   const rec = new Rec(), f = ctx.fixture, A = ctx.actors.clientA, B = ctx.actors.operatorB;
-  if (!(await checkHealth(ctx, rec, 'p2'))) return { obs: rec.obs, readback: null };
+  if (!prerequisites(ctx, rec, 'p2') || !(await checkHealth(ctx, rec, 'p2'))) return { obs: rec.obs, readback: null };
   rec.add('p2.state', state.deployedSha === ctx.plan.expectedSha && state.caseId === ctx.plan.caseId && state.runId === f.runId && state.resultsVersion === f.resultsVersion, 'the phase 1 state names this commit, case and run');
   const rv = f.resultsVersion;
   const stillPrivate = async (id: string) => { const r = await rec.guard(id, () => call(ctx, A, 'case.chronology', v(ctx, { resultsVersion: rv }))); if (r) rec.add(id, r.status === 404 && !r.text.includes(f.subject), `the unpublished version answered ${r.status} to the client`, r.status); };
@@ -341,7 +376,7 @@ export async function signoffPublish(ctx: Ctx, state: State, human: { reviewerRe
     const fp = await rec.guard('p2.sweep.foreign-case', () => call(ctx, A, 'case.page', { caseId: ctx.plan.foreignCaseId! }));
     if (fp) { const j = sameRefusal(unkPage, fp, [unknown, ctx.plan.foreignCaseId!]); rec.add('p2.sweep.foreign-case', j.ok, j.detail, fp.status); }
   }
-  const exportSha = await exportChecks(ctx, rec);
+  const exportSha = await exportChecks(ctx, rec, state.assetId);
   const post = await readSnapshot(ctx, A, rec, 'p2.post-sweep', exportSha);
   // `withNotes` was read after the last accepted write; the stale delete, the cross-origin and outsider note writes and the whole sweep sit between it and `post`
   if (withNotes && post) {
@@ -373,14 +408,15 @@ async function pdfChecks(ctx: Ctx, rec: Rec, assetId: string) {
 }
 
 /** Complete export, when its route is supplied (it always is: no HOLD-free run lacks it). Returns the export's sha256. */
-async function exportChecks(ctx: Ctx, rec: Rec): Promise<string | null> {
+async function exportChecks(ctx: Ctx, rec: Rec, assetId: string): Promise<string | null> {
   const p = port(ctx, 'recovery.export'), who = p.actor === 'operatorB' ? ctx.actors.operatorB : ctx.actors.clientA, f = ctx.fixture;
   const r = await rec.guard('p2.export', () => call(ctx, who, 'recovery.export', v(ctx)));
   let sha: string | null = null;
   if (r) {
-    const has = p.containsOriginal ? Buffer.from(r.bytes).includes(Buffer.from(f.pdf.bytes)) : true;
-    rec.add('p2.export', r.status === 200 && r.bytes.byteLength > 0 && has, `status ${r.status}; ${p.containsOriginal ? (has ? 'contains the original bytes' : 'does NOT contain the original bytes') : 'original containment not asserted'}`, r.status);
-    if (r.status === 200) sha = r.sha256;
+    const problems = p.exportContract ? await validateExport(r.bytes, p.exportContract, { caseId: ctx.plan.caseId, assetId, fixture: f }) : ['owning export contract is missing'];
+    const ok = r.status === 200 && problems.length === 0;
+    rec.add('p2.export', ok, `status ${r.status}; ${problems.join('; ') || 'complete manifest, original identity and all archive bytes verified'}`, r.status);
+    if (ok) sha = r.sha256;
   }
   await refusedBy(ctx, rec, 'p2.export-refused', outsiders(ctx), (a) => call(ctx, a, 'recovery.export', v(ctx)));
   return sha;
@@ -389,7 +425,7 @@ async function exportChecks(ctx: Ctx, rec: Rec): Promise<string | null> {
 // ---- phase 3 ------------------------------------------------------------------------------------------------------
 export async function afterRestart(ctx: Ctx, before: Readback): Promise<{ obs: Obs[]; readback: Readback | null }> {
   const rec = new Rec(), f = ctx.fixture;
-  if (!(await checkHealth(ctx, rec, 'p3'))) return { obs: rec.obs, readback: null };
+  if (!prerequisites(ctx, rec, 'p3') || !(await checkHealth(ctx, rec, 'p3'))) return { obs: rec.obs, readback: null };
   rec.add('p3.same-revision', before.deployedSha === ctx.plan.expectedSha && before.caseId === ctx.plan.caseId && before.resultsVersion === f.resultsVersion, 'the phase 2 readback names this commit, case and version');
   const snap = await readSnapshot(ctx, ctx.actors.clientA, rec, 'p3.client');
   if (snap) {
@@ -398,7 +434,7 @@ export async function afterRestart(ctx: Ctx, before: Readback): Promise<{ obs: O
     const orig = snap.readback.originals.find((o) => o.sha256 === f.pdf.sha256);
     rec.add('p3.pdf-bytes', !!orig, 'the uploaded PDF still reads back byte for byte');
   }
-  const exportSha = await exportChecks(ctx, rec);
+  const exportSha = await exportChecks(ctx, rec, before.originals.find((o) => o.sha256 === f.pdf.sha256)?.assetId ?? 'missing');
   rec.add('p3.export-present', exportSha !== null, 'the export is available after the restart');
   await refusedBy(ctx, rec, 'p3.case-page-refused', outsiders(ctx), (a) => call(ctx, a, 'case.page', v(ctx)));
   await refusedBy(ctx, rec, 'p3.original-refused', outsiders(ctx), (a) => call(ctx, a, 'original.get', v(ctx, { assetId: before.originals[0]?.assetId ?? 'none' })));

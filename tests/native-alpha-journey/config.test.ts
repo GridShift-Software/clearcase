@@ -11,7 +11,7 @@ const files: Record<string, string> = {
   '/priv/routes.json': JSON.stringify(simRoutes),
 };
 const env = (extra: Record<string, string | undefined> = {}): Record<string, string | undefined> => ({
-  CLEARCASE_JOURNEY_BASE_URL: 'https://native.example.invalid', CLEARCASE_JOURNEY_EXPECTED_SHA: 'a'.repeat(40), CLEARCASE_JOURNEY_CASE_ID: 'case-1', CLEARCASE_JOURNEY_OUT: OUT,
+  CLEARCASE_JOURNEY_BASE_URL: 'https://native.example.invalid', CLEARCASE_JOURNEY_EXPECTED_SHA: 'a'.repeat(40), CLEARCASE_JOURNEY_CASE_ID: 'case-1', CLEARCASE_JOURNEY_FOREIGN_CASE_ID: 'foreign-1', CLEARCASE_JOURNEY_OUT: OUT,
   CLEARCASE_JOURNEY_CLIENT_A_STATE: '/priv/a.json', CLEARCASE_JOURNEY_OPERATOR_B_STATE: '/priv/b.json', CLEARCASE_JOURNEY_OTHER_CLIENT_STATE: '/priv/o.json', CLEARCASE_JOURNEY_REVOKED_STATE: '/priv/r.json',
   CLEARCASE_JOURNEY_ROUTES: '/priv/routes.json', ...extra,
 });
@@ -40,6 +40,17 @@ describe('a journey without its real prerequisites is a HOLD, never a skip or a 
     ['credentials', 'https://u:p@native.example.invalid', 'credentials'],
   ])('refuses a base URL with %s', (_n, url, why) => {
     expect(baseUrlProblems(url).problems.join()).toContain(why);
+  });
+  it.each([undefined, '', 'case-1', 'bad/id'])('requires a distinct provisioned foreign case (%s)', (foreign) => {
+    expect(hold('upload-import', env({ CLEARCASE_JOURNEY_FOREIGN_CASE_ID: foreign }))).toContain('CLEARCASE_JOURNEY_FOREIGN_CASE_ID');
+  });
+  it('holds when the owning export contract or authoritative submission captures are missing', () => {
+    const routes = structuredClone(simRoutes);
+    delete (routes.ports['recovery.export'] as Partial<typeof routes.ports['recovery.export']>).exportContract;
+    expect(hold('upload-import', env(), { ...files, '/priv/routes.json': JSON.stringify(routes) })).toContain('exportContract');
+    const missing = structuredClone(simRoutes);
+    delete (missing.ports['operator.submission.get'].captures as Partial<typeof missing.ports['operator.submission.get']['captures']>).manifestBase64;
+    expect(hold('upload-import', env(), { ...files, '/priv/routes.json': JSON.stringify(missing) })).toContain('capture manifestBase64');
   });
   it('refuses a short or non-hex expected revision', () => {
     expect(hold('upload-import', env({ CLEARCASE_JOURNEY_EXPECTED_SHA: 'abc123' }))).toContain('40-hex');

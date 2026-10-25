@@ -19,13 +19,13 @@ const proof = (actor: string): SessionProof => ({ cookies: [{ name: SIM_COOKIE, 
 
 export async function makeCtx(defects: Defect[] = [], opts: { reviewer?: boolean; foreign?: boolean } = {}) {
   const f = await fixtureOnce();
-  const world = createWorld(f, { sha: SHA, caseId: CASE, foreignCaseId: opts.foreign ? 'case-foreign-1' : undefined, origin: ORIGIN, defects });
+  const world = createWorld(f, { sha: SHA, caseId: CASE, foreignCaseId: opts.foreign !== false ? 'case-foreign-1' : undefined, origin: ORIGIN, defects });
   const base = new URL(ORIGIN), mk = (n: string, p: string | null) => makeActor(n, base, p ? proof(p) : null, world.fetch);
   const resolved = resolveRoutes(simRoutes);
   if (resolved.problems.length || resolved.unresolved.length) throw new Error(`sim routes: ${resolved.problems.join('; ')} ${resolved.unresolved.join(',')}`);
   let n = 0;
   const ctx: Ctx = {
-    plan: { origin: ORIGIN, expectedSha: SHA, caseId: CASE, foreignCaseId: opts.foreign ? 'case-foreign-1' : null, ports: resolved.ports },
+    plan: { origin: ORIGIN, expectedSha: SHA, caseId: CASE, foreignCaseId: opts.foreign !== false ? 'case-foreign-1' : null, ports: resolved.ports },
     actors: { anon: mk('anon', null), clientA: mk('clientA', 'clientA'), operatorB: mk('operatorB', 'operatorB'), otherClient: mk('otherClient', 'otherClient'), revoked: mk('revoked', 'revoked'), reviewer: opts.reviewer ? mk('reviewer', 'reviewer') : null },
     fixture: f, newId: () => `op-${String(++n).padStart(4, '0')}-${randomHex(8)}`,
   };

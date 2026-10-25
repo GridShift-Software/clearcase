@@ -6,6 +6,8 @@ import { canon, sha256Hex, isPlain } from './common.ts';
 import type { FetchFn } from './http.ts';
 import type { JourneyFixture } from './fixtures.ts';
 import { IDENTITY_KEYS } from './routes.ts';
+import { zipSync } from 'fflate';
+import type { ExportContract } from './export.ts';
 
 export type Defect =
   | 'leakWrongClientOriginal' | 'previewPublic' | 'crossOriginAccepted' | 'refusalDeletesNotes' | 'unknownDiffersFromForeign' | 'revokedAccepted'
@@ -23,7 +25,7 @@ export function createWorld(f: JourneyFixture, o: { sha: string; caseId: string;
   const identity = (): Record<string, string> => Object.fromEntries(IDENTITY_KEYS.map((k) => [k, `${k}-value`])) as Record<string, string>;
   const asset = 'sub-op-0001';
   const fileFacts = { path: f.pdf.path, sha256: f.pdf.sha256, size: f.pdf.size };
-  const manifest = () => ({ caseId: o.caseId, files: [{ ...fileFacts, assetId: asset }] });
+  const manifest = () => ({ format: 'clearcase.submission-manifest/1', clientId: 'synthetic-client', operationId: st.submissions.find((s) => s.finalized)?.operationId, revisionId: 'revision-0001', caseId: o.caseId, files: [{ ...fileFacts, assetId: asset }] });
   const view = (op: string) => ({ operationId: op, path: f.pdf.path, size: f.pdf.size, results: 'none', stage: 'finalized', manifest: manifest(), handoff: [{ path: f.pdf.path, href: `/cases/${o.caseId}/originals/${asset}` }] });
 
   const fetchFn: FetchFn = async (input, init) => {
@@ -75,7 +77,7 @@ export function createWorld(f: JourneyFixture, o: { sha: string; caseId: string;
       if (method === 'PUT') { const again = s.finalized; s.finalized = true; if (d.has('extraUploadAccepted') && again) st.submissions.push({ operationId: 'dup', declared: true, finalized: true }); return j(view(s.operationId), again ? 200 : 201); }
       return j(view(s.operationId));
     }
-    if ((m = path.match(/^\/operator\/submissions\/([^/]+)\/([^/]+)$/))) { const deny = operatorAuth(); if (deny) return deny; return j({ files: [fileFacts] }); }
+    if ((m = path.match(/^\/operator\/submissions\/([^/]+)\/([^/]+)$/))) { const deny = operatorAuth(); if (deny) return deny; const persisted = JSON.stringify(manifest(), null, 2) + '\n'; return j({ files: [fileFacts], stage: 'finalized', revisionId: manifest().revisionId, manifestSha256: sha256Hex(persisted), manifestBase64: Buffer.from(persisted).toString('base64') }); }
     if ((m = path.match(/^\/operator\/submissions\/([^/]+)\/([^/]+)\/download\/([^/]+)$/))) {
       const deny = operatorAuth(); if (deny) return deny;
       return new Response(f.pdf.bytes as BodyInit, { status: 200, headers: { 'content-type': 'application/pdf', 'x-content-type-options': 'nosniff', 'content-disposition': 'attachment' } });
@@ -84,12 +86,12 @@ export function createWorld(f: JourneyFixture, o: { sha: string; caseId: string;
       const deny = operatorAuth(); if (deny) return deny;
       if (sha256Hex(body) !== sha256Hex(f.packageZip)) return j({ code: 'invalid-package' }, 422);
       st.candidate = { id: 'cand-0001' };
-      return j({ candidateId: 'cand-0001', identity: { ...identity(), resultsVersion: f.resultsVersion, manifestSha256: f.packageManifestSha256, packageInputRevisionId: f.inputRevisionId }, newWarnings: [] }, 201);
+      return j({ candidateId: 'cand-0001', identity: { ...identity(), submissionRevisionId: manifest().revisionId, submissionManifestSha256: sha256Hex(JSON.stringify(manifest(), null, 2) + '\n'), resultsVersion: f.resultsVersion, manifestSha256: f.packageManifestSha256, packageInputRevisionId: f.inputRevisionId }, newWarnings: [] }, 201);
     }
     if ((m = path.match(/^\/operator\/results\/([^/]+)\/candidates\/([^/]+)$/))) { const deny = operatorAuth(); if (deny) return deny; return html(`<h1>Private preview</h1><p>${f.subject}</p>`); }
     if ((m = path.match(/^\/operator\/recovery\/([^/]+)\/export$/))) {
       const deny = operatorAuth(); if (deny) return deny;
-      return new Response(new Uint8Array([...new TextEncoder().encode('ARCHIVE:'), ...f.pdf.bytes]) as BodyInit, { status: 200 });
+      return new Response(simExport(f, o.caseId, asset) as BodyInit, { status: 200 });
     }
     if ((m = path.match(/^\/operator\/publication\/([^/]+)\/(signoffs|publish)$/))) {
       const deny = operatorAuth(); if (deny) return deny;
@@ -156,14 +158,30 @@ export function createWorld(f: JourneyFixture, o: { sha: string; caseId: string;
   return { fetch: fetchFn, state: st, restart() { if (d.has('notesLostOnRestart')) st.notes = []; } };
 }
 
+/** Synthetic manifest contract only, NOT an accepted production schema. */
+export const simExportContract: ExportContract = {
+  document: 'docs/acceptance/native-alpha-journey.md', transport: 'zip', manifestPath: 'manifest.json',
+  schema: { pointer: '/schema', value: 'synthetic-journey-export/1' },
+  captures: { caseId: '/caseId', resultsVersion: '/resultsVersion', files: '/files' },
+  fileCaptures: { kind: '/kind', assetId: '/assetId', path: '/path', archivePath: '/archivePath', sha256: '/sha256', size: '/size' },
+  originalKind: 'original', previewKind: 'published-preview',
+};
+export function simExport(f: JourneyFixture, caseId: string, assetId: string, change?: (manifest: Record<string, unknown>, entries: Record<string, Uint8Array>) => void, level: 0 | 6 = 6): Uint8Array {
+  const entries = { ['originals/' + f.pdf.path]: f.pdf.bytes };
+  const manifest: Record<string, unknown> = { schema: 'synthetic-journey-export/1', caseId, resultsVersion: f.resultsVersion, files: [{ kind: 'original', assetId, path: f.pdf.path, archivePath: 'originals/' + f.pdf.path, sha256: f.pdf.sha256, size: f.pdf.size }] };
+  change?.(manifest, entries);
+  entries['manifest.json'] = new TextEncoder().encode(JSON.stringify(manifest));
+  return zipSync(entries, { level });
+}
+
 export const simRoutes = {
   schema: 'clearcase.native-journey-routes/1',
   ports: {
-    'operator.submission.get': { method: 'GET', path: '/operator/submissions/{caseId}/{operationId}', captures: { files: '/files' } },
+    'operator.submission.get': { method: 'GET', path: '/operator/submissions/{caseId}/{operationId}', captures: { files: '/files', stage: '/stage', revisionId: '/revisionId', manifestSha256: '/manifestSha256', manifestBase64: '/manifestBase64' } },
     'operator.submission.download': { method: 'GET', path: '/operator/submissions/{caseId}/{operationId}/download/{assetId}' },
     'operator.import': { method: 'POST', path: '/operator/results/{caseId}/import', contentType: 'application/zip', captures: { candidateId: '/candidateId', identity: '/identity', newWarnings: '/newWarnings' } },
     'operator.preview': { method: 'GET', path: '/operator/results/{caseId}/candidates/{candidateId}' },
-    'recovery.export': { method: 'GET', path: '/operator/recovery/{caseId}/export', actor: 'operatorB', containsOriginal: true },
+    'recovery.export': { method: 'GET', path: '/operator/recovery/{caseId}/export', actor: 'operatorB', containsOriginal: true, exportContract: simExportContract },
   },
 };
 void canon;

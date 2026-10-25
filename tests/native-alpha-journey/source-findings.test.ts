@@ -4,6 +4,7 @@ import { makeCtx } from './harness.ts';
 import { afterRestart, signoffPublish, uploadImport } from './scenario.ts';
 import type { Actor, Reply } from './http.ts';
 import { sha256Hex } from './common.ts';
+import { simExport } from './world.ts';
 
 function intercept(actor: Actor, change: (r: Reply, path: string) => Reply): Actor {
   return { name: actor.name, send: async (method, path, init) => change(await actor.send(method, path, init), path) };
@@ -58,6 +59,41 @@ describe('written source findings cannot produce false acceptance', () => {
     expect(requests).toBe(0);
     expect(p1.state).toBeNull();
     expect(p1.obs.some((o) => !o.ok && o.id === 'p1.prerequisites')).toBe(true);
+  });
+  it('M2: a wrong-identity export also blocks the restart phase', async () => {
+    const { ctx, world, before } = await published();
+    world.restart();
+    ctx.actors.operatorB = intercept(ctx.actors.operatorB, (r, path) => {
+      if (!path.endsWith('/export') || r.status !== 200) return r;
+      const bytes = simExport(ctx.fixture, 'other-case', before.originals[0].assetId);
+      return { ...r, bytes, sha256: sha256Hex(bytes), text: '' };
+    });
+    const p3 = await afterRestart(ctx, before);
+    expect(p3.readback).toBeNull();
+    expect(p3.obs.some((o) => o.id === 'p3.export-present' && !o.ok)).toBe(true);
+  });
+  it.each(['stage', 'revisionId', 'manifestSha256', 'manifestBase64', 'wrong-operation', 'reserved', 'reserialized-digest'])('M4: missing or false authoritative %s blocks import', async (key) => {
+    const { ctx } = await makeCtx([], { foreign: true });
+    let imports = 0;
+    ctx.actors.operatorB = intercept(ctx.actors.operatorB, (r, path) => {
+      if (path.endsWith('/import')) imports++;
+      if (!/^\/operator\/submissions\/[^/]+\/[^/]+$/.test(path) || r.status !== 200) return r;
+      const j = JSON.parse(r.text);
+      if (key === 'reserved') j.stage = 'reserved';
+      else if (key === 'reserialized-digest') j.manifestSha256 = sha256Hex(JSON.stringify(JSON.parse(Buffer.from(j.manifestBase64, 'base64').toString())));
+      else if (key === 'wrong-operation') {
+        const m = JSON.parse(Buffer.from(j.manifestBase64, 'base64').toString());
+        m.operationId = 'other-upload';
+        const persisted = JSON.stringify(m);
+        j.manifestBase64 = Buffer.from(persisted).toString('base64');
+        j.manifestSha256 = sha256Hex(persisted);
+      } else delete j[key];
+      return body(r, JSON.stringify(j));
+    });
+    const p1 = await uploadImport(ctx);
+    expect(p1.state).toBeNull();
+    expect(p1.obs.some((o) => o.id === 'p1.submission-lineage' && !o.ok)).toBe(true);
+    expect(imports).toBe(0);
   });
   it.each(['submissionRevisionId', 'submissionManifestSha256'])('M4: an unrelated nonempty %s fails import before human sign-off', async (key) => {
     const { ctx } = await makeCtx([], { foreign: true });

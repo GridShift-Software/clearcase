@@ -5,6 +5,7 @@
 // port is a HOLD. A routes file (`clearcase.native-journey-routes/1`) supplies or overrides ports from the owning
 // worker's final doc. No port may point at a test login, an identity double or any other way around Clerk.
 import { exactKeys, isPlain } from './common.ts';
+import { exportContractProblems, type ExportContract } from './export.ts';
 
 export const VARS = ['caseId', 'operationId', 'assetId', 'resultsVersion', 'candidateId'] as const;
 export type Var = (typeof VARS)[number];
@@ -18,8 +19,10 @@ export interface Port {
   captures?: Record<string, string>;
   /** the request body's media type for operator.import (default application/zip, the package's accepted transport) */
   contentType?: string;
-  /** export only: the response bytes must contain the original PDF's exact bytes (a stored archive or a raw object) */
+  /** Legacy hint only; never substitutes for manifest/archive validation. */
   containsOriginal?: boolean;
+  /** Required for export: projection of the owning worker's documented ZIP manifest contract. No default. */
+  exportContract?: ExportContract;
 }
 
 export const DEFAULT_PORTS = {
@@ -47,7 +50,7 @@ const KNOWN = new Set<string>([...Object.keys(DEFAULT_PORTS), ...UNRESOLVED_PORT
 
 /** What a supplied port must tell the scenario about its response, so that no field is guessed. */
 export const REQUIRED_CAPTURES: Partial<Record<PortName, readonly string[]>> = {
-  'operator.submission.get': ['files'], // [{path, sha256, size}] of the finalized submission's manifest
+  'operator.submission.get': ['files', 'stage', 'revisionId', 'manifestSha256', 'manifestBase64'], // exact persisted manifest bytes, not a JSON reserialization
   'operator.import': ['candidateId', 'identity', 'newWarnings'], // identity: the nine sign-off identity keys
 };
 export const IDENTITY_KEYS = ['linkId', 'submissionRevisionId', 'submissionManifestSha256', 'resultsVersion', 'manifestSha256', 'packageInputRevisionId', 'diagnosticsSha256', 'validatorVersion', 'snapshotRevision'] as const;
@@ -60,7 +63,7 @@ export function portProblems(name: string, port: unknown): string[] {
   const p: string[] = [];
   if (!KNOWN.has(name)) return [`${name}: unknown port`];
   if (!isPlain(port)) return [`${name}: not an object`];
-  const extra = Object.keys(port).filter((k) => !['method', 'path', 'actor', 'captures', 'containsOriginal', 'contentType'].includes(k));
+  const extra = Object.keys(port).filter((k) => !['method', 'path', 'actor', 'captures', 'containsOriginal', 'contentType', 'exportContract'].includes(k));
   if (extra.length) p.push(`${name}: unknown fields ${extra.join(',')}`);
   if (!['GET', 'HEAD', 'POST', 'PUT'].includes(port.method as string)) p.push(`${name}: method must be GET, HEAD, POST or PUT`);
   const path = port.path;
@@ -77,7 +80,10 @@ export function portProblems(name: string, port: unknown): string[] {
   if (port.contentType !== undefined && (typeof port.contentType !== 'string' || !/^[a-z]+\/[a-z0-9.+-]+$/.test(port.contentType))) p.push(`${name}: contentType must be a media type`);
   if (port.containsOriginal !== undefined && typeof port.containsOriginal !== 'boolean') p.push(`${name}: containsOriginal must be true or false`);
   for (const c of REQUIRED_CAPTURES[name as PortName] ?? []) if (!isPlain(port.captures) || typeof port.captures[c] !== 'string') p.push(`${name}: must declare capture ${c}`);
-  if (name === 'recovery.export' && port.actor === undefined) p.push(`${name}: must name its actor`);
+  if (name === 'recovery.export') {
+    if (port.actor === undefined) p.push(`${name}: must name its actor`);
+    p.push(...exportContractProblems(port.exportContract).map((s) => `${name}: ${s}`));
+  } else if (port.exportContract !== undefined) p.push(`${name}: exportContract is only valid for recovery.export`);
   return p;
 }
 

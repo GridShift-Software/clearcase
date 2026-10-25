@@ -60,8 +60,7 @@ export function loadConfig(phase: Phase, io: ConfigIo): Loaded {
   reasons.push(...problems);
   const expectedSha = need('CLEARCASE_JOURNEY_EXPECTED_SHA', (v) => SHA1.test(v), 'must be the 40-hex source commit the deployment was built from');
   const caseId = need('CLEARCASE_JOURNEY_CASE_ID', (v) => PART.test(v), 'is not a valid case id');
-  const foreign = env.CLEARCASE_JOURNEY_FOREIGN_CASE_ID;
-  if (foreign !== undefined && foreign !== '' && (!PART.test(foreign) || foreign === caseId)) reasons.push('CLEARCASE_JOURNEY_FOREIGN_CASE_ID must be a valid case id other than the journey case');
+  const foreign = need('CLEARCASE_JOURNEY_FOREIGN_CASE_ID', (v) => PART.test(v) && v !== caseId, 'must be a provisioned ungranted case id other than the journey case');
   const out = need('CLEARCASE_JOURNEY_OUT', (v) => path.isAbsolute(v) && stateFileProblem(path.join(v, 'x'), io.repoRoot) === null, 'must be an absolute directory outside the checkout or under its ignored .local/');
 
   let routesFile: unknown = null;

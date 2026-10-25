@@ -302,9 +302,9 @@ const visit = (node: ts.Node, fn: (n: ts.Node) => void) => { fn(node); ts.forEac
 const gitTracked = (root: string, rel: string) => spawnSync('git', ['ls-files', '--error-unmatch', '--', rel], { cwd: root, stdio: 'ignore' }).status === 0;
 
 // Driving code is a call on a reachable path from an enabled vitest test callback, over a small supported subset: straight-line
-// statements, try and finally blocks, and `if` (an opaque condition may go either way, a literal one is folded). A call behind
-// a condition, a short circuit, an optional chain, a loop or a switch does not count, and nothing after an unsupported
-// statement does. A call reaches local helpers, callbacks a helper runs through its parameter, and const aliases, object
+// statements, try and finally blocks, and `if` conditions. A call behind a condition, a short circuit, an optional chain, a
+// loop or a switch does not count, and nothing after a statement that may end the function does: a return, throw or break
+// behind any non-literal condition, a local function that may throw, a loop or another unsupported statement. A call reaches local helpers, callbacks a helper runs through its parameter, and const aliases, object
 // tables and conditional choices of values. This is source evidence that the test executes the code, not that it passes.
 type Param = { fn: ts.SignatureDeclaration; index: number };
 type Value = ts.Node | Param | 'target';
@@ -325,15 +325,30 @@ function literal(e: ts.Expression): boolean | undefined {
  return undefined;
 }
 const FALLS_THROUGH = new Set([ts.SyntaxKind.ExpressionStatement, ts.SyntaxKind.VariableStatement, ts.SyntaxKind.EmptyStatement, ts.SyntaxKind.FunctionDeclaration, ts.SyntaxKind.ClassDeclaration, ts.SyntaxKind.InterfaceDeclaration, ts.SyntaxKind.TypeAliasDeclaration, ts.SyntaxKind.ImportDeclaration]);
-/** Whether nothing after `s` in its block runs; an unsupported statement counts as ending it. */
+const NO_TARGETS = new Set<string>();
+/** Whether `n` may throw through a throw statement of its own or of a local function it calls (an IIFE or a helper). */
+function mayThrow(n: ts.Node, seen = new Set<ts.Node>()): boolean {
+ let hit = false;
+ const walk = (m: ts.Node): void => {
+  if (hit || (m !== n && ts.isFunctionLike(m))) return;
+  if (ts.isThrowStatement(m)) hit = true;
+  else if (ts.isCallExpression(m)) for (const v of values(m.expression, NO_TARGETS)) if (isFn(v) && !seen.has(v)) { seen.add(v); if (mayThrow(v.body!, seen)) hit = true; }
+  ts.forEachChild(m, walk);
+ };
+ walk(n);
+ return hit;
+}
+/** Whether what follows `s` in its block may not run: a statement that may end the function is not proved to fall through,
+ * whatever its condition (only a literal is folded), and an unsupported statement counts as ending it. */
 function ends(s: ts.Statement): boolean {
  if (ts.isReturnStatement(s) || ts.isThrowStatement(s) || ts.isBreakOrContinueStatement(s)) return true;
  if (ts.isBlock(s)) return s.statements.some(ends);
  if (ts.isIfStatement(s)) {
   const k = literal(s.expression), other = s.elseStatement !== undefined && ends(s.elseStatement);
-  return k === true ? ends(s.thenStatement) : k === false ? other : other && ends(s.thenStatement);
+  return mayThrow(s.expression) || (k === true ? ends(s.thenStatement) : k === false ? other : other || ends(s.thenStatement));
  }
- if (ts.isTryStatement(s)) return (ends(s.tryBlock) && (!s.catchClause || ends(s.catchClause.block))) || (!!s.finallyBlock && ends(s.finallyBlock));
+ if (ts.isTryStatement(s)) return ends(s.tryBlock) || (!!s.finallyBlock && ends(s.finallyBlock));
+ if (ts.isExpressionStatement(s) || ts.isVariableStatement(s)) return mayThrow(s);
  return !FALLS_THROUGH.has(s.kind);
 }
 const SHORT_CIRCUIT = new Set([ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.AmpersandAmpersandEqualsToken, ts.SyntaxKind.BarBarEqualsToken, ts.SyntaxKind.QuestionQuestionEqualsToken]);

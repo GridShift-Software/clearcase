@@ -55,6 +55,7 @@ import { fileURLToPath } from 'node:url';
 import {
 	CF_NATIVE_GAP,
 	HOSTED_GATE_MARKER,
+	NATIVE_BROWSER_BINDING,
 	NATIVE_CLIENT_FILES,
 	NATIVE_CONFIG_FILE,
 	NATIVE_PIN_KEYS,
@@ -65,6 +66,7 @@ import {
 	dynamicHostImportsOf,
 	hostImportsOf,
 	nativeArtifactLayout,
+	nativeDiagnosticText,
 	nativeStageRecord,
 	nativeUpload,
 	nativeUploadInvocationProblems,
@@ -72,6 +74,7 @@ import {
 	parseNativePins,
 	parseNativeTarget,
 	pinProblems,
+	plainData,
 	uploadModuleProblems,
 	versionProblems,
 	type DynamicImportFact,
@@ -123,6 +126,31 @@ const BINDING = /^[A-Z][A-Z0-9_]{0,62}$/;
 const ACCOUNT = /^[0-9a-f]{32}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+// File-boundary errors use a separate private issuer. Only immutable primitive messages, never Error properties,
+// cross a catch. Runtime/third-party throws have no entry and get a fixed refusal; parser errors use its private channel.
+const nativeFileMessages = new WeakMap<object, string>();
+function nativeFileRefusal(message: string): Error {
+	const error = new Error(message);
+	nativeFileMessages.set(error, message);
+	return error;
+}
+function nativeProblem(error: unknown): string {
+	return (typeof error === 'object' && error !== null ? nativeFileMessages.get(error) : undefined)
+		?? nativeDiagnosticText(error) ?? 'native file validation failed; the operation is refused';
+}
+/**
+ * One plain-data copy of a native entry point's argument object (pipeline.ts `plainData`), or why there is none. The entry
+ * point reads only this copy, so no caller accessor, get trap or `toJSON` runs and no path, pin or argv element can differ
+ * between two of its reads.
+ */
+function nativeArguments<T>(input: T, at: string): { args?: T; problem?: string } {
+	try {
+		const v = plainData(input, at);
+		return isObject(v) ? { args: v as T } : { problem: `the ${at} arguments are not an object` };
+	} catch (e) {
+		return { problem: `the ${at} arguments are refused: ${nativeProblem(e)}` };
+	}
+}
 const show = (v: unknown) => (v === undefined ? 'missing' : JSON.stringify(v));
 
 /** Refuses any key outside `allowed`, so a field the check does not read cannot redirect a deploy. */
@@ -428,31 +456,31 @@ const NATIVE_READ_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW | constants.
 const NATIVE_MAX_FILE = 64 * 1024 * 1024;
 export function readRegular(file: string, root?: string): Buffer {
 	const before = lstatSync(file);
-	if (before.isSymbolicLink()) throw new Error(`${file} is not a regular file (it is a symlink; a symlink is refused)`);
-	if (!before.isFile()) throw new Error(`${file} is not a regular file (a device, socket or FIFO is refused)`);
-	if (before.nlink > 1) throw new Error(`${file} has ${before.nlink} hard links: a hard link is refused, because another name could change its bytes after the check`);
+	if (before.isSymbolicLink()) throw nativeFileRefusal(`${file} is not a regular file (it is a symlink; a symlink is refused)`);
+	if (!before.isFile()) throw nativeFileRefusal(`${file} is not a regular file (a device, socket or FIFO is refused)`);
+	if (before.nlink > 1) throw nativeFileRefusal(`${file} has ${before.nlink} hard links: a hard link is refused, because another name could change its bytes after the check`);
 	if (root !== undefined) {
 		const realRoot = realpathSync(root);
 		const real = realpathSync(file);
 		const want = path.join(realRoot, path.relative(path.resolve(root), path.resolve(file)));
-		if (real !== want) throw new Error(`${file} resolves to ${real}, outside ${root} or through a symlinked directory (refused)`);
+		if (real !== want) throw nativeFileRefusal(`${file} resolves to ${real}, outside ${root} or through a symlinked directory (refused)`);
 	}
 	let fd: number;
 	try {
 		fd = openSync(file, NATIVE_READ_FLAGS);
-	} catch (e) {
-		throw new Error(`${file} cannot be opened as a regular file without following a link (${(e as NodeJS.ErrnoException).code ?? (e as Error).message})`);
+	} catch {
+		throw nativeFileRefusal(`${file} cannot be opened as a regular file without following a link`);
 	}
 	try {
 		const st = fstatSync(fd);
-		if (!st.isFile()) throw new Error(`${file} is not a regular file (it changed between the check and the read)`);
-		if (st.dev !== before.dev || st.ino !== before.ino) throw new Error(`${file} was replaced between the check and the read`);
-		if (st.nlink > 1) throw new Error(`${file} has ${st.nlink} hard links: a hard link is refused`);
-		if (st.size > NATIVE_MAX_FILE) throw new Error(`${file} is ${st.size} bytes, over the ${NATIVE_MAX_FILE} byte limit`);
+		if (!st.isFile()) throw nativeFileRefusal(`${file} is not a regular file (it changed between the check and the read)`);
+		if (st.dev !== before.dev || st.ino !== before.ino) throw nativeFileRefusal(`${file} was replaced between the check and the read`);
+		if (st.nlink > 1) throw nativeFileRefusal(`${file} has ${st.nlink} hard links: a hard link is refused`);
+		if (st.size > NATIVE_MAX_FILE) throw nativeFileRefusal(`${file} is ${st.size} bytes, over the ${NATIVE_MAX_FILE} byte limit`);
 		const bytes = readFileSync(fd);
 		const after = fstatSync(fd);
 		const post = lstatSync(file);
-		if (bytes.length !== st.size || after.size !== st.size || after.mtimeMs !== st.mtimeMs || after.ctimeMs !== st.ctimeMs || post.dev !== st.dev || post.ino !== st.ino) throw new Error(`${file} changed while it was read`);
+		if (bytes.length !== st.size || after.size !== st.size || after.mtimeMs !== st.mtimeMs || after.ctimeMs !== st.ctimeMs || post.dev !== st.dev || post.ino !== st.ino) throw nativeFileRefusal(`${file} changed while it was read`);
 		return bytes;
 	} finally {
 		closeSync(fd);
@@ -463,7 +491,7 @@ export function readRegular(file: string, root?: string): Buffer {
 export function nativeWalk(dir: string, rel = ''): { rel: string; dir: boolean }[] {
 	const at = path.join(dir, rel);
 	const before = lstatSync(at);
-	if (!before.isDirectory()) throw new Error(`${at} is not a directory (a symlink is refused)`);
+	if (!before.isDirectory()) throw nativeFileRefusal(`${at} is not a directory (a symlink is refused)`);
 	const out: { rel: string; dir: boolean }[] = [];
 	for (const name of readdirSync(at).sort()) {
 		const r = path.join(rel, name);
@@ -471,12 +499,12 @@ export function nativeWalk(dir: string, rel = ''): { rel: string; dir: boolean }
 		const st = lstatSync(full);
 		if (st.isDirectory()) out.push({ rel: r, dir: true }, ...nativeWalk(dir, r));
 		else if (st.isFile()) {
-			if (st.nlink > 1) throw new Error(`${full} has ${st.nlink} hard links: a hard link is refused, because another name could change its bytes after the check`);
+			if (st.nlink > 1) throw nativeFileRefusal(`${full} has ${st.nlink} hard links: a hard link is refused, because another name could change its bytes after the check`);
 			out.push({ rel: r, dir: false });
-		} else throw new Error(`${full} is not a regular file or directory (a symlink, device, socket or FIFO is refused)`);
+		} else throw nativeFileRefusal(`${full} is not a regular file or directory (a symlink, device, socket or FIFO is refused)`);
 	}
 	const after = lstatSync(at);
-	if (after.dev !== before.dev || after.ino !== before.ino) throw new Error(`${at} was replaced while it was listed`);
+	if (after.dev !== before.dev || after.ino !== before.ino) throw nativeFileRefusal(`${at} was replaced while it was listed`);
 	return out;
 }
 
@@ -484,7 +512,7 @@ export function nativeWalk(dir: string, rel = ''): { rel: string; dir: boolean }
 function nativeTree(dir: string, onFile?: (rel: string, bytes: Buffer) => void): { digest: string; files: { rel: string; bytes: number; sha256: string }[] } {
 	const h = createHash('sha256');
 	const entries = nativeWalk(dir).sort((x, y) => (x.rel < y.rel ? -1 : x.rel > y.rel ? 1 : 0));
-	if (!entries.some((e) => !e.dir)) throw new Error(`${dir} holds no files`);
+	if (!entries.some((e) => !e.dir)) throw nativeFileRefusal(`${dir} holds no files`);
 	const files: { rel: string; bytes: number; sha256: string }[] = [];
 	for (const e of entries) {
 		const name = Buffer.from(e.rel);
@@ -510,25 +538,25 @@ function copyNativeTree(src: string, dst: string) {
 		else writeFileSync(path.join(dst, e.rel), readRegular(path.join(src, e.rel), src), { flag: 'wx', mode: 0o644 });
 	}
 	const copied = nativeWalk(dst);
-	if (JSON.stringify(copied) !== JSON.stringify(entries)) throw new Error(`${src} changed while it was copied`);
+	if (JSON.stringify(copied) !== JSON.stringify(entries)) throw nativeFileRefusal(`${src} changed while it was copied`);
 }
 
 /** Every clients/<client>/target.json under the explicit native `dir`, each a strict-JSON native target bound to the approved scope. `dir` and every client directory must be real directories and every target.json a regular, single-link file. */
 export function loadNativeTargets(dir: string): NativeTarget[] {
 	const root = realDirectory(dir, 'native clients directory');
-	if (root) throw new Error(root);
+	if (root) throw nativeFileRefusal(root);
 	const targets = readdirSync(dir, { withFileTypes: true }).map((e) => {
-		if (e.isSymbolicLink()) throw new Error(`${path.join(dir, e.name)} is a symlink, not a client directory (a symlink is refused)`);
+		if (e.isSymbolicLink()) throw nativeFileRefusal(`${path.join(dir, e.name)} is a symlink, not a client directory (a symlink is refused)`);
 		return e;
 	})
 		.filter((e) => e.isDirectory())
 		.map((e) => {
 			const file = path.join(dir, e.name, 'target.json');
 			const t = parseNativeTarget(parseNativeJson(readRegular(file, dir).toString('utf8')), path.relative(process.cwd(), file));
-			if (t.client !== e.name) throw new Error(`${file}: client ${t.client} is not its directory's name ${e.name}`);
+			if (t.client !== e.name) throw nativeFileRefusal(`${file}: client ${t.client} is not its directory's name ${e.name}`);
 			return t;
 		});
-	if (!targets.length) throw new Error(`${dir}: no native client targets`);
+	if (!targets.length) throw nativeFileRefusal(`${dir}: no native client targets`);
 	return distinctNative(targets);
 }
 
@@ -551,7 +579,9 @@ function nativeClientDirProblems(dir: string): string[] {
 }
 
 /** Every reason the native config `text` must not deploy `client`; `format` other than wrangler is the measured cf gap. */
-export function checkNative(a: { client: string; targets: NativeTarget[]; format?: Format | 'prebuilt'; text: string }): string[] {
+export function checkNative(input: { client: string; targets: NativeTarget[]; format?: Format | 'prebuilt'; text: string }): string[] {
+	const { args: a, problem } = nativeArguments(input, 'check');
+	if (!a) return [problem!];
 	if (a.format !== undefined && a.format !== 'wrangler') return [CF_NATIVE_GAP];
 	return checkNativeWrangler({ client: a.client, targets: a.targets, text: a.text });
 }
@@ -786,7 +816,7 @@ function nativeArtifactUpload(artifactDir: string, flags: readonly string[], onF
 			onFile?.(at, bytes);
 		});
 	} catch (e) {
-		return { problems: [(e as Error).message] };
+		return { problems: [nativeProblem(e)] };
 	}
 	if (entry === undefined) return { problems: [...problems, `${NATIVE_STAGED.entry} is not a regular file in the staged artifact`], digest: tree.digest };
 	const entrySha = sha256Of(entry);
@@ -797,7 +827,7 @@ function nativeArtifactUpload(artifactDir: string, flags: readonly string[], onF
 	try {
 		facts = scanModule(new TextDecoder('utf-8', { fatal: true }).decode(entry));
 	} catch (e) {
-		return { problems: [...problems, `${NATIVE_STAGED.entry} cannot be read as UTF-8 JavaScript, so it is not valid JavaScript to judge: ${(e as Error).message}`], digest: tree.digest };
+		return { problems: [...problems, `${NATIVE_STAGED.entry} cannot be read as UTF-8 JavaScript, so it is not valid JavaScript to judge: ${nativeProblem(e)}`], digest: tree.digest };
 	}
 	problems.push(...uploadModuleProblems(facts, NATIVE_STAGED.entry, flags));
 	const upload = nativeUpload({ entry: { sha256: entrySha, bytes: entry.length }, hostImports: hostImportsOf(facts), dynamicHostImports: dynamicHostImportsOf(facts), assets: layout.assets, files });
@@ -828,15 +858,15 @@ function nativeStageFacts(out: string, client: string, sourceTargets: NativeTarg
 	try {
 		staged = Object.fromEntries(NATIVE_CLIENT_FILES.map((f) => [f, readRegular(path.join(out, f), out)]));
 	} catch (e) {
-		return { problems: [(e as Error).message], reviewProblems: [] };
+		return { problems: [nativeProblem(e)], reviewProblems: [] };
 	}
 	let own: NativeTarget, targets: NativeTarget[];
 	try {
 		own = parseNativeTarget(parseNativeJson(staged['target.json']!.toString('utf8')), 'target.json (staged)');
-		if (own.client !== client) throw new Error(`target.json (staged): client ${own.client} is not ${client}`);
+		if (own.client !== client) throw nativeFileRefusal(`target.json (staged): client ${own.client} is not ${client}`);
 		targets = distinctNative([...sourceTargets.filter((t) => t.client !== client), own]);
 	} catch (e) {
-		return { problems: [(e as Error).message], reviewProblems: [] };
+		return { problems: [nativeProblem(e)], reviewProblems: [] };
 	}
 	const problems = checkNative({ client, targets, text: staged[NATIVE_CONFIG_FILE]!.toString('utf8') }).map((p) => `${NATIVE_CONFIG_FILE}: ${p}`);
 	const art = nativeArtifactFacts(out, own);
@@ -844,7 +874,7 @@ function nativeStageFacts(out: string, client: string, sourceTargets: NativeTarg
 	try {
 		migrations = nativeTree(path.join(out, STAGED.migrations)).digest;
 	} catch (e) {
-		problems.push((e as Error).message);
+		problems.push(nativeProblem(e));
 	}
 	if (art.digest !== undefined && art.digest !== own.runtime.artifactSha256) problems.push(`the staged artifact is ${art.digest}, not the target's ${own.runtime.artifactSha256}`);
 	if (migrations !== undefined && migrations !== own.runtime.migrationsSha256) problems.push(`the staged migrations are ${migrations}, not the target's ${own.runtime.migrationsSha256}`);
@@ -856,7 +886,7 @@ function nativeStageFacts(out: string, client: string, sourceTargets: NativeTarg
 			try {
 				return readRegular(path.join(pinning.reviewedClients, client, f), pinning.reviewedClients);
 			} catch (e) {
-				reviewProblems.push(`the reviewed ${f} cannot be read: ${(e as Error).message}`);
+				reviewProblems.push(`the reviewed ${f} cannot be read: ${nativeProblem(e)}`);
 				return undefined;
 			}
 		};
@@ -882,7 +912,7 @@ function reviewedSourceProblems(clients: string, stage: string): string[] {
 		const parent = realpathSync(path.dirname(path.resolve(stage)));
 		realStage = path.join(parent, path.basename(path.resolve(stage)));
 	} catch (e) {
-		return [`cannot resolve the reviewed clients directory or the stage: ${(e as Error).message}`];
+		return [`cannot resolve the reviewed clients directory or the stage: ${nativeProblem(e)}`];
 	}
 	const inside = (outer: string, inner: string) => inner === outer || inner.startsWith(outer + path.sep);
 	const problems: string[] = [];
@@ -896,13 +926,15 @@ function reviewedSourceProblems(clients: string, stage: string): string[] {
  * must not exist) file by file from descriptor reads, then checks and digests the staged copy only and writes a native
  * stage record. A refusal removes `out`. The stage's own agreement with itself is not review: `prebuilt` needs pins.
  */
-export function stageNative(a: { client: string; artifact: string; digest: string; out: string; clients: string }): string[] {
+export function stageNative(input: { client: string; artifact: string; digest: string; out: string; clients: string }): string[] {
+	const { args: a, problem } = nativeArguments(input, 'stage');
+	if (!a) return [problem!];
 	const dir = path.join(a.clients, a.client);
 	let sourceTargets: NativeTarget[];
 	try {
 		sourceTargets = loadNativeTargets(a.clients);
 	} catch (e) {
-		return [(e as Error).message];
+		return [nativeProblem(e)];
 	}
 	const migrationsDir = path.join(dir, STAGED.migrations);
 	const problems = [
@@ -921,7 +953,7 @@ export function stageNative(a: { client: string; artifact: string; digest: strin
 		copyNativeTree(migrationsDir, path.join(a.out, STAGED.migrations));
 		nativeWalk(a.out);
 	} catch (e) {
-		return refuse([(e as Error).message]);
+		return refuse([nativeProblem(e)]);
 	}
 	const facts = nativeStageFacts(a.out, a.client, sourceTargets);
 	if (facts.problems.length || !facts.record) return refuse(facts.problems);
@@ -964,7 +996,9 @@ const deepFreeze = <T>(v: T): T => {
 	}
 	return v;
 };
-export function readNativeStage(a: { client: string; stage: string; clients: string; pins?: NativePins }): NativeStageReading {
+export function readNativeStage(input: { client: string; stage: string; clients: string; pins?: NativePins }): NativeStageReading {
+	const { args: a, problem } = nativeArguments(input, 'stage check');
+	if (!a) return deepFreeze({ checker: 'checkNativeStage', client: '', pins: null, problems: [problem!], files: null, record: null });
 	const given = parseNativePins(a.pins).pins;
 	const done = (problems: string[], record?: NativeStageRecord, stageJson?: string): NativeStageReading =>
 		deepFreeze({
@@ -984,7 +1018,7 @@ export function readNativeStage(a: { client: string; stage: string; clients: str
 	try {
 		entries = nativeWalk(a.stage);
 	} catch (e) {
-		return done([...problems, `the stage holds an entry that is not a regular file or directory, or has a hard link: ${(e as Error).message}`]);
+		return done([...problems, `the stage holds an entry that is not a regular file or directory, or has a hard link: ${nativeProblem(e)}`]);
 	}
 	const top = new Map(entries.filter((e) => !e.rel.includes(path.sep)).map((e) => [e.rel, e.dir]));
 	const expected = new Map<string, boolean>([...NATIVE_CLIENT_FILES.map((f) => [f, false] as const), ['stage.json', false], ['artifact', true], [STAGED.migrations, true]]);
@@ -995,7 +1029,7 @@ export function readNativeStage(a: { client: string; stage: string; clients: str
 	try {
 		sourceTargets = loadNativeTargets(a.clients);
 	} catch (e) {
-		return done([(e as Error).message]);
+		return done([nativeProblem(e)]);
 	}
 	const facts = nativeStageFacts(a.stage, a.client, sourceTargets, { pins: parsed.pins, reviewedClients: a.clients });
 	if (facts.problems.length || !facts.record) return done([...facts.problems, ...facts.reviewProblems]);
@@ -1008,7 +1042,7 @@ export function readNativeStage(a: { client: string; stage: string; clients: str
 		written = bytes.toString('utf8');
 		parsedRecord = parseNativeJson(written);
 	} catch (e) {
-		return done([...facts.reviewProblems, `stage.json cannot be read as JSON: ${(e as Error).message}`]);
+		return done([...facts.reviewProblems, `stage.json cannot be read as JSON: ${nativeProblem(e)}`]);
 	}
 	const recordProblems: string[] = [];
 	if (typeof parsedRecord !== 'object' || parsedRecord === null || (parsedRecord as { schema?: unknown }).schema !== NATIVE_STAGE_SCHEMA) recordProblems.push(`stage.json is not a ${NATIVE_STAGE_SCHEMA} record (a legacy stage is not a native one)`);
@@ -1016,8 +1050,35 @@ export function readNativeStage(a: { client: string; stage: string; clients: str
 	return done([...facts.reviewProblems, ...recordProblems], facts.record, writtenSha);
 }
 
+/**
+ * Browser Run metadata the upload would carry, read from the stage's own bytes: the staged target.json's opt-in, the
+ * stage record's desired binding and wrangler.jsonc's `browser` must all say the same thing, and only the exact
+ * BROWSER binding or nothing is admitted. This is a cheap agreement check at the invocation boundary; the pinned
+ * prebuilt check remains the authority for the bytes themselves.
+ */
+function nativeBrowserInvocationProblems(stage: string, client: string, record: Record<string, unknown>): string[] {
+	let target: NativeTarget;
+	let config: unknown;
+	try {
+		target = parseNativeTarget(parseNativeJson(readRegular(path.join(stage, 'target.json'), stage).toString('utf8')), 'target.json (staged)');
+		config = parseNativeJson(readRegular(path.join(stage, NATIVE_CONFIG_FILE), stage).toString('utf8'), true);
+	} catch (e) {
+		return [`the browser binding cannot be agreed from the staged target.json and ${NATIVE_CONFIG_FILE}: ${nativeProblem(e)}`];
+	}
+	const problems: string[] = [];
+	if (target.client !== client) problems.push(`the staged target.json is for ${target.client}, not ${client}`);
+	const want = target.browser ? NATIVE_BROWSER_BINDING : undefined;
+	const desired = isObject(record.desired) ? record.desired.browserBinding : undefined;
+	if (desired !== want) problems.push(`the stage record's desired browser binding is ${JSON.stringify(desired) ?? 'absent'}, not the target's ${JSON.stringify(want) ?? 'absent'}`);
+	const got = isObject(config) ? config.browser : undefined;
+	if (JSON.stringify(got) !== JSON.stringify(want === undefined ? undefined : { binding: want })) problems.push(`${NATIVE_CONFIG_FILE} browser is ${JSON.stringify(got) ?? 'absent'}, not ${want === undefined ? 'absent (the target does not opt in)' : JSON.stringify({ binding: want })}`);
+	return problems;
+}
+
 /** Every reason `argv`, run with working directory `cwd`, is not the one native upload command for the stage `stage` of `client`. It runs nothing and reads no credential or environment; an ambient WRANGLER_* or CLOUDFLARE_* variable is the caller's to scrub and is not checked here. */
-export function checkNativeUploadInvocation(a: { client: string; stage: string; cwd: string; argv: readonly string[] }): string[] {
+export function checkNativeUploadInvocation(input: { client: string; stage: string; cwd: string; argv: readonly string[] }): string[] {
+	const { args: a, problem } = nativeArguments(input, 'upload invocation');
+	if (!a) return [problem!];
 	const problems = nativeUploadInvocationProblems(a.argv);
 	const root = realDirectory(a.stage, 'stage');
 	if (root) return [...problems, root];
@@ -1025,8 +1086,9 @@ export function checkNativeUploadInvocation(a: { client: string; stage: string; 
 		if (realpathSync(a.cwd) !== realpathSync(a.stage)) problems.push(`the upload working directory ${a.cwd} is not the stage ${a.stage}: wrangler.jsonc and its relative paths are resolved from there`);
 		const record = parseNativeJson(readRegular(path.join(a.stage, 'stage.json'), a.stage).toString('utf8'));
 		if (!isObject(record) || record.schema !== NATIVE_STAGE_SCHEMA || record.client !== a.client) problems.push(`the stage is not a ${NATIVE_STAGE_SCHEMA} record for ${a.client}`);
+		else problems.push(...nativeBrowserInvocationProblems(a.stage, a.client, record));
 	} catch (e) {
-		problems.push((e as Error).message);
+		problems.push(nativeProblem(e));
 	}
 	return problems;
 }
@@ -1103,7 +1165,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 			problems = stage({ client: client!, artifact: path.resolve(artifact!), digest: digest!, out: path.resolve(out!) });
 		} else problems = usage();
 	} catch (e) {
-		problems = [(e as Error).message];
+		problems = [profile === 'native' ? nativeProblem(e) : (e as Error).message];
 	}
 	for (const p of problems) console.error(`refused: ${p}`);
 	console.log(`TARGET ${problems.length ? 'REFUSED' : 'PASS'} ${command} ${client}${profile === 'native' ? ' profile=native' : ''}`);

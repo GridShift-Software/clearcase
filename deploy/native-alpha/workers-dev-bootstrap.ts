@@ -5,17 +5,21 @@
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { types } from 'node:util';
 import ts from 'typescript';
 import { checkNativeArtifact, nativeWalk, readRegular } from '../probes/target.ts';
-import { NATIVE_STAGED, parseNativeJson } from './pipeline.ts';
+import { NATIVE_BROWSER_BINDING, NATIVE_STAGED, parseNativeJson } from './pipeline.ts';
 import { validateBuildStamp } from '../../src/lib/server/runtime/build.ts';
 
 export const WORKERS_DEV_BOOTSTRAP_SCHEMA = 'clearcase.workers-dev-bootstrap/1';
 export type BootstrapSlot = 'client-a' | 'client-b' | 'staff';
+export type BootstrapClientSlot = Exclude<BootstrapSlot, 'staff'>;
 export type BootstrapSettings = {
 	pins: { source: string; artifact: string; entry: string };
 	compatibilityDate: string;
 	compatibilityFlags: ['nodejs_compat'];
+	/** Explicit opt-in, absent by default: the client slots (distinct, in client-a, client-b order) that bind exactly BROWSER. Staff is refused. */
+	browserClients?: readonly BootstrapClientSlot[];
 };
 const ACCOUNT = 'fb4c31b91c5d89b7a54afbdc34823170';
 const SLOTS = ['client-a', 'client-b', 'staff'] as const;
@@ -30,15 +34,58 @@ const object = (value: unknown): value is Record<string, unknown> => typeof valu
 function exact(value: unknown, keys: readonly string[], at: string): asserts value is Record<string, unknown> {
 	if (!object(value) || Object.keys(value).length !== keys.length || keys.some((k) => !Object.hasOwn(value, k))) throw new Error(`${at}: expected exactly ${keys.join(', ')}; overrides and unknown keys are refused`);
 }
+// Caller-owned inputs are read ONCE, from own enumerable data descriptors, into a fresh null-prototype record or array:
+// never a getter, proxy trap, iterator, inherited field, toJSON or overridden array method. Validation and use share that snapshot.
+const plain = (value: unknown): value is object => typeof value === 'object' && value !== null && !types.isProxy(value);
+function capture(value: unknown, required: readonly string[], at: string, optional: readonly string[] = []): Record<string, unknown> {
+	const refuse = () => new Error(`${at}: expected exactly ${[...required, ...optional.map((k) => `[${k}]`)].join(', ')}; overrides, unknown, inherited and accessor fields are refused`);
+	if (!plain(value) || Array.isArray(value) || (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)) throw refuse();
+	const descriptors = Object.getOwnPropertyDescriptors(value);
+	const keys = Reflect.ownKeys(descriptors);
+	if (keys.some((k) => typeof k !== 'string' || (!required.includes(k) && !optional.includes(k))) || required.some((k) => !Object.hasOwn(descriptors, k))) throw refuse();
+	const captured: Record<string, unknown> = Object.create(null);
+	for (const key of keys as string[]) {
+		const d = descriptors[key]!;
+		if (!Object.hasOwn(d, 'value') || !d.enumerable) throw refuse();
+		captured[key] = d.value;
+	}
+	return captured;
+}
+/** A fresh copy of a dense plain array of at most `max` primitive strings, or null for anything else (holes, accessors,
+ * extra or inherited members, and elements that are objects, boxed strings or numbers): no element is coerced or called. */
+function strings(value: unknown, max: number): string[] | null {
+	if (!plain(value) || !Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return null;
+	const descriptors = Object.getOwnPropertyDescriptors(value);
+	const length = (descriptors.length as PropertyDescriptor | undefined)?.value;
+	if (typeof length !== 'number' || length > max || Reflect.ownKeys(descriptors).length !== length + 1) return null;
+	const captured: string[] = [];
+	for (let i = 0; i < length; i++) {
+		const d = descriptors[String(i)];
+		if (!d || !Object.hasOwn(d, 'value') || !d.enumerable || typeof d.value !== 'string') return null;
+		captured.push(d.value);
+	}
+	return captured;
+}
 function settings(value: unknown): BootstrapSettings {
-	exact(value, ['pins', 'compatibilityDate', 'compatibilityFlags'], 'settings');
-	exact(value.pins, ['source', 'artifact', 'entry'], 'external pins');
-	if (typeof value.pins.source !== 'string' || !/^[0-9a-f]{40}$/.test(value.pins.source)) throw new Error('external source pin must be a full Git SHA');
-	for (const k of ['artifact', 'entry']) if (typeof value.pins[k] !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(value.pins[k])) throw new Error(`external ${k} pin must be sha256:<64 lowercase hex>`);
-	const date = value.compatibilityDate;
+	const top = capture(value, ['pins', 'compatibilityDate', 'compatibilityFlags'], 'settings', ['browserClients']);
+	const pins = capture(top.pins, ['source', 'artifact', 'entry'], 'external pins');
+	if (typeof pins.source !== 'string' || !/^[0-9a-f]{40}$/.test(pins.source)) throw new Error('external source pin must be a full Git SHA');
+	for (const k of ['artifact', 'entry']) if (typeof pins[k] !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(pins[k] as string)) throw new Error(`external ${k} pin must be sha256:<64 lowercase hex>`);
+	const date = top.compatibilityDate;
 	if (typeof date !== 'string' || !/^\d{4}-\d\d-\d\d$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date) throw new Error('compatibilityDate must be a real YYYY-MM-DD date');
-	if (JSON.stringify(value.compatibilityFlags) !== '["nodejs_compat"]') throw new Error('bootstrap requires exactly nodejs_compat; the parent must build for this flag');
-	return structuredClone(value) as BootstrapSettings;
+	const flags = strings(top.compatibilityFlags, 1);
+	if (flags?.length !== 1 || flags[0] !== 'nodejs_compat') throw new Error('bootstrap requires exactly nodejs_compat; the parent must build for this flag');
+	let browserClients: BootstrapClientSlot[] | undefined;
+	if (Object.hasOwn(top, 'browserClients')) {
+		const clients = strings(top.browserClients, SLOTS.length);
+		if (!clients?.length || clients.some((c) => c !== 'client-a' && c !== 'client-b')) throw new Error('browserClients must be a non-empty plain list of client-a and client-b; staff, any other slot, holes, accessors and overridden members are refused');
+		if (JSON.stringify(clients) !== JSON.stringify(SLOTS.filter((c) => clients.includes(c)))) throw new Error('browserClients must list each client at most once, in client-a, client-b order');
+		browserClients = clients as BootstrapClientSlot[];
+	}
+	return {
+		pins: { source: pins.source, artifact: pins.artifact as string, entry: pins.entry as string }, compatibilityDate: date, compatibilityFlags: ['nodejs_compat'],
+		...(browserClients ? { browserClients } : {}),
+	};
 }
 function freeze<T>(value: T): T {
 	if (value !== null && typeof value === 'object') {
@@ -53,6 +100,7 @@ export function planWorkersDevBootstrap(value: unknown) {
 	const s = settings(value);
 	const targets = SLOTS.map((slot) => {
 		const client = slot === 'staff' ? null : CLIENTS[slot];
+		const browser = slot !== 'staff' && s.browserClients?.includes(slot) === true;
 		const config = {
 			name: client?.worker ?? 'cc-sbx-staff-20261023', account_id: ACCOUNT,
 			main: NATIVE_STAGED.entry, no_bundle: true, find_additional_modules: false, minify: false,
@@ -65,6 +113,8 @@ export function planWorkersDevBootstrap(value: unknown) {
 			...(client ? {
 				d1_databases: [{ binding: 'DB', database_name: client.database, database_id: client.uuid }],
 				r2_buckets: [{ binding: 'BUCKET', bucket_name: client.bucket, jurisdiction: 'eu' }],
+				// Controlled capability, not service proof or a budget: only the exact binding, never remote/proxy/env variants.
+				...(browser ? { browser: { binding: NATIVE_BROWSER_BINDING } } : {}),
 			} : {}),
 		};
 		const configFile = `${slot}.wrangler.json`;
@@ -76,6 +126,7 @@ export function planWorkersDevBootstrap(value: unknown) {
 			// Desired policy, not fresh provider evidence. D1 jurisdiction is NOT a Wrangler binding key.
 			stores: client ? { d1Jurisdiction: 'eu', r2Jurisdiction: 'eu', r2Public: false, r2DevUrl: false } : null,
 			readiness: client ? 'services-unconfigured' : 'unconfigured-portal-shell',
+			...(browser ? { browser: { binding: NATIVE_BROWSER_BINDING } } : {}),
 		};
 	});
 	return freeze({ schema: WORKERS_DEV_BOOTSTRAP_SCHEMA, settings: s, targets });
@@ -134,8 +185,8 @@ function realAncestors(dir: string) {
 
 /** File-checking owner API: emits configs + manifest and copies ONE unchanged artifact, never builds or uploads.
  * out must not exist; all three invocations use out as cwd. A failed preparation removes only its newly made out. */
-export function prepareWorkersDevBootstrap(value: { artifact: string; out: string; settings: unknown }) {
-	exact(value, ['artifact', 'out', 'settings'], 'prepare');
+export function prepareWorkersDevBootstrap(input: { artifact: string; out: string; settings: unknown }) {
+	const value = capture(input, ['artifact', 'out', 'settings'], 'prepare');
 	const plan = planWorkersDevBootstrap(value.settings);
 	if (typeof value.artifact !== 'string' || typeof value.out !== 'string') throw new Error('artifact and out must be paths');
 	const artifact = path.resolve(value.artifact), out = path.resolve(value.out);
@@ -155,7 +206,7 @@ export function prepareWorkersDevBootstrap(value: { artifact: string; out: strin
 		const manifest = record(plan, checkedArtifact(path.join(out, 'artifact'), plan.settings));
 		for (const t of plan.targets) writeFileSync(path.join(out, t.configFile), t.configText, { flag: 'wx', mode: 0o644 });
 		writeFileSync(path.join(out, MANIFEST), json(manifest), { flag: 'wx', mode: 0o644 });
-		return readWorkersDevBootstrap({ stage: out, settings: value.settings });
+		return readPlanned(out, plan);
 	} catch (e) {
 		rmSync(out, { recursive: true, force: true });
 		throw e;
@@ -164,11 +215,14 @@ export function prepareWorkersDevBootstrap(value: { artifact: string; out: strin
 
 /** Recheck immediately before EACH upload with external pins. Exact canonical bytes prevent config/binding overrides,
  * extra files (including dotenv), stale manifests, and code/asset edits. Same-user check-to-upload races remain parent-owned. */
-export function readWorkersDevBootstrap(value: { stage: string; settings: unknown }) {
-	exact(value, ['stage', 'settings'], 'read');
-	const plan = planWorkersDevBootstrap(value.settings);
-	if (typeof value.stage !== 'string') throw new Error('stage must be a path');
-	const stage = path.resolve(value.stage);
+export function readWorkersDevBootstrap(input: { stage: string; settings: unknown }) {
+	const value = capture(input, ['stage', 'settings'], 'read');
+	return readPlanned(value.stage, planWorkersDevBootstrap(value.settings));
+}
+/** The recheck against ONE already captured plan, so prepare and invocation never re-read the caller's settings. */
+function readPlanned(stagePath: unknown, plan: ReturnType<typeof planWorkersDevBootstrap>) {
+	if (typeof stagePath !== 'string') throw new Error('stage must be a path');
+	const stage = path.resolve(stagePath);
 	realAncestors(stage);
 	const facts = checkedArtifact(path.join(stage, 'artifact'), plan.settings);
 	const manifest = record(plan, facts);
@@ -190,13 +244,18 @@ export function readWorkersDevBootstrap(value: { stage: string; settings: unknow
 }
 
 /** Read-only upload guard. No extra flags, alternative cwd, environment selection, name or config override. */
-export function checkWorkersDevBootstrapInvocation(value: { stage: string; settings: unknown; cwd: string; slot: BootstrapSlot; argv: readonly string[] }) {
-	exact(value, ['stage', 'settings', 'cwd', 'slot', 'argv'], 'invocation');
-	const checked = readWorkersDevBootstrap({ stage: value.stage, settings: value.settings });
-	const target = checked.manifest.targets.find((t) => t.slot === value.slot);
-	if (!target) throw new Error('not an approved bootstrap slot');
+export function checkWorkersDevBootstrapInvocation(input: { stage: string; settings: unknown; cwd: string; slot: BootstrapSlot; argv: readonly string[] }) {
+	const value = capture(input, ['stage', 'settings', 'cwd', 'slot', 'argv'], 'invocation');
+	// Every caller value is captured and typed before the stage is read; afterwards only these copies are compared.
+	const argv = strings(value.argv, 64);
+	if (!argv) throw new Error('upload argv is not a plain list of primitive strings, so not the bounded bootstrap invocation');
+	if (typeof value.cwd !== 'string') throw new Error('upload cwd must be a path');
+	const slot = value.slot;
+	if (typeof slot !== 'string' || !(SLOTS as readonly string[]).includes(slot)) throw new Error('not an approved bootstrap slot');
+	const checked = readPlanned(value.stage, planWorkersDevBootstrap(value.settings));
+	const target = checked.manifest.targets.find((t) => t.slot === slot)!;
 	realAncestors(value.cwd);
 	if (realpathSync(value.cwd) !== checked.stage) throw new Error('upload cwd is not the checked bootstrap stage');
-	if (JSON.stringify(value.argv) !== JSON.stringify(target.argv)) throw new Error('upload argv is not exactly the bounded bootstrap invocation');
+	if (JSON.stringify(argv) !== JSON.stringify(target.argv)) throw new Error('upload argv is not exactly the bounded bootstrap invocation (a plain list of strings)');
 	return checked;
 }

@@ -84,6 +84,13 @@ export const NATIVE_STAGED = { entry: 'artifact/cloudflare/_worker.js', assets: 
 export const NATIVE_ENTRY_DIR = 'artifact/cloudflare';
 /** The hosted-gate test-double marker (scripts/ci/hosted-artifact.ts GATE); a production artifact never contains it. */
 export const HOSTED_GATE_MARKER = 'clearcase-test-double:hosted-gate';
+/**
+ * Browser Run is a controlled, explicit client-only opt-in, never a default: a target (or bootstrap setting) names it, the
+ * reviewed target.json pin covers the opt-in, and the config must then carry exactly `browser: { binding: "BROWSER" }`
+ * and nothing else (no remote flag, alternative name, service/proxy binding, env block or other key). Binding it grants no
+ * rendering, isolation, quota or spend: it is source configuration, not proof that the service exists or is bounded.
+ */
+export const NATIVE_BROWSER_BINDING = 'BROWSER';
 export const CF_NATIVE_GAP =
 	'native profile capability gap: cf 1.0.0-beta.20 cannot bind the custom domain to the exact approved zone ID (zone_id on a custom-domain route needs manual review in its migration) and its Build Output for domains/workers.dev/limits is unmeasured; the native profile uses only the checked Wrangler config';
 
@@ -99,10 +106,26 @@ export type NativeTarget = {
 	limits: { cpu_ms: number; subrequests?: number };
 	d1: { binding: 'DB'; name: string; id: string; jurisdiction: 'eu' };
 	r2: { binding: 'BUCKET'; bucket: string; jurisdiction: 'eu'; publicAccess: false };
+	/** Absent unless the parent opts this client in to the Browser Run binding. */
+	browser?: { binding: typeof NATIVE_BROWSER_BINDING };
 	secrets: string[];
 	vars: Record<string, string>;
 	runtime: { profile: 'production'; sourceSha: string; artifactSha256: string; migrationsSha256: string; compatibilityDate: string; compatibilityFlags: string[]; assetsBinding: string };
 };
+
+// Error properties are caller-executable, even on an Error we once issued (it may have been mutated or proxied).
+// Only this module issues entries; consumers may retrieve the separately stored immutable primitive by identity.
+// WeakMap lookup never inspects a key. A Proxy of an issued Error is a different key and receives no diagnostic.
+const nativeMessages = new WeakMap<object, string>();
+function nativeRefusal(message: string): Error {
+	const error = new Error(message);
+	nativeMessages.set(error, message);
+	return error;
+}
+/** @internal Diagnostic channel for the native file boundary; never reads, coerces or serializes the thrown value. */
+export function nativeDiagnosticText(error: unknown): string | undefined {
+	return typeof error === 'object' && error !== null ? nativeMessages.get(error) : undefined;
+}
 
 const NAME = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const BINDING = /^[A-Z][A-Z0-9_]{0,62}$/;
@@ -130,7 +153,7 @@ export function parseNativeJson(text: string, comments = false): unknown {
 	const src = comments ? text.split('\n').filter((l) => !l.trimStart().startsWith('//')).join('\n') : text;
 	let i = 0;
 	const err = (m: string): never => {
-		throw new Error(`${m} at offset ${i}`);
+		throw nativeRefusal(`${m} at offset ${i}`);
 	};
 	const ws = () => {
 		while (src[i] === ' ' || src[i] === '\t' || src[i] === '\n' || src[i] === '\r') i++;
@@ -204,6 +227,49 @@ function exactKeys(value: Record<string, unknown>, required: readonly string[], 
 	for (const k of required) if (!Object.hasOwn(value, k)) problems.push(`${at}.${k} is missing`);
 }
 
+/**
+ * Caller-owned data read ONCE into a fresh copy: own enumerable data fields only, plain object and array prototypes, no
+ * symbol keys, holes, accessors, inherited or hidden fields. A getter, trap-driven read, iterator, `toJSON` or overridden
+ * array method is never run, so what is validated is exactly what is used. A key such as `__proto__` stays an inert own field.
+ * Without node:util a proxy cannot be told apart: its descriptor traps run while the copy is taken, so they can only change
+ * what the copy then holds and is validated as. Every entry point takes this copy first and never reads the caller again.
+ */
+export function plainData(value: unknown, at: string, depth = 0): unknown {
+	if (value === null || typeof value !== 'object') {
+		if (typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint') throw nativeRefusal(`${at} is not plain data`);
+		return value;
+	}
+	if (depth > 32) throw nativeRefusal(`${at} is nested deeper than 32`);
+	let proto: object | null;
+	let descriptors: PropertyDescriptorMap;
+	try {
+		proto = Object.getPrototypeOf(value);
+		descriptors = Object.getOwnPropertyDescriptors(value);
+	} catch {
+		// Descriptor traps are the one permitted caller-execution phase. Do not let their thrown values become errors
+		// that a later diagnostic consumer could inspect. In particular, do not read even a previously issued Error.
+		throw nativeRefusal(`${at} descriptor capture failed; caller data is refused`);
+	}
+	const keys = Reflect.ownKeys(descriptors);
+	const data = (key: string) => {
+		const d = descriptors[key];
+		if (!d || !Object.hasOwn(d, 'value') || !d.enumerable) throw nativeRefusal(`${at}.${key} is a hidden, inherited or accessor field, not plain data`);
+		return d.value as unknown;
+	};
+	if (Array.isArray(value)) {
+		const length = (descriptors.length as PropertyDescriptor | undefined)?.value;
+		if (proto !== Array.prototype || typeof length !== 'number' || keys.length !== length + 1) throw nativeRefusal(`${at} is not a dense plain array (a hole, extra member, symbol key or subclass is refused)`);
+		return Array.from({ length }, (_, i) => plainData(data(String(i)), `${at}[${i}]`, depth + 1));
+	}
+	if (proto !== Object.prototype && proto !== null) throw nativeRefusal(`${at} is not a plain object (an inherited field or class instance is refused)`);
+	const copy: Record<string, unknown> = {};
+	for (const key of keys) {
+		if (typeof key !== 'string') throw nativeRefusal(`${at} has a symbol-keyed field, not plain data`);
+		Object.defineProperty(copy, key, { value: plainData(data(key), `${at}.${key}`, depth + 1), enumerable: true, writable: true, configurable: true });
+	}
+	return copy;
+}
+
 /** The approved native scope's entry for `client`, or undefined. */
 const approvedClient = (client: unknown) => APPROVED_NATIVE_SCOPE.clients.find((c) => c.client === client);
 
@@ -211,11 +277,19 @@ const approvedClient = (client: unknown) => APPROVED_NATIVE_SCOPE.clients.find((
 export function parseNativeTarget(value: unknown, file: string): NativeTarget {
 	const problems: string[] = [];
 	const fail = (m: string) => problems.push(`${file}: ${m}`);
-	if (!isObject(value)) throw new Error(`${file}: not an object`);
+	if (!isObject(value)) throw nativeRefusal(`${file}: not an object`);
+	// One snapshot: everything below validates, and the caller then receives, these captured bytes of the target.
+	let snapshot: unknown;
+	try {
+		snapshot = plainData(value, 'target');
+	} catch (e) {
+		throw nativeRefusal(`${file}: ${nativeDiagnosticText(e) ?? 'caller data could not be captured or validated'}`);
+	}
+	const target = snapshot as Record<string, unknown>;
 	const keyProblems: string[] = [];
-	exactKeys(value, ['schema', 'client', 'accountId', 'worker', 'zone', 'customDomain', 'workersDev', 'previewUrls', 'limits', 'd1', 'r2', 'secrets', 'vars', 'runtime'], file, keyProblems);
+	exactKeys(target, ['schema', 'client', 'accountId', 'worker', 'zone', 'customDomain', 'workersDev', 'previewUrls', 'limits', 'd1', 'r2', 'secrets', 'vars', 'runtime'], file, keyProblems, ['browser']);
 	problems.push(...keyProblems);
-	const v = value;
+	const v = target;
 	if (v.schema !== NATIVE_TARGET_SCHEMA) fail(`schema is ${show(v.schema)}, not ${NATIVE_TARGET_SCHEMA}`);
 	const approved = approvedClient(v.client);
 	if (typeof v.client !== 'string' || !NAME.test(v.client) || !approved) fail(`client ${show(v.client)} is not an approved native client`);
@@ -249,6 +323,8 @@ export function parseNativeTarget(value: unknown, file: string): NativeTarget {
 		if (r2.jurisdiction !== 'eu') fail(`r2 jurisdiction ${show(r2.jurisdiction)} is not "eu"`);
 		if (r2.publicAccess !== false) fail(`r2 publicAccess ${show(r2.publicAccess)} is not false (the bucket is private)`);
 	}
+	const browser = Object.hasOwn(v, 'browser');
+	if (browser && (!isObject(v.browser) || !sameKeys(v.browser, ['binding']) || v.browser.binding !== NATIVE_BROWSER_BINDING)) fail(`browser ${show(v.browser)} is not exactly { binding: "${NATIVE_BROWSER_BINDING}" } (an alternative name, flag or extra key is refused; omit browser to opt out)`);
 	if (!Array.isArray(v.secrets) || !v.secrets.every((s) => typeof s === 'string' && BINDING.test(s)) || new Set(v.secrets).size !== v.secrets.length) fail(`secrets ${show(v.secrets)} is not a list of distinct secret NAMES`);
 	if (!isObject(v.vars) || !Object.entries(v.vars).every(([k, x]) => BINDING.test(k) && typeof x === 'string')) fail(`vars ${show(v.vars)} is not binding names to strings`);
 	else if (v.vars.CLEARCASE_CLIENT_ID !== v.client) fail(`vars.CLEARCASE_CLIENT_ID is ${show(v.vars.CLEARCASE_CLIENT_ID)}, not the client ${show(v.client)}`);
@@ -263,8 +339,14 @@ export function parseNativeTarget(value: unknown, file: string): NativeTarget {
 		if (!Array.isArray(rt.compatibilityFlags) || !rt.compatibilityFlags.every((f) => typeof f === 'string' && FLAG.test(f)) || new Set(rt.compatibilityFlags).size !== rt.compatibilityFlags.length) fail(`runtime compatibilityFlags ${show(rt.compatibilityFlags)} is not a list of distinct flags`);
 		if (typeof rt.assetsBinding !== 'string' || !BINDING.test(rt.assetsBinding)) fail(`runtime assetsBinding ${show(rt.assetsBinding)} is not a binding name`);
 	}
-	if (problems.length) throw new Error(problems.join('\n'));
-	return value as NativeTarget;
+	if (browser) {
+		// One binding name, one capability: BROWSER may not also be an asset, var or secret name.
+		if (isObject(rt) && rt.assetsBinding === NATIVE_BROWSER_BINDING) fail(`runtime assetsBinding is ${NATIVE_BROWSER_BINDING}, which the browser binding owns`);
+		if (isObject(v.vars) && Object.hasOwn(v.vars, NATIVE_BROWSER_BINDING)) fail(`vars.${NATIVE_BROWSER_BINDING} collides with the browser binding`);
+		if (Array.isArray(v.secrets) && v.secrets.includes(NATIVE_BROWSER_BINDING)) fail(`secret ${NATIVE_BROWSER_BINDING} collides with the browser binding`);
+	}
+	if (problems.length) throw nativeRefusal(problems.join('\n'));
+	return target as NativeTarget;
 }
 
 /** Each native client's identifiers that a config may name, keyed by kind; hostnames compare in lower case. */
@@ -276,12 +358,12 @@ export function distinctNative(targets: NativeTarget[]): NativeTarget[] {
 	const owner = new Map<string, string>();
 	const clients = new Set<string>();
 	for (const t of targets) {
-		if (clients.has(t.client)) throw new Error(`client ${t.client} has two native targets`);
+		if (clients.has(t.client)) throw nativeRefusal(`client ${t.client} has two native targets`);
 		clients.add(t.client);
 		for (const [kind, values] of Object.entries(fromTarget(t)))
 			for (const x of values) {
 				const prior = owner.get(x);
-				if (prior && prior !== t.client) throw new Error(`${kind} ${x} is in both ${prior}'s and ${t.client}'s native targets`);
+				if (prior && prior !== t.client) throw nativeRefusal(`${kind} ${x} is in both ${prior}'s and ${t.client}'s native targets`);
 				owner.set(x, t.client);
 			}
 	}
@@ -296,6 +378,7 @@ export function nativeOwners(targets: NativeTarget[]): Map<string, string> {
 	return owners;
 }
 
+const WRANGLER_OPTIONAL_KEYS = ['browser'] as const;
 const WRANGLER_KEYS = ['name', 'account_id', 'main', 'no_bundle', 'find_additional_modules', 'compatibility_date', 'compatibility_flags', 'send_metrics', 'workers_dev', 'preview_urls', 'routes', 'limits', 'assets', 'vars', 'secrets', 'd1_databases', 'r2_buckets'] as const;
 
 /**
@@ -304,18 +387,28 @@ const WRANGLER_KEYS = ['name', 'account_id', 'main', 'no_bundle', 'find_addition
  * compared; an extra key, binding, route or setting is refused, as is any string equal (case-free) to another native
  * client's identifier.
  */
-export function checkNativeWrangler(a: { client: string; targets: NativeTarget[]; text: string }): string[] {
+export function checkNativeWrangler(input: { client: string; targets: NativeTarget[]; text: string }): string[] {
+	// One validated snapshot of the arguments and of every target: the browser opt-in, identifiers, collisions and the
+	// compared tuple all come from it, never from the caller's objects.
+	let a: { client: string; targets: NativeTarget[]; text: string };
+	try {
+		const v = plainData(input, 'check');
+		if (!isObject(v) || typeof v.client !== 'string' || typeof v.text !== 'string' || !Array.isArray(v.targets)) throw nativeRefusal('expected { client, targets, text }: a client name, a list of native targets and the config text');
+		a = { client: v.client, text: v.text, targets: v.targets.map((t, i) => parseNativeTarget(t, `targets[${i}]`)) };
+	} catch (e) {
+		return [`the native check input is refused: ${nativeDiagnosticText(e) ?? 'caller data could not be captured or validated'}`];
+	}
 	const target = a.targets.find((t) => t.client === a.client);
 	if (!target) return [`no native target for ${a.client}`];
 	let config: unknown;
 	try {
 		config = parseNativeJson(a.text, true);
 	} catch (e) {
-		return [`the native Wrangler config is not JSON with whole-line comments: ${(e as Error).message}`];
+		return [`the native Wrangler config is not JSON with whole-line comments: ${nativeDiagnosticText(e) ?? 'invalid native JSON text'}`];
 	}
 	if (!isObject(config)) return ['the native Wrangler config is not an object'];
 	const problems: string[] = [];
-	exactKeys(config, WRANGLER_KEYS, 'config', problems);
+	exactKeys(config, WRANGLER_KEYS, 'config', problems, WRANGLER_OPTIONAL_KEYS);
 	const owners = nativeOwners(a.targets);
 	const foreign = new Set<string>();
 	const named = (got: unknown) => (typeof got === 'string' ? owners.get(got.toLowerCase()) : undefined);
@@ -395,6 +488,15 @@ export function checkNativeWrangler(a: { client: string; targets: NativeTarget[]
 		expect('r2 bucket', o.bucket_name, target.r2.bucket);
 		expect('r2 jurisdiction', o.jurisdiction, target.r2.jurisdiction);
 	}
+	// Browser Run: present exactly when the reviewed target opted in, and then exactly the one binding. Nothing is inferred.
+	if (!Object.hasOwn(config, 'browser')) {
+		if (target.browser) problems.push(`config.browser is missing: the target opts in to the ${NATIVE_BROWSER_BINDING} binding`);
+	} else if (!target.browser) problems.push(`config.browser is ${show(config.browser)}, but the target does not opt in to the browser binding (add browser to the reviewed target.json to opt in)`);
+	else if (!isObject(config.browser)) problems.push(`config.browser is ${show(config.browser)}, not { binding: "${NATIVE_BROWSER_BINDING}" }`);
+	else {
+		exactKeys(config.browser, ['binding'], 'config.browser', problems);
+		expect('the browser binding', config.browser.binding, NATIVE_BROWSER_BINDING);
+	}
 	// Another native client's identifier as any string value (case-free), keys included, the fields above included.
 	const walk = (x: unknown): void => {
 		if (typeof x === 'string') {
@@ -411,7 +513,15 @@ export function checkNativeWrangler(a: { client: string; targets: NativeTarget[]
 export const NATIVE_UPLOAD_ARGV = ['wrangler', 'deploy', '--config', NATIVE_CONFIG_FILE] as const;
 
 /** Problems with `argv` as the native upload command: it must be exactly NATIVE_UPLOAD_ARGV, so no flag can override the checked config. */
-export function nativeUploadInvocationProblems(argv: readonly string[]): string[] {
+export function nativeUploadInvocationProblems(input: readonly string[]): string[] {
+	// Each element is compared, and shown, as the primitive string it was captured as: none is coerced, stringified or called.
+	let argv: unknown;
+	try {
+		argv = plainData(input, 'argv');
+	} catch {
+		argv = undefined;
+	}
+	if (!Array.isArray(argv) || argv.some((x) => typeof x !== 'string')) return [`the upload command is not a plain list of strings, so it is not exactly ${JSON.stringify(NATIVE_UPLOAD_ARGV)}`];
 	if (argv.length === NATIVE_UPLOAD_ARGV.length && NATIVE_UPLOAD_ARGV.every((x, i) => argv[i] === x)) return [];
 	return [`the upload command is ${JSON.stringify(argv)}, not exactly ${JSON.stringify(NATIVE_UPLOAD_ARGV)}: a CLI flag (--name, --env, --route, --var, --define, --compatibility-*, --keep-vars, --no-bundle, --minify, --config, --outdir, --dry-run) would override or bypass the checked config`];
 }
@@ -601,8 +711,15 @@ export function pinProblems(pins: NativePins, observed: ObservedPins, t: NativeT
 	return problems;
 }
 
-/** The record a native stage writes and its prebuilt check recomputes byte for byte. Every claim flag is constant false. */
-export function nativeStageRecord(t: NativeTarget, a: { files: Record<string, string>; artifact: string; migrations: string; upload: NativeUpload }) {
+/**
+ * The record a native stage writes and its prebuilt check recomputes byte for byte. Every claim flag is constant false.
+ * Built only from one validated snapshot of the target and one copy of the facts, so it holds no caller object.
+ */
+export function nativeStageRecord(target: NativeTarget, facts: { files: Record<string, string>; artifact: string; migrations: string; upload: NativeUpload }) {
+	const t = parseNativeTarget(target, 'target');
+	const copy = plainData(facts, 'stage record facts');
+	if (!isObject(copy)) throw nativeRefusal('stage record facts are not an object');
+	const a = copy as typeof facts;
 	return {
 		schema: NATIVE_STAGE_SCHEMA,
 		profile: 'native',
@@ -613,7 +730,7 @@ export function nativeStageRecord(t: NativeTarget, a: { files: Record<string, st
 		migrations: a.migrations,
 		upload: a.upload,
 		runtime: { profile: t.runtime.profile, sourceSha: t.runtime.sourceSha },
-		desired: { accountId: t.accountId, worker: t.worker, zoneId: t.zone.id, hostname: t.customDomain.hostname, d1Id: t.d1.id, r2Bucket: t.r2.bucket },
+		desired: { accountId: t.accountId, worker: t.worker, zoneId: t.zone.id, hostname: t.customDomain.hostname, d1Id: t.d1.id, r2Bucket: t.r2.bucket, ...(t.browser ? { browserBinding: NATIVE_BROWSER_BINDING } : {}) },
 		policy: { workersDev: false, previewUrls: false, d1Jurisdiction: t.d1.jurisdiction, r2Jurisdiction: t.r2.jurisdiction, r2PublicAccess: false, remoteMigrations: 'not-applied-by-stage' },
 		state: 'STAGED-UNVERIFIED',
 		fundedAdmission: false,
@@ -630,7 +747,7 @@ export function versionProblems(text: string | null, t: NativeTarget): string[] 
 	try {
 		v = parseNativeJson(text);
 	} catch (e) {
-		return [`${NATIVE_STAGED.version} is not JSON: ${(e as Error).message}`];
+		return [`${NATIVE_STAGED.version} is not JSON: ${nativeDiagnosticText(e) ?? 'invalid native JSON text'}`];
 	}
 	if (!isObject(v) || v.version !== t.runtime.sourceSha) return [`${NATIVE_STAGED.version} names ${show(isObject(v) ? v.version : v)}, not the target's source ${t.runtime.sourceSha}`];
 	return [];

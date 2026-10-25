@@ -1,0 +1,8 @@
+{
+  "extends": "../../../tsconfig.json",
+  "include": [
+    "./**/*.ts",
+    "../../../deploy/native-alpha/runtime-config.ts",
+    "../../../scripts/hosted-native-runtime-config.ts"
+  ]
+}

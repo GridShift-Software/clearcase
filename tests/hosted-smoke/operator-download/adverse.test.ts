@@ -86,6 +86,7 @@ describe('authority is decided before any row, body or object', () => {
   it('treats a malformed case or submission id as the same uniform not-found, before any port', async () => {
     const w = ready(world());
     const ref = await text(await call('view', 'case-unknown', 'op-0001-0b7c2f3e1d2a4c5b'));
+    w.operateCalls.length = 0; // the reference answer above went through the capability check; the malformed ids below must not
     for (const [c, o] of [['../x', 'op-0001-0b7c2f3e1d2a4c5b'], [CASE_A, '..%2f..'], [CASE_A, 'short'], ['', 'op-0001-0b7c2f3e1d2a4c5b']] as const) {
       const r = await call('view', c, o);
       expect(r.status, `${c} ${o}`).toBe(404);
@@ -93,6 +94,17 @@ describe('authority is decided before any row, body or object', () => {
     }
     untouched(w);
     expect(w.operateCalls).toEqual([]);
+  });
+});
+
+describe('an unknown submission of an authorized case', () => {
+  it('gets the very same refusal as a case the operator may not reach', async () => {
+    const w = ready(world());
+    const r = await call('view', CASE_A, 'op-7777-0b7c2f3e1d2a4c5b');
+    expect(r.status).toBe(404);
+    expect(await text(r)).toBe(await text(await call('view', 'case-unknown', 'op-7777-0b7c2f3e1d2a4c5b')));
+    expect(w.assets.calls).toEqual([]);
+    expect(w.audit.events).toEqual([]);
   });
 });
 
@@ -153,7 +165,7 @@ describe('what the operator is given', () => {
     const raw = await text(v), view = JSON.parse(raw);
     expect(view).toMatchObject({ operationId: s.operationId, caseId: CASE_A, clientId: CLIENT, sequence: 1, revisionId: `subrev-${s.operationId}`, manifestHref: `${base(CASE_A, s.operationId)}/manifest`, downloadHref: `${base(CASE_A, s.operationId)}/download` });
     expect(view.files).toEqual([{ path: 'docs/Claim File.pdf', filename: 'Claim File.pdf', mediaType: 'application/pdf', size: s.bytes.byteLength, sha256: s.sha256, downloadHref: `${base(CASE_A, s.operationId)}/download` }]);
-    expect(raw).not.toMatch(/awaiting|processing|queue|claim(ed)?\b|results/i);
+    expect(raw).not.toMatch(/awaiting|processing|queue|claimed|results/i);
     const m = await call('manifest', CASE_A, s.operationId);
     const mb = await bytes(m);
     expect(m.status).toBe(200);

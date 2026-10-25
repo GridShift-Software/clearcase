@@ -62,3 +62,53 @@ describe('deny-only restrictions, inert source execution (not native evidence)',
   await expect(call(p.plugin.transform, [source, '/foreign/node_modules/@cloudflare/puppeteer/lib/esm/puppeteer/common/Debug.js'])).rejects.toThrow(/wrong SDK root\/path/);
  });
 });
+describe('host disposal symbols and denied page bindings, inert source execution (not native evidence)', () => {
+ const evaluate = (code: string, names: string, host: unknown = Symbol) => new Function('Symbol', code.replace(/^export /gm, '') + '; return {' + names + '};')(host);
+ it('reads the actual host disposal symbols and never writes the Symbol intrinsic', async () => {
+  const p = await policy(), original = p.original('util/disposable.js'), code = await p.transform('util/disposable.js');
+  const absent = () => {
+   const writes: string[] = [];
+   const host = Object.defineProperties(function SyntheticSymbol(description?: string) { return Symbol(description); }, Object.fromEntries(['dispose', 'asyncDispose'].map(key => [key, { get: () => undefined, set: () => { writes.push(key); } }])));
+   return { host, writes };
+  };
+  const before = absent();
+  evaluate(original, 'disposeSymbol', before.host);
+  expect(before.writes).toEqual(['dispose', 'asyncDispose']);
+  const after = absent(), missing = evaluate(code, 'disposeSymbol, asyncDisposeSymbol', after.host);
+  expect(after.writes).toEqual([]);
+  expect(missing).toEqual({ disposeSymbol: undefined, asyncDisposeSymbol: undefined });
+  const actual = evaluate(code, 'disposeSymbol, asyncDisposeSymbol, DisposableStack');
+  expect([actual.disposeSymbol, actual.asyncDisposeSymbol]).toEqual([Symbol.dispose, Symbol.asyncDispose]);
+  const disposed: string[] = [], stack = new actual.DisposableStack();
+  stack.use({ [Symbol.dispose]: () => disposed.push('host symbol') });
+  stack.dispose();
+  expect(disposed).toEqual(['host symbol']);
+ });
+ it('Binding keeps its name and init source, and run always throws before evaluating in any context', async () => {
+  const p = await policy(), Binding = evaluate(await p.transform('cdp/Binding.js'), 'Binding').Binding;
+  const binding = new Binding('synthetic', () => 'never', 'synthetic init'), calls: string[] = [];
+  const context = { evaluate: async () => { calls.push('evaluate'); }, evaluateHandle: async () => { calls.push('evaluateHandle'); } };
+  expect([binding.name, binding.initSource]).toEqual(['synthetic', 'synthetic init']);
+  await expect(binding.run(context, 1, [], true)).rejects.toThrow('native render SDK page binding refused');
+  await expect(binding.run(context, 2, [{}], false)).rejects.toThrow('native render SDK page binding refused');
+  expect(calls).toEqual([]);
+ });
+ it('the page binding installer and its init string throw in the Worker', async () => {
+  const p = await policy(), code = await p.transform('cdp/utils.js');
+  const install = new Function(declaration(code, 'addPageBinding') + '; return addPageBinding;')();
+  const init = new Function('evaluationString', declaration(code, 'pageBindingInitString') + '; return pageBindingInitString;')(() => 'never');
+  expect(() => install('internal', 'synthetic', 'puppeteer_')).toThrow('native render SDK page binding refused');
+  expect(() => init('exposedFun', 'synthetic')).toThrow('native render SDK page binding refused');
+ });
+ it('frame exposed-function bindings and execution-context bindings refuse before any CDP command', async () => {
+  const p = await policy(), frame = await p.transform('cdp/Frame.js'), context = await p.transform('cdp/ExecutionContext.js'), sent: string[] = [];
+  const client = { send: async (method: string) => { sent.push(method); } };
+  for (const name of ['addExposedFunctionBinding', 'removeExposedFunctionBinding']) {
+   const method = new Function('return ({' + declaration(frame, name) + '})')()[name];
+   await expect(method.call({ _frameManager: { mainFrame: () => null }, _hasStartedLoading: true, evaluate: async () => {} }, { name: 'synthetic' })).rejects.toThrow('native render SDK page binding refused');
+  }
+  const Context = new Function('client', 'return class { #client = client; #bindings = new Map(); #mutex = { acquire: async () => ({ [Symbol.dispose]() {} }) }; #name; #id = 1; ' + declaration(context, '#addBinding') + ' add(binding) { return this.#addBinding(binding); } evaluate() { client.send("evaluate"); } };')(client);
+  await expect(new Context().add({ name: '__ariaQuerySelector' })).rejects.toThrow('native render SDK page binding refused');
+  expect(sent).toEqual([]);
+ });
+});

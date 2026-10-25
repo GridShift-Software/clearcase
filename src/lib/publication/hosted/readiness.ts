@@ -6,6 +6,10 @@ import { sha256Canonical } from '../../results-review/native/digest.ts';
 import type { PublicationRequest } from './controller.ts';
 import type { CandidateSnapshot, NativePublicationPorts, SignoffIdentity, SignoffRecord } from './ports.ts';
 import { checkSnapshot, newWarnings, signoffBlocker, type Blocker } from './rules.ts';
+import type { ReadinessFence, ReadinessFenceResult } from './readiness-fence.ts';
+
+/** Own read-only contract; ordinary publication ports alone must remain unavailable. */
+export type PublicationReadinessPorts = NativePublicationPorts & { readonly readinessFence?: ReadinessFence | null };
 
 /** Observations only. Never a signed decision, pointer, apply receipt, or substitute for controller validation. */
 export interface ReadinessView {
@@ -49,21 +53,22 @@ const signedIdentity = (s: SignoffRecord): SignoffIdentity => ({
 });
 
 /** Own hook: parent must resolve the exact original Request to its real publication ports. No defaults/adapters here. */
-export type ReadinessComposition = (a: { request: Request; platform: unknown }) => NativePublicationPorts | null | Promise<NativePublicationPorts | null>;
+export type ReadinessComposition = (a: { request: Request; platform: unknown }) => PublicationReadinessPorts | null | Promise<PublicationReadinessPorts | null>;
 let composition: ReadinessComposition | null = null;
 export function setReadinessComposition(c: ReadinessComposition | null): void { composition = c; }
 export async function readinessControllerFor(a: { request: Request; platform: unknown }) {
-  let ports: NativePublicationPorts | null = null;
+  let ports: PublicationReadinessPorts | null = null;
   try { ports = await composition?.(a) ?? null; } catch { /* Fail closed. */ }
   return createPublicationReadiness(ports);
 }
 
-export function createPublicationReadiness(ports: NativePublicationPorts | null) {
+export function createPublicationReadiness(ports: PublicationReadinessPorts | null) {
   return { read: async (r: PublicationRequest): Promise<Response> => {
     try {
       if (r.request.method !== 'GET') refuse(405, 'method-not-allowed', 'Only GET is accepted.');
       if (!ports?.authorize || !ports.candidates || !ports.ledger || !ports.audit || !ports.publisher
-        || ports.publisher.protocol !== 'atomic-publication/1' || typeof ports.publisher.receipt !== 'function' || typeof ports.now !== 'function') return unavailable();
+        || ports.publisher.protocol !== 'atomic-publication/1' || typeof ports.publisher.receipt !== 'function' || typeof ports.now !== 'function'
+        || ports.readinessFence?.protocol !== 'coherent-readiness/1' || typeof ports.readinessFence.check !== 'function') return unavailable();
       const p = ports;
       const raw = r.params.caseId;
       if (!raw || !PART.test(raw)) return refuse(404, 'not-found', 'Not found.');
@@ -73,7 +78,8 @@ export function createPublicationReadiness(ports: NativePublicationPorts | null)
       if (who.clientId !== p.clientId) return refuse(401, 'wrong-client', 'Sign in for this client.');
       if (who.principal.kind !== 'staff') return refuse(403, 'forbidden', 'Explicit staff publication and preview access are required.');
       const scope = { clientId: p.clientId, caseId };
-      const actor: AuditEvent['actor'] = { kind: 'verified', principal: { ...who.principal }, sessionId: who.sessionId };
+      const principal = Object.freeze({ ...who.principal }), sessionId = who.sessionId;
+      const actor: AuditEvent['actor'] = Object.freeze({ kind: 'verified', principal, sessionId });
       const audit = async (outcome: AuditEvent['outcome'], action: string, candidateId: string) => {
         try { await p.audit!.append({ eventId: crypto.randomUUID(), actor, action, object: { kind: 'publication-readiness', id: candidateId, caseId }, version: null, outcome, at: p.now().toISOString() }); }
         catch { return refuse(503, 'audit-unavailable', 'Readiness was not released because its required audit could not be recorded.'); }
@@ -81,7 +87,7 @@ export function createPublicationReadiness(ports: NativePublicationPorts | null)
       const authority = async () => {
         try {
           await who.checkRevocation();
-          await p.authorize!({ principal: who.principal, sessionId: who.sessionId, caseId, capability: 'publish' });
+          await p.authorize!({ principal, sessionId, caseId, capability: 'publish' });
           await who.authorize({ caseId, operation: 'read-preview' });
         } catch (e) {
           await audit('denied', 'publication.readiness.denied', raw);
@@ -116,7 +122,7 @@ export function createPublicationReadiness(ports: NativePublicationPorts | null)
         if (!so || so.clientId !== p.clientId || so.caseId !== caseId || so.signoffId !== signoffId || so.candidateId !== candidateId) return refuse(404, 'not-found', 'Not found.');
         if (JSON.stringify(so).length > 256 * 1024 || !['recorded', 'audited'].includes(so.state)
           || so.warningFingerprints.length > 200 || so.acknowledgements.length > 200) return unavailable();
-        return so;
+        return structuredClone(so);
       };
       const s = await snapshot(), so = await signoff();
       const material = canonicalJson(s), signed = so ? canonicalJson(so) : null;
@@ -131,19 +137,34 @@ export function createPublicationReadiness(ports: NativePublicationPorts | null)
       }
       const view: ReadinessView = {
         caseId, identity: identityOf(s), materialSha256, blocker, requiredAcknowledgements,
-        selfApprovalRequired: who.principal.issuer === s.preparedBy.issuer && who.principal.subject === s.preparedBy.subject,
+        selfApprovalRequired: principal.issuer === s.preparedBy.issuer && principal.subject === s.preparedBy.subject,
         signoff: so ? { signoffId: so.signoffId, identity: signedIdentity(so), state: so.state, invalidated: so.invalidatedAt !== null, blockers } : null,
       };
-      await audit('succeeded', 'publication.readiness.read', candidateId);
-      // Required audit/hash/ledger awaits cannot grant a lasting verdict. Finish the authority checks BEFORE
-      // taking the release observations: comparing copies read before an authority await misses edits in that await.
+      // This records intent, NOT successful disclosure. A later refusal must never leave a release-success event.
+      await audit('succeeded', 'publication.readiness.release-intent', candidateId);
       await authority();
       await authority();
-      // Observe the exact ledger record first, then freshly assembled material. The parent's candidate reader must
-      // fence its complete D1 assembly/generation; an external Clerk check is an earlier observation, not a D1 lock.
+      // Retain early change detection, but these separate reads cannot establish a coherent release observation.
       const latestSignoff = await signoff(), latest = await snapshot();
-      if (canonicalJson(latest) !== material || (latestSignoff ? canonicalJson(latestSignoff) : null) !== signed)
+      const stale = async () => {
+        await audit('refused', 'publication.readiness.refused', candidateId);
         return refuse(409, 'readiness-stale', 'The candidate or sign-off changed during the read. Refresh and review again.');
+      };
+      if (canonicalJson(latest) !== material || (latestSignoff ? canonicalJson(latestSignoff) : null) !== signed) return await stale();
+      // ALL awaited audit/authority/storage/hash work precedes this shared D1 check. It compares the ORIGINAL
+      // observations, not copies refreshed independently. Clerk was last observed in authority(), not locked by D1.
+      let fenced: ReadinessFenceResult;
+      try {
+        fenced = await p.readinessFence!.check({ ...scope, principal, sessionId, snapshot: s, signoff: so });
+      } catch { fenced = 'unavailable'; }
+      if (fenced === 'stale') return await stale();
+      if (fenced !== 'current') {
+        await audit(fenced === 'forbidden' || fenced === 'invalid-session' ? 'denied' : 'failed', 'publication.readiness.refused', candidateId);
+        if (fenced === 'forbidden') return refuse(403, 'forbidden', 'Explicit staff publication and preview access are required.');
+        if (fenced === 'invalid-session') return refuse(401, 'unauthenticated', 'Sign in for this client.');
+        return unavailable();
+      }
+      // No further await, callback, audit or storage read on the successful release path.
       return json(200, view);
     } catch (e) {
       if (e instanceof Refusal) return json(e.status, { code: e.code, message: e.message });

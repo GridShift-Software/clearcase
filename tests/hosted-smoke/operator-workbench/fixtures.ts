@@ -1,9 +1,21 @@
 // Synthetic unit ports only; not native runtime evidence.
 import type { AuditEvent, Identity } from '../../../src/lib/server/runtime/contracts.ts';
 import { id, resultsVersion, sha256 } from '../../../src/lib/server/runtime/ids.ts';
-import type { CandidateSnapshot, NativePublicationPorts, SignoffRecord } from '../../../src/lib/publication/hosted/ports.ts';
+import type { CandidateSnapshot, SignoffRecord } from '../../../src/lib/publication/hosted/ports.ts';
 import type { LinkedCandidate } from '../../../src/lib/results-review/native/ports.ts';
 import type { OperatorSubmissionView } from '../../../src/lib/submissions/download/controller.ts';
+
+import type { PublicationReadinessPorts } from '../../../src/lib/publication/hosted/readiness.ts';
+import type { ReadinessFence } from '../../../src/lib/publication/hosted/readiness-fence.ts';
+import { canonicalJson } from '../../../src/lib/case-package/canonical.ts';
+
+// One synchronous in-memory observation, only for unit ports. SQL regressions use d1ReadinessFence instead.
+export function syntheticFence(snapshot: () => CandidateSnapshot, signoff: () => SignoffRecord | null = () => null): ReadinessFence {
+  return { protocol: 'coherent-readiness/1', async check(o) {
+    return canonicalJson(snapshot()) === canonicalJson(o.snapshot)
+      && (o.signoff === null || canonicalJson(signoff()) === canonicalJson(o.signoff)) ? 'current' : 'stale';
+  } };
+}
 
 export const CLIENT = id('client', 'synthetic-client');
 export const CASE = id('case', 'synthetic-case');
@@ -27,7 +39,8 @@ export function world() {
   const identity: Identity = { kind: 'verified', principal, sessionId: id('session', 'synthetic-session'), clientId: CLIENT,
     async checkRevocation() {}, async authorize(a) { if (a.operation !== 'read-preview') throw new Error('wrong operation'); previews++; } };
   const noMutation = async (): Promise<never> => { throw new Error('Readiness must never mutate publication or sign-off'); };
-  const ports: NativePublicationPorts = {
+  const ports: PublicationReadinessPorts = {
+    readinessFence: syntheticFence(() => current),
     clientId: CLIENT, authorize: async (a) => { if (a.capability !== 'publish') throw new Error('wrong grant'); grants++; },
     candidates: { read: async () => { reads++; return structuredClone(current); } },
     publisher: { protocol: 'atomic-publication/1', receipt: noMutation, publish: noMutation, withdraw: noMutation },

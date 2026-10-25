@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { createPublicationReadiness } from '../../../src/lib/publication/hosted/readiness.ts';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
-import { world, FP, signoff } from './fixtures.ts';
+import { world, FP, signoff, syntheticFence } from './fixtures.ts';
 
 it('probe 1: refuses material changed during the final awaited authority check', async () => {
   const w = world(); let previews = 0;
@@ -22,7 +22,7 @@ it('probe 2: deny before metadata and fail closed on the release audit', async (
   expect(denied.events.at(-1)?.outcome).toBe('denied');
   const w = world(), original = w.ports.audit!;
   const ports = { ...w.ports, audit: { async append(e: Parameters<typeof original.append>[0]) {
-    if (e.action === 'publication.readiness.read') throw new Error('synthetic audit outage');
+    if (e.action === 'publication.readiness.release-intent') throw new Error('synthetic audit outage');
     return original.append(e);
   } } };
   const r = await createPublicationReadiness(ports).read(w.request());
@@ -34,14 +34,14 @@ it('observes the requested sign-off after the last authority await, including in
   const w = world(); let so = signoff(), previews = 0;
   w.identity.authorize = async () => { if (++previews === 4) so = { ...so, invalidatedAt: '2026-10-25T11:00:00.000Z' }; };
   const r = w.request(); r.url.searchParams.set('signoffId', so.signoffId);
-  const ports = { ...w.ports, ledger: { ...w.ports.ledger!, signoff: async () => structuredClone(so) } };
+  const ports = { ...w.ports, readinessFence: syntheticFence(() => w.current, () => so), ledger: { ...w.ports.ledger!, signoff: async () => structuredClone(so) } };
   expect((await createPublicationReadiness(ports).read(r)).status).toBe(409);
 });
 
 it('takes the final material observation after awaited sign-off storage, not before it', async () => {
   const w = world(); let reads = 0;
   const so = signoff(), r = w.request(); r.url.searchParams.set('signoffId', so.signoffId);
-  const ports = { ...w.ports, ledger: { ...w.ports.ledger!, signoff: async () => {
+  const ports = { ...w.ports, readinessFence: syntheticFence(() => w.current, () => so), ledger: { ...w.ports.ledger!, signoff: async () => {
     if (++reads === 2) w.current = { ...w.current, trustedBaseline: [FP] };
     return structuredClone(so);
   } } };

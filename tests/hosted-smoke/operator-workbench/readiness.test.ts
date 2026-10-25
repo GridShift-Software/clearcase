@@ -6,7 +6,7 @@ import { id } from '../../../src/lib/server/runtime/ids.ts';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
 import { canonicalJson } from '../../../src/lib/case-package/canonical.ts';
 import { sha256Canonical } from '../../../src/lib/results-review/native/digest.ts';
-import { CASE, FP, signoff, world } from './fixtures.ts';
+import { CASE, FP, signoff, syntheticFence, world } from './fixtures.ts';
 
 afterEach(() => setReadinessComposition(null));
 describe('publication readiness observations', () => {
@@ -33,7 +33,7 @@ describe('publication readiness observations', () => {
     expect(w.reads).toBe(2);
     expect(w.grants).toBeGreaterThanOrEqual(4);
     expect(w.previews).toBe(w.grants);
-    expect(w.events.map((e) => e.action)).toEqual(['publication.readiness.intent', 'publication.readiness.read']);
+    expect(w.events.map((e) => e.action)).toEqual(['publication.readiness.intent', 'publication.readiness.release-intent']);
   });
   it.each(['publish', 'preview'] as const)('reads no snapshot or ledger metadata without current explicit %s access', async (capability) => {
     const w = world();
@@ -66,7 +66,7 @@ describe('publication readiness observations', () => {
     const audit = w.ports.audit!;
     const ports = { ...w.ports, audit: { async append(e: Parameters<typeof audit.append>[0]) {
       const out = await audit.append(e);
-      if (e.action === 'publication.readiness.read') w.current = { ...w.current, trustedBaseline: [FP] };
+      if (e.action === 'publication.readiness.release-intent') w.current = { ...w.current, trustedBaseline: [FP] };
       return out;
     } } };
     const response = await createPublicationReadiness(ports).read(w.request());
@@ -77,7 +77,7 @@ describe('publication readiness observations', () => {
     const w = world(); let revoked = false;
     w.identity.checkRevocation = async () => { if (revoked) throw contractError('invalid-session'); };
     const audit = w.ports.audit!;
-    const ports = { ...w.ports, audit: { async append(e: Parameters<typeof audit.append>[0]) { const out = await audit.append(e); if (e.action === 'publication.readiness.read') revoked = true; return out; } } };
+    const ports = { ...w.ports, audit: { async append(e: Parameters<typeof audit.append>[0]) { const out = await audit.append(e); if (e.action === 'publication.readiness.release-intent') revoked = true; return out; } } };
     expect((await createPublicationReadiness(ports).read(w.request())).status).toBe(401);
   });
   it('uses the actual hard blocker, never acknowledges errors or truncates excess warnings', async () => {
@@ -92,7 +92,7 @@ describe('publication readiness observations', () => {
   });
   it('observes only the requested sign-off; recorded, invalidated and changed-warning records cannot appear effective', async () => {
     const w = world(); let so = signoff();
-    const ports = { ...w.ports, ledger: { ...w.ports.ledger!, signoff: async () => structuredClone(so) } };
+    const ports = { ...w.ports, readinessFence: syntheticFence(() => w.current, () => so), ledger: { ...w.ports.ledger!, signoff: async () => structuredClone(so) } };
     const r = w.request(); r.url.searchParams.set('signoffId', so.signoffId);
     const read = async () => (await (await createPublicationReadiness(ports).read(r)).json()).signoff;
     expect(await read()).toMatchObject({ state: 'audited', invalidated: false, blockers: [] });

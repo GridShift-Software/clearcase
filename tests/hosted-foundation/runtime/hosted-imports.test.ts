@@ -68,12 +68,22 @@ describe('resolved hosted import boundary', () => {
       'src/lib/tenancy/d1-grants.ts': 'export const d1GrantRepository = () => ({});',
       'src/lib/tenancy/provisioning.ts': "export const createManagerBootstrap = () => ({ grantManager: async () => ({}) });",
       'src/lib/audit/provisioning.ts': "export const provisioningAuditPort = () => ({ append: async () => ({}) });",
+      'src/lib/tenancy/case-provisioning.ts': 'export const provision = () => ({});',
+      'src/lib/tenancy/upload-provisioning.ts': 'export const provision = () => ({});',
+      'src/lib/user-work/hosted/provision.ts': 'export const provision = () => ({});',
       'src/lib/audit/index.ts': "export { requestAuditSink } from './facades';",
       'src/lib/audit/facades.ts': 'export const requestAuditSink = () => ({ append: async () => ({}) });',
     };
     const make = (hooks: string, files: Record<string, string> = {}) => project(hooks, { ...modules, 'src/hosted/gate.server.ts': hooks, ...files });
-    it.each(['$lib/tenancy/provisioning', '$lib/audit/provisioning'])('rejects a deep import from a route: %s', async (specifier) => {
+    it.each(['$lib/tenancy/provisioning', '$lib/audit/provisioning', '$lib/tenancy/case-provisioning', '$lib/tenancy/upload-provisioning', '$lib/user-work/hosted/provision'])('rejects a deep import from a route: %s', async (specifier) => {
       const root = await make('export {};', { 'src/hosted/routes/boot/+server.ts': `import '${specifier}';` });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('provisioning-only module is unreachable from the hosted request graph');
+    });
+    it.each(['$lib/tenancy/case-provisioning', '$lib/tenancy/upload-provisioning', '$lib/user-work/hosted/provision'])('rejects the new provisioner behind trusted composition and a barrel: %s', async (specifier) => {
+      const root = await make("import '$lib/server/runtime/hosted/services';", {
+        'src/lib/server/runtime/hosted/services.ts': "export * from '$bridge';",
+        'src/bridge.ts': `export const invoke = () => import('${specifier}');`,
+      });
       expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('provisioning-only module is unreachable from the hosted request graph');
     });
     it('rejects the bootstrap behind a re-export and a literal dynamic import', async () => {
@@ -162,6 +172,19 @@ describe('resolved hosted import boundary', () => {
     const errors = checkHostedGraph({ root }).errors.join('\n');
     expect(errors).toContain('src/bridge.ts: package outside the hosted allowlist fflate');
     expect(errors).not.toMatch(/@sveltejs\/kit|typebox/);
+  });
+  it('allows the Clerk SDK only inside its first-party identity implementation', async () => {
+    const root = await project("import '$lib/auth/clerk/provider';", {
+      'src/lib/auth/clerk/provider.ts': "export { createClerkClient } from '@clerk/backend';",
+    }, { packages: true });
+    expect(checkHostedGraph({ root }).errors).toEqual([]);
+  });
+  it('refuses a route constructing the Clerk SDK, even after a trusted identity import', async () => {
+    const root = await project("import '$lib/auth/clerk/provider';", {
+      'src/lib/auth/clerk/provider.ts': "export { createClerkClient } from '@clerk/backend';",
+      'src/hosted/routes/sdk/+server.ts': "export { createClerkClient } from '@clerk/backend';",
+    }, { packages: true });
+    expect(checkHostedGraph({ root }).errors.join('\n')).toContain('Clerk SDK construction is restricted to the first-party identity implementation');
   });
   it('names only the Kit app modules and the Workers env module, nothing else of their schemes', async () => {
     const ok = await project("import { env } from 'cloudflare:workers'; import { page } from '$app/state'; import { browser } from '$app/env'; export { env, page, browser };", {}, { packages: true });

@@ -1,6 +1,8 @@
 import type { AuditActor, AuditEvent, ContractError, IdentityState, SystemAuditActor, SystemAuditEvent } from '../server/runtime/contracts.ts';
 import { contractError } from '../server/runtime/errors.ts';
 import type { AuditConfig } from './config.ts';
+import { validEventId, validCaseId } from '../server/runtime/audit-identifiers.ts';
+export { validEventId, validCaseId } from '../server/runtime/audit-identifiers.ts';
 
 // The durable envelope of one request audit event (envelope 1). It holds exactly the fields of the existing AuditEvent
 // contract: actor, action, object, exact version, outcome and time. Every string is a bounded identifier, so no case
@@ -10,11 +12,9 @@ export const ENVELOPE = 1;
 export type AuditErrorCode = 'invalid-event' | 'audit-unavailable' | 'audit-conflict' | 'unauthenticated' | 'forbidden' | 'identity-unavailable' | 'audit-budget' | 'invalid-query';
 export type AuditError = ContractError<AuditErrorCode>;
 
-const EVENT_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/;
 const ACTION = /^[a-z][a-z0-9.-]{0,63}$/;
 const KIND = /^[a-z][a-z0-9-]{0,31}$/;
 const OBJECT_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/;
-const CASE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const VERSION = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/;
 const SUBJECT = /^[A-Za-z0-9][A-Za-z0-9_:.-]{0,127}$/;
 const SESSION = /^[A-Za-z0-9][A-Za-z0-9_:.-]{0,127}$/;
@@ -69,8 +69,8 @@ export async function envelopeOf(event: unknown, config: AuditConfig, mode: Prod
   const bad = (): AuditError => contractError('invalid-event');
   if (!plain(event) || !keys(event, 'eventId', 'actor', 'action', 'object', 'version', 'outcome', 'at')) throw bad();
   const o = event.object;
-  if (!str(event.eventId, EVENT_ID) || !str(event.action, ACTION) || !(mode === 'request' ? validActor(event.actor, config) : validSystemActor(event.actor))) throw bad();
-  if (!plain(o) || !keys(o, 'kind', 'id', 'caseId') || !str(o.kind, KIND) || !str(o.id, OBJECT_ID) || !nullable(o.caseId, CASE_ID)) throw bad();
+  if (!validEventId(event.eventId) || !str(event.action, ACTION) || !(mode === 'request' ? validActor(event.actor, config) : validSystemActor(event.actor))) throw bad();
+  if (!plain(o) || !keys(o, 'kind', 'id', 'caseId') || !str(o.kind, KIND) || !str(o.id, OBJECT_ID) || !(o.caseId === null || validCaseId(o.caseId))) throw bad();
   if (!nullable(event.version, VERSION) || typeof event.outcome !== 'string' || !OUTCOMES.has(event.outcome)) throw bad();
   if (!str(event.at, ISO) || Number.isNaN(Date.parse(event.at)) || new Date(event.at).toISOString() !== event.at) throw bad();
   const copy = JSON.parse(JSON.stringify(event)) as StoredAuditEvent;
@@ -84,6 +84,3 @@ export async function envelopeOf(event: unknown, config: AuditConfig, mode: Prod
 export const READ_ACTION = 'audit.read';
 /** A stable, non-secret key for one principal (issuer + subject, never the session) used to bound per-actor storage. */
 export const actorKey = (actor: AuditActor) => (actor.kind === 'verified' ? sha256Hex(canonical({ issuer: actor.principal.issuer, subject: actor.principal.subject })) : Promise.resolve(null));
-
-export const validEventId = (id: unknown): id is string => str(id, EVENT_ID);
-export const validCaseId = (id: unknown): id is string => str(id, CASE_ID);

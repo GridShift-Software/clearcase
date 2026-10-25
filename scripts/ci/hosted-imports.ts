@@ -25,7 +25,7 @@ const auditComposer = 'src/lib/server/runtime/hosted/services.ts';
 // system actor. No hosted module may reach them, the trusted service composer included, so a request can neither run the
 // bootstrap nor forge a system producer. Matched on the resolved file, so a deep import, a re-export or a literal dynamic
 // import is caught at the edge that names it (type-only imports are erased before the scan and cost nothing).
-const provisioningOnly = /^src\/lib\/(?:tenancy|audit)\/provisioning\.ts$/;
+const provisioningOnly = /^src\/lib\/(?:(?:tenancy|audit)\/provisioning|tenancy\/(?:case|upload)-provisioning|user-work\/hosted\/provision)\.ts$/;
 export type HostedProfile = 'production' | 'hosted-gate';
 const packageOf = (specifier: string) => /^(?:@[^/]+\/)?[^/.$][^/]*/.exec(specifier)?.[0] ?? null;
 const extensions = ['.ts', '.js', '.mjs', '.svelte'];
@@ -95,7 +95,9 @@ export function checkHostedGraph(a: { root: string; profile?: HostedProfile }): 
     const module = ts.resolveModuleName(specifier, importer, options, ts.sys).resolvedModule, resolved = module?.resolvedFileName;
     if (module?.isExternalLibraryImport) {
       const name = packageOf(specifier);
-      if (!name || !hostedPackages.has(name)) fail(chain, `package outside the hosted allowlist ${specifier}`);
+      if (name === '@clerk/backend') {
+        if (!relative(importer).startsWith('src/lib/auth/clerk/')) fail(chain, 'Clerk SDK construction is restricted to the first-party identity implementation');
+      } else if (!name || !hostedPackages.has(name)) fail(chain, `package outside the hosted allowlist ${specifier}`);
       return;
     }
     if (!resolved || resolved.endsWith('.d.ts') || resolved.endsWith('.d.mts') || resolved.endsWith('.d.cts')) { fail(chain, `unresolved ${specifier}`); return; }

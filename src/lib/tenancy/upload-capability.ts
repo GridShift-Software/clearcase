@@ -1,4 +1,4 @@
-import { validCaseId } from '../audit/event.ts';
+import { validCaseId } from '../server/runtime/audit-identifiers.ts';
 import type { AuditSink, CaseId, ClientId, IdentityState, Principal, SessionId } from '../server/runtime/contracts.ts';
 import { codeOf, contractError } from '../server/runtime/errors.ts';
 import type { D1 } from '../server/runtime/hosted/bindings.ts';

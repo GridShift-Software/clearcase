@@ -24,11 +24,21 @@ const LOCAL_ONLY = (path: string) => path === '/api/browse' || path.startsWith('
  * route when they are not ready, keeps SvelteKit's Origin check for form posts (and refuses a cross-origin write
  * itself first), and adds the security headers to every answer. The local pilot keeps its own hooks.
  */
-export function createHandle(servicesFor: (request: Request) => Promise<Readiness>): Handle {
+export function createHandle(servicesFor: (request: Request) => Promise<Readiness>, handshakeFor?: (request: Request) => Promise<Response | null>): Handle {
 	return async ({ event, resolve }) => {
 		const path = event.url.pathname;
 		if (LOCAL_ONLY(path)) return plain(404, 'Not found');
 		if (!['GET', 'HEAD', 'OPTIONS'].includes(event.request.method) && event.request.headers.get('origin') !== event.url.origin) return plain(403, 'Forbidden');
+		if (handshakeFor && event.request.method === 'GET' && !PUBLIC(path) && path !== '/sign-out') {
+			let response: Response | null;
+			try { response = await handshakeFor(event.request); }
+			catch { return plain(503, 'ClearCase is unavailable: the identity handshake is unavailable'); }
+			if (response) {
+				const headers = new Headers(response.headers);
+				for (const [name, value] of Object.entries(SECURITY)) headers.set(name, value);
+				return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+			}
+		}
 		const readiness = await servicesFor(event.request);
 		Object.assign(event.locals, readiness.services);
 		if (!readiness.ready && !PUBLIC(path)) return plain(503, `ClearCase is unavailable: ${readiness.reason}`, { 'retry-after': '2' });

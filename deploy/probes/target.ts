@@ -573,7 +573,8 @@ export function checkNative(a: { client: string; targets: NativeTarget[]; format
  *    read, typeof, argument passing, reassignment or shadowing declaration): those literals are W's only specifiers;
  *  - a keep-names helper is proven to be esbuild's `(target, value) => D(target, "name", { value, configurable: true })`
  *    with D declared once as `Object.defineProperty`, neither reassigned nor used except as direct calls, and `Object`
- *    neither declared nor written, and no static write to any `.defineProperty` or `.Object` property;
+ *    neither declared nor written, and no static write to any `.defineProperty` or `.Object` property except proven
+ *    local numeric-enum mappings (a non-escaping IIFE parameter receiving only a fresh, unaliased local object);
  *  - the module contains no `eval` identifier (direct eval could read W; Workers refuse code generation anyway).
  * Whether a proven specifier is allowed is pipeline.ts `uploadModuleProblems`' decision, from the target's flags.
  */
@@ -636,6 +637,49 @@ export function scanModule(source: string): ModuleFacts {
 		return undefined;
 	};
 	const plainParam = (p: import('typescript').ParameterDeclaration | undefined) => !!p && ts.isIdentifier(p.name) && !p.initializer && !p.dotDotDotToken;
+	/**
+	 * TypeScript's numeric-enum IIFE is not an intrinsic write just because a member is named Object/defineProperty.
+	 * Prove the receiver, not its spelling: the entire unnamed IIFE only writes literal forward/reverse mappings to
+	 * its sole parameter, and its argument is E || (E = {}), where E is an uninitialised, unexported module binding.
+	 * Every other E occurrence must be a static member read: no alias, escape, shadow, export or other assignment.
+	 * Anything outside this small grammar stays in defineWrites, including enum-shaped calls with global receivers.
+	 */
+	const localEnumWrite = (write: Node): boolean => {
+		const inner = write.parent, access = inner?.parent, outer = access?.parent, statement = outer?.parent;
+		if (!statement || !ts.isExpressionStatement(statement) || !ts.isBlock(statement.parent) || !ts.isFunctionExpression(statement.parent.parent)) return false;
+		const fn = statement.parent.parent;
+		if (fn.name || fn.modifiers?.length || fn.asteriskToken || fn.parameters.length !== 1 || !plainParam(fn.parameters[0])) return false;
+		const param = (fn.parameters[0]!.name as Identifier).text;
+		const receiver = (n: Node) => ts.isIdentifier(n) && n.text === param;
+		// No extra statements, calls, rebindings, nested scopes or parameter escapes are admitted in the body.
+		if (!fn.body.statements.every((s) => {
+			if (!ts.isExpressionStatement(s) || !ts.isBinaryExpression(s.expression)) return false;
+			const reverse = s.expression;
+			if (reverse.operatorToken.kind !== ts.SyntaxKind.EqualsToken || !ts.isStringLiteral(reverse.right) || !ts.isElementAccessExpression(reverse.left) || !receiver(reverse.left.expression)) return false;
+			const forward = reverse.left.argumentExpression;
+			if (!ts.isBinaryExpression(forward) || forward.operatorToken.kind !== ts.SyntaxKind.EqualsToken || !ts.isNumericLiteral(forward.right) || !ts.isElementAccessExpression(forward.left) || !receiver(forward.left.expression)) return false;
+			return ts.isStringLiteral(forward.left.argumentExpression) && forward.left.argumentExpression.text === reverse.right.text;
+		})) return false;
+		let holder: Node = fn;
+		while (ts.isParenthesizedExpression(holder.parent)) holder = holder.parent;
+		const call = holder.parent;
+		if (!ts.isCallExpression(call) || call.expression !== holder || call.questionDotToken || call.arguments.length !== 1 || !ts.isExpressionStatement(call.parent)) return false;
+		// A with environment could resolve the argument's identifier to something other than the module binding.
+		for (let p: Node | undefined = call.parent; p; p = p.parent) if (ts.isWithStatement(p)) return false;
+		const arg = call.arguments[0]!;
+		if (!ts.isBinaryExpression(arg) || arg.operatorToken.kind !== ts.SyntaxKind.BarBarToken || !ts.isIdentifier(arg.left)) return false;
+		let fallback = arg.right;
+		while (ts.isParenthesizedExpression(fallback)) fallback = fallback.expression;
+		if (!ts.isBinaryExpression(fallback) || fallback.operatorToken.kind !== ts.SyntaxKind.EqualsToken || !ts.isIdentifier(fallback.left) || fallback.left.text !== arg.left.text || !ts.isObjectLiteralExpression(fallback.right) || fallback.right.properties.length) return false;
+		const { decl } = moduleDeclaration(arg.left.text);
+		if (!decl || decl.initializer) return false;
+		return (ids.get(arg.left.text) ?? []).every((i) => {
+			if (i === decl.name || i === arg.left || i === fallback.left) return true;
+			const p = i.parent;
+			const member = (ts.isPropertyAccessExpression(p) || (ts.isElementAccessExpression(p) && (ts.isStringLiteral(p.argumentExpression) || ts.isNumericLiteral(p.argumentExpression)))) && p.expression === i;
+			return member && !isWriteTarget(p);
+		});
+	};
 	const helperProblems = new Map<string, string | null>();
 	/** Null when `name` is proven to be esbuild's keep-names helper (returns its first argument, retains nothing); else why not. */
 	const keepNamesHelper = (name: string): string | null => {
@@ -666,7 +710,8 @@ export function scanModule(source: string): ModuleFacts {
 			if (helperUse !== undefined) return `${name} is used at line ${helperUse} other than as a direct call (it could be replaced)`;
 			const object = (ids.get('Object') ?? []).find((i) => isDeclarationName(i) || isWriteTarget(i) || ts.isShorthandPropertyAssignment(i.parent));
 			if (object) return `Object is declared or written at line ${line(object)}`;
-			if (defineWrites.length) return `a defineProperty or Object property is written at line ${line(defineWrites[0]!)}`;
+			const intrinsicWrite = defineWrites.find((n) => !localEnumWrite(n));
+			if (intrinsicWrite) return `a defineProperty or Object property is written at line ${line(intrinsicWrite)}`;
 			return null;
 		};
 		const r = prove();

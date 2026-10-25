@@ -11,6 +11,7 @@ import { codeOf, isDenial } from '../../server/runtime/errors.ts';
 import { id } from '../../server/runtime/ids.ts';
 import { paramsFromQuery, queryFromParams, queryRows, optionsOf, statusOptions } from '../../local-case/chronology.ts';
 import { chronologyHref, notesHref, originalHref } from './paths.ts';
+import { originalAttributions, publishedReadiness } from '../../results/hosted/published-reads.ts';
 
 const PART = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const RV = /^sha256:[0-9a-f]{64}$/;
@@ -41,8 +42,8 @@ export async function currentVersion(services: RequestServices, info: CaseInfo):
   const scope = { caseId: info.caseId, resultsVersion: p.resultsVersion };
   const active = await part(services.store.activeVersionId({ caseId: info.caseId }));
   if (active.state === 'unavailable' || active.value !== p.resultsVersion) return { kind: 'status', status: { kind: 'unavailable', reason: UNAVAILABLE } };
-  const check = await part(services.store.verifyVersion(scope));
-  if (check.state === 'unavailable' || !check.value.ok) return { kind: 'status', status: { kind: 'unavailable', reason: 'The published results failed their integrity check, so they are not shown.' } };
+  const check = await part(publishedReadiness(services.store, scope));
+  if (check.state === 'unavailable') return { kind: 'status', status: { kind: 'unavailable', reason: check.code === 'integrity' ? 'The published results failed their integrity check, so they are not shown.' : UNAVAILABLE } };
   return { kind: 'current', resultsVersion: p.resultsVersion };
 }
 
@@ -85,21 +86,23 @@ const isRow = (r: unknown): r is ChronologyListRow => !!r && typeof r === 'objec
 /** The chronology of the current published version, filtered and sorted with the local view's own query semantics. */
 export async function chronologyOf(services: RequestServices, caseId: CaseId, resultsVersion: ResultsVersion, search: URLSearchParams): Promise<ChronologyData> {
   const scope = { caseId, resultsVersion };
-  const [list, originals] = await Promise.all([services.store.listJson(scope), part(services.assets.originals({ caseId }))]);
+  const [list, originals, attribution] = await Promise.all([services.store.listJson(scope), part(services.assets.originals({ caseId })), part(originalAttributions(services.store, scope))]);
   if (!list) error(503, { message: UNAVAILABLE, code: 'storage-unavailable' });
   const parsed: unknown = JSON.parse(list!.json);
   if (!Array.isArray(parsed) || !parsed.every(isRow)) error(503, { message: UNAVAILABLE, code: 'invalid-package' });
   const rows = parsed as ChronologyListRow[];
   const query = queryFromParams(search);
   const assets = new Set(originals.state === 'available' ? originals.value.map((o) => o.assetId) : []);
+  const mapped = new Map(attribution.state === 'available' ? attribution.value.filter((a) => assets.has(a.assetId)).map((a) => [a.ref, a.assetId]) : []);
   const items = queryRows(rows, query).map((r): ChronologyItem => ({
     ref: r.ref, date: r.date, docType: r.docType, bundle: r.bundle, title: r.subject || r.filename, sender: r.sender, excerpt: r.excerpt, amount: r.amount, textStatus: r.textStatus, parentRef: r.parentRef, file: r.file,
-    originalHref: r.file === 'present' && assets.has(r.ref) ? originalHref(caseId, r.ref) : null,
+    originalHref: r.file === 'present' && mapped.has(r.ref) ? originalHref(caseId, mapped.get(r.ref)!) : null,
+    originalAssetId: r.file === 'present' ? mapped.get(r.ref) ?? null : null,
   }));
   return {
     resultsVersion, total: rows.length, items, query, search: paramsFromQuery(query).toString(),
     options: { bundles: optionsOf(rows, 'bundle'), types: optionsOf(rows, 'docType'), statuses: statusOptions(rows) },
-    failed: list!.failed.map((f) => ({ source: f.source, owner: f.owner, reason: f.reason })), originals: originals.state,
+    failed: list!.failed.map((f) => ({ source: f.source, owner: f.owner, reason: f.reason })), originals: originals.state === 'available' && attribution.state === 'available' ? 'available' : 'unavailable',
   };
 }
 

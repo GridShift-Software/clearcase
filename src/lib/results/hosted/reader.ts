@@ -9,11 +9,13 @@ import { readViewContent } from '../../case-package/view-content.ts';
 import { verifyCandidateBytes } from '../../case-package/verify-bytes.ts';
 import type { OpenStorage } from '../../storage/cloud/access.ts';
 import { verifiedRead } from '../../storage/cloud/objects.ts';
-import { checkClaims, originalClaims } from '../../storage/cloud/original-facts.ts';
+import { caseFolder, checkClaims, originalClaims } from '../../storage/cloud/original-facts.ts';
 import { admitVerification } from '../../storage/cloud/verification.ts';
 import { loadVerifiedModel, type LoadedModel } from './model.ts';
 import { preparePackage } from './project.ts';
 import { readModelDigest } from './read-model.ts';
+import type { PublishedCaseReader } from './published-reads.ts';
+import { resolveOriginalAttributions } from './original-attribution.ts';
 import type { StorageEvent } from './index.ts';
 import { caseOfVersion, caseRow, caseRows, requirePublished, unavailable, versionInfo } from './versions.ts';
 
@@ -24,7 +26,7 @@ type FileRow = { path: string; sha256: string; size: number; object_key: string 
  * requires the exact published version (a candidate, a staging version and a withdrawn one, Keep-marked or not, are
  * refused alike), and authorizes and rechecks publication again before it hands back what an awaited read produced.
  */
-export function createCloudReader(a: { open: () => Promise<OpenStorage>; identity: C.Identity; record(e: StorageEvent): Promise<void>; stateRevision(s: C.Scope): Promise<C.CaseRevision>; now(): Date }): C.CaseReader {
+export function createCloudReader(a: { open: () => Promise<OpenStorage>; identity: C.Identity; record(e: StorageEvent): Promise<void>; stateRevision(s: C.Scope): Promise<C.CaseRevision>; now(): Date }): PublishedCaseReader {
   const { identity, open } = a;
   const providers = new Map<string, C.DocumentProvider>();
   // A version's read model, loaded and checked against its stored digest once per reader. The rows are immutable once a
@@ -93,7 +95,28 @@ export function createCloudReader(a: { open: () => Promise<OpenStorage>; identit
     }
     return release(s, scope, { rows: freeze(rows), failed, dropped, revisions });
   }
-  const store: C.CaseReader = {
+  const store: PublishedCaseReader = {
+    async publishedReadiness(scope) {
+      const s = await version(scope);
+      await model(s, scope.resultsVersion);
+      await release(s, scope, undefined);
+    },
+    async originalAttributions(scope) {
+      const s = await version(scope);
+      const authorizeOriginals = async () => {
+        try { await identity.authorize({ caseId: scope.caseId, operation: 'read-original' }); }
+        catch (e) {
+          if (isDenial(e)) await a.record({ action: 'asset.list', object: { kind: 'case', id: scope.caseId, caseId: scope.caseId }, version: null, outcome: 'denied' }).catch(() => undefined);
+          throw e;
+        }
+      };
+      await authorizeOriginals();
+      const loaded = await model(s, scope.resultsVersion);
+      const folder = await caseFolder(s.db, s.clientId, scope.caseId);
+      const links = resolveOriginalAttributions(loaded, folder);
+      await authorizeOriginals();
+      return release(s, scope, freeze(links));
+    },
     async listCases() {
       const s = await open();
       await identity.checkRevocation();

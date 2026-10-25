@@ -35,7 +35,7 @@
 					<td>{revealInvisible(r.bundle)}</td>
 					<td>{money(r.amount)}</td>
 					<td>{statusLabel(r.textStatus)}</td>
-					<td>{#if r.originalHref}<a data-action="open-original" data-asset-id={r.ref} href={r.originalHref}>open</a>{:else}<span data-file={r.file}>{r.file === 'present' ? 'not linked' : r.file}</span>{/if}</td>
+					<td>{#if r.originalHref}<a data-action="open-original" data-asset-id={r.originalAssetId} href={r.originalHref}>open</a>{:else}<span data-file={r.file}>{r.file === 'present' ? 'not linked' : r.file}</span>{/if}</td>
 				</tr>
 			{:else}
 				<tr><td colspan="8">No documents match these filters.</td></tr>

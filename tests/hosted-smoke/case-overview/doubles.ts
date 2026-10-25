@@ -58,6 +58,13 @@ export function fake(script: Script): Fake {
     switch (name) {
       case 'activeVersionId': return script.active === undefined ? (script.publication.kind === 'published' ? script.publication.resultsVersion : null) : script.active;
       case 'verifyVersion': return script.verify ?? { ok: true, ms: 1 };
+      // Preserve the existing integrity-failure scenario at the new cheap port; no UI caller invokes verifyVersion.
+      case 'publishedReadiness': {
+        if (script.verify && !script.verify.ok) throw contractError(script.verify.reason === 'busy' || script.verify.reason === 'over-budget' ? script.verify.reason : 'integrity');
+        return;
+      }
+      // Explicit scripted immutable attributions, not a ref-membership inference. Real mapping SQL has separate tests.
+      case 'originalAttributions': return [{ ref: 'DOC-001', assetId: 'DOC-001' }, { ref: 'DOC-002', assetId: 'DOC-002' }];
       case 'getVersion': return (a as { resultsVersion: string }).resultsVersion === RV ? { id: RV, case_id: CASE, overview: JSON.stringify(OVERVIEW) } : null;
       case 'documentCounts': return { total: 3, imported: 3, provided: 0, failed: [] };
       case 'viewContentOf': return viewContent('{docCount} documents in a synthetic matter');

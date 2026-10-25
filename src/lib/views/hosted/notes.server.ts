@@ -64,7 +64,7 @@ export async function addNote({ locals, params, request }: RequestEvent) {
   const { caseId, info } = await readCase(locals, (params as Record<string, string | undefined>).caseId);
   const f = await request.formData();
   const body = text(f, 'body'), ref = text(f, 'ref').trim(), rv = text(f, 'resultsVersion'), operationId = text(f, 'operationId');
-  const keep = { op: 'add' as const, body, ref };
+  const keep = { op: 'add' as const, body, ref, resultsVersion: rv, ...(OPERATION.test(operationId) ? { operationId } : {}) };
   if (!body.trim() || body.length > MAX_NOTE) return fail(400, { ...keep, message: body.trim() ? `A note can be at most ${MAX_NOTE.toLocaleString('en')} characters.` : 'Write the note before saving it.' } satisfies NoteRefusal);
   if (!OPERATION.test(operationId) || (ref && !TOKEN.test(ref))) return fail(400, { ...keep, message: 'This form is out of date. Your text is kept below; save it again.' } satisfies NoteRefusal);
   try {

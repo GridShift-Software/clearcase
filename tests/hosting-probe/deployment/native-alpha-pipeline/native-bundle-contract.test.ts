@@ -12,6 +12,8 @@ import { checkNativeStage, digestDir, readNativeStage, scanModule, stageNative }
 import { assembleNativeArtifact, installedBundleVersions, nativeBundlePlan, parseBundleArgs, readNativeTargetFile } from '../../../../scripts/hosted-native-bundle/build.ts';
 import { ADAPTER_ASSETSIGNORE, NATIVE_BUNDLE_ENV_KEYS, NATIVE_BUNDLE_PINS, nativeBundleVersionProblems } from '../../../../scripts/hosted-native-bundle/contract.ts';
 
+import { KIT_CLIENT_FILES, KIT_SERVER } from './fixtures/kit.ts';
+
 const ROOT = path.join(import.meta.dirname, '../../../..');
 const FIXTURES = path.join(import.meta.dirname, 'fixtures');
 const CLIENTS = path.join(FIXTURES, 'clients');
@@ -42,10 +44,18 @@ const TARGET_FILE = path.join(CLIENTS, 'client-a/target.json');
 const target = readNativeTargetFile(TARGET_FILE);
 const withFlags = (flags: string[]) => ({ ...target, runtime: { ...target.runtime, compatibilityFlags: flags } });
 const VERSION = `{"version":"${target.runtime.sourceSha}"}\n`;
-const BUNDLE = 'var __defProp = Object.defineProperty;\nvar __name = (target, value) => __defProp(target, "name", { value, configurable: true });\nvar obfuscated_import = /* @__PURE__ */ __name((module_name) => import(module_name), "obfuscated_import");\nimport("node:async_hooks").catch(() => {});\nimport { env } from "cloudflare:workers";\nexport default { async fetch() { const c = globalThis.crypto?.subtle?.digest ? globalThis.crypto : (await obfuscated_import("node:crypto")).webcrypto; return new Response(String(env) + typeof c); } };\n';
+const BUNDLE = KIT_SERVER + 'var __defProp = Object.defineProperty;\nvar __name = (target, value) => __defProp(target, "name", { value, configurable: true });\nvar obfuscated_import = /* @__PURE__ */ __name((module_name) => import(module_name), "obfuscated_import");\nimport("node:async_hooks").catch(() => {});\nimport { env } from "cloudflare:workers";\nexport default { async fetch(request) { const c = globalThis.crypto?.subtle?.digest ? globalThis.crypto : (await obfuscated_import("node:crypto")).webcrypto; void (String(env) + typeof c); return server.respond(request); } };\n';
 /** A synthetic adapter-cloudflare 8.0.1 Workers output (the measured file set, synthetic bytes). */
-const adapterOut = (extra: Record<string, string | Buffer> = {}) =>
-	tree({ '_worker.js': "import { Server } from './../output/server/index.js';\nexport default {};\n", '.assetsignore': ADAPTER_ASSETSIGNORE, _headers: NATIVE_ADAPTER_HEADERS, '_app/version.json': VERSION, '_app/immutable/entry/start.js': 'export const start = 1;\n', 'favicon.svg': '<svg/>\n', ...extra });
+const adapterOut = (extra: Record<string, string | Buffer> = {}) => {
+	const client = { '_app/version.json': VERSION, ...KIT_CLIENT_FILES };
+	// Each adapter gets its own complete Kit build root. Keep trusted inputs independent
+	// of extra adapter mutations: copying those back would self-certify public bytes.
+	const root = tree({
+		...Object.fromEntries(Object.entries(client).map(([rel, bytes]) => [`output/client/${rel}`, bytes])),
+		...Object.fromEntries(Object.entries({ '_worker.js': "import { Server } from './../output/server/index.js';\nexport default {};\n", '.assetsignore': ADAPTER_ASSETSIGNORE, _headers: NATIVE_ADAPTER_HEADERS, ...client, ...extra }).map(([rel, bytes]) => [`cloudflare/${rel}`, bytes])),
+	});
+	return path.join(root, 'cloudflare');
+};
 const wranglerOut = (worker = BUNDLE, extra: Record<string, string> = {}) => tree({ 'README.md': 'This folder contains the built output assets for the worker.', '_worker.js': worker, '_worker.js.map': '{"version":3}', ...extra });
 const COMPAT = withFlags(['nodejs_als', 'nodejs_compat']);
 
@@ -123,7 +133,7 @@ describe('assemble copies the bundle unchanged beside the public assets, then ch
 		rmSync(path.join(bundle, '_worker.js.map'));
 		refusedAssemble({ bundle }, /not exactly/);
 	});
-	test('a bundle with a dynamic import of node:fs is refused', () => refusedAssemble({ bundle: wranglerOut('export default { async fetch() { await import("node:fs"); return new Response("x"); } };\n') }, /dynamic import of "node:fs"/));
+	test('a bundle with a dynamic import of node:fs is refused', () => refusedAssemble({ bundle: wranglerOut(BUNDLE.replace('async fetch(request) {', 'async fetch(request) { await import("node:fs");')) }, /dynamic import of "node:fs"/));
 	test('a symlink in the adapter output is refused', () => {
 		const adapter = adapterOut();
 		symlinkSync('/etc/hostname', path.join(adapter, 'leak.txt'));

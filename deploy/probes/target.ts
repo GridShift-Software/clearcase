@@ -55,6 +55,7 @@ import { fileURLToPath } from 'node:url';
 import {
 	CF_NATIVE_GAP,
 	HOSTED_GATE_MARKER,
+	NATIVE_BROWSER_BINDING,
 	NATIVE_CLIENT_FILES,
 	NATIVE_CONFIG_FILE,
 	NATIVE_PIN_KEYS,
@@ -65,6 +66,7 @@ import {
 	dynamicHostImportsOf,
 	hostImportsOf,
 	nativeArtifactLayout,
+	nativeBrowserOptIn,
 	nativeStageRecord,
 	nativeUpload,
 	nativeUploadInvocationProblems,
@@ -1033,7 +1035,7 @@ function nativeBrowserInvocationProblems(stage: string, client: string, record: 
 	}
 	const problems: string[] = [];
 	if (target.client !== client) problems.push(`the staged target.json is for ${target.client}, not ${client}`);
-	const want = target.browser?.binding;
+	const want = nativeBrowserOptIn(target) ? NATIVE_BROWSER_BINDING : undefined;
 	const desired = isObject(record.desired) ? record.desired.browserBinding : undefined;
 	if (desired !== want) problems.push(`the stage record's desired browser binding is ${JSON.stringify(desired) ?? 'absent'}, not the target's ${JSON.stringify(want) ?? 'absent'}`);
 	const got = isObject(config) ? config.browser : undefined;

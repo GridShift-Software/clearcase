@@ -35,6 +35,14 @@ from a stage, so a stage cannot grant itself the binding.
 - `prepare/readWorkersDevBootstrap` and `checkWorkersDevBootstrapInvocation`: exact canonical config and manifest bytes, so a renamed, remote, `env`-scoped, proxied or extra binding, a staff binding, or a widened/dropped opt-in is refused.
 - The legacy `clearcase.deploy-target/1` profile keeps its closed key list and refuses `browser`.
 
+## Input boundary (caller-owned in-memory data)
+
+The opt-in is read once, as data, and that snapshot is what is validated and used:
+
+- `parseNativeTarget` copies the whole target through `plainData` (own enumerable data fields, plain object/array prototypes, no symbol keys, holes, accessors, inherited or hidden fields) and returns the copy, never the caller's object. `nativeBrowserOptIn` reads a target's own `browser` the same way; `checkNativeWrangler`, `nativeStageRecord` and the invocation guard use it and compare against the fixed `BROWSER` literal, not a live `target.browser.binding`. A malformed value is a problem or a throw, never a guess.
+- `planWorkersDevBootstrap` captures the settings, `pins`, `compatibilityFlags` and `browserClients` once from own data descriptors (a dense plain array of at most two client slots) and returns copies. `prepare`, `read` and the invocation guard capture their own argument objects (and `argv`) once and reuse one plan, so no caller getter, proxy, inherited field, `toJSON` or overridden `some`/`includes` is ever run or re-read.
+- Not covered: strict JSON file loading never produces these objects; no on-disk bypass was claimed.
+
 ## Checks (synthetic, scoped, no provider, workerd or browser)
 
 ```sh

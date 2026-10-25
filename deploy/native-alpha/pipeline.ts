@@ -213,6 +213,56 @@ function exactKeys(value: Record<string, unknown>, required: readonly string[], 
 	for (const k of required) if (!Object.hasOwn(value, k)) problems.push(`${at}.${k} is missing`);
 }
 
+/**
+ * Caller-owned data read ONCE into a fresh copy: own enumerable data fields only, plain object and array prototypes, no
+ * symbol keys, holes, accessors, inherited or hidden fields. A getter, trap-driven read, iterator, `toJSON` or overridden
+ * array method is never run, so what is validated is exactly what is used. A key such as `__proto__` stays an inert own field.
+ */
+function plainData(value: unknown, at: string, depth = 0): unknown {
+	if (value === null || typeof value !== 'object') {
+		if (typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint') throw new Error(`${at} is not plain data`);
+		return value;
+	}
+	if (depth > 32) throw new Error(`${at} is nested deeper than 32`);
+	const proto = Object.getPrototypeOf(value);
+	const descriptors = Object.getOwnPropertyDescriptors(value);
+	const keys = Reflect.ownKeys(descriptors);
+	const data = (key: string) => {
+		const d = descriptors[key];
+		if (!d || !Object.hasOwn(d, 'value') || !d.enumerable) throw new Error(`${at}.${key} is a hidden, inherited or accessor field, not plain data`);
+		return d.value as unknown;
+	};
+	if (Array.isArray(value)) {
+		const length = (descriptors.length as PropertyDescriptor | undefined)?.value;
+		if (proto !== Array.prototype || typeof length !== 'number' || keys.length !== length + 1) throw new Error(`${at} is not a dense plain array (a hole, extra member, symbol key or subclass is refused)`);
+		return Array.from({ length }, (_, i) => plainData(data(String(i)), `${at}[${i}]`, depth + 1));
+	}
+	if (proto !== Object.prototype && proto !== null) throw new Error(`${at} is not a plain object (an inherited field or class instance is refused)`);
+	const copy: Record<string, unknown> = {};
+	for (const key of keys) {
+		if (typeof key !== 'string') throw new Error(`${at} has a symbol-keyed field, not plain data`);
+		Object.defineProperty(copy, key, { value: plainData(data(key), `${at}.${key}`, depth + 1), enumerable: true, writable: true, configurable: true });
+	}
+	return copy;
+}
+
+/**
+ * Whether `target` opts in to the Browser Run binding, read from its own `browser` data only. Absent means no opt-in;
+ * an inherited, accessor, hidden-keyed, proxied-away or otherwise malformed value throws instead of being guessed at.
+ * Callers use the fixed NATIVE_BROWSER_BINDING literal afterwards, never a live `browser.binding` read.
+ */
+export function nativeBrowserOptIn(target: object): boolean {
+	const own = Object.getOwnPropertyDescriptor(target, 'browser');
+	if (!own) {
+		if ('browser' in target) throw new Error('target.browser is inherited, not an own field of the reviewed target');
+		return false;
+	}
+	if (!Object.hasOwn(own, 'value') || !own.enumerable) throw new Error('target.browser is an accessor or hidden field, not plain data');
+	const browser = plainData(own.value, 'target.browser');
+	if (!isObject(browser) || !sameKeys(browser, ['binding']) || browser.binding !== NATIVE_BROWSER_BINDING) throw new Error(`target.browser is not exactly { binding: "${NATIVE_BROWSER_BINDING}" }`);
+	return true;
+}
+
 /** The approved native scope's entry for `client`, or undefined. */
 const approvedClient = (client: unknown) => APPROVED_NATIVE_SCOPE.clients.find((c) => c.client === client);
 
@@ -221,10 +271,18 @@ export function parseNativeTarget(value: unknown, file: string): NativeTarget {
 	const problems: string[] = [];
 	const fail = (m: string) => problems.push(`${file}: ${m}`);
 	if (!isObject(value)) throw new Error(`${file}: not an object`);
+	// One snapshot: everything below validates, and the caller then receives, these captured bytes of the target.
+	let snapshot: unknown;
+	try {
+		snapshot = plainData(value, 'target');
+	} catch (e) {
+		throw new Error(`${file}: ${(e as Error).message}`);
+	}
+	const target = snapshot as Record<string, unknown>;
 	const keyProblems: string[] = [];
-	exactKeys(value, ['schema', 'client', 'accountId', 'worker', 'zone', 'customDomain', 'workersDev', 'previewUrls', 'limits', 'd1', 'r2', 'secrets', 'vars', 'runtime'], file, keyProblems, ['browser']);
+	exactKeys(target, ['schema', 'client', 'accountId', 'worker', 'zone', 'customDomain', 'workersDev', 'previewUrls', 'limits', 'd1', 'r2', 'secrets', 'vars', 'runtime'], file, keyProblems, ['browser']);
 	problems.push(...keyProblems);
-	const v = value;
+	const v = target;
 	if (v.schema !== NATIVE_TARGET_SCHEMA) fail(`schema is ${show(v.schema)}, not ${NATIVE_TARGET_SCHEMA}`);
 	const approved = approvedClient(v.client);
 	if (typeof v.client !== 'string' || !NAME.test(v.client) || !approved) fail(`client ${show(v.client)} is not an approved native client`);
@@ -281,7 +339,7 @@ export function parseNativeTarget(value: unknown, file: string): NativeTarget {
 		if (Array.isArray(v.secrets) && v.secrets.includes(NATIVE_BROWSER_BINDING)) fail(`secret ${NATIVE_BROWSER_BINDING} collides with the browser binding`);
 	}
 	if (problems.length) throw new Error(problems.join('\n'));
-	return value as NativeTarget;
+	return target as NativeTarget;
 }
 
 /** Each native client's identifiers that a config may name, keyed by kind; hostnames compare in lower case. */
@@ -325,6 +383,12 @@ const WRANGLER_KEYS = ['name', 'account_id', 'main', 'no_bundle', 'find_addition
 export function checkNativeWrangler(a: { client: string; targets: NativeTarget[]; text: string }): string[] {
 	const target = a.targets.find((t) => t.client === a.client);
 	if (!target) return [`no native target for ${a.client}`];
+	let optIn: boolean;
+	try {
+		optIn = nativeBrowserOptIn(target);
+	} catch (e) {
+		return [`the native target for ${a.client} cannot be read as a browser opt-in: ${(e as Error).message}`];
+	}
 	let config: unknown;
 	try {
 		config = parseNativeJson(a.text, true);
@@ -415,12 +479,12 @@ export function checkNativeWrangler(a: { client: string; targets: NativeTarget[]
 	}
 	// Browser Run: present exactly when the reviewed target opted in, and then exactly the one binding. Nothing is inferred.
 	if (!Object.hasOwn(config, 'browser')) {
-		if (target.browser) problems.push(`config.browser is missing: the target opts in to the ${NATIVE_BROWSER_BINDING} binding`);
-	} else if (!target.browser) problems.push(`config.browser is ${show(config.browser)}, but the target does not opt in to the browser binding (add browser to the reviewed target.json to opt in)`);
+		if (optIn) problems.push(`config.browser is missing: the target opts in to the ${NATIVE_BROWSER_BINDING} binding`);
+	} else if (!optIn) problems.push(`config.browser is ${show(config.browser)}, but the target does not opt in to the browser binding (add browser to the reviewed target.json to opt in)`);
 	else if (!isObject(config.browser)) problems.push(`config.browser is ${show(config.browser)}, not { binding: "${NATIVE_BROWSER_BINDING}" }`);
 	else {
 		exactKeys(config.browser, ['binding'], 'config.browser', problems);
-		expect('the browser binding', config.browser.binding, target.browser.binding);
+		expect('the browser binding', config.browser.binding, NATIVE_BROWSER_BINDING);
 	}
 	// Another native client's identifier as any string value (case-free), keys included, the fields above included.
 	const walk = (x: unknown): void => {
@@ -640,7 +704,7 @@ export function nativeStageRecord(t: NativeTarget, a: { files: Record<string, st
 		migrations: a.migrations,
 		upload: a.upload,
 		runtime: { profile: t.runtime.profile, sourceSha: t.runtime.sourceSha },
-		desired: { accountId: t.accountId, worker: t.worker, zoneId: t.zone.id, hostname: t.customDomain.hostname, d1Id: t.d1.id, r2Bucket: t.r2.bucket, ...(t.browser ? { browserBinding: t.browser.binding } : {}) },
+		desired: { accountId: t.accountId, worker: t.worker, zoneId: t.zone.id, hostname: t.customDomain.hostname, d1Id: t.d1.id, r2Bucket: t.r2.bucket, ...(nativeBrowserOptIn(t) ? { browserBinding: NATIVE_BROWSER_BINDING } : {}) },
 		policy: { workersDev: false, previewUrls: false, d1Jurisdiction: t.d1.jurisdiction, r2Jurisdiction: t.r2.jurisdiction, r2PublicAccess: false, remoteMigrations: 'not-applied-by-stage' },
 		state: 'STAGED-UNVERIFIED',
 		fundedAdmission: false,

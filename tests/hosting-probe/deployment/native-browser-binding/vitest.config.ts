@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 export default defineConfig({
 	test: {
 		root: fileURLToPath(new URL('.', import.meta.url)),
-		include: ['browser-binding.test.ts'],
+		include: ['browser-binding.test.ts', 'input-boundary.test.ts'],
 		pool: 'forks',
 		testTimeout: 60_000,
 	},

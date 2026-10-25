@@ -257,9 +257,14 @@ describe('the account workers.dev subdomain is pinned by the bootstrap, never tr
 		['an extra label before the pinned one', `cc-sbx-a-20261023.x.${PINNED}.workers.dev`],
 		['a custom domain carrying the pinned label', `cc-sbx-a-20261023.${PINNED}.example.test`],
 	])('keeps refusing %s for client A', (_, hostname) => {
+		// A-only plan, so B's hostname is never checked; B's manifest row moves off B's pinned host so the planner's duplicate-host
+		// refusal cannot mask the pin. The planner accepts A on this hostname; only the bootstrap pin may refuse it.
 		const input = runtime('a');
+		input.clients = [input.clients[0]];
 		rehost(input, 0, hostname);
-		expect(() => planWorkersDevBootstrap(settingsFor('a', input))).toThrow(REFUSED);
+		input.manifest.clients[1].hostname = 'cc-sbx-b-20261023.unused.workers.dev';
+		expect(planNativeRuntimeConfig(input).clients.map((c) => c.hostname)).toEqual([hostname]);
+		expect(refusal(settingsFor('a', input))).toBe(PIN_REFUSAL);
 	});
 	it('never echoes the caller label or the pinned label in the refusal', () => {
 		const message = refusal(settingsFor('a', labelled('a', ['attacker-acct', 'attacker-acct'])));

@@ -11,6 +11,7 @@ import {nativeImportControllerFor} from '../../../src/lib/results-review/native/
 import type {NativeImportPorts} from '../../../src/lib/results-review/native/ports.ts';
 import {publicationControllerFor} from '../../../src/lib/publication/hosted/composition.ts';
 import type {NativePublicationPorts} from '../../../src/lib/publication/hosted/ports.ts';
+import {readinessControllerFor} from '../../../src/lib/publication/hosted/readiness.ts';
 import {contractError} from '../../../src/lib/server/runtime/errors.ts';
 beforeAll(()=>installNativeCompositions());
 const unused=async():Promise<never>=>{throw Error('unexpected unit collaborator call');};
@@ -103,6 +104,18 @@ describe('exact native request composition',()=>{
   expect(a.publishAuthority.mock.calls[0][0].principal.subject).toBe('user_client-a');
   expect(b.publishAuthority.mock.calls[0][0].principal.subject).toBe('user_client-b');
   expect((await (await publicationControllerFor({request:clone,platform:null})).signOff(input(clone,a.identity))).status).toBe(503);
+ });
+ it('registers readiness only for the original request and never supplies a missing coherent fence',async()=>{
+  const a=workflowFixture(),r=new Request('https://client-a.test/operator/publication/synthetic/readiness?candidateId=candidate-1');
+  const clone=new Request(r),check=vi.fn(unused);
+  bindNativeRequestCompositions(r,{intake:null,downloads:null,publication:{...a.publication,readinessFence:{protocol:'coherent-readiness/1',check}}});
+  expect((await (await readinessControllerFor({request:r,platform:null})).read(input(r,a.identity))).status).toBe(403);
+  expect(a.publishAuthority).toHaveBeenCalledOnce();expect(check).not.toHaveBeenCalled();
+  expect((await (await readinessControllerFor({request:clone,platform:null})).read(input(clone,a.identity))).status).toBe(503);
+  const noFence=new Request(r.url);
+  bindNativeRequestCompositions(noFence,{intake:null,downloads:null,publication:a.publication});
+  expect((await (await readinessControllerFor({request:noFence,platform:null})).read(input(noFence,a.identity))).status).toBe(503);
+  expect(a.publishAuthority).toHaveBeenCalledOnce();
  });
  it('does not replace absent workflow ports with another request data',async()=>{
   const a=workflowFixture(),bound=request(),missing=request();

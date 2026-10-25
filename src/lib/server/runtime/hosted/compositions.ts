@@ -5,13 +5,13 @@ import type {OperatorDownloadPorts} from '../../../submissions/download/ports.ts
 import {setNativeImportComposition} from '../../../results-review/native/composition.ts';
 import type {NativeImportPorts} from '../../../results-review/native/ports.ts';
 import {setPublicationComposition} from '../../../publication/hosted/composition.ts';
-import type {NativePublicationPorts} from '../../../publication/hosted/ports.ts';
+import {setReadinessComposition,type PublicationReadinessPorts} from '../../../publication/hosted/readiness.ts';
 
 export interface NativeRequestCompositions {
  readonly intake: IntakePorts | null;
  readonly downloads: OperatorDownloadPorts | null;
  readonly imports?:NativeImportPorts|null;
- readonly publication?:NativePublicationPorts|null;
+ readonly publication?:PublicationReadinessPorts|null;
 }
 // Object identity, not path, cookie, session id or the last request. Unknown requests always fail closed.
 const requests=new WeakMap<Request,NativeRequestCompositions>();
@@ -31,6 +31,7 @@ export function installNativeCompositions():void {
  setIntakeComposition(({request})=>requests.get(request)?.intake??null);
  setNativeImportComposition(({request})=>requests.get(request)?.imports??null);
  setPublicationComposition(({request})=>requests.get(request)?.publication??null);
+ setReadinessComposition(({request})=>requests.get(request)?.publication??null);
  setOperatorDownloadComposition(({request,platform})=>{
   const ports=requests.get(request)?.downloads,context=executionContext(platform);
   if(!ports||!context)return null;

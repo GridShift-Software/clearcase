@@ -1,0 +1,305 @@
+#!/usr/bin/env python3
+"""Owned scratch directories for one checkout: create one, remove the contents of exactly that one.
+
+    python3 -I scripts/agent-tools/safe-scratch create LABEL
+    python3 -I scripts/agent-tools/safe-scratch remove PATH --token TOKEN
+
+create makes a new directory `.local/agent-scratch/LABEL-<16 hex>` under this checkout, writes a marker that names
+the checkout, this UID and the token's SHA-256, and prints the exact path and the token on stdout. The token is shown
+once and is not stored; anything that records this output (a terminal, an agent transcript) holds it. remove opens
+the checkout's `.local` and scratch root one component at a time without following links, opens the named directory
+without following a link, checks the marker (a plain file naming this checkout, this UID, the directory's device and
+inode, and the token) against that opened descriptor, and then removes the contents of that opened directory through
+descriptors, so a name swapped after the check is never used to find what to delete. The last step removes the name
+with rmdir, which takes an empty directory only. Not guaranteed: a process of the same user that writes into the
+scratch tree, or moves entries into the opened directory while it is being emptied, is outside this guarantee. This
+is not global or atomic isolation. Standard library only; Python >= 3.12 is enforced. Refusals exit 1 with no change;
+see docs/agent-tooling.md.
+"""
+
+import sys
+
+if sys.version_info < (3, 12):
+    sys.exit(f'safe-scratch needs Python 3.12 or newer; this is {sys.version_info.major}.{sys.version_info.minor}')
+
+import argparse
+import contextlib
+import datetime
+import errno
+import hashlib
+import hmac
+import json
+import os
+import re
+import secrets
+import stat
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[2]
+SCRATCH = Path('.local') / 'agent-scratch'
+MARKER = '.safe-scratch-owner.json'
+SCHEMA = 'clearcase-safe-scratch/1'
+LABEL = re.compile(r'[a-z0-9][a-z0-9-]{0,39}')
+NAME = re.compile(r'([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{16})')
+DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+MAX_DEPTH = 256
+
+
+class Refused(Exception):
+    """A request the helper will not act on. Nothing was changed."""
+
+
+class Incomplete(Exception):
+    """A removal that stopped after it began. The message says what was and was not removed."""
+
+
+def open_dir(parent_fd, name, shown, create_mode=None):
+    """Open NAME under PARENT_FD without following a link; it must be a directory owned by this UID. A missing NAME
+    is made with CREATE_MODE, and an existing one is never changed. SHOWN names it in a refusal."""
+    try:
+        fd = os.open(name, DIR_FLAGS, dir_fd=parent_fd)
+    except FileNotFoundError:
+        if create_mode is None:
+            raise Refused(f'{shown} does not exist')
+        try:
+            os.mkdir(name, create_mode, dir_fd=parent_fd)
+        except FileExistsError:
+            pass
+        return open_dir(parent_fd, name, shown)
+    except OSError:
+        raise Refused(f'{shown} is a link, not a directory, or cannot be opened')
+    if os.fstat(fd).st_uid != os.getuid():
+        os.close(fd)
+        raise Refused(f'{shown} is not owned by this user')
+    return fd
+
+
+def scratch_fd(repo, create):
+    """A descriptor for the checkout's scratch root. `.local` and then `agent-scratch` are each opened relative to
+    the one above with O_NOFOLLOW, so no link can be followed between a check and the open. The checkout directory
+    itself is the resolved location of this script and is opened as is; its own parents are not re-verified."""
+    try:
+        repo_fd = os.open(repo, DIR_FLAGS)
+    except OSError:
+        raise Refused(f'{repo} cannot be opened as a directory')
+    try:
+        local_fd = open_dir(repo_fd, SCRATCH.parts[0], str(repo / SCRATCH.parts[0]), 0o755 if create else None)
+        try:
+            return open_dir(local_fd, SCRATCH.parts[1], str(repo / SCRATCH), 0o700 if create else None)
+        finally:
+            os.close(local_fd)
+    finally:
+        os.close(repo_fd)
+
+
+def digest(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def child_name(repo, path):
+    """The name of PATH, which must be exactly `<checkout>/.local/agent-scratch/<generated name>`. Globs, prefixes,
+    the root, its parents, aliases and trailing separators fail the exact comparison."""
+    if not isinstance(path, str) or not os.path.isabs(path):
+        raise Refused('PATH must be an absolute literal path')
+    root = str(repo / SCRATCH)
+    name = os.path.basename(path)
+    if not NAME.fullmatch(name) or path != os.path.join(root, name):
+        raise Refused('PATH is not the exact literal path of a scratch directory made by create')
+    return name
+
+
+def create_scratch(repo, label):
+    """Make a new scratch directory for LABEL. Return its exact path and its token."""
+    if not isinstance(label, str) or not LABEL.fullmatch(label):
+        raise Refused('LABEL must be 1 to 40 characters of a-z, 0-9 and -, starting with a letter or digit')
+    root_fd = scratch_fd(repo, create=True)
+    try:
+        token = secrets.token_urlsafe(32)
+        for _ in range(8):
+            name = f'{label}-{secrets.token_hex(8)}'
+            try:
+                os.mkdir(name, 0o700, dir_fd=root_fd)
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise Refused('no unused name was found')
+        fd = os.open(name, DIR_FLAGS, dir_fd=root_fd)
+        try:
+            st = os.fstat(fd)
+            marker = {
+                'schema': SCHEMA,
+                'label': label,
+                'name': name,
+                'worktree': str(repo),
+                'uid': os.getuid(),
+                'dev': st.st_dev,
+                'ino': st.st_ino,
+                'token_sha256': digest(token),
+                'created': datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'),
+            }
+            try:
+                mfd = os.open(MARKER, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+                with os.fdopen(mfd, 'w') as handle:
+                    json.dump(marker, handle, sort_keys=True)
+                    handle.write('\n')
+            except BaseException:
+                # Only what this call made: the marker it may have written, then the empty directory.
+                with contextlib.suppress(OSError):
+                    os.unlink(MARKER, dir_fd=fd)
+                with contextlib.suppress(OSError):
+                    os.rmdir(name, dir_fd=root_fd)
+                raise
+        finally:
+            os.close(fd)
+    finally:
+        os.close(root_fd)
+    return str(repo / SCRATCH / name), token
+
+
+def read_marker(dir_fd):
+    """The marker in DIR_FD: a plain file owned by this UID, not a link, holding one JSON object."""
+    try:
+        fd = os.open(MARKER, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+    except OSError:
+        raise Refused('marker is missing, a link, or unreadable')
+    with os.fdopen(fd, 'rb') as handle:
+        st = os.fstat(handle.fileno())
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_size > 4096:
+            raise Refused('marker is not a small plain file owned by this user')
+        data = handle.read(4097)
+    try:
+        marker = json.loads(data)
+    except ValueError:
+        raise Refused('marker is not valid JSON')
+    if not isinstance(marker, dict):
+        raise Refused('marker is not a JSON object')
+    return marker
+
+
+def check_marker(marker, name, repo, st, token):
+    """Refuse a marker that does not name this directory, this checkout, this UID and this token."""
+    stored = marker.get('token_sha256')
+    if (marker.get('schema') != SCHEMA or marker.get('name') != name or marker.get('worktree') != str(repo)
+            or marker.get('uid') != os.getuid() or marker.get('dev') != st.st_dev or marker.get('ino') != st.st_ino
+            or not NAME.fullmatch(name) or marker.get('label') != NAME.fullmatch(name).group(1)):
+        raise Refused('marker belongs to another checkout, user or directory')
+    if not isinstance(stored, str) or not hmac.compare_digest(stored, digest(token)):
+        raise Refused('token does not match the marker')
+
+
+def remove_entries(dir_fd, keep=(), depth=0):
+    """Remove the entries of the directory open at DIR_FD, except the names in KEEP, using descriptors only. A
+    subdirectory is opened relative to its parent with O_NOFOLLOW and must be the entry that was listed; links are
+    unlinked, never followed. It does not remove DIR_FD itself."""
+    if depth > MAX_DEPTH:
+        raise OSError(errno.E2BIG, f'the tree is nested more than {MAX_DEPTH} levels deep')
+    for name in os.listdir(dir_fd):
+        if name in keep:
+            continue
+        st = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+        if not stat.S_ISDIR(st.st_mode):
+            os.unlink(name, dir_fd=dir_fd)
+            continue
+        child = os.open(name, DIR_FLAGS, dir_fd=dir_fd)
+        try:
+            now = os.fstat(child)
+            if (now.st_dev, now.st_ino) != (st.st_dev, st.st_ino):
+                raise OSError(errno.ESTALE, f'{name} changed while it was being removed')
+            remove_entries(child, depth=depth + 1)
+        finally:
+            os.close(child)
+        os.rmdir(name, dir_fd=dir_fd)
+
+
+def same_entry(root_fd, name, st):
+    """True when NAME under ROOT_FD is still the directory whose fstat is ST."""
+    try:
+        now = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    return (now.st_dev, now.st_ino) == (st.st_dev, st.st_ino)
+
+
+def remove_scratch(repo, path, token, before_remove=None):
+    """Remove the scratch directory at PATH when TOKEN matches. BEFORE_REMOVE runs after every check and before the
+    removal; tests use it to replace the directory and show the recheck refuses."""
+    name = child_name(repo, path)
+    if not isinstance(token, str) or not token:
+        raise Refused('a token is required')
+    root_fd = scratch_fd(repo, create=False)
+    try:
+        try:
+            fd = os.open(name, DIR_FLAGS, dir_fd=root_fd)
+        except FileNotFoundError:
+            raise Refused('the directory does not exist')
+        except OSError:
+            raise Refused('the entry is a link or not a plain directory')
+        try:
+            st = os.fstat(fd)
+            if st.st_uid != os.getuid():
+                raise Refused('the directory is not owned by this user')
+            check_marker(read_marker(fd), name, repo, st, token)
+            if before_remove is not None:
+                before_remove()
+            if not same_entry(root_fd, name, st):
+                raise Refused('the directory was replaced during the check; nothing was removed')
+            # Everything below goes through FD, the directory that was checked, never through its name. The marker
+            # stays until the end, so a removal that stops part way can be repeated with the same token.
+            remove_entries(fd, keep=(MARKER,))
+            if not same_entry(root_fd, name, st):
+                raise Incomplete('the name was replaced while the contents were being removed. The contents of the '
+                                 f'checked directory except {MARKER} are gone; the directory now at the name was '
+                                 'not touched')
+            os.unlink(MARKER, dir_fd=fd)
+            try:
+                os.rmdir(name, dir_fd=root_fd)  # an empty directory only; a replacement with contents is refused
+            except OSError as error:
+                raise Incomplete(f'the checked directory is empty and unmarked, but its name was not removed '
+                                 f'({error.strerror or error}); remove it by hand if it is still yours')
+        finally:
+            os.close(fd)
+    finally:
+        os.close(root_fd)
+    return str(repo / SCRATCH / name)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog='safe-scratch', description=__doc__.split('\n\n')[0])
+    commands = parser.add_subparsers(dest='command', required=True)
+    make = commands.add_parser('create', help='make a scratch directory and print its path and token')
+    make.add_argument('label')
+    drop = commands.add_parser('remove', help='remove the scratch directory at an exact path')
+    drop.add_argument('path')
+    drop.add_argument('--token', required=True)
+    args = parser.parse_args(argv)
+    try:
+        if args.command == 'create':
+            path, token = create_scratch(REPO, args.label)
+            print(f'path: {path}')
+            print(f'token: {token}')
+            print('The token is the only way to remove this directory. It is not stored by this tool, but it is '
+                  'on stdout now: whatever records this output holds it.')
+        else:
+            print(f'removed: {remove_scratch(REPO, args.path, args.token)}')
+    except Refused as error:
+        print(f'REFUSED {error}', file=sys.stderr)
+        return 1
+    except Incomplete as error:
+        print(f'FAILED {error}', file=sys.stderr)
+        return 1
+    except OSError as error:
+        if args.command == 'create':
+            print(f'FAILED {error.strerror or error}', file=sys.stderr)
+            return 1
+        # The removal works on the checked directory only, so a stop part way leaves some of its entries removed (the
+        # marker last) and, at most, an empty directory behind.
+        print(f'FAILED {error.strerror or error}; some entries of the checked scratch directory may already be '
+              'gone; the marker is removed last, so repeating the command with the same token can finish it',
+              file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

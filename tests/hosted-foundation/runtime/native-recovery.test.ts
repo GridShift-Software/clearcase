@@ -1,11 +1,13 @@
 import {afterEach,describe,expect,it} from 'vitest';
+import {readFileSync} from 'node:fs';
 import {nativeRecoveryRunner} from '../../../src/lib/server/runtime/hosted/recoveries.ts';
 import {d1PublicationPublisher} from '../../../src/lib/publication/hosted/d1-publisher.ts';
 import {id} from '../../../src/lib/server/runtime/ids.ts';
 import {World,CLIENT,CASE,NOW} from '../audit-recovery/harness.ts';
 const worlds:World[]=[];
 afterEach(()=>{for(const w of worlds.splice(0))w.close();});
-async function world(){const w=await new World().ready();worlds.push(w);return w;}
+async function world(){const w=await new World().ready();worlds.push(w);
+ w.db.sql.exec(readFileSync('src/lib/server/runtime/hosted/migrations/0001_audit_recovery_cursor.sql','utf8'));return w;}
 const budget={maxCases:2,maxCandidateIntentsPerCase:3,maxSignoffsPerCase:3,maxOperationsPerCase:3};
 function runner(w:World,extra:Partial<Parameters<typeof nativeRecoveryRunner>[0]>={}){
  return nativeRecoveryRunner({db:w.db,clientId:CLIENT,budget,recovery:w.recovery(),

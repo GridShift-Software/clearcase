@@ -1,4 +1,4 @@
-import type { AuditEvent, ContractError, IdentityState } from '../server/runtime/contracts.ts';
+import type { AuditActor, AuditEvent, ContractError, IdentityState, SystemAuditActor, SystemAuditEvent } from '../server/runtime/contracts.ts';
 import { contractError } from '../server/runtime/errors.ts';
 import type { AuditConfig } from './config.ts';
 
@@ -18,6 +18,7 @@ const CASE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const VERSION = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/;
 const SUBJECT = /^[A-Za-z0-9][A-Za-z0-9_:.-]{0,127}$/;
 const SESSION = /^[A-Za-z0-9][A-Za-z0-9_:.-]{0,127}$/;
+const OPERATOR = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const OUTCOMES = new Set(['succeeded', 'denied', 'failed', 'refused']);
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
@@ -50,16 +51,29 @@ export function validActor(actor: unknown, config: AuditConfig): actor is Identi
   return plain(p) && keys(p, 'issuer', 'subject', 'kind') && typeof p.issuer === 'string' && config.trustedIssuers.includes(p.issuer) && str(p.subject, SUBJECT) && (p.kind === 'client' || p.kind === 'staff');
 }
 
+/**
+ * Checks a system actor: exactly {kind:'system', component:'provisioning', operator}. It carries no principal, session or
+ * issuer, so it can be neither mistaken for nor built from a verified identity. Accepted only in 'provisioning' mode.
+ */
+export function validSystemActor(actor: unknown): actor is SystemAuditActor {
+  return plain(actor) && keys(actor, 'kind', 'component', 'operator') && actor.kind === 'system' && actor.component === 'provisioning' && str(actor.operator, OPERATOR);
+}
+
+/** Who may produce an event: a request's identity ('request') or trusted non-request provisioning ('provisioning'), never both. */
+export type ProducerMode = 'request' | 'provisioning';
+/** What the log stores: a request event, or a system event written by trusted provisioning. */
+export type StoredAuditEvent = AuditEvent | SystemAuditEvent;
+
 /** The validated canonical envelope of one event, or invalid-event. The returned value is a fresh copy. */
-export async function envelopeOf(event: unknown, config: AuditConfig): Promise<{ event: AuditEvent; canonical: string; sha256: string; bytes: number }> {
+export async function envelopeOf(event: unknown, config: AuditConfig, mode: ProducerMode = 'request'): Promise<{ event: StoredAuditEvent; canonical: string; sha256: string; bytes: number }> {
   const bad = (): AuditError => contractError('invalid-event');
   if (!plain(event) || !keys(event, 'eventId', 'actor', 'action', 'object', 'version', 'outcome', 'at')) throw bad();
   const o = event.object;
-  if (!str(event.eventId, EVENT_ID) || !str(event.action, ACTION) || !validActor(event.actor, config)) throw bad();
+  if (!str(event.eventId, EVENT_ID) || !str(event.action, ACTION) || !(mode === 'request' ? validActor(event.actor, config) : validSystemActor(event.actor))) throw bad();
   if (!plain(o) || !keys(o, 'kind', 'id', 'caseId') || !str(o.kind, KIND) || !str(o.id, OBJECT_ID) || !nullable(o.caseId, CASE_ID)) throw bad();
   if (!nullable(event.version, VERSION) || typeof event.outcome !== 'string' || !OUTCOMES.has(event.outcome)) throw bad();
   if (!str(event.at, ISO) || Number.isNaN(Date.parse(event.at)) || new Date(event.at).toISOString() !== event.at) throw bad();
-  const copy = JSON.parse(JSON.stringify(event)) as AuditEvent;
+  const copy = JSON.parse(JSON.stringify(event)) as StoredAuditEvent;
   const text = canonical({ envelope: ENVELOPE, event: copy });
   const bytes = new TextEncoder().encode(text).length;
   if (bytes > config.limits.maxEventBytes) throw bad();
@@ -69,7 +83,7 @@ export async function envelopeOf(event: unknown, config: AuditConfig): Promise<{
 /** The action only the audit log itself writes, for reads it served or refused. Producers cannot append it. */
 export const READ_ACTION = 'audit.read';
 /** A stable, non-secret key for one principal (issuer + subject, never the session) used to bound per-actor storage. */
-export const actorKey = (actor: IdentityState) => (actor.kind === 'verified' ? sha256Hex(canonical({ issuer: actor.principal.issuer, subject: actor.principal.subject })) : Promise.resolve(null));
+export const actorKey = (actor: AuditActor) => (actor.kind === 'verified' ? sha256Hex(canonical({ issuer: actor.principal.issuer, subject: actor.principal.subject })) : Promise.resolve(null));
 
 export const validEventId = (id: unknown): id is string => str(id, EVENT_ID);
 export const validCaseId = (id: unknown): id is string => str(id, CASE_ID);

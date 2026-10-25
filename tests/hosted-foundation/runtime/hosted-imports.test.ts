@@ -93,6 +93,13 @@ describe('resolved hosted import boundary', () => {
       expect(errors).toContain('services.ts -> src/lib/audit/provisioning.ts: provisioning-only module is unreachable from the hosted request graph');
       expect(errors).toContain('routes/boot/+server.ts -> src/lib/tenancy/provisioning.ts: provisioning-only module is unreachable from the hosted request graph');
     });
+    it('keeps the audit core, which holds the system-actor core, out of reach of the trusted composer by name', async () => {
+      const root = await make("import '$lib/server/runtime/hosted/services';", {
+        'src/lib/audit/d1-log.ts': 'export const provisioningCore = () => ({});',
+        'src/lib/server/runtime/hosted/services.ts': "export { provisioningCore } from '$lib/audit/d1-log';",
+      });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('services.ts -> src/lib/audit/d1-log.ts: audit core (with the system-actor provisioning core) is internal to src/lib/audit');
+    });
     it('does not let the public tenancy and audit barrels reach it', async () => {
       const root = await make("import '$lib/tenancy'; import '$lib/audit';");
       expect(checkHostedGraph({ root, profile }).errors.join('\n')).not.toContain('provisioning-only');

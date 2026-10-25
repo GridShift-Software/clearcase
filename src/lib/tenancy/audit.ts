@@ -1,4 +1,4 @@
-import type { AuditEvent, AuditSink } from '../server/runtime/contracts.ts';
+import type { AuditEvent, AuditSink, SystemAuditEvent } from '../server/runtime/contracts.ts';
 
 // The audit port grant management needs. The global AuditSink stays append-only and unchanged; a repeated eventId is
 // refused by its primary key. A plain sink therefore cannot tell a lost acknowledgement (the event persisted) from a
@@ -6,9 +6,14 @@ import type { AuditEvent, AuditSink } from '../server/runtime/contracts.ts';
 // (GRS-116) must provide `find` over the same table, and that table must keep event_id unique: the exactly-once
 // guarantee rests on that uniqueness plus this lookup.
 
+/** An event the log may hold: a request event, or a system event only trusted provisioning wrote. */
+export type AnyAuditEvent = AuditEvent | SystemAuditEvent;
 /** Reads back the event stored under an id, exactly as persisted; null when none is. Rejects when the log is unavailable. */
-export interface AuditLookup { find(eventId: string): Promise<AuditEvent | null> }
+export interface AuditLookup { find(eventId: string): Promise<AnyAuditEvent | null> }
+/** What grant management holds: the request-typed sink plus find. It can append request events only (never a system actor). */
 export type GrantAuditPort = AuditSink & AuditLookup;
+/** What the provisioning bootstrap holds (provisioning.ts only): append a SYSTEM event plus find. Never a request identity. */
+export type ProvisioningAuditPort = { append(event: SystemAuditEvent): Promise<{ eventId: string }> } & AuditLookup;
 
 /** Canonical JSON: object keys sorted at every depth, so equal events compare equal whatever order a store returns. */
 export function canonical(value: unknown): string {

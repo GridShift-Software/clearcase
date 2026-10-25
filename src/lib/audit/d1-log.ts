@@ -1,8 +1,8 @@
-import type { AuditEvent, AuditSink, CaseId, IdentityState, Principal, SessionId } from '../server/runtime/contracts.ts';
+import type { AuditEvent, AuditSink, CaseId, IdentityState, Principal, SessionId, SystemAuditEvent } from '../server/runtime/contracts.ts';
 import type { D1 } from '../server/runtime/hosted/bindings.ts';
 import { contractError, isDenial } from '../server/runtime/errors.ts';
 import type { AuditConfig } from './config.ts';
-import { actorKey, canonical, ENVELOPE, envelopeOf, READ_ACTION, sha256Hex, validActor, validCaseId, validEventId, type AuditError, type AuditErrorCode } from './event.ts';
+import { actorKey, canonical, ENVELOPE, envelopeOf, READ_ACTION, sha256Hex, validActor, validCaseId, validEventId, type AuditError, type AuditErrorCode, type ProducerMode, type StoredAuditEvent } from './event.ts';
 
 // The native request audit log over one client's own D1 database (migrations/0001_native_audit.sql). Every statement
 // names the configured client; the database must already be bound to that client by trusted provisioning.
@@ -25,12 +25,14 @@ export interface AuditQuery { scope: AuditScope; cursor: string | null; limit: n
  * What a reader sees of an actor. Never the session: a session id (a Clerk sid, or in the hosted gate the presented
  * login token) is not an audit subject and is dropped before any query output. `self` marks the reader's own events.
  */
-export type PublicAuditActor = { kind: 'anonymous' } | { kind: 'verified'; issuer: string; subject: string; principalKind: 'client' | 'staff'; self: boolean };
+export type PublicAuditActor = { kind: 'anonymous' } | { kind: 'verified'; issuer: string; subject: string; principalKind: 'client' | 'staff'; self: boolean }
+  /** Automated provisioning. Not an authenticated person: no issuer, subject, principal kind or session, and never `self`. */
+  | { kind: 'system'; component: 'provisioning'; operator: string };
 /** One event as a query returns it, built field by field from the stored event; the stored JSON is never passed through. */
 export interface PublicAuditEvent { eventId: string; actor: PublicAuditActor; action: string; object: { kind: string; id: string; caseId: CaseId | null }; version: AuditEvent['version']; outcome: AuditEvent['outcome']; at: string }
 export interface PublicAuditPage { events: PublicAuditEvent[]; next: string | null }
 /** The lookup GRS-114's GrantAuditPort needs: the event stored under an id, exactly as persisted, or null. */
-export interface AuditLookup { find(eventId: string): Promise<AuditEvent | null> }
+export interface AuditLookup { find(eventId: string): Promise<StoredAuditEvent | null> }
 /** The full internal log: trusted composition only. A route must receive a facade, never this object. */
 export interface AuditLog extends AuditSink, AuditLookup { query(q: AuditQuery): Promise<PublicAuditPage> }
 type EventClass = 'protected' | 'read' | 'denial';
@@ -50,6 +52,8 @@ export async function provisionAuditBinding(a: { db: D1; config: AuditConfig; no
 }
 
 type CoreArgs = { db: D1; config: AuditConfig; requester: IdentityState; gate: AuditReadGate | null; now: () => Date };
+/** What trusted provisioning may hold: append a system event and find a stored one. Not exposed to a request. */
+export interface ProvisioningLog { append(event: SystemAuditEvent): Promise<{ eventId: string }>; find(eventId: string): Promise<StoredAuditEvent | null> }
 type Counters = { event_count: number; read_count: number; denial_count: number };
 
 /**
@@ -61,7 +65,19 @@ type Counters = { event_count: number; read_count: number; denial_count: number 
  * 'read' (maxReadRows); a refused or failed read is 'denial' (maxDenialRows overall, maxDenialsPerActor each). So no
  * amount of reading, authorised or not, can use up the budget a protected action needs.
  */
-export function auditCore(a: CoreArgs): AuditLog {
+export function auditCore(a: CoreArgs): AuditLog { return build(a, 'request').log; }
+
+/**
+ * The core for trusted non-request provisioning (audit/provisioning.ts only): it accepts exactly system-actor events and
+ * refuses every identity actor, the opposite of a request core. No requester, no read gate, no query.
+ */
+export function provisioningCore(a: Omit<CoreArgs, 'requester' | 'gate'>): ProvisioningLog {
+  const { log, record } = build({ ...a, requester: { kind: 'anonymous', principal: null, sessionId: null }, gate: null }, 'provisioning');
+  const port: ProvisioningLog = { append: (event) => record(event), find: (eventId) => log.find(eventId) };
+  return Object.freeze(port);
+}
+
+function build(a: CoreArgs, mode: ProducerMode): { log: AuditLog; record(input: unknown): Promise<{ eventId: string }> } {
   const { db, config, gate } = a;
   const requester = validActor(a.requester, config) ? structuredClone(a.requester) : null;
   let bound: Promise<void> | null = null, pages = 0;
@@ -79,24 +95,27 @@ export function auditCore(a: CoreArgs): AuditLog {
     const row = await db.prepare('SELECT seq, client_id, canonical, sha256 FROM native_audit_events WHERE client_id = ? AND event_id = ?').bind(config.clientId, eventId).first<Row>().catch(() => { throw error('audit-unavailable', true); });
     return row;
   }
-  async function decode(row: Row): Promise<AuditEvent> {
+  async function decode(row: Row): Promise<StoredAuditEvent> {
     if (row.client_id !== config.clientId || (await sha256Hex(row.canonical)) !== row.sha256) throw error('audit-unavailable');
     let parsed: unknown;
     try { parsed = JSON.parse(row.canonical); } catch { throw error('audit-unavailable'); }
     const p = parsed as { envelope?: unknown; event?: unknown };
     if (p?.envelope !== ENVELOPE || canonical(parsed) !== row.canonical) throw error('audit-unavailable');
-    return p.event as AuditEvent;
+    return p.event as StoredAuditEvent;
   }
-  function sameActor(actor: IdentityState) {
-    if (!requester) return false;
+  function sameActor(actor: StoredAuditEvent['actor']) {
+    // A system producer exists only in provisioning mode, and there it is the only producer: no request can forge one.
+    if (mode === 'provisioning') return actor.kind === 'system';
+    if (actor.kind === 'system' || !requester) return false;
     if (requester.kind === 'anonymous') return actor.kind === 'anonymous';
     return actor.kind === 'verified' && canonical(actor.principal) === canonical(requester.principal);
   }
   /** The reader's view of an event: a fresh object with no session, built from named fields only. */
-  function publicEvent(e: AuditEvent): PublicAuditEvent {
-    const actor: PublicAuditActor = e.actor.kind === 'verified'
-      ? { kind: 'verified', issuer: e.actor.principal.issuer, subject: e.actor.principal.subject, principalKind: e.actor.principal.kind, self: requester?.kind === 'verified' && canonical(requester.principal) === canonical(e.actor.principal) }
-      : { kind: 'anonymous' };
+  function publicEvent(e: StoredAuditEvent): PublicAuditEvent {
+    const actor: PublicAuditActor = e.actor.kind === 'system' ? { kind: 'system', component: 'provisioning', operator: e.actor.operator }
+      : e.actor.kind === 'verified'
+        ? { kind: 'verified', issuer: e.actor.principal.issuer, subject: e.actor.principal.subject, principalKind: e.actor.principal.kind, self: requester?.kind === 'verified' && canonical(requester.principal) === canonical(e.actor.principal) }
+        : { kind: 'anonymous' };
     return { eventId: e.eventId, actor, action: e.action, object: { kind: e.object.kind, id: e.object.id, caseId: e.object.caseId }, version: e.version, outcome: e.outcome, at: e.at };
   }
   const capacity = {
@@ -107,7 +126,7 @@ export function auditCore(a: CoreArgs): AuditLog {
   const exhausted = (cls: EventClass, c: Counters) => cls === 'protected' ? c.event_count >= config.limits.maxRows : cls === 'read' ? c.read_count >= config.limits.maxReadRows : c.denial_count >= config.limits.maxDenialRows;
 
   async function write(input: unknown, cls: EventClass): Promise<{ eventId: string }> {
-    const env = await envelopeOf(input, config);
+    const env = await envelopeOf(input, config, mode);
     if (!sameActor(env.event.actor)) throw error('invalid-event');
     // The read action belongs to the log itself: producers cannot write it, and the log writes nothing else under it.
     if ((env.event.action === READ_ACTION) !== (cls !== 'protected')) throw error('invalid-event');
@@ -182,7 +201,7 @@ export function auditCore(a: CoreArgs): AuditLog {
       return { events, next: results.length > limit ? String(page[page.length - 1].seq) : null };
     },
   };
-  return Object.freeze(log);
+  return { log: Object.freeze(log), record: (input) => write(input, 'protected') };
 }
 
 /** The full internal log (trusted composition and tests). Needs the read gate at construction. */

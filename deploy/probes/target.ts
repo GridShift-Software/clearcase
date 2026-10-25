@@ -1016,6 +1016,31 @@ export function readNativeStage(a: { client: string; stage: string; clients: str
 	return done([...facts.reviewProblems, ...recordProblems], facts.record, writtenSha);
 }
 
+/**
+ * Browser Run metadata the upload would carry, read from the stage's own bytes: the staged target.json's opt-in, the
+ * stage record's desired binding and wrangler.jsonc's `browser` must all say the same thing, and only the exact
+ * BROWSER binding or nothing is admitted. This is a cheap agreement check at the invocation boundary; the pinned
+ * prebuilt check remains the authority for the bytes themselves.
+ */
+function nativeBrowserInvocationProblems(stage: string, client: string, record: Record<string, unknown>): string[] {
+	let target: NativeTarget;
+	let config: unknown;
+	try {
+		target = parseNativeTarget(parseNativeJson(readRegular(path.join(stage, 'target.json'), stage).toString('utf8')), 'target.json (staged)');
+		config = parseNativeJson(readRegular(path.join(stage, NATIVE_CONFIG_FILE), stage).toString('utf8'), true);
+	} catch (e) {
+		return [`the browser binding cannot be agreed from the staged target.json and ${NATIVE_CONFIG_FILE}: ${(e as Error).message}`];
+	}
+	const problems: string[] = [];
+	if (target.client !== client) problems.push(`the staged target.json is for ${target.client}, not ${client}`);
+	const want = target.browser?.binding;
+	const desired = isObject(record.desired) ? record.desired.browserBinding : undefined;
+	if (desired !== want) problems.push(`the stage record's desired browser binding is ${JSON.stringify(desired) ?? 'absent'}, not the target's ${JSON.stringify(want) ?? 'absent'}`);
+	const got = isObject(config) ? config.browser : undefined;
+	if (JSON.stringify(got) !== JSON.stringify(want === undefined ? undefined : { binding: want })) problems.push(`${NATIVE_CONFIG_FILE} browser is ${JSON.stringify(got) ?? 'absent'}, not ${want === undefined ? 'absent (the target does not opt in)' : JSON.stringify({ binding: want })}`);
+	return problems;
+}
+
 /** Every reason `argv`, run with working directory `cwd`, is not the one native upload command for the stage `stage` of `client`. It runs nothing and reads no credential or environment; an ambient WRANGLER_* or CLOUDFLARE_* variable is the caller's to scrub and is not checked here. */
 export function checkNativeUploadInvocation(a: { client: string; stage: string; cwd: string; argv: readonly string[] }): string[] {
 	const problems = nativeUploadInvocationProblems(a.argv);
@@ -1025,6 +1050,7 @@ export function checkNativeUploadInvocation(a: { client: string; stage: string; 
 		if (realpathSync(a.cwd) !== realpathSync(a.stage)) problems.push(`the upload working directory ${a.cwd} is not the stage ${a.stage}: wrangler.jsonc and its relative paths are resolved from there`);
 		const record = parseNativeJson(readRegular(path.join(a.stage, 'stage.json'), a.stage).toString('utf8'));
 		if (!isObject(record) || record.schema !== NATIVE_STAGE_SCHEMA || record.client !== a.client) problems.push(`the stage is not a ${NATIVE_STAGE_SCHEMA} record for ${a.client}`);
+		else problems.push(...nativeBrowserInvocationProblems(a.stage, a.client, record));
 	} catch (e) {
 		problems.push((e as Error).message);
 	}

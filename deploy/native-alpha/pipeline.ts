@@ -84,6 +84,13 @@ export const NATIVE_STAGED = { entry: 'artifact/cloudflare/_worker.js', assets: 
 export const NATIVE_ENTRY_DIR = 'artifact/cloudflare';
 /** The hosted-gate test-double marker (scripts/ci/hosted-artifact.ts GATE); a production artifact never contains it. */
 export const HOSTED_GATE_MARKER = 'clearcase-test-double:hosted-gate';
+/**
+ * Browser Run is a controlled, explicit client-only opt-in, never a default: a target (or bootstrap setting) names it, the
+ * reviewed target.json pin covers the opt-in, and the config must then carry exactly `browser: { binding: "BROWSER" }`
+ * and nothing else (no remote flag, alternative name, service/proxy binding, env block or other key). Binding it grants no
+ * rendering, isolation, quota or spend: it is source configuration, not proof that the service exists or is bounded.
+ */
+export const NATIVE_BROWSER_BINDING = 'BROWSER';
 export const CF_NATIVE_GAP =
 	'native profile capability gap: cf 1.0.0-beta.20 cannot bind the custom domain to the exact approved zone ID (zone_id on a custom-domain route needs manual review in its migration) and its Build Output for domains/workers.dev/limits is unmeasured; the native profile uses only the checked Wrangler config';
 
@@ -99,6 +106,8 @@ export type NativeTarget = {
 	limits: { cpu_ms: number; subrequests?: number };
 	d1: { binding: 'DB'; name: string; id: string; jurisdiction: 'eu' };
 	r2: { binding: 'BUCKET'; bucket: string; jurisdiction: 'eu'; publicAccess: false };
+	/** Absent unless the parent opts this client in to the Browser Run binding. */
+	browser?: { binding: typeof NATIVE_BROWSER_BINDING };
 	secrets: string[];
 	vars: Record<string, string>;
 	runtime: { profile: 'production'; sourceSha: string; artifactSha256: string; migrationsSha256: string; compatibilityDate: string; compatibilityFlags: string[]; assetsBinding: string };
@@ -213,7 +222,7 @@ export function parseNativeTarget(value: unknown, file: string): NativeTarget {
 	const fail = (m: string) => problems.push(`${file}: ${m}`);
 	if (!isObject(value)) throw new Error(`${file}: not an object`);
 	const keyProblems: string[] = [];
-	exactKeys(value, ['schema', 'client', 'accountId', 'worker', 'zone', 'customDomain', 'workersDev', 'previewUrls', 'limits', 'd1', 'r2', 'secrets', 'vars', 'runtime'], file, keyProblems);
+	exactKeys(value, ['schema', 'client', 'accountId', 'worker', 'zone', 'customDomain', 'workersDev', 'previewUrls', 'limits', 'd1', 'r2', 'secrets', 'vars', 'runtime'], file, keyProblems, ['browser']);
 	problems.push(...keyProblems);
 	const v = value;
 	if (v.schema !== NATIVE_TARGET_SCHEMA) fail(`schema is ${show(v.schema)}, not ${NATIVE_TARGET_SCHEMA}`);
@@ -249,6 +258,8 @@ export function parseNativeTarget(value: unknown, file: string): NativeTarget {
 		if (r2.jurisdiction !== 'eu') fail(`r2 jurisdiction ${show(r2.jurisdiction)} is not "eu"`);
 		if (r2.publicAccess !== false) fail(`r2 publicAccess ${show(r2.publicAccess)} is not false (the bucket is private)`);
 	}
+	const browser = Object.hasOwn(v, 'browser');
+	if (browser && (!isObject(v.browser) || !sameKeys(v.browser, ['binding']) || v.browser.binding !== NATIVE_BROWSER_BINDING)) fail(`browser ${show(v.browser)} is not exactly { binding: "${NATIVE_BROWSER_BINDING}" } (an alternative name, flag or extra key is refused; omit browser to opt out)`);
 	if (!Array.isArray(v.secrets) || !v.secrets.every((s) => typeof s === 'string' && BINDING.test(s)) || new Set(v.secrets).size !== v.secrets.length) fail(`secrets ${show(v.secrets)} is not a list of distinct secret NAMES`);
 	if (!isObject(v.vars) || !Object.entries(v.vars).every(([k, x]) => BINDING.test(k) && typeof x === 'string')) fail(`vars ${show(v.vars)} is not binding names to strings`);
 	else if (v.vars.CLEARCASE_CLIENT_ID !== v.client) fail(`vars.CLEARCASE_CLIENT_ID is ${show(v.vars.CLEARCASE_CLIENT_ID)}, not the client ${show(v.client)}`);
@@ -262,6 +273,12 @@ export function parseNativeTarget(value: unknown, file: string): NativeTarget {
 		if (typeof rt.compatibilityDate !== 'string' || !DATE.test(rt.compatibilityDate)) fail(`runtime compatibilityDate ${show(rt.compatibilityDate)} is not YYYY-MM-DD`);
 		if (!Array.isArray(rt.compatibilityFlags) || !rt.compatibilityFlags.every((f) => typeof f === 'string' && FLAG.test(f)) || new Set(rt.compatibilityFlags).size !== rt.compatibilityFlags.length) fail(`runtime compatibilityFlags ${show(rt.compatibilityFlags)} is not a list of distinct flags`);
 		if (typeof rt.assetsBinding !== 'string' || !BINDING.test(rt.assetsBinding)) fail(`runtime assetsBinding ${show(rt.assetsBinding)} is not a binding name`);
+	}
+	if (browser) {
+		// One binding name, one capability: BROWSER may not also be an asset, var or secret name.
+		if (isObject(rt) && rt.assetsBinding === NATIVE_BROWSER_BINDING) fail(`runtime assetsBinding is ${NATIVE_BROWSER_BINDING}, which the browser binding owns`);
+		if (isObject(v.vars) && Object.hasOwn(v.vars, NATIVE_BROWSER_BINDING)) fail(`vars.${NATIVE_BROWSER_BINDING} collides with the browser binding`);
+		if (Array.isArray(v.secrets) && v.secrets.includes(NATIVE_BROWSER_BINDING)) fail(`secret ${NATIVE_BROWSER_BINDING} collides with the browser binding`);
 	}
 	if (problems.length) throw new Error(problems.join('\n'));
 	return value as NativeTarget;
@@ -296,6 +313,7 @@ export function nativeOwners(targets: NativeTarget[]): Map<string, string> {
 	return owners;
 }
 
+const WRANGLER_OPTIONAL_KEYS = ['browser'] as const;
 const WRANGLER_KEYS = ['name', 'account_id', 'main', 'no_bundle', 'find_additional_modules', 'compatibility_date', 'compatibility_flags', 'send_metrics', 'workers_dev', 'preview_urls', 'routes', 'limits', 'assets', 'vars', 'secrets', 'd1_databases', 'r2_buckets'] as const;
 
 /**
@@ -315,7 +333,7 @@ export function checkNativeWrangler(a: { client: string; targets: NativeTarget[]
 	}
 	if (!isObject(config)) return ['the native Wrangler config is not an object'];
 	const problems: string[] = [];
-	exactKeys(config, WRANGLER_KEYS, 'config', problems);
+	exactKeys(config, WRANGLER_KEYS, 'config', problems, WRANGLER_OPTIONAL_KEYS);
 	const owners = nativeOwners(a.targets);
 	const foreign = new Set<string>();
 	const named = (got: unknown) => (typeof got === 'string' ? owners.get(got.toLowerCase()) : undefined);
@@ -394,6 +412,15 @@ export function checkNativeWrangler(a: { client: string; targets: NativeTarget[]
 		expect('r2 binding', o.binding, target.r2.binding);
 		expect('r2 bucket', o.bucket_name, target.r2.bucket);
 		expect('r2 jurisdiction', o.jurisdiction, target.r2.jurisdiction);
+	}
+	// Browser Run: present exactly when the reviewed target opted in, and then exactly the one binding. Nothing is inferred.
+	if (!Object.hasOwn(config, 'browser')) {
+		if (target.browser) problems.push(`config.browser is missing: the target opts in to the ${NATIVE_BROWSER_BINDING} binding`);
+	} else if (!target.browser) problems.push(`config.browser is ${show(config.browser)}, but the target does not opt in to the browser binding (add browser to the reviewed target.json to opt in)`);
+	else if (!isObject(config.browser)) problems.push(`config.browser is ${show(config.browser)}, not { binding: "${NATIVE_BROWSER_BINDING}" }`);
+	else {
+		exactKeys(config.browser, ['binding'], 'config.browser', problems);
+		expect('the browser binding', config.browser.binding, target.browser.binding);
 	}
 	// Another native client's identifier as any string value (case-free), keys included, the fields above included.
 	const walk = (x: unknown): void => {
@@ -613,7 +640,7 @@ export function nativeStageRecord(t: NativeTarget, a: { files: Record<string, st
 		migrations: a.migrations,
 		upload: a.upload,
 		runtime: { profile: t.runtime.profile, sourceSha: t.runtime.sourceSha },
-		desired: { accountId: t.accountId, worker: t.worker, zoneId: t.zone.id, hostname: t.customDomain.hostname, d1Id: t.d1.id, r2Bucket: t.r2.bucket },
+		desired: { accountId: t.accountId, worker: t.worker, zoneId: t.zone.id, hostname: t.customDomain.hostname, d1Id: t.d1.id, r2Bucket: t.r2.bucket, ...(t.browser ? { browserBinding: t.browser.binding } : {}) },
 		policy: { workersDev: false, previewUrls: false, d1Jurisdiction: t.d1.jurisdiction, r2Jurisdiction: t.r2.jurisdiction, r2PublicAccess: false, remoteMigrations: 'not-applied-by-stage' },
 		state: 'STAGED-UNVERIFIED',
 		fundedAdmission: false,

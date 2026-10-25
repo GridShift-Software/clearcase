@@ -7,15 +7,18 @@ import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, writeFileSync }
 import path from 'node:path';
 import ts from 'typescript';
 import { checkNativeArtifact, nativeWalk, readRegular } from '../probes/target.ts';
-import { NATIVE_STAGED, parseNativeJson } from './pipeline.ts';
+import { NATIVE_BROWSER_BINDING, NATIVE_STAGED, parseNativeJson } from './pipeline.ts';
 import { validateBuildStamp } from '../../src/lib/server/runtime/build.ts';
 
 export const WORKERS_DEV_BOOTSTRAP_SCHEMA = 'clearcase.workers-dev-bootstrap/1';
 export type BootstrapSlot = 'client-a' | 'client-b' | 'staff';
+export type BootstrapClientSlot = Exclude<BootstrapSlot, 'staff'>;
 export type BootstrapSettings = {
 	pins: { source: string; artifact: string; entry: string };
 	compatibilityDate: string;
 	compatibilityFlags: ['nodejs_compat'];
+	/** Explicit opt-in, absent by default: the client slots (distinct, in client-a, client-b order) that bind exactly BROWSER. Staff is refused. */
+	browserClients?: readonly BootstrapClientSlot[];
 };
 const ACCOUNT = 'fb4c31b91c5d89b7a54afbdc34823170';
 const SLOTS = ['client-a', 'client-b', 'staff'] as const;
@@ -31,13 +34,18 @@ function exact(value: unknown, keys: readonly string[], at: string): asserts val
 	if (!object(value) || Object.keys(value).length !== keys.length || keys.some((k) => !Object.hasOwn(value, k))) throw new Error(`${at}: expected exactly ${keys.join(', ')}; overrides and unknown keys are refused`);
 }
 function settings(value: unknown): BootstrapSettings {
-	exact(value, ['pins', 'compatibilityDate', 'compatibilityFlags'], 'settings');
+	exact(value, Object.hasOwn(object(value) ? value : {}, 'browserClients') ? ['pins', 'compatibilityDate', 'compatibilityFlags', 'browserClients'] : ['pins', 'compatibilityDate', 'compatibilityFlags'], 'settings');
 	exact(value.pins, ['source', 'artifact', 'entry'], 'external pins');
 	if (typeof value.pins.source !== 'string' || !/^[0-9a-f]{40}$/.test(value.pins.source)) throw new Error('external source pin must be a full Git SHA');
 	for (const k of ['artifact', 'entry']) if (typeof value.pins[k] !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(value.pins[k])) throw new Error(`external ${k} pin must be sha256:<64 lowercase hex>`);
 	const date = value.compatibilityDate;
 	if (typeof date !== 'string' || !/^\d{4}-\d\d-\d\d$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date) throw new Error('compatibilityDate must be a real YYYY-MM-DD date');
 	if (JSON.stringify(value.compatibilityFlags) !== '["nodejs_compat"]') throw new Error('bootstrap requires exactly nodejs_compat; the parent must build for this flag');
+	if (Object.hasOwn(value, 'browserClients')) {
+		const clients = value.browserClients;
+		if (!Array.isArray(clients) || !clients.length || clients.some((c) => c !== 'client-a' && c !== 'client-b')) throw new Error('browserClients must be a non-empty list of client-a and client-b; staff and any other slot are refused');
+		if (JSON.stringify(clients) !== JSON.stringify(SLOTS.filter((c) => clients.includes(c)))) throw new Error('browserClients must list each client at most once, in client-a, client-b order');
+	}
 	return structuredClone(value) as BootstrapSettings;
 }
 function freeze<T>(value: T): T {
@@ -53,6 +61,7 @@ export function planWorkersDevBootstrap(value: unknown) {
 	const s = settings(value);
 	const targets = SLOTS.map((slot) => {
 		const client = slot === 'staff' ? null : CLIENTS[slot];
+		const browser = slot !== 'staff' && s.browserClients?.includes(slot) === true;
 		const config = {
 			name: client?.worker ?? 'cc-sbx-staff-20261023', account_id: ACCOUNT,
 			main: NATIVE_STAGED.entry, no_bundle: true, find_additional_modules: false, minify: false,
@@ -65,6 +74,8 @@ export function planWorkersDevBootstrap(value: unknown) {
 			...(client ? {
 				d1_databases: [{ binding: 'DB', database_name: client.database, database_id: client.uuid }],
 				r2_buckets: [{ binding: 'BUCKET', bucket_name: client.bucket, jurisdiction: 'eu' }],
+				// Controlled capability, not service proof or a budget: only the exact binding, never remote/proxy/env variants.
+				...(browser ? { browser: { binding: NATIVE_BROWSER_BINDING } } : {}),
 			} : {}),
 		};
 		const configFile = `${slot}.wrangler.json`;
@@ -76,6 +87,7 @@ export function planWorkersDevBootstrap(value: unknown) {
 			// Desired policy, not fresh provider evidence. D1 jurisdiction is NOT a Wrangler binding key.
 			stores: client ? { d1Jurisdiction: 'eu', r2Jurisdiction: 'eu', r2Public: false, r2DevUrl: false } : null,
 			readiness: client ? 'services-unconfigured' : 'unconfigured-portal-shell',
+			...(browser ? { browser: { binding: NATIVE_BROWSER_BINDING } } : {}),
 		};
 	});
 	return freeze({ schema: WORKERS_DEV_BOOTSTRAP_SCHEMA, settings: s, targets });

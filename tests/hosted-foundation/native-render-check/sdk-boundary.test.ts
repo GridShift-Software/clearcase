@@ -10,7 +10,7 @@ import type { CloudD1, CloudD1Statement } from '../../../src/lib/storage/cloud/b
 import { id, resultsVersion } from '../../../src/lib/server/runtime/ids.ts';
 import { prepareHostedPdfAssets } from '../../../scripts/hosted-pdf-assets.ts';
 import { NATIVE_SDK_BUILD_SCHEMA, NATIVE_SDK_INPUT_PINS, NATIVE_SDK_WORKER_OUTPUTS } from '../../../scripts/native-render-sdk-build.ts';
-import { NATIVE_SDK_BUFFER_SOURCE, NATIVE_SDK_DEBUG_SOURCE } from '../../../src/lib/viewer/hosted/sdk-build-contract.ts';
+import { NATIVE_SDK_BUFFER_SOURCE, NATIVE_SDK_DEBUG_SOURCE, NATIVE_SDK_HOST_SYMBOLS } from '../../../src/lib/viewer/hosted/sdk-build-contract.ts';
 import { createNativePreviewRenderChecker, NATIVE_PDF_RENDER_CEILINGS, type NativePreviewRenderOptions } from '../../../src/lib/viewer/hosted/native-render-check.ts';
 
 const sdk = vi.hoisted(() => ({ launch: vi.fn() }));
@@ -299,7 +299,7 @@ describe('native PDF SDK boundary orchestration (NOT renderer acceptance)', () =
   const csp = boundary.served.get('/__clearcase_native_pdf__/inspect')!.headers!['content-security-policy'];
   const digest = async (v: unknown) => Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(v)))).toString('hex');
   const expected = await digest({ algorithm: 'clearcase.native-pdf/2', sdkVersion: '1.4.0', sdkIntegrity: 'sha512-39lo96Y7ErOJFmu/KIJU1VLaOibhynx/BauKCZOW5+RVH/mG0jZrAEGJlqCdx5ZxLHyWppm78YX3jLNPCBB+fA==',
-   sdkWorkerPolicy: { schema: NATIVE_SDK_BUILD_SCHEMA, inputs: NATIVE_SDK_INPUT_PINS, transforms: NATIVE_SDK_WORKER_OUTPUTS, hostBuffer: NATIVE_SDK_BUFFER_SOURCE, deniedNodeDiagnostics: NATIVE_SDK_DEBUG_SOURCE }, pdfjsVersion: pins.pdfjsVersion,
+   sdkWorkerPolicy: { schema: NATIVE_SDK_BUILD_SCHEMA, inputs: NATIVE_SDK_INPUT_PINS, transforms: NATIVE_SDK_WORKER_OUTPUTS, hostBuffer: NATIVE_SDK_BUFFER_SOURCE, deniedNodeDiagnostics: NATIVE_SDK_DEBUG_SOURCE, hostSymbols: ['Symbol.dispose', 'Symbol.asyncDispose'] }, pdfjsVersion: pins.pdfjsVersion,
    packageDigest: pins.packageDigest, browser: pins.files.find(f => f.path === 'pdfjs/pdf.min.mjs'), worker: pins.files.find(f => f.path === 'pdfjs/pdf.worker.min.mjs'), program: await digest([html, csp, program]) });
   expect(first.rendererVersion).toBe('clearcase.native-pdf/2;sha256:' + expected);
   const altered = { ...db.sqlite.prepare('SELECT * FROM npr_success_receipts').get()!, renderer_version: 'clearcase.native-pdf/2;sha256:' + '0'.repeat(64) };
@@ -387,5 +387,22 @@ describe('actual migration trigger admission with SQLite D1 boundary double (NOT
   }
   expect(await createNativePreviewRenderChecker({ ...options(), db: {} as NativePreviewRenderOptions['db'] })).toBeNull();
   expect(sdk.launch).not.toHaveBeenCalled();
+ });
+});
+
+describe('host disposal symbol preflight (NOT workerd acceptance)', () => {
+ it('names exactly the two host disposal symbols the transformed SDK reads', () => {
+  expect(NATIVE_SDK_HOST_SYMBOLS).toEqual(['Symbol.dispose', 'Symbol.asyncDispose']);
+  expect(Object.isFrozen(NATIVE_SDK_HOST_SYMBOLS)).toBe(true);
+ });
+ it.each(['dispose', 'asyncDispose'] as const)('is unavailable, never polyfilled, on a host without Symbol.%s', async missing => {
+  const host = Symbol, partial = Object.assign((description?: string) => host(description), { dispose: host.dispose, asyncDispose: host.asyncDispose, [missing]: undefined });
+  vi.stubGlobal('Symbol', partial);
+  try {
+   expect(await createNativePreviewRenderChecker(options())).toBeNull();
+   expect(partial[missing]).toBeUndefined();
+  } finally { vi.unstubAllGlobals(); }
+  expect(sdk.launch).not.toHaveBeenCalled();
+  expect(await createNativePreviewRenderChecker(options())).not.toBeNull();
  });
 });

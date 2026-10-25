@@ -208,6 +208,8 @@ export async function createNativePreviewRenderChecker(o: NativePreviewRenderOpt
  const packageFiles = [...files.values()].filter(f => f.path !== 'pdfjs/pdf-reader.mjs').sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
  if ('sha256:' + await sha(encode(packageFiles)) !== PACKAGE_DIGEST || files.get('/pdfjs/pdf-reader.mjs')?.sha256 !== READER_DIGEST) return null;
  if (sdkVersion !== '1.4.0') return null;
+ // NATIVE_SDK_HOST_SYMBOLS: the transformed SDK keys disposal on the host's own symbols and never defines them.
+ if (typeof Symbol.dispose !== 'symbol' || typeof Symbol.asyncDispose !== 'symbol') return null;
  // The actual installed SDK version, exact lock integrity, pinned browser/worker/resource bytes, and source-owned
  // HTML/CSP/render program all participate. Server-side transcript/admission algorithm changes bump the family above.
  const rendererVersion = NATIVE_PDF_RENDERER_ALGORITHM + ';sha256:' + await sha(encode({

@@ -85,7 +85,7 @@ describe('host disposal symbols and denied page bindings, inert source execution
   expect(disposed).toEqual(['host symbol']);
  });
  it('Binding keeps its name and init source, and run always throws before evaluating in any context', async () => {
-  const p = await policy(), Binding = evaluate(await p.transform('cdp/Binding.js'), 'Binding').Binding;
+  const p = await policy(), Binding = evaluate((await p.transform('cdp/Binding.js')).replace(/^import .*$/gm, ''), 'Binding').Binding;
   const binding = new Binding('synthetic', () => 'never', 'synthetic init'), calls: string[] = [];
   const context = { evaluate: async () => { calls.push('evaluate'); }, evaluateHandle: async () => { calls.push('evaluateHandle'); } };
   expect([binding.name, binding.initSource]).toEqual(['synthetic', 'synthetic init']);

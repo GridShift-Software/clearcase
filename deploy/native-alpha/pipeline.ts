@@ -528,11 +528,13 @@ export function nativeUploadInvocationProblems(input: readonly string[]): string
 
 /**
  * The only host-runtime modules the final bundle may import statically: `cloudflare:workers` (the Worker environment, which
- * the SvelteKit adapter-cloudflare worker.js imports), `node:async_hooks` (AsyncLocalStorage), and static `node:buffer`
- * (the pinned native renderer SDK's actual Worker Buffer). Buffer requires an explicit enabled nodejs_compat target;
- * no bare alias, subpath, dynamic Buffer or other Node capability is added. Every extension needs source review.
+ * the SvelteKit adapter-cloudflare worker.js imports), `node:async_hooks` (AsyncLocalStorage), static `node:buffer`
+ * (the pinned native renderer SDK's actual Worker Buffer) and static `node:crypto` (`createHash` in the case-package
+ * chunks of the actual bundle, a host module Workers provides under nodejs_compat). Buffer and crypto require an explicit
+ * enabled nodejs_compat target; no bare alias, subpath, dynamic Buffer or other Node capability is added. Every
+ * extension needs source review.
  */
-export const NATIVE_HOST_IMPORTS = ['cloudflare:workers', 'node:async_hooks', 'node:buffer'] as const;
+export const NATIVE_HOST_IMPORTS = ['cloudflare:workers', 'node:async_hooks', 'node:buffer', 'node:crypto'] as const;
 
 /**
  * NATIVE24: the only runtime built-ins a dynamic `import()` may name, each with the compatibility flags of which one must
@@ -542,7 +544,9 @@ export const NATIVE_HOST_IMPORTS = ['cloudflare:workers', 'node:async_hooks', 'n
  */
 export const NATIVE_DYNAMIC_HOST_IMPORTS: Readonly<Record<string, readonly string[]>> = Object.freeze({ 'node:async_hooks': Object.freeze(['nodejs_als', 'nodejs_compat']), 'node:crypto': Object.freeze(['nodejs_compat']) });
 /** The flags each static host import needs once the target's flags are known (`cloudflare:workers` needs none). */
-const STATIC_HOST_FLAGS: Readonly<Record<string, readonly string[]>> = { 'cloudflare:workers': [], 'node:async_hooks': ['nodejs_als', 'nodejs_compat'], 'node:buffer': ['nodejs_compat'] };
+const STATIC_HOST_FLAGS: Readonly<Record<string, readonly string[]>> = { 'cloudflare:workers': [], 'node:async_hooks': ['nodejs_als', 'nodejs_compat'], 'node:buffer': ['nodejs_compat'], 'node:crypto': ['nodejs_compat'] };
+/** Static host imports that need an explicit target policy even in the flag-less legacy call (async_hooks keeps its older leniency). */
+const STATIC_NEEDS_POLICY: ReadonlySet<string> = new Set(['node:buffer', 'node:crypto']);
 const enabled = (needs: readonly string[], flags: readonly string[]) => needs.length === 0 || needs.some((f) => flags.includes(f) && !flags.includes(`no_${f}`));
 
 /** How one `import()` call site's specifiers were proven (target.ts `scanModule`), or why they were not. Lines are 1-based. */
@@ -565,8 +569,8 @@ export function uploadModuleProblems(f: ModuleFacts, entry: string = NATIVE_STAG
 	for (const spec of [...new Set(f.specifiers)].sort())
 		if (!(NATIVE_HOST_IMPORTS as readonly string[]).includes(spec))
 			problems.push(`${entry} imports ${JSON.stringify(spec)}: with no_bundle nothing resolves it at upload time, so the final bundle must be closed (only ${NATIVE_HOST_IMPORTS.join(', ')} may be imported as host modules; a bare, relative or outside-stage import is refused)`);
-		else if (spec === 'node:buffer' && flags === undefined)
-			problems.push(`${entry} imports node:buffer without an explicit nodejs_compat target policy`);
+		else if (STATIC_NEEDS_POLICY.has(spec) && flags === undefined)
+			problems.push(`${entry} imports ${spec} without an explicit nodejs_compat target policy`);
 		else if (flags !== undefined && !enabled(STATIC_HOST_FLAGS[spec]!, flags))
 			problems.push(`${entry} imports ${JSON.stringify(spec)}, which the target's compatibility flags ${JSON.stringify(flags)} do not enable: it needs one of ${STATIC_HOST_FLAGS[spec]!.join(', ')}`);
 	if (f.computedSpecifiers) problems.push(`${entry} has ${f.computedSpecifiers} import or export-from with a specifier that is not a string literal`);

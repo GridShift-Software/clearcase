@@ -225,7 +225,8 @@ describe('adversarial dynamic-import helpers stay refused under the most permiss
 		const f = facts(MEASURED());
 		refusedWith((uploadModuleProblems as (...a: unknown[]) => string[])({ syntaxErrors: f.syntaxErrors, specifiers: f.specifiers, computedSpecifiers: f.computedSpecifiers, dynamicImports: f.dynamicImports, requireCalls: f.requireCalls }, 'artifact/cloudflare/_worker.js', COMPAT), /dynamic import/);
 	});
-	test('a static import of node:crypto stays refused under nodejs_compat (the static host list is unchanged)', () => refusedWith(moduleProblems("import c from 'node:crypto';\nexport default { fetch() { return new Response(String(c)); } };\n", COMPAT), /node:crypto/));
+	// 25 October: static node:crypto is now a reviewed host import (crypto-host.test.ts); it still needs an enabled nodejs_compat.
+	test('a static import of node:crypto stays refused without an enabled nodejs_compat (nodejs_als alone does not provide it)', () => refusedWith(moduleProblems("import c from 'node:crypto';\nexport default { fetch() { return new Response(String(c)); } };\n", ['nodejs_als']), /node:crypto.*nodejs_compat/));
 });
 
 describe('RED 2: the public assets are separated from the server entry and checked file by file', () => {

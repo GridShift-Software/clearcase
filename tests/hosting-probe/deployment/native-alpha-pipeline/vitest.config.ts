@@ -8,7 +8,7 @@ export default defineConfig({
 	test: {
 		// Rooted at the deployment probe so the frozen legacy target.test.ts (read only, unchanged) runs beside the native tests.
 		root: fileURLToPath(new URL('..', import.meta.url)),
-		include: ['target.test.ts', 'native-alpha-pipeline/native-pipeline-red.test.ts', 'native-alpha-pipeline/native-pipeline.test.ts', 'native-alpha-pipeline/native-pipeline-fix-r1.test.ts', 'native-alpha-pipeline/native-bundle-assets-red.test.ts', 'native-alpha-pipeline/native-bundle-contract.test.ts'],
+		include: ['target.test.ts', 'native-alpha-pipeline/native-pipeline-red.test.ts', 'native-alpha-pipeline/native-pipeline.test.ts', 'native-alpha-pipeline/native-pipeline-fix-r1.test.ts', 'native-alpha-pipeline/native-bundle-assets-red.test.ts', 'native-alpha-pipeline/native-bundle-contract.test.ts', 'native-alpha-pipeline/native-bundle-enum-red.test.ts'],
 		pool: 'forks',
 		testTimeout: 60_000,
 	},

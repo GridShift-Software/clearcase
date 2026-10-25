@@ -70,4 +70,114 @@ describe.each(METADATA)('$route metadata audit', ({ route, action, kind }) => {
     expect(w.audit.events[1]).toMatchObject({ eventId: `${first!.eventId}:refused`, action, outcome: 'refused', actor: first!.actor, object: first!.object });
     expect(retained).toHaveLength(1);
   });
+
+  it('records intent only until validated metadata EOF, then retains one correlated completion', async () => {
+    const w = world(); const s = await seed(w);
+    const retained: Promise<void>[] = [];
+    compose({ ...w.ports, waitUntil: (work: Promise<void>) => retained.push(work) });
+    const r = await call(route, s.operationId);
+    expect(r.status).toBe(200);
+    const intent = structuredClone(w.audit.events[0]);
+    expect(w.audit.events).toHaveLength(1);
+    expect(intent).toMatchObject({ action: `${action}.intent`, outcome: 'succeeded' });
+    expect(retained).toEqual([]);
+    const reader = r.body!.getReader();
+    const first = await reader.read();
+    expect(first.done).toBe(false);
+    expect(new TextDecoder().decode(first.value)).toContain(s.operationId);
+    expect(w.audit.events).toEqual([intent]); // even the last expected chunk is not yet validated EOF
+    expect(await reader.read()).toEqual({ done: true, value: undefined });
+    await Promise.all(retained);
+    expect(retained).toHaveLength(1);
+    expect(w.audit.events[0]).toEqual(intent);
+    expect(w.audit.events).toHaveLength(2);
+    expect(w.audit.events[1]).toEqual({ ...intent, eventId: `${intent.eventId}:completed`, action, outcome: 'succeeded' });
+    expect(w.operateCalls).toHaveLength(2);
+    expect(w.assets.calls).toEqual([]);
+  });
+
+  it.each(['unread', 'after-chunk'] as const)('records one failure, never completion, when canceled %s', async at => {
+    const w = world(); const s = await seed(w);
+    const retained: Promise<void>[] = [];
+    compose({ ...w.ports, waitUntil: (work: Promise<void>) => retained.push(work) });
+    const r = await call(route, s.operationId);
+    const intent = structuredClone(w.audit.events[0]);
+    const reader = r.body!.getReader();
+    if (at === 'after-chunk') expect((await reader.read()).done).toBe(false);
+    await reader.cancel();
+    await reader.cancel();
+    await Promise.all(retained);
+    expect(retained).toHaveLength(1);
+    expect(w.audit.events).toEqual([intent, { ...intent, eventId: `${intent.eventId}:failed`, action, outcome: 'failed' }]);
+  });
+
+  it('keeps final refusal when the terminal audit append also fails', async () => {
+    const w = world(); const s = await seed(w);
+    let revoked = false;
+    const append = w.audit.append.bind(w.audit);
+    w.audit.append = async e => {
+      if (!e.action.endsWith('.intent')) throw error('audit-unavailable');
+      const ack = await append(e);
+      revoked = true;
+      return ack;
+    };
+    const retained: Promise<void>[] = [];
+    compose({ ...w.ports, waitUntil: (work: Promise<void>) => retained.push(work), authorizeOperate: async () => {
+      if (revoked) throw error('forbidden');
+    } });
+    const r = await call(route, s.operationId);
+    expect(r.status).toBe(404);
+    expect(await r.json()).toEqual({ code: 'not-found', message: 'Not found.' });
+    await Promise.all(retained);
+    expect(retained).toHaveLength(1);
+    expect(w.audit.events.map(e => [e.action, e.outcome])).toEqual([[`${action}.intent`, 'succeeded']]);
+  });
+
+  it('leaves an orphan intent, never a manufactured completion, during a terminal-sink outage', async () => {
+    const w = world(); const s = await seed(w);
+    const retained: Promise<void>[] = [];
+    compose({ ...w.ports, waitUntil: (work: Promise<void>) => retained.push(work) });
+    const r = await call(route, s.operationId);
+    w.audit.failNext = true;
+    expect(r.status).toBe(200);
+    expect(await r.text()).toContain(s.operationId);
+    await Promise.all(retained);
+    expect(retained).toHaveLength(1);
+    expect(w.audit.events.map(e => [e.action, e.outcome])).toEqual([[`${action}.intent`, 'succeeded']]);
+  });
+
+  it('records final authority-service failure as failed, with no metadata or success', async () => {
+    const w = world(); const s = await seed(w);
+    let checks = 0;
+    compose({ ...w.ports, authorizeOperate: async () => {
+      if (++checks === 2) throw error('identity-unavailable');
+    } });
+    const r = await call(route, s.operationId);
+    expect(r.status).toBe(503);
+    expect(await r.json()).toEqual({ code: 'identity-unavailable', message: 'Sign-in is unavailable. Try again shortly.' });
+    const intent = w.audit.events[0];
+    expect(w.audit.events).toEqual([
+      { ...intent, action: `${action}.intent`, outcome: 'succeeded' },
+      { ...intent, eventId: `${intent.eventId}:failed`, action, outcome: 'failed' },
+    ]);
+  });
+
+  it.each([118, 119])('reserves terminal-id room for metadata intents of length %s', async size => {
+    const w = world(); const s = await seed(w);
+    const retained: Promise<void>[] = [];
+    const eventId = 'x'.repeat(size);
+    compose({ ...w.ports, newEventId: () => eventId, waitUntil: (work: Promise<void>) => retained.push(work) });
+    const r = await call(route, s.operationId);
+    expect(r.status).toBe(size === 118 ? 200 : 503);
+    if (size === 119) {
+      expect(await r.json()).toMatchObject({ code: 'audit-unavailable' });
+      expect(w.audit.events).toEqual([]);
+      expect(retained).toEqual([]);
+    } else {
+      expect(await r.text()).toContain(s.operationId);
+      await Promise.all(retained);
+      expect(w.audit.events.map(e => e.eventId)).toEqual([eventId, `${eventId}:completed`]);
+      expect(w.audit.events[1].eventId).toHaveLength(128);
+    }
+  });
 });

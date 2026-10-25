@@ -151,10 +151,38 @@ export function createOperatorDownloadController(ports: OperatorDownloadPorts | 
     try { await a.audit.append(e); }
     catch { refuse(503, 'audit-unavailable', 'The audit log is unavailable, so nothing was released. Try again shortly.'); }
   };
-  /** Metadata release: audit acknowledgement and all slow reads precede the final current-authority check. */
-  const release = async (a: Admitted, action: string, object: AuditEvent['object']) => {
-    await requiredAudit(a, event(a, action, object, 'succeeded'));
-    await a.revalidate();
+  /** Mandatory intent, then one immutable best-effort observation, correlated without changing the shared envelope. */
+  const begin = async (a: Admitted, action: string, object: AuditEvent['object']) => {
+    const intent = event(a, `${action}.intent`, object, 'succeeded');
+    // Reserve room for a correlated terminal suffix within the existing immutable audit envelope's 128-char id.
+    if (!/^[A-Za-z0-9][A-Za-z0-9:._-]{0,117}$/.test(intent.eventId)) return refuse(503, 'audit-unavailable', 'The audit log is unavailable, so nothing was released. Try again shortly.');
+    await requiredAudit(a, intent);
+    let terminal: Promise<void> | undefined;
+    return (outcome: 'succeeded' | 'failed' | 'refused'): Promise<void> => {
+      // Install the promise before appending: concurrent cancellation/EOF/error can write only one terminal event.
+      if (!terminal) {
+        terminal = Promise.resolve().then(async () => {
+          const suffix = outcome === 'succeeded' ? 'completed' : outcome;
+          await a.audit.append({ ...intent, eventId: `${intent.eventId}:${suffix}`, action, outcome, at: ports!.now().toISOString() });
+        }).catch(() => undefined); // terminal delivery observations are best effort; intent was mandatory
+        try { ports!.waitUntil?.(terminal); } catch { /* A broken lifetime hook cannot change observed delivery. */ }
+      }
+      return terminal;
+    };
+  };
+  /** Metadata uses the byte-stream protocol too: no success before final authority and validated response EOF. */
+  const release = async (a: Admitted, action: string, object: AuditEvent['object'], bytes: Uint8Array<ArrayBuffer>, headers: Record<string, string> = {}) => {
+    const finish = await begin(a, action, object);
+    try {
+      // No awaited audit append between this check and response release. Success is observed only after EOF.
+      await a.revalidate();
+      return new Response(exactly(new Response(bytes).body!, bytes.byteLength, finish), { status: 200, headers: {
+        ...PRIVATE, 'content-type': 'application/json; charset=utf-8', ...headers,
+      } });
+    } catch (e) {
+      await finish(e instanceof Refusal && e.response.status < 500 ? 'refused' : 'failed');
+      throw e;
+    }
   };
   const storage = <T>(work: Promise<T>): Promise<T> => work.catch((e) => {
     if (codeOf(e) === 'forbidden') notFound();
@@ -200,8 +228,8 @@ export function createOperatorDownloadController(ports: OperatorDownloadPorts | 
       const rows = await storage(a.repository.list(a.scope));
       const done = rows.filter((x) => x.upload.state === 'finalized').map((x) => consistent(a, x.upload, x.manifest)).sort((x, y) => x.manifest.sequence - y.manifest.sequence);
       const submissions = await Promise.all(done.map((x) => viewOf(a, x.manifest, x.file)));
-      await release(a, 'operator.submission.list', { kind: 'case', id: a.caseId, caseId: a.caseId });
-      return json(200, { submissions, pendingCount: rows.length - done.length });
+      return release(a, 'operator.submission.list', { kind: 'case', id: a.caseId, caseId: a.caseId },
+        new TextEncoder().encode(JSON.stringify({ submissions, pendingCount: rows.length - done.length })));
     }),
 
     /** GET .../finalized/[operationId]: the manifest, its digest and the paths to the manifest and the PDF. */
@@ -209,8 +237,8 @@ export function createOperatorDownloadController(ports: OperatorDownloadPorts | 
       const a = await admit(r, true);
       const { manifest, file } = await finalized(a);
       const view = await viewOf(a, manifest, file);
-      await release(a, 'operator.submission.read', { kind: 'submission', id: manifest.operationId, caseId: a.caseId });
-      return json(200, view);
+      return release(a, 'operator.submission.read', { kind: 'submission', id: manifest.operationId, caseId: a.caseId },
+        new TextEncoder().encode(JSON.stringify(view)));
     }),
 
     /** GET .../finalized/[operationId]/manifest: the exact immutable manifest bytes as a download-safe attachment. */
@@ -218,11 +246,10 @@ export function createOperatorDownloadController(ports: OperatorDownloadPorts | 
       const a = await admit(r, true);
       const { manifest, file } = await finalized(a);
       const bytes = manifestBytes(manifest), sha = await digest(bytes);
-      await release(a, 'operator.submission.manifest', { kind: 'submission', id: manifest.operationId, caseId: a.caseId });
-      return new Response(bytes, { status: 200, headers: {
-        ...PRIVATE, ...identityHeaders(a, manifest, file), 'content-type': 'application/json; charset=utf-8', 'content-length': String(bytes.byteLength),
+      return release(a, 'operator.submission.manifest', { kind: 'submission', id: manifest.operationId, caseId: a.caseId }, bytes, {
+        ...identityHeaders(a, manifest, file), 'content-length': String(bytes.byteLength),
         'content-disposition': `attachment; filename="submission-${manifest.operationId}.manifest.json"`, 'x-clearcase-manifest-sha256': sha, etag: `"sha256-${sha}"`,
-      } });
+      });
     }),
 
     /** GET or HEAD .../finalized/[operationId]/download: the complete PDF (or one range), integrity-bound to the manifest. */
@@ -236,22 +263,7 @@ export function createOperatorDownloadController(ports: OperatorDownloadPorts | 
       if (meta.size !== file.size || meta.sha256 !== file.sha256 || meta.mediaType !== 'application/pdf') return refuse(410, 'changed-original', 'This original failed its integrity check.');
       const method = r.request.method === 'HEAD' ? 'HEAD' : 'GET';
       const action = method === 'HEAD' ? 'operator.submission.download.head' : 'operator.submission.download';
-      const intent = event(a, `${action}.intent`, object, 'succeeded');
-      // Reserve room for a correlated terminal suffix within the existing immutable audit envelope's 128-char id.
-      if (!/^[A-Za-z0-9][A-Za-z0-9:._-]{0,117}$/.test(intent.eventId)) return refuse(503, 'audit-unavailable', 'The audit log is unavailable, so nothing was released. Try again shortly.');
-      await requiredAudit(a, intent);
-      let terminal: Promise<void> | undefined;
-      const finish = (outcome: 'succeeded' | 'failed' | 'refused'): Promise<void> => {
-        // Install the promise before appending: concurrent cancellation/EOF/error can write only one terminal event.
-        if (!terminal) {
-          terminal = Promise.resolve().then(async () => {
-            const suffix = outcome === 'succeeded' ? 'completed' : outcome;
-            await a.audit.append({ ...intent, eventId: `${intent.eventId}:${suffix}`, action, outcome, at: ports!.now().toISOString() });
-          }).catch(() => undefined); // terminal delivery observations are best effort; intent was mandatory
-          try { ports!.waitUntil?.(terminal); } catch { /* A broken lifetime hook cannot change observed delivery. */ }
-        }
-        return terminal;
-      };
+      const finish = await begin(a, action, object);
       const wanted = r.request.headers.get('range');
       const range = wanted !== null && wanted.length <= 64 && RANGE.test(wanted) ? wanted : null;
       const requested = range === null ? null : intervalOf(range, file.size);

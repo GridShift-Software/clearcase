@@ -31,8 +31,8 @@ export interface OperatorDownloadPorts {
   readonly assets: OperatorAssets | null;
   readonly audit: AuditSink | null;
   now(): Date;
-  /** Parent binds the request's execution context on Workers, retaining best-effort terminal audits after EOF/cancel. */
+  /** Parent binds the request's execution context on Workers, retaining metadata/download terminal audits after EOF/cancel/refusal. */
   waitUntil?(work: Promise<void>): void;
-  /** A unique audit id; defaults to a random UUID. Downloads need 1–118 identifier characters to reserve a terminal suffix. */
+  /** A unique audit id; defaults to a random UUID. Every release needs 1–118 identifier characters to reserve a terminal suffix. */
   newEventId?(): string;
 }

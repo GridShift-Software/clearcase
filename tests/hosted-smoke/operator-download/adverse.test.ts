@@ -316,10 +316,20 @@ describe('every release is audited first and read-only', () => {
   });
   it('audits list, view and manifest reads, each as its own action on the case or the submission', async () => {
     const w = ready(world()); const s = await seed(w);
-    for (const route of ROUTES) await call(route, CASE_A, s.operationId);
+    const retained: Promise<void>[] = [];
+    compose({ ...w.ports, waitUntil: (work: Promise<void>) => retained.push(work) });
+    const responses: Response[] = [];
+    for (const route of ROUTES) responses.push(await call(route, CASE_A, s.operationId));
     expect(w.audit.events.map((e) => [e.action, e.object.kind, e.object.id])).toEqual([
-      ['operator.submission.list', 'case', CASE_A], ['operator.submission.read', 'submission', s.operationId],
-      ['operator.submission.manifest', 'submission', s.operationId], ['operator.submission.download.intent', 'submission', s.operationId],
+      ['operator.submission.list.intent', 'case', CASE_A], ['operator.submission.read.intent', 'submission', s.operationId],
+      ['operator.submission.manifest.intent', 'submission', s.operationId], ['operator.submission.download.intent', 'submission', s.operationId],
+    ]);
+    for (const r of responses.slice(0, 3)) await bytes(r);
+    await Promise.all(retained);
+    expect(w.audit.events.filter(e => !e.action.endsWith('.intent')).map(e => [e.eventId, e.action, e.outcome, e.object.kind, e.object.id])).toEqual([
+      ['evt-1:completed', 'operator.submission.list', 'succeeded', 'case', CASE_A],
+      ['evt-2:completed', 'operator.submission.read', 'succeeded', 'submission', s.operationId],
+      ['evt-3:completed', 'operator.submission.manifest', 'succeeded', 'submission', s.operationId],
     ]);
   });
   it('writes nothing: no intake row changes and the stored upload stays as it was', async () => {

@@ -14,8 +14,9 @@
 //     given, and any difference from the supplied pins is a HOLD.
 //   - `reader`: the checked-owner evidence reader. Its evidence is what the owner's real checkNativeStage returned
 //     (its problems list, which must be empty) together with the stage.json, target.json and wrangler.jsonc bytes of the
-//     SAME stage as text. A caller-asserted boolean ("checked", "ok", "verified") is an unread key and a HOLD. The
-//     reader is called twice per client (revalidation): the second evidence must equal the first byte for byte, and
+//     SAME stage as text, and the actual final artifact bytes of that stage: the Worker entry as text and every public
+//     file as base64 (never a hash or a marker standing in for bytes). A caller-asserted boolean ("checked", "ok",
+//     "verified") is an unread key and a HOLD. The reader is called twice per client (revalidation): the second evidence must equal the first byte for byte, and
 //     every evidence is copied and frozen on receipt. This pure API judges data, not origin; the local parent bridge
 //     requires the private issuer brand BEFORE handing the evidence here.
 //
@@ -23,14 +24,16 @@
 // pins it re-hashes target.json and wrangler.jsonc against the pins, re-parses the target, re-checks the config against
 // every bound target (checkNativeWrangler, so another client's identifier is refused), requires the record's upload
 // section (entry by hash, every uploaded file, closed host imports, `additionalModules:false`, the exact upload
-// command), rebuilds the whole native stage record from those facts and the PINNED artifact, migrations and entry
-// digests and requires it byte for byte, and compares each fact the manifest observed (account, zone, client, Worker,
-// custom-domain hostname and zone, service, D1 name/UUID/jurisdiction, private EU R2, secret inventory, source,
-// artifact, profile revision and the original asset canary against the staged file of the same path). What it cannot
-// re-derive from text (the artifact and migrations tree digests, `_app/version.json`) it takes from the owner's checker
-// problems list and the external pins; a reader that lies about those and about nothing else is NOT refused here. That
-// residual trust is why the result is structural only. native-stage-evidence.ts closes the local origin gap with
-// real twice-checked same-reading evidence; parents must use that bridge, not accept checker strings as provenance.
+// command), requires the captured artifact bytes to be exactly the upload inventory, re-derives the artifact tree digest
+// from those bytes and requires the external artifact pin, judges positive public provenance (nativeArtifactLayout) on
+// the actual entry text and public bytes, rebuilds the whole native stage record from those facts and the PINNED
+// artifact, migrations and entry digests and requires it byte for byte, and compares each fact the manifest observed
+// (account, zone, client, Worker, custom-domain hostname and zone, service, D1 name/UUID/jurisdiction, private EU R2,
+// secret inventory, source, artifact, profile revision and the original asset canary against the staged file of the
+// same path). What it cannot re-derive (the migrations tree digest, the entry's module facts, `_app/version.json`
+// against the target) it takes from the owner's checker problems list and the external pins; a reader that lies about
+// those and about nothing else is NOT refused here. That residual trust is why the result is structural only.
+// native-stage-evidence.ts closes the local origin gap with real twice-checked same-reading evidence; parents must use that bridge, not accept checker strings as provenance.
 //
 // Result: a frozen record that only this module issues. providerProof, controlReady and funded are constant false; a
 // stored JSON copy, a spread copy or a label is structural data that nativeBindingProblems refuses as not issued. The
@@ -42,7 +45,6 @@ import {
 	NATIVE_CONFIG_FILE,
 	NATIVE_HOST_IMPORTS,
 	NATIVE_DYNAMIC_HOST_IMPORTS,
-	NATIVE_ADAPTER_HEADERS,
 	nativeArtifactLayout,
 	type DynamicHostImport,
 	NATIVE_STAGE_SCHEMA,
@@ -60,7 +62,7 @@ import {
 	type UploadFile,
 } from './pipeline.ts';
 
-export const NATIVE_STAGE_EVIDENCE_SCHEMA = 'clearcase.native-stage-evidence/1' as const;
+export const NATIVE_STAGE_EVIDENCE_SCHEMA = 'clearcase.native-stage-evidence/2' as const;
 export const NATIVE_STAGE_BINDING_SCHEMA = 'clearcase.native-stage-binding/1' as const;
 /** How old a stage evidence read may be when it is judged. */
 export const STAGE_EVIDENCE_MAX_AGE_MS = 300_000;
@@ -79,7 +81,10 @@ export type NativeStageEvidence = {
 	problems: string[];
 	readAt: number;
 	files: { stageJson: string; targetJson: string; configJsonc: string };
+	/** The actual final artifact bytes of the same stage: the Worker entry as text and every other upload file (all under artifact/public) as canonical base64 by its staged path. */
+	artifact: NativeArtifactBytes;
 };
+export type NativeArtifactBytes = { entryText: string; publicFiles: { path: string; base64: string }[] };
 export type NativeStageReader = { read(client: string): NativeStageEvidence };
 export type BindInput = {
 	observed: { manifest: NativeManifest; readback: ProviderReadback };
@@ -127,7 +132,7 @@ export type NativeBindingResult = {
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const SHA40 = /^[0-9a-f]{40}$/;
-const EVIDENCE_KEYS = ['schema', 'checker', 'client', 'pins', 'problems', 'readAt', 'files'] as const;
+const EVIDENCE_KEYS = ['schema', 'checker', 'client', 'pins', 'problems', 'readAt', 'files', 'artifact'] as const;
 const FILE_KEYS = ['stageJson', 'targetJson', 'configJsonc'] as const;
 const UPLOAD_KEYS = ['mode', 'bundler', 'entry', 'hostImports', 'dynamicHostImports', 'additionalModules', 'assets', 'files', 'invocation'];
 
@@ -144,7 +149,10 @@ const K256 = Uint32Array.from([
  * module (the tests compare it with node:crypto). It hashes text because the evidence carries the staged files as text.
  */
 export function sha256Text(text: string): string {
-	const data = new TextEncoder().encode(text);
+	return sha256Bytes(new TextEncoder().encode(text));
+}
+/** SHA-256 of `data` as `sha256:<hex>`, the same pure computation; the artifact digest is re-derived with it. */
+function sha256Bytes(data: Uint8Array): string {
 	const total = Math.ceil((data.length + 9) / 64) * 64;
 	const buf = new Uint8Array(total);
 	buf.set(data);
@@ -190,6 +198,33 @@ function deepFreeze<T>(value: T): T {
 	}
 	return value;
 }
+const PUBLIC_PREFIX = `${NATIVE_STAGED.assets}/`;
+const publicPath = (p: string) => p.startsWith(PUBLIC_PREFIX) && !p.includes('\\') && !p.split('/').some((s) => !s || s === '.' || s === '..');
+/**
+ * The probe target module's digestDir framing over captured bytes, keyed by `artifact/...` path: every directory the
+ * files imply and every file, in path order. A directory with no file cannot be implied, so an artifact holding an empty
+ * directory does not re-derive to its pin and is a HOLD.
+ */
+function artifactDigest(files: ReadonlyMap<string, Uint8Array>): string {
+	const enc = new TextEncoder();
+	const entries = new Map<string, Uint8Array | null>();
+	for (const at of files.keys()) {
+		const parts = at.split('/').slice(1);
+		for (let i = 1; i < parts.length; i++) entries.set(parts.slice(0, i).join('/'), null);
+	}
+	for (const [at, bytes] of files) entries.set(at.split('/').slice(1).join('/'), bytes);
+	const chunks: Uint8Array[] = [];
+	for (const rel of [...entries.keys()].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0))) {
+		const bytes = entries.get(rel)!;
+		const name = enc.encode(rel);
+		chunks.push(enc.encode(`${bytes ? 'f' : 'd'} ${name.length} `), name);
+		chunks.push(...(bytes ? [enc.encode(` ${bytes.length} `), bytes, enc.encode('\n')] : [enc.encode('\n')]));
+	}
+	const all = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+	chunks.reduce((off, c) => (all.set(c, off), off + c.length), 0);
+	return sha256Bytes(all);
+}
+
 /** The text of `evidence` without its read time, so two reads compare on content only. */
 const content = (e: NativeStageEvidence) => JSON.stringify({ ...e, readAt: 0, pins: Object.fromEntries(Object.entries(e.pins).sort()), files: e.files });
 
@@ -227,11 +262,23 @@ function evidenceShape(raw: unknown, client: string, pins: NativePins, now: numb
 	else if (now - e.readAt > STAGE_EVIDENCE_MAX_AGE_MS) fail(`evidence read time ${e.readAt} is stale (older than ${STAGE_EVIDENCE_MAX_AGE_MS} ms before ${now})`);
 	const f = e.files;
 	if (!isObject(f) || Object.keys(f).length !== FILE_KEYS.length || !FILE_KEYS.every((k) => typeof f[k] === 'string')) fail(`evidence files ${isObject(f) ? show(Object.keys(f)) : show(f)} are not exactly the text of ${FILE_KEYS.join(', ')}`);
+	const art = e.artifact;
+	if (!isObject(art) || Object.keys(art).length !== 2 || typeof art.entryText !== 'string' || !Array.isArray(art.publicFiles)) fail(`evidence artifact ${isObject(art) ? show(Object.keys(art)) : show(art)} is not exactly { entryText, publicFiles }: the actual final entry text and public bytes are required, so the stage cannot be bound`);
+	else {
+		const seen = new Set<string>();
+		for (const pf of art.publicFiles as unknown[]) {
+			if (!isObject(pf) || Object.keys(pf).length !== 2 || typeof pf.path !== 'string' || typeof pf.base64 !== 'string') fail(`evidence artifact public file ${show(isObject(pf) ? Object.keys(pf) : pf)} is not exactly { path, base64 }`);
+			else if (!publicPath(pf.path)) fail(`evidence artifact bytes for ${show(pf.path)} are not a canonical path under ${PUBLIC_PREFIX}`);
+			else if (seen.has(pf.path)) fail(`evidence artifact bytes for ${pf.path} are given twice`);
+			else if (Buffer.from(pf.base64, 'base64').toString('base64') !== pf.base64) fail(`evidence artifact bytes for ${pf.path} are not canonical base64 (a hash, marker or label is not bytes)`);
+			else seen.add(pf.path);
+		}
+	}
 	return problems.length ? { problems } : { evidence: e as unknown as NativeStageEvidence, problems };
 }
 
 /** The staged upload section as DATA, with every problem found; `files` and `entry` come back only when well formed. */
-function uploadFacts(record: Record<string, unknown>, pins: NativePins, at: string, flags: readonly string[]): { problems: string[]; upload?: ReturnType<typeof nativeUpload> } {
+function uploadFacts(record: Record<string, unknown>, pins: NativePins, at: string, flags: readonly string[], captured: NativeArtifactBytes): { problems: string[]; upload?: ReturnType<typeof nativeUpload> } {
 	const problems: string[] = [];
 	const fail = (m: string) => problems.push(`${at}: ${m}`);
 	const u = record.upload;
@@ -276,9 +323,20 @@ function uploadFacts(record: Record<string, unknown>, pins: NativePins, at: stri
 			dynamic.push({ specifier: d.specifier, via: d.via, sites: d.sites as number });
 		}
 	}
-	const headers = files.find((f) => f.path === `${NATIVE_STAGED.assets}/_headers`);
-	const headerMatches = headers?.sha256 === sha256(NATIVE_ADAPTER_HEADERS) && headers.bytes === new TextEncoder().encode(NATIVE_ADAPTER_HEADERS).length;
-	const layout = nativeArtifactLayout({ files, entrySha256: pins.entry, headersText: headerMatches ? NATIVE_ADAPTER_HEADERS : null });
+	// The actual bytes: exactly the upload inventory, re-deriving the external artifact pin, then positive public provenance on them.
+	const publicFiles = new Map(captured.publicFiles.map((pf) => [pf.path, Buffer.from(pf.base64, 'base64')]));
+	const entryBytes = new TextEncoder().encode(captured.entryText);
+	const entrySha = sha256Bytes(entryBytes);
+	if (entrySha !== pins.entry) fail(`the captured entry text ${entrySha} is not the external entry pin ${pins.entry}`);
+	const listed = new Set(files.map((f) => f.path));
+	for (const f of files) if (f.path !== NATIVE_STAGED.entry && !publicFiles.has(f.path)) fail(`${f.path}: the evidence carries no actual bytes for this upload file`);
+	for (const p of publicFiles.keys()) if (!listed.has(p)) fail(`${p}: the evidence carries bytes for a file outside the upload inventory`);
+	if (files.length && files.length === publicFiles.size + 1 && listed.has(NATIVE_STAGED.entry)) {
+		const digest = artifactDigest(new Map<string, Uint8Array>([[NATIVE_STAGED.entry, entryBytes], ...publicFiles]));
+		if (digest !== pins.artifact) fail(`the captured artifact bytes digest to ${digest}, not the external artifact pin ${pins.artifact}`);
+	}
+	const headersText = publicFiles.get(`${NATIVE_STAGED.assets}/_headers`)?.toString('utf8') ?? null;
+	const layout = nativeArtifactLayout({ files, entrySha256: pins.entry, headersText, entryText: captured.entryText, publicFiles });
 	problems.push(...layout.problems.map((p) => `${at}: ${p}`));
 	if (JSON.stringify(u.assets) !== JSON.stringify(layout.assets)) fail('stage record upload.assets is not the exact public asset and header inventory of upload.files');
 	if (u.additionalModules !== false) fail(`stage record upload.additionalModules is ${show(u.additionalModules)}, not false`);
@@ -437,7 +495,7 @@ export function bindNativeStages(a: BindInput): NativeBindingResult {
 			continue;
 		}
 		if (record.client !== j.client) problems.push(`${at}: stage.json is for ${show(record.client)}, not ${j.client}`);
-		const up = uploadFacts(record, p, at, j.target?.runtime.compatibilityFlags ?? []);
+		const up = uploadFacts(record, p, at, j.target?.runtime.compatibilityFlags ?? [], e.artifact);
 		problems.push(...up.problems);
 		j.upload = up.upload;
 		if (j.target && up.upload) {

@@ -2,6 +2,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import type { Config } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import { assertHostedGraph, selected, type HostedProfile } from './scripts/ci/hosted-imports.ts';
+import { prepareHostedStaticInput } from './scripts/hosted-static-input.ts';
 
 // One app, two artifacts, chosen by one build variable. Unset (or `local`), the build is the local pilot on adapter-node
 // that `bun run --bun start` serves. `CLEARCASE_TARGET=hosted` (only through `bun run --bun build:hosted`) is the
@@ -46,8 +47,26 @@ const config: Config = {
 	}
 };
 
-export default defineConfig({
-	// The build stamp `build:hosted` passes in (scripts/pilot/hosted.ts); the hosted runtime refuses an artifact without one.
-	define: hosted ? { __CLEARCASE_BUILD__: JSON.stringify(process.env.CLEARCASE_BUILD_STAMP ?? null) } : {},
-	plugins: [{ name: 'clearcase-hosted-boundary', buildStart() { if (hosted) assertHostedGraph(process.cwd(), profile); } }, sveltekit(config)]
+export default defineConfig(async ({ command, isPreview }) => {
+	// Prepare before sveltekit(config), not buildStart: Kit must discover these files in its own manifest.
+	// Dev, preview and the local target retain their original static input.
+	const input = hosted && command === 'build' && !isPreview ? prepareHostedStaticInput(process.cwd()) : undefined;
+	try {
+		const kit = await sveltekit(input ? { ...config, files: { ...config.files, assets: input.assets } } : config);
+		return {
+			// The build stamp `build:hosted` passes in; the runtime refuses an artifact without one.
+			define: hosted ? { __CLEARCASE_BUILD__: JSON.stringify(process.env.CLEARCASE_BUILD_STAMP ?? null) } : {},
+			plugins: [
+				{ name: 'clearcase-hosted-boundary', buildStart() { if (hosted) assertHostedGraph(process.cwd(), profile); } },
+				kit,
+				...(input ? [{
+					name: 'clearcase-hosted-static-input',
+					// Kit 3's adapter runs in an awaited post buildApp hook. Stay after it.
+					// closeBundle is too early: individual environment builds also close their bundles.
+					buildApp: { order: 'post' as const, sequential: true, handler() { input.dispose(); } },
+					buildEnd(error?: Error) { if (error) input.dispose(); }
+				}] : [])
+			]
+		};
+	} catch (error) { input?.dispose(); throw error; }
 });

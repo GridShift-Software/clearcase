@@ -42,8 +42,11 @@ it.each([false, true])('all /2 controllers gate unclassified reads, audit-free=%
     if (mode === 'revoked-grant') s.revokeGrant();
     const before = { reads: s.bucket.reads.length, pulls: s.bucket.bodyReads, puts: s.bucket.puts.length, sessions: s.sessions.length,
       targetReads: t.bucket.reads.length, targetPulls: t.bucket.bodyReads, targetPuts: t.bucket.puts.length };
-    const statements: string[] = [], originals = [s, t].map((w) => w.db.prepare);
+    const statements: string[] = [], originals = [s, t].map((w) => ({ prepare: w.db.prepare, head: w.bucket.head }));
+    let heads = 0;
     for (const w of [s, t]) {
+      const head = w.bucket.head.bind(w.bucket);
+      w.bucket.head = async (k) => { heads++; return head(k); };
       const prepare = w.db.prepare.bind(w.db);
       w.db.prepare = (sql) => {
         // Authority predicates and audit append/reconciliation of their own events are not archive reads.
@@ -59,8 +62,8 @@ it.each([false, true])('all /2 controllers gate unclassified reads, audit-free=%
     ]) await expect(action()).rejects.toMatchObject({ code: mode === 'missing' || mode === 'fault' ? 'recovery-unavailable' : mode === 'revoked-session' ? 'invalid-session' : 'forbidden' });
     expect({ reads: s.bucket.reads.length, pulls: s.bucket.bodyReads, puts: s.bucket.puts.length, sessions: s.sessions.length,
       targetReads: t.bucket.reads.length, targetPulls: t.bucket.bodyReads, targetPuts: t.bucket.puts.length }).toEqual(before);
-    expect(statements).toEqual([]);
-    [s, t].forEach((w, i) => { w.db.prepare = originals[i]!; });
+    expect(statements).toEqual([]); expect(heads).toBe(0);
+    [s, t].forEach((w, i) => { w.db.prepare = originals[i]!.prepare; w.bucket.head = originals[i]!.head; });
     expect(t.db.rows('SELECT * FROM uw_snapshot')).toEqual([]);
     auditViewers.add(key); s.state.revoked = false;
     if (mode === 'revoked-grant') s.db.exec("UPDATE tenant_case_grants SET state = 'active', revoked_at = NULL WHERE grant_id = 'g1'");

@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -8,7 +8,7 @@ import {
 } from '../../../src/lib/viewer/hosted/sdk-build-contract.ts';
 import { fixture, bundle } from '../native-sdk-build/harness.ts';
 import type { Identity } from '../../../src/lib/server/runtime/contracts.ts';
-import type { NativeRequestCompositions } from '../../../src/lib/server/runtime/hosted/compositions.ts';
+import { installNativeCompositions, type NativeRequestCompositions } from '../../../src/lib/server/runtime/hosted/compositions.ts';
 import type { NativePreviewRenderOptions } from '../../../src/lib/viewer/hosted/native-render-check.ts';
 import type { NativePreviewRenderChecker } from '../../../src/lib/viewer/hosted/render-check-contract.ts';
 import { hostedServices } from '../../../src/lib/server/runtime/hosted/services.ts';
@@ -21,21 +21,49 @@ import { world, caseId } from '../native-stager/world.ts';
 import { BUDGETS, QUOTAS, ids } from '../storage/fixture.ts';
 
 // UNIT-ONLY wiring seams for the hostedServices composition block below, NOT native render evidence:
-// - Clerk is a synthetic provider whose configured appOrigin is the only origin source (no Clerk contact);
+// - Clerk is a synthetic provider whose configured appOrigin is the only origin source (no Clerk contact); it records the
+//   exact Request it authenticates and answers per Request, so concurrent requests can hold distinct sessions;
 // - the compiled-pin lookup returns the verified static inventory (or a bad one), as the build define would;
-// - the REAL checker constructor runs, but its verify is replaced so no test can reach Browser Run.
+// - the REAL checker constructor runs, but its verify is replaced so no test can reach Browser Run;
+// - the REAL request binding (bindNativeRequestCompositions, its WeakMap and installNativeCompositions' resolvers) is the
+//   seam under test and is never replaced: the wrappers below only observe which resolver was installed, and pass the
+//   binder its Request unchanged unless the one mutation test sets `bindAs` to prove the suite refuses another Request.
+type Resolver = (a: { request: Request; platform: unknown }) => unknown;
 const wiring = vi.hoisted(() => ({
- identity: null as Identity | null, appOrigin: 'https://client-a.test', pins: null as unknown,
- ports: null as NativeRequestCompositions | null,
+ identity: null as Identity | null, identityFor: new WeakMap<Request, Identity>(), authenticated: [] as Request[],
+ appOrigin: 'https://client-a.test', pins: null as unknown, bindAs: null as ((request: Request) => Request) | null,
+ resolvers: {} as Partial<Record<'intake' | 'imports' | 'publication' | 'readiness' | 'downloads', Resolver>>,
  created: [] as { options: NativePreviewRenderOptions; checker: NativePreviewRenderChecker | null }[],
  verified: [] as Parameters<NativePreviewRenderChecker['verify']>[0][],
+ verifiedBy: [] as { options: NativePreviewRenderOptions; input: Parameters<NativePreviewRenderChecker['verify']>[0] }[],
 }));
 vi.mock('../../../src/lib/auth/clerk/provider.ts', () => ({ clerkIdentityProviderFromEnv: () => ({ ok: true,
  config: { clientId: 'client-a', appOrigin: wiring.appOrigin, client: { issuer: 'https://client-issuer.test' }, staff: { issuer: 'https://staff-issuer.test' } },
- provider: { authenticate: async () => wiring.identity } }) }));
+ provider: { authenticate: async ({ request }: { request: Request }) => { wiring.authenticated.push(request); return wiring.identityFor.get(request) ?? wiring.identity; } } }) }));
 vi.mock('../../../src/lib/server/runtime/hosted/compositions.ts', async (original) => {
  const actual = await original<typeof import('../../../src/lib/server/runtime/hosted/compositions.ts')>();
- return { ...actual, bindNativeRequestCompositions(request: Request, ports: NativeRequestCompositions) { wiring.ports = ports; actual.bindNativeRequestCompositions(request, ports); } };
+ return { ...actual, bindNativeRequestCompositions: (request: Request, ports: NativeRequestCompositions) => actual.bindNativeRequestCompositions(wiring.bindAs?.(request) ?? request, ports) };
+});
+// Each wrapper installs the real setter and records the real resolver, so a resolution runs the production WeakMap lookup.
+vi.mock('../../../src/lib/submissions/composition.ts', async (original) => {
+ const actual = await original<typeof import('../../../src/lib/submissions/composition.ts')>();
+ return { ...actual, setIntakeComposition(c: Parameters<typeof actual.setIntakeComposition>[0]) { wiring.resolvers.intake = c as Resolver | undefined; actual.setIntakeComposition(c); } };
+});
+vi.mock('../../../src/lib/submissions/download/composition.ts', async (original) => {
+ const actual = await original<typeof import('../../../src/lib/submissions/download/composition.ts')>();
+ return { ...actual, setOperatorDownloadComposition(c: Parameters<typeof actual.setOperatorDownloadComposition>[0]) { wiring.resolvers.downloads = c as Resolver | undefined; actual.setOperatorDownloadComposition(c); } };
+});
+vi.mock('../../../src/lib/results-review/native/composition.ts', async (original) => {
+ const actual = await original<typeof import('../../../src/lib/results-review/native/composition.ts')>();
+ return { ...actual, setNativeImportComposition(c: Parameters<typeof actual.setNativeImportComposition>[0]) { wiring.resolvers.imports = c as Resolver | undefined; actual.setNativeImportComposition(c); } };
+});
+vi.mock('../../../src/lib/publication/hosted/composition.ts', async (original) => {
+ const actual = await original<typeof import('../../../src/lib/publication/hosted/composition.ts')>();
+ return { ...actual, setPublicationComposition(c: Parameters<typeof actual.setPublicationComposition>[0]) { wiring.resolvers.publication = c as Resolver | undefined; actual.setPublicationComposition(c); } };
+});
+vi.mock('../../../src/lib/publication/hosted/readiness.ts', async (original) => {
+ const actual = await original<typeof import('../../../src/lib/publication/hosted/readiness.ts')>();
+ return { ...actual, setReadinessComposition(c: Parameters<typeof actual.setReadinessComposition>[0]) { wiring.resolvers.readiness = c as Resolver | undefined; actual.setReadinessComposition(c); } };
 });
 vi.mock('../../../src/lib/server/runtime/hosted/render-pins.ts', () => ({ compiledPdfAssetPins: () => wiring.pins }));
 vi.mock('../../../src/lib/viewer/hosted/native-render-check.ts', async (original) => {
@@ -44,7 +72,7 @@ vi.mock('../../../src/lib/viewer/hosted/native-render-check.ts', async (original
   const checker = await actual.createNativePreviewRenderChecker(options);
   wiring.created.push({ options, checker });
   return checker && { ...checker, async verify(input: Parameters<NativePreviewRenderChecker['verify']>[0]) {
-   wiring.verified.push(input);
+   wiring.verified.push(input); wiring.verifiedBy.push({ options, input });
    return { state: 'pending' as const, rendererVersion: 'unit-wiring-spy', pages: null, reason: 'unit-wiring-spy' };
   } };
  } };
@@ -104,9 +132,15 @@ describe('hostedServices native renderer wiring (unit-only composition: real con
  const truncated = { ...inventory, files: inventory.files.slice(1) };
  const worlds: ReturnType<typeof world>[] = [];
  afterAll(() => input.dispose());
+ // The production isolate setup, once: it installs the request-keyed resolvers every resolution below goes through.
+ beforeAll(() => {
+  installNativeCompositions();
+  expect(Object.keys(wiring.resolvers).sort()).toEqual(['downloads', 'imports', 'intake', 'publication', 'readiness']);
+ });
  afterEach(() => {
   for (const w of worlds.splice(0)) w.db.sqlite.close();
-  wiring.identity = null; wiring.ports = null; wiring.pins = null; wiring.created = []; wiring.verified = []; wiring.appOrigin = CONFIGURED_ORIGIN;
+  wiring.identity = null; wiring.identityFor = new WeakMap(); wiring.authenticated = []; wiring.bindAs = null;
+  wiring.pins = null; wiring.created = []; wiring.verified = []; wiring.verifiedBy = []; wiring.appOrigin = CONFIGURED_ORIGIN;
  });
 
  async function setup() {
@@ -149,18 +183,29 @@ describe('hostedServices native renderer wiring (unit-only composition: real con
  const hostile = () => new Request('https://attacker.test/operator/publication/x/signoffs', { method: 'POST',
   headers: { origin: 'https://attacker.test', host: 'attacker.test', 'x-forwarded-host': 'attacker.test', 'content-type': 'application/json' },
   body: JSON.stringify({ appOrigin: 'https://attacker.test', pins: inventory, nativeRenderBudget: { ...RENDER, maxRunsPerCasePerDay: 2 } }) });
+ type Resolved = NativeRequestCompositions & { readiness: NativeRequestCompositions['publication'] };
+ const executed: Promise<void>[] = [];
+ const platform = { context: { waitUntil: (work: Promise<void>) => { executed.push(work); } } };
+ /** Resolves one Request through the production resolvers that installNativeCompositions installed; unknown Requests give nulls. */
+ async function resolve(request: Request, via: unknown = platform): Promise<Resolved> {
+  const at = async <T>(key: keyof typeof wiring.resolvers) => (await wiring.resolvers[key]!({ request, platform: via })) as T | null;
+  return { intake: await at('intake'), downloads: await at('downloads'), imports: await at('imports'), publication: await at('publication'), readiness: await at('readiness') };
+ }
+ const NOTHING = { intake: null, downloads: null, imports: null, publication: null, readiness: null };
  async function compose(s: Setup, o: { env?: Record<string, unknown>; render?: Settings; pins?: unknown; origin?: string; request?: Request } = {}) {
-  wiring.created = []; wiring.verified = []; wiring.ports = null;
+  wiring.created = []; wiring.verified = []; wiring.verifiedBy = [];
   wiring.identity = s.identity; wiring.pins = o.pins === undefined ? inventory : o.pins; wiring.appOrigin = o.origin ?? CONFIGURED_ORIGIN;
-  const ready = await hostedServices(o.request ?? hostile(), { CLEARCASE_CLIENT_ID: ids.clientA, DB: s.db, BUCKET: s.w.bucket,
+  const request = o.request ?? hostile();
+  const ready = await hostedServices(request, { CLEARCASE_CLIENT_ID: ids.clientA, DB: s.db, BUCKET: s.w.bucket,
    CLEARCASE_NATIVE_CONFIG: JSON.stringify(s.settings(o.render === undefined ? RENDER : o.render)), ...o.env });
-  return { ready, created: [...wiring.created], ports: wiring.ports as NativeRequestCompositions | null };
+  // The ports are what the real resolver returns for the exact Request hostedServices received, never a captured argument.
+  return { ready, request, created: [...wiring.created], ports: await resolve(request) };
  }
  /** Imports the synthetic package through the composed ports and reads the publication snapshot's required previews. */
- async function snapshotOf(s: Setup, ports: NativeRequestCompositions | null) {
+ async function snapshotOf(s: Setup, ports: Resolved | null, identity: Identity = s.identity) {
   if (!ports?.imports || !ports.publication?.candidates) throw new Error('real composition unavailable');
   const importer = createNativeResultsImport(ports.imports)!;
-  const token = await importer.admit({ identity: s.identity, caseId, access: 'write' });
+  const token = await importer.admit({ identity, caseId, access: 'write' });
   const result = await importer.importPackage(token, { operationId: 'render-wiring-import', submissionRevisionId: s.revision, files: s.w.pkg.files });
   if (result.kind !== 'linked') throw new Error(JSON.stringify(result));
   const snapshot = checkSnapshot(await ports.publication.candidates.read({ clientId: ids.clientA, caseId, candidateId: result.candidate.candidateId }));
@@ -256,11 +301,12 @@ describe('hostedServices native renderer wiring (unit-only composition: real con
   const s = await setup();
   const noSession = new Proxy(s.db, { get: (target, key) => { if (key === 'withSession') return undefined; const v = Reflect.get(target, key, target); return typeof v === 'function' ? v.bind(target) : v; } });
   wiring.identity = s.identity; wiring.pins = inventory;
-  const ready = await hostedServices(hostile(), { CLEARCASE_CLIENT_ID: ids.clientA, DB: noSession, BUCKET: s.w.bucket,
+  const request = hostile();
+  const ready = await hostedServices(request, { CLEARCASE_CLIENT_ID: ids.clientA, DB: noSession, BUCKET: s.w.bucket,
    CLEARCASE_NATIVE_CONFIG: JSON.stringify(s.settings(RENDER)), BROWSER: new Browser(), ASSETS: new Assets() });
   expect(ready.ready).toBe(true);                      // sign-in stays reachable
   expect(wiring.created).toEqual([]);
-  expect(wiring.ports).toBeNull();
+  expect(await resolve(request)).toEqual(NOTHING);     // the real resolvers hold nothing for this exact Request
  });
 
  it('rebuilds everything per request: no checker, binding, budget, origin or session carries over', async () => {
@@ -292,17 +338,97 @@ describe('hostedServices native renderer wiring (unit-only composition: real con
  it('keeps concurrent requests apart: each checker is bound to its own request bindings', async () => {
   const s = await setup(), t = await setup();
   const one = { browser: new Browser(), assets: new Assets() }, two = { browser: new Browser(), assets: new Assets() };
-  wiring.identity = s.identity; wiring.pins = inventory; wiring.created = [];
-  const call = (x: Setup, b: typeof one) => hostedServices(hostile(), { CLEARCASE_CLIENT_ID: ids.clientA, DB: x.db, BUCKET: x.w.bucket,
-   CLEARCASE_NATIVE_CONFIG: JSON.stringify(x.settings(RENDER)), BROWSER: b.browser, ASSETS: b.assets });
-  await Promise.all([call(s, one), call(t, two)]);
+  const other = { ...RENDER, maxPages: 2, maxRunsPerClientPerDay: 4 };
+  // Two Requests, two sessions of the same staff principal: authentication answers per exact Request.
+  const requestOne = hostile(), requestTwo = hostile();
+  const sessionTwo = { ...t.identity, sessionId: 'synthetic-session-two' as typeof t.identity.sessionId };
+  wiring.identity = null; wiring.pins = inventory; wiring.created = [];
+  wiring.identityFor.set(requestOne, s.identity); wiring.identityFor.set(requestTwo, sessionTwo);
+  const call = (request: Request, x: Setup, b: typeof one, render: Settings) => hostedServices(request, { CLEARCASE_CLIENT_ID: ids.clientA, DB: x.db, BUCKET: x.w.bucket,
+   CLEARCASE_NATIVE_CONFIG: JSON.stringify(x.settings(render)), BROWSER: b.browser, ASSETS: b.assets });
+  await Promise.all([call(requestOne, s, one, RENDER), call(requestTwo, t, two, other)]);
   const mine = (b: typeof one) => wiring.created.filter((c) => c.options.browser === b.browser);
   expect(wiring.created).toHaveLength(2);
   expect(mine(one)).toHaveLength(1); expect(mine(two)).toHaveLength(1);
   expect(mine(one)[0].options.db).toBe(s.db);
   expect(mine(two)[0].options.db).toBe(t.db);
+  expect(mine(one)[0].options.budget).toEqual(RENDER);
+  expect(mine(two)[0].options.budget).toEqual(other);
   await mine(one)[0].options.assets!.fetch(new Request('https://client-a.test/pdfjs/LICENSE'));
   expect([one.assets.seen.length, two.assets.seen.length]).toEqual([1, 0]);
   expect(mine(one)[0].checker).not.toBe(mine(two)[0].checker);
+
+  // Each exact incoming Request authenticated once and resolves its own ports, and no other Request resolves any.
+  expect(wiring.authenticated).toHaveLength(2);
+  expect(wiring.authenticated.filter((r) => r === requestOne)).toHaveLength(1);
+  expect(wiring.authenticated.filter((r) => r === requestTwo)).toHaveLength(1);
+  const [p1, p2] = [await resolve(requestOne), await resolve(requestTwo)];
+  for (const key of ['intake', 'downloads', 'imports', 'publication', 'readiness'] as const) {
+   expect(p1[key]).not.toBeNull(); expect(p2[key]).not.toBeNull(); expect(p1[key]).not.toBe(p2[key]);
+  }
+  expect(await resolve(new Request(requestOne))).toEqual(NOTHING);
+  expect(await resolve(requestTwo.clone())).toEqual(NOTHING);
+
+  // No cross-request session authority: a request's ports accept its own session and refuse the other request's.
+  const scope = { clientId: ids.clientA, caseId };
+  const operate = (ports: Resolved, who: typeof s.identity) => ports.imports!.authorizeOperate!({ principal: who.principal, sessionId: who.sessionId, ...scope });
+  const publish = (ports: Resolved, who: typeof s.identity) => ports.publication!.authorize!({ principal: who.principal, sessionId: who.sessionId, capability: 'publish', ...scope });
+  for (const [ports, own, foreign] of [[p1, s.identity, sessionTwo], [p2, sessionTwo, s.identity]] as const) {
+   await operate(ports, own); await publish(ports, own);
+   await expect(operate(ports, foreign)).rejects.toMatchObject({ code: 'invalid-session' });
+   await expect(publish(ports, foreign)).rejects.toMatchObject({ code: 'invalid-session' });
+  }
+
+  // Overlapping imports through each resolved composition: own DB, own checker, own session in the audit trail.
+  const [first, second] = await Promise.all([snapshotOf(s, p1, s.identity), snapshotOf(t, p2, sessionTwo)]);
+  expect(first.snapshot.requiredPreviews).toEqual([{ assetId: 'OD-001', state: 'pending' }]);
+  expect(second.snapshot.requiredPreviews).toEqual([{ assetId: 'OD-001', state: 'pending' }]);
+  const verifiedBy = (b: typeof one) => wiring.verifiedBy.filter((v) => v.options.browser === b.browser);
+  expect(wiring.verifiedBy).toHaveLength(2);
+  expect(verifiedBy(one)).toHaveLength(1); expect(verifiedBy(two)).toHaveLength(1);
+  expect(verifiedBy(one)[0].options.db).toBe(s.db); expect(verifiedBy(one)[0].input.candidateId).toBe(first.candidateId);
+  expect(verifiedBy(two)[0].options.db).toBe(t.db); expect(verifiedBy(two)[0].input.candidateId).toBe(second.candidateId);
+  const sessionsIn = (x: Setup) => (x.w.db.sqlite.prepare('SELECT canonical FROM native_audit_events').all() as { canonical: string }[])
+   .flatMap((row) => JSON.parse(row.canonical).event.actor.sessionId ?? []);
+  expect(new Set(sessionsIn(s))).toEqual(new Set([s.identity.sessionId]));
+  expect(new Set(sessionsIn(t))).toEqual(new Set([sessionTwo.sessionId]));
+ });
+
+ it('registers the composed ports against the exact incoming Request, and no other Request resolves them', async () => {
+  const s = await setup();
+  const { request, ports } = await compose(s, { env: bad() });
+  expect(wiring.authenticated).toHaveLength(1);
+  expect(wiring.authenticated[0]).toBe(request);       // the Request the identity provider saw is the one that was bound
+  for (const key of ['intake', 'downloads', 'imports', 'publication', 'readiness'] as const) expect(ports[key]).not.toBeNull();
+  expect(ports.readiness).toBe(ports.publication);     // one publication composition behind both routes
+  // Download ports are completed only by the actual execution context of the request that asks.
+  expect(typeof ports.downloads!.waitUntil).toBe('function');
+  const work = Promise.resolve();
+  ports.downloads!.waitUntil!(work);
+  expect(executed.at(-1)).toBe(work);
+  expect((await resolve(request, {})).downloads).toBeNull();
+  expect((await resolve(request, { context: {} })).downloads).toBeNull();
+  expect((await resolve(request, null)).imports).toBe(ports.imports);
+  // Only the exact object: a copy, a clone, a same-URL Request and a Request of another composition resolve nothing.
+  const clone = request.clone();
+  expect(await resolve(clone)).toEqual(NOTHING);
+  expect(await resolve(new Request(request))).toEqual(NOTHING);
+  expect(await resolve(new Request(request.url, { method: 'POST', headers: { origin: 'https://attacker.test' }, body: '{}' }))).toEqual(NOTHING);
+  const later = await compose(s, { env: bad() });
+  expect(later.ports.imports).not.toBe(ports.imports);
+  expect(later.ports.publication).not.toBe(ports.publication);
+  expect((await resolve(request)).imports).toBe(ports.imports); // the later composition did not replace this Request's ports
+  expect((await resolve(later.request)).imports).toBe(later.ports.imports);
+ });
+
+ it('refuses ports that were registered against another Request object (wrong-Request binding mutation)', async () => {
+  const s = await setup();
+  wiring.bindAs = (request) => new Request(request);   // the registered key is a copy that nothing else holds
+  const { request, created, ports } = await compose(s, { env: bad() });
+  expect(created[0].checker).not.toBeNull();           // composition itself still succeeded...
+  expect(wiring.authenticated[0]).toBe(request);
+  expect(ports).toEqual(NOTHING);                      // ...yet nothing resolves for the incoming Request
+  await expect(snapshotOf(s, ports)).rejects.toThrow('real composition unavailable');
+  expect(wiring.verified).toEqual([]);
  });
 });

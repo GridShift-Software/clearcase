@@ -77,7 +77,22 @@ export function provisioningCore(a: Omit<CoreArgs, 'requester' | 'gate'>): Provi
   return Object.freeze(port);
 }
 
-function build(a: CoreArgs, mode: ProducerMode): { log: AuditLog; record(input: unknown): Promise<{ eventId: string }> } {
+/**
+ * INTERNAL committed producer, used only by recovery.ts. The mandatory loader must read immutable same-client
+ * provenance, not echo its argument. No requester is constructed: a historical verified actor is evidence, not current
+ * authority. Neither this constructor nor its loader is exported through a public/trusted barrel.
+ */
+export function committedDeliveryCore(a: Omit<CoreArgs, 'requester' | 'gate'>, load: (event: AuditEvent) => Promise<AuditEvent>): AuditSink {
+  const { record } = build({ ...a, requester: null, gate: null }, 'committed');
+  return Object.freeze({ async append(input: AuditEvent) {
+    const requested = await envelopeOf(input, a.config);
+    const proven = await envelopeOf(await load(requested.event as AuditEvent), a.config);
+    if (requested.canonical !== proven.canonical || proven.event.actor.kind !== 'verified') throw error('invalid-event');
+    return record(proven.event);
+  } });
+}
+
+function build(a: Omit<CoreArgs, 'requester'> & { requester: IdentityState | null }, mode: ProducerMode | 'committed'): { log: AuditLog; record(input: unknown): Promise<{ eventId: string }> } {
   const { db, config, gate } = a;
   const requester = validActor(a.requester, config) ? structuredClone(a.requester) : null;
   let bound: Promise<void> | null = null, pages = 0;
@@ -106,6 +121,7 @@ function build(a: CoreArgs, mode: ProducerMode): { log: AuditLog; record(input: 
   function sameActor(actor: StoredAuditEvent['actor']) {
     // A system producer exists only in provisioning mode, and there it is the only producer: no request can forge one.
     if (mode === 'provisioning') return actor.kind === 'system';
+    if (mode === 'committed') return actor.kind === 'verified';
     if (actor.kind === 'system' || !requester) return false;
     if (requester.kind === 'anonymous') return actor.kind === 'anonymous';
     return actor.kind === 'verified' && canonical(actor.principal) === canonical(requester.principal);
@@ -126,7 +142,7 @@ function build(a: CoreArgs, mode: ProducerMode): { log: AuditLog; record(input: 
   const exhausted = (cls: EventClass, c: Counters) => cls === 'protected' ? c.event_count >= config.limits.maxRows : cls === 'read' ? c.read_count >= config.limits.maxReadRows : c.denial_count >= config.limits.maxDenialRows;
 
   async function write(input: unknown, cls: EventClass): Promise<{ eventId: string }> {
-    const env = await envelopeOf(input, config, mode);
+    const env = await envelopeOf(input, config, mode === 'committed' ? 'request' : mode);
     if (!sameActor(env.event.actor)) throw error('invalid-event');
     // The read action belongs to the log itself: producers cannot write it, and the log writes nothing else under it.
     if ((env.event.action === READ_ACTION) !== (cls !== 'protected')) throw error('invalid-event');

@@ -260,6 +260,14 @@ scripts/agent-tools/receipt --name diff-check --target-usd 6 \
 
 Targets do not pause, cancel or escalate work. `capUsd` is always null and `capEnforced` false because this tool has no spend controller. It makes no T3 API cap claim. The provider's actual cost can remain unavailable even when a target is known.
 
+## Owned scratch directories
+
+`python3 -I scripts/agent-tools/safe-scratch create LABEL` makes a new directory `.local/agent-scratch/LABEL-<16 hex>` in this checkout and prints its exact path and a token. `python3 -I scripts/agent-tools/safe-scratch remove PATH --token TOKEN` removes that one directory. Exit 0 means removed; 1 means refused (nothing changed) or failed (only entries inside the named directory can have changed).
+
+Removal needs PATH to be the exact literal path of a child that `create` made here, a plain directory owned by this UID, and a `.safe-scratch-owner.json` marker that names this checkout, this UID, the directory's device and inode, and the token's SHA-256. The name must still point at the checked directory when removal starts. Globs, prefixes, the root and its parents, aliases and links are refused. The token is a local deletion capability, not a credential: it is shown once and not stored, so keep it out of Git, logs and fixtures.
+
+This is an opt-in helper, not global enforcement: other tools and sessions are not bound by it. A process running as the same user can still race the last check, and the token is visible in the process list while the command runs. `tests/agent-tools/test_safe_scratch.py` covers it (`python3 -I tests/agent-tools/test_safe_scratch.py`); `run.sh` does not run it.
+
 ## Tests
 
 `bash tests/agent-tools/run.sh` needs bash, coreutils, git, Python, Node, the canonical plugin, the three leaf skills, the doctor prerequisites and a non-root user. The checkout needs `origin/dev` or `dev`; the suite deliberately unsets an inherited base for default-base tests. Run it through `receipt` for a record.

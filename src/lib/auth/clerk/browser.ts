@@ -24,13 +24,11 @@
 // is refused (planSignIn). Staff reach this origin only through the operator route (OPERATOR_PATH), never a third host.
 import { createClerkClient } from '@clerk/backend';
 import { readClerkIdentityConfig, rsaJwkOf, type ClerkIdentityConfig, type InstanceKind } from './config.ts';
-import { OPERATOR_PATH, cookiePairs, type ClerkBrowserHandshake, type HandshakeOutcome } from './flow.ts';
-import { CLERK_COOKIE_NAME, inspectToken, presentedToken } from './session.ts';
+import { OPERATOR_PATH, cookiePairs, sdkCookieHeader, type ClerkBrowserHandshake, type HandshakeOutcome } from './flow.ts';
+import { CLERK_COOKIE_NAME, REFRESH_COOKIE_NAME, SESSION_COOKIE_NAME, inspectToken, presentedToken } from './session.ts';
 
 const HANDSHAKE_PARAMS = ['__clerk_handshake', '__clerk_handshake_nonce', '__clerk_help', '__clerk_db_jwt'];
 const TOKEN = /^[A-Za-z0-9._-]{16,8192}$/;
-// The SDK names it `__refresh_` and a base64url suffix of the publishable key.
-const REFRESH_COOKIE = /^__refresh(?:_[A-Za-z0-9_-]{1,32})?$/;
 const RS256 = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
 const fromB64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
 
@@ -57,13 +55,19 @@ export function handshakeKind(request: Request, config: ClerkIdentityConfig): In
 	return token !== null && token !== 'malformed' && issuerOf(token) === config.staff.issuer ? 'staff' : 'client';
 }
 
+/** Whether a sanitised directive sets a session cookie (plain or suffixed) to a non-empty value. */
+const setsSession = (directive: string) => {
+	const m = /^([^=;]+)=([^;]+)/.exec(directive);
+	return m !== null && SESSION_COOKIE_NAME.test(m[1]!);
+};
+
 /** One handshake cookie directive, rewritten to what this origin accepts, 'drop' for the refresh token, or null when it must be refused. */
 function sanitizeDirective(directive: string, secure: boolean): string | 'drop' | null {
 	const [pair = '', ...attrs] = directive.split(';').map((s) => s.trim());
 	const eq = pair.indexOf('=');
 	if (eq < 1) return null;
 	const name = pair.slice(0, eq), value = pair.slice(eq + 1);
-	if (REFRESH_COOKIE.test(name)) return 'drop';
+	if (REFRESH_COOKIE_NAME.test(name)) return 'drop';
 	if (!CLERK_COOKIE_NAME.test(name)) return null;
 	const session = name.startsWith('__session');
 	if (session ? !(value === '' || (TOKEN.test(value) && inspectToken(value))) : name.startsWith('__client_uat') ? !/^\d{0,12}$/.test(value) : name.startsWith('__clerk_db_jwt') ? !/^[A-Za-z0-9._-]{0,4096}$/.test(value) : !/^\d{1,2}$/.test(value)) return null;
@@ -140,7 +144,7 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			// only the browser's own hints reach the SDK: no Authorization header, no forwarded host or proto
 			const headers = new Headers();
 			for (const h of ['accept', 'sec-fetch-dest']) if (request.headers.has(h)) headers.set(h, request.headers.get(h)!);
-			const cookie = pairs.filter((c) => c.name !== '__clerk_handshake' && !REFRESH_COOKIE.test(c.name)).map((c) => `${c.name}=${c.value}`).join('; ');
+			const cookie = sdkCookieHeader(request);
 			if (cookie) headers.set('cookie', cookie);
 			let state: Awaited<ReturnType<ReturnType<typeof createClerkClient>['authenticateRequest']>>;
 			try {
@@ -174,7 +178,7 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				if (setCookies.length === 0) return refuse(400, 'handshake-invalid');
 				const clean = new URL(url);
 				for (const p of HANDSHAKE_PARAMS) clean.searchParams.delete(p);
-				if (state.status !== 'signed-in' && setCookies.some((c) => /^__session[A-Za-z0-9_]*=[^;]/.test(c))) return refuse(502, 'handshake-cookie-refused');
+				if (state.status !== 'signed-in' && setCookies.some(setsSession)) return refuse(502, 'handshake-cookie-refused');
 				return { kind: 'redirect', location: clean.href, setCookies };
 			}
 			return { kind: 'continue' };

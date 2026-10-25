@@ -1,21 +1,43 @@
 // The credential a request presents, read without the Clerk SDK so a route can name it (GRS-113). One rule for every
 // reader: at most one credential; ambiguity is refused, never resolved by picking one.
 export const SESSION_COOKIE = '__session';
+// The suffix @clerk/backend gives a cookie of one instance: `_` and base64url characters (it derives 8, from the publishable
+// key; the bound is generous). One grammar for every Clerk cookie name, so no reader recognises less than another.
+const SUFFIX = '(?:_[A-Za-z0-9_-]{1,32})?';
 /** The cookie names Clerk keeps a session token in: the plain name and its per-instance suffixed form. */
-export const SESSION_COOKIE_NAME = /^__session(?:_[A-Za-z0-9]{1,32})?$/;
+export const SESSION_COOKIE_NAME = new RegExp(`^__session${SUFFIX}$`);
 /** The cookie names that carry a browser's Clerk state and that sign-out and a handshake may set or clear. */
-export const CLERK_COOKIE_NAME = /^(?:__session|__client_uat|__clerk_db_jwt|__clerk_redirect_count)(?:_[A-Za-z0-9]{1,32})?$/;
+export const CLERK_COOKIE_NAME = new RegExp(`^(?:__session|__client_uat|__clerk_db_jwt|__clerk_redirect_count)${SUFFIX}$`);
+/** The session cookies a sign-out clears. */
+export const CLEARABLE_COOKIE_NAME = new RegExp(`^(?:__session|__client_uat)${SUFFIX}$`);
+/** Clerk's refresh token, exactly `__refresh` or `__refresh_<suffix>`: never stored here and never shown to the SDK. */
+export const REFRESH_COOKIE_NAME = new RegExp(`^__refresh${SUFFIX}$`);
 
 const BEARER = /^Bearer ([A-Za-z0-9._-]{16,8192})$/;
 const TOKEN = /^[A-Za-z0-9._-]{16,8192}$/;
-// A session cookie anywhere in the header, after a ';' (valid) or a ',' (a runtime that joined repeated Cookie headers).
-const COOKIE = /(^|[;,])\s*(__session(?:_[A-Za-z0-9]{1,32})?)\s*=\s*([^;,]*)/g;
+// A session cookie after a ',' (a runtime that joined repeated Cookie headers) hides inside the previous cookie's value.
+const JOINED_SESSION_COOKIE = new RegExp(`,[ \\t]*__session${SUFFIX}[ \\t]*=`);
+const trimmed = (s: string) => s.replace(/^[ \t]+|[ \t]+$/g, '');
+
+export interface CookiePair { name: string; value: string }
+/**
+ * The cookies a request carries, in order, read the way @clerk/backend reads them: split on ';', a name and a value
+ * trimmed of SP and HTAB only (so `name =v` and `name\t=v` are `name`), a segment with no '=' not a cookie, and a repeated
+ * name kept (the SDK takes the first; every caller here refuses or counts the repeat). Every decision about what the SDK
+ * will see or what a request presents is made on this reading, never on the raw header.
+ */
+export function cookiePairs(request: Request): CookiePair[] {
+	const pairs: CookiePair[] = [];
+	for (const segment of (request.headers.get('cookie') ?? '').split(';')) {
+		const eq = segment.indexOf('=');
+		if (eq >= 0) pairs.push({ name: trimmed(segment.slice(0, eq)), value: trimmed(segment.slice(eq + 1)) });
+	}
+	return pairs;
+}
 
 /** The session cookie names a request carries, so sign-out can clear exactly those. */
 export function sessionCookieNames(request: Request): string[] {
-	const names = new Set<string>();
-	for (const m of (request.headers.get('cookie') ?? '').matchAll(COOKIE)) names.add(m[2]!);
-	return [...names];
+	return [...new Set(cookiePairs(request).map((c) => c.name).filter((n) => SESSION_COOKIE_NAME.test(n)))];
 }
 
 /**
@@ -28,10 +50,12 @@ export function presentedToken(request: Request): string | null | 'malformed' {
 	const bearer = header === null ? null : (BEARER.exec(header)?.[1] ?? 'malformed');
 	if (bearer === 'malformed') return 'malformed';
 	const seen = new Set<string>(), values = new Set<string>();
-	for (const m of (request.headers.get('cookie') ?? '').matchAll(COOKIE)) {
-		if (m[1] === ',' || seen.has(m[2]!) || !TOKEN.test(m[3]!)) return 'malformed';
-		seen.add(m[2]!);
-		values.add(m[3]!);
+	if (JOINED_SESSION_COOKIE.test(request.headers.get('cookie') ?? '')) return 'malformed';
+	for (const { name, value } of cookiePairs(request)) {
+		if (!SESSION_COOKIE_NAME.test(name)) continue;
+		if (seen.has(name) || !TOKEN.test(value)) return 'malformed';
+		seen.add(name);
+		values.add(value);
 	}
 	if (bearer !== null) values.add(bearer);
 	if (values.size > 1) return 'malformed';

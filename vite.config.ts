@@ -2,6 +2,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import type { Config } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import { assertHostedGraph, selected, type HostedProfile } from './scripts/ci/hosted-imports.ts';
+import { hostedKitDiagnosticsBuild } from './scripts/hosted-kit-diagnostics-build.ts';
 import { prepareHostedStaticInput } from './scripts/hosted-static-input.ts';
 import { nativeRenderSdkBuild } from './scripts/native-render-sdk-build.ts';
 
@@ -64,6 +65,8 @@ export default defineConfig(async ({ command, isPreview }) => {
 			plugins: [
 				{ name: 'clearcase-hosted-boundary', buildStart() { if (hosted) assertHostedGraph(process.cwd(), profile); } },
 				nativeRenderSdkBuild({ root: process.cwd(), target, profile }),
+				// Hosted server build only: Kit's Node-only diagnostic probes become the undefined they read in workerd.
+				hostedKitDiagnosticsBuild({ root: process.cwd(), target }),
 				kit,
 				...(input ? [{
 					name: 'clearcase-hosted-static-input',

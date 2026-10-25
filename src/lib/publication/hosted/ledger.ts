@@ -1,6 +1,6 @@
-import type { CaseId, ClientId, ResultsVersion } from '../../server/runtime/contracts.ts';
+import type { AuditEvent, CaseId, ClientId, ResultsVersion } from '../../server/runtime/contracts.ts';
 import { contractError } from '../../server/runtime/errors.ts';
-import type { OperationRecord, PublicationLedger, PublicationState, SignoffAcknowledgement, SignoffRecord } from './ports.ts';
+import type { OperationRecord, PublicationLedger, PublicationState, SignoffAcknowledgement, SignoffIdentity, SignoffRecord } from './ports.ts';
 
 /** The part of a Cloudflare D1 binding the ledger uses. The parent passes the client's per-deployment `DB`. */
 export type PublicationD1Value = string | number | null;
@@ -17,20 +17,20 @@ type SignoffRow = {
   submission_revision_id: string; submission_manifest_sha256: string; results_version: string; manifest_sha256: string; package_input_revision_id: string;
   diagnostics_sha256: string; validator_version: string; snapshot_revision: string; warning_fingerprints: string; acknowledgements: string;
   signer_issuer: string; signer_subject: string; signer_kind: 'client' | 'staff'; prepared_by_issuer: string; prepared_by_subject: string; self_approval: number;
-  signed_at: string; state: 'recorded' | 'audited'; invalidated_at: string | null; invalidated_reason: string | null;
+  signed_at: string; audit_event: string; state: 'recorded' | 'audited'; invalidated_at: string | null; invalidated_reason: string | null;
 };
 type OperationRow = {
   operation_id: string; request_sha256: string; client_id: string; case_id: string; kind: 'publish' | 'withdraw'; signoff_id: string | null; results_version: string;
   expected_kind: PublicationState['kind']; expected_version: string | null; actor_issuer: string; actor_subject: string; actor_kind: 'client' | 'staff';
-  state: OperationRecord['state']; reason: string | null; at: string;
+  signed_identity: string | null; audit_event: string; state: OperationRecord['state']; reason: string | null; at: string;
 };
 
 const unavailable = (): never => { throw contractError('storage-unavailable', true); };
 const SIGNOFF_COLUMNS = ['signoff_id', 'operation_id', 'request_sha256', 'client_id', 'case_id', 'candidate_id', 'link_id', 'submission_revision_id', 'submission_manifest_sha256',
   'results_version', 'manifest_sha256', 'package_input_revision_id', 'diagnostics_sha256', 'validator_version', 'snapshot_revision', 'warning_fingerprints', 'acknowledgements',
-  'signer_issuer', 'signer_subject', 'signer_kind', 'prepared_by_issuer', 'prepared_by_subject', 'self_approval', 'signed_at', 'state'] as const;
+  'signer_issuer', 'signer_subject', 'signer_kind', 'prepared_by_issuer', 'prepared_by_subject', 'self_approval', 'signed_at', 'audit_event', 'state'] as const;
 const OPERATION_COLUMNS = ['operation_id', 'request_sha256', 'client_id', 'case_id', 'kind', 'signoff_id', 'results_version', 'expected_kind', 'expected_version',
-  'actor_issuer', 'actor_subject', 'actor_kind', 'state', 'reason', 'at'] as const;
+  'actor_issuer', 'actor_subject', 'actor_kind', 'signed_identity', 'audit_event', 'state', 'reason', 'at'] as const;
 
 function signoffOf(r: SignoffRow): SignoffRecord {
   return Object.freeze({
@@ -42,21 +42,22 @@ function signoffOf(r: SignoffRow): SignoffRecord {
     acknowledgements: Object.freeze((JSON.parse(r.acknowledgements) as SignoffAcknowledgement[]).map((a) => Object.freeze(a))),
     signer: Object.freeze({ issuer: r.signer_issuer, subject: r.signer_subject, kind: r.signer_kind }),
     preparedBy: Object.freeze({ issuer: r.prepared_by_issuer, subject: r.prepared_by_subject }),
-    selfApproval: r.self_approval === 1, signedAt: r.signed_at, state: r.state, invalidatedAt: r.invalidated_at, invalidatedReason: r.invalidated_reason,
+    selfApproval: r.self_approval === 1, signedAt: r.signed_at, auditEvent: JSON.parse(r.audit_event) as AuditEvent, state: r.state, invalidatedAt: r.invalidated_at, invalidatedReason: r.invalidated_reason,
   });
 }
 function signoffValues(s: SignoffRecord): PublicationD1Value[] {
   return [s.signoffId, s.operationId, s.requestSha256, s.clientId, s.caseId, s.candidateId, s.linkId, s.submissionRevisionId, s.submissionManifestSha256,
     s.resultsVersion, s.manifestSha256, s.packageInputRevisionId, s.diagnosticsSha256, s.validatorVersion, s.snapshotRevision,
     JSON.stringify([...s.warningFingerprints].sort()), JSON.stringify(s.acknowledgements.map((a) => ({ fingerprint: a.fingerprint, reason: a.reason }))),
-    s.signer.issuer, s.signer.subject, s.signer.kind, s.preparedBy.issuer, s.preparedBy.subject, s.selfApproval ? 1 : 0, s.signedAt, 'recorded'];
+    s.signer.issuer, s.signer.subject, s.signer.kind, s.preparedBy.issuer, s.preparedBy.subject, s.selfApproval ? 1 : 0, s.signedAt, JSON.stringify(s.auditEvent), 'recorded'];
 }
 function operationOf(r: OperationRow): OperationRecord {
   const expected: PublicationState = r.expected_kind === 'none' ? { kind: 'none' } : { kind: r.expected_kind, resultsVersion: r.expected_version as ResultsVersion };
   return Object.freeze({
     operationId: r.operation_id, requestSha256: r.request_sha256, clientId: r.client_id as ClientId, caseId: r.case_id as CaseId, kind: r.kind, signoffId: r.signoff_id,
     resultsVersion: r.results_version as ResultsVersion, expected: Object.freeze(expected), actor: Object.freeze({ issuer: r.actor_issuer, subject: r.actor_subject, kind: r.actor_kind }),
-    state: r.state, reason: r.reason, at: r.at,
+    signedIdentity: r.signed_identity === null ? null : JSON.parse(r.signed_identity) as SignoffIdentity,
+    auditEvent: JSON.parse(r.audit_event) as AuditEvent, state: r.state, reason: r.reason, at: r.at,
   });
 }
 
@@ -118,7 +119,7 @@ export function d1PublicationLedger(db: PublicationD1): PublicationLedger {
       const prior = await byOperation(record.operationId);
       if (prior) return same(prior) ? { kind: 'begun', record: operationOf(prior), repeated: true } : { kind: 'operation-reused' };
       const e = record.expected, values: PublicationD1Value[] = [record.operationId, record.requestSha256, record.clientId, record.caseId, record.kind, record.signoffId, record.resultsVersion,
-        e.kind, e.kind === 'none' ? null : e.resultsVersion, record.actor.issuer, record.actor.subject, record.actor.kind, 'pending', null, record.at];
+        e.kind, e.kind === 'none' ? null : e.resultsVersion, record.actor.issuer, record.actor.subject, record.actor.kind, record.signedIdentity === null ? null : JSON.stringify(record.signedIdentity), JSON.stringify(record.auditEvent), 'pending', null, record.at];
       try {
         await db.prepare(`INSERT INTO pub_operation (${OPERATION_COLUMNS.join(', ')}) VALUES (${OPERATION_COLUMNS.map(() => '?').join(', ')})`).bind(...values).run();
       } catch {
@@ -131,7 +132,11 @@ export function d1PublicationLedger(db: PublicationD1): PublicationLedger {
     },
     async finishOperation(a) {
       await transition("UPDATE pub_operation SET state = ?, reason = ? WHERE client_id = ? AND case_id = ? AND operation_id = ? AND state IN ('pending', 'failed')",
-        [a.state, a.reason, a.clientId, a.caseId, a.operationId], async () => (await byOperation(a.operationId))?.state === a.state);
+        [a.state, a.reason, a.clientId, a.caseId, a.operationId], async () => {
+          const current = await byOperation(a.operationId);
+          // A concurrent receipt recovery may already have settled this same applied operation. Never move it back.
+          return current?.state === a.state || (a.state === 'applied' && current?.state === 'audited');
+        });
     },
     async settleOperation(a) {
       await transition("UPDATE pub_operation SET state = 'audited' WHERE client_id = ? AND case_id = ? AND operation_id = ? AND state = 'applied'",

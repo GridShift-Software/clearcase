@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { AuditEvent, CaseId, ClientId, Identity, Principal, ResultsVersion, SessionId } from '../../../src/lib/server/runtime/contracts.ts';
 import { id, resultsVersion } from '../../../src/lib/server/runtime/ids.ts';
-import type { CandidateSnapshot, PointerOutcome, PublicationState } from '../../../src/lib/publication/hosted/ports.ts';
+import type { AtomicPublicationMutation, CandidateSnapshot, PointerOutcome, PublicationApplyReceipt, PublicationIntent, PublicationState } from '../../../src/lib/publication/hosted/ports.ts';
 
 export const MIGRATIONS: readonly string[] = [path.join(import.meta.dirname, '../../../src/lib/publication/hosted/migrations/0001_publication_ledger.sql')];
 
@@ -99,24 +99,40 @@ export class MemoryPublisher {
   failNext: 'publish' | 'withdraw' | null = null;
   current(caseId: string): PublicationState { return this.pointer.get(caseId) ?? { kind: 'none' }; }
   private same(a: PublicationState, b: PublicationState) { return a.kind === b.kind && (a.kind === 'none' || (b.kind !== 'none' && a.resultsVersion === b.resultsVersion)); }
-  async publish(a: { caseId: CaseId; resultsVersion: ResultsVersion; manifestSha256: string; expected: PublicationState; operationId: string }): Promise<PointerOutcome> {
-    this.calls.push(`publish:${a.caseId}:${a.resultsVersion}`);
-    if (this.failNext === 'publish') { this.failNext = null; throw Object.assign(new Error('storage-unavailable'), { code: 'storage-unavailable', retryable: true }); }
-    const cur = this.current(a.caseId), next: PublicationState = { kind: 'published', resultsVersion: a.resultsVersion };
-    if (this.same(cur, next)) return { kind: 'applied', repeated: true };
-    if (!this.same(cur, a.expected)) return { kind: 'conflict', current: cur };
-    this.pointer.set(a.caseId, next);
-    return { kind: 'applied', repeated: false };
+  readonly protocol = 'atomic-publication/1' as const;
+  readonly receipts = new Map<string, PublicationApplyReceipt>();
+  beforeRecheck: ((intent: PublicationIntent) => Promise<void>) | null = null;
+  loseNextAcknowledgement = false;
+  private tail: Promise<unknown> = Promise.resolve();
+  private key(a: { clientId: ClientId; caseId: CaseId; operationId: string }) { return `${a.clientId}/${a.caseId}/${a.operationId}`; }
+  async receipt(a: { clientId: ClientId; caseId: CaseId; operationId: string }) {
+    return structuredClone(this.receipts.get(this.key(a)) ?? null);
   }
-  async withdraw(a: { caseId: CaseId; resultsVersion: ResultsVersion; expected: PublicationState; operationId: string }): Promise<PointerOutcome> {
-    this.calls.push(`withdraw:${a.caseId}:${a.resultsVersion}`);
-    if (this.failNext === 'withdraw') { this.failNext = null; throw Object.assign(new Error('storage-unavailable'), { code: 'storage-unavailable', retryable: true }); }
-    const cur = this.current(a.caseId), next: PublicationState = { kind: 'withdrawn', resultsVersion: a.resultsVersion };
-    if (this.same(cur, next)) return { kind: 'applied', repeated: true };
-    if (!this.same(cur, a.expected)) return { kind: 'conflict', current: cur };
-    this.pointer.set(a.caseId, next);
-    return { kind: 'applied', repeated: false };
+  // Unit-only serialization model, NOT a durable production lock or a real authority/storage boundary.
+  private mutate(kind: 'publish' | 'withdraw', a: AtomicPublicationMutation): Promise<PointerOutcome> {
+    const work = this.tail.then(async (): Promise<PointerOutcome> => {
+      const i = a.intent, key = this.key(i), saved = this.receipts.get(key);
+      if (saved) {
+        if (JSON.stringify(saved.intent) !== JSON.stringify(i)) return { kind: 'refused', reason: 'operation-reused' };
+        return { kind: 'applied', repeated: true };
+      }
+      await this.beforeRecheck?.(i);
+      await a.recheck();
+      this.calls.push(`${kind}:${i.caseId}:${i.resultsVersion}`);
+      if (this.failNext === kind) { this.failNext = null; throw Object.assign(new Error('storage-unavailable'), { code: 'storage-unavailable', retryable: true }); }
+      const cur = this.current(i.caseId), next: PublicationState = { kind: kind === 'publish' ? 'published' : 'withdrawn', resultsVersion: i.resultsVersion };
+      // Equality with next is not proof this operation applied: even that case must satisfy the caller's expectation.
+      if (!this.same(cur, i.expected)) return { kind: 'conflict', current: cur };
+      this.pointer.set(i.caseId, next);
+      this.receipts.set(key, { intent: structuredClone(i) });
+      if (this.loseNextAcknowledgement) { this.loseNextAcknowledgement = false; throw new Error('commit acknowledgement lost'); }
+      return { kind: 'applied', repeated: false };
+    });
+    this.tail = work.catch(() => undefined);
+    return work;
   }
+  publish(a: AtomicPublicationMutation) { return this.mutate('publish', a); }
+  withdraw(a: AtomicPublicationMutation) { return this.mutate('withdraw', a); }
 }
 
 export function snapshot(o: Partial<CandidateSnapshot> & { caseId?: CaseId; candidateId?: string; rv?: ResultsVersion } = {}): CandidateSnapshot {

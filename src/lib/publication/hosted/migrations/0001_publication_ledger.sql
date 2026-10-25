@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS pub_signoff (
   prepared_by_subject TEXT NOT NULL,
   self_approval INTEGER NOT NULL CHECK (self_approval IN (0, 1)),
   signed_at TEXT NOT NULL,
+  audit_event TEXT NOT NULL CHECK (json_valid(audit_event)),
   -- recorded: written, audit event not yet confirmed (not effective); audited: effective
   state TEXT NOT NULL CHECK (state IN ('recorded', 'audited')),
   invalidated_at TEXT,
@@ -53,10 +54,13 @@ CREATE TABLE IF NOT EXISTS pub_operation (
   actor_issuer TEXT NOT NULL,
   actor_subject TEXT NOT NULL,
   actor_kind TEXT NOT NULL CHECK (actor_kind IN ('client', 'staff')),
+  signed_identity TEXT CHECK (signed_identity IS NULL OR json_valid(signed_identity)),
+  audit_event TEXT NOT NULL CHECK (json_valid(audit_event)),
   state TEXT NOT NULL CHECK (state IN ('pending', 'applied', 'refused', 'failed', 'audited')),
   reason TEXT,
   at TEXT NOT NULL,
   CHECK ((kind = 'publish') = (signoff_id IS NOT NULL)),
+  CHECK ((kind = 'publish') = (signed_identity IS NOT NULL)),
   CHECK ((expected_kind = 'none') = (expected_version IS NULL))
 );
 
@@ -75,7 +79,7 @@ CREATE TRIGGER IF NOT EXISTS pub_signoff_update BEFORE UPDATE ON pub_signoff
     OR NEW.warning_fingerprints IS NOT OLD.warning_fingerprints OR NEW.acknowledgements IS NOT OLD.acknowledgements
     OR NEW.signer_issuer IS NOT OLD.signer_issuer OR NEW.signer_subject IS NOT OLD.signer_subject OR NEW.signer_kind IS NOT OLD.signer_kind
     OR NEW.prepared_by_issuer IS NOT OLD.prepared_by_issuer OR NEW.prepared_by_subject IS NOT OLD.prepared_by_subject
-    OR NEW.self_approval IS NOT OLD.self_approval OR NEW.signed_at IS NOT OLD.signed_at
+    OR NEW.self_approval IS NOT OLD.self_approval OR NEW.signed_at IS NOT OLD.signed_at OR NEW.audit_event IS NOT OLD.audit_event
     -- state: recorded -> audited only
     OR (NEW.state IS NOT OLD.state AND NOT (OLD.state = 'recorded' AND NEW.state = 'audited'))
     -- invalidation: null -> set, once
@@ -91,6 +95,7 @@ CREATE TRIGGER IF NOT EXISTS pub_operation_update BEFORE UPDATE ON pub_operation
   WHEN NEW.operation_id IS NOT OLD.operation_id OR NEW.request_sha256 IS NOT OLD.request_sha256 OR NEW.client_id IS NOT OLD.client_id
     OR NEW.case_id IS NOT OLD.case_id OR NEW.kind IS NOT OLD.kind OR NEW.signoff_id IS NOT OLD.signoff_id OR NEW.results_version IS NOT OLD.results_version
     OR NEW.expected_kind IS NOT OLD.expected_kind OR NEW.expected_version IS NOT OLD.expected_version
+    OR NEW.signed_identity IS NOT OLD.signed_identity OR NEW.audit_event IS NOT OLD.audit_event
     OR NEW.actor_issuer IS NOT OLD.actor_issuer OR NEW.actor_subject IS NOT OLD.actor_subject OR NEW.actor_kind IS NOT OLD.actor_kind OR NEW.at IS NOT OLD.at
     -- pending|failed -> applied|refused|failed; applied -> audited; refused and audited are final
     OR NOT ((OLD.state IN ('pending', 'failed') AND NEW.state IN ('applied', 'refused', 'failed'))

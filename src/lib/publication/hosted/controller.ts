@@ -3,7 +3,7 @@ import { codeOf } from '../../server/runtime/errors.ts';
 import { id } from '../../server/runtime/ids.ts';
 import { readAtMost } from '../../submissions/body.ts';
 import { checkSnapshot, newWarnings, signoffBlocker, type Blocker } from './rules.ts';
-import type { CandidateSnapshot, NativePublicationPorts, OperationRecord, PointerOutcome, PublicationState, SignoffAcknowledgement, SignoffIdentity, SignoffRecord } from './ports.ts';
+import type { CandidateSnapshot, NativePublicationPorts, OperationRecord, PointerOutcome, PublicationIntent, PublicationState, SignoffAcknowledgement, SignoffIdentity, SignoffRecord } from './ports.ts';
 
 /** What one publication request carries: the request, its URL, the route params and the request's identity (the existing contract). */
 export interface PublicationRequest { request: Request; url: URL; params: Partial<Record<'caseId', string>>; identity: Identity }
@@ -81,7 +81,7 @@ export function createNativePublication(ports: NativePublicationPorts | null) {
     if (r.request.method !== 'POST') refuse(405, 'method-not-allowed', 'Only POST is accepted.');
     if (r.request.headers.get('origin') !== r.url.origin) refuse(403, 'cross-origin', 'Cross-origin writes are refused.');
     if ((r.request.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase() !== 'application/json') refuse(415, 'unsupported-media-type', 'Send application/json.');
-    if (!ports || !ports.authorize || !ports.candidates || !ports.publisher || !ports.ledger || !ports.audit || typeof ports.now !== 'function') return unavailable();
+    if (!ports || !ports.authorize || !ports.candidates || !ports.publisher || ports.publisher.protocol !== 'atomic-publication/1' || typeof ports.publisher.receipt !== 'function' || !ports.ledger || !ports.audit || typeof ports.now !== 'function') return unavailable();
     const raw = r.params.caseId;
     if (!raw || !PART.test(raw)) refuse(404, 'not-found', 'Not found.');
     const caseId = id('case', raw!) as CaseId;
@@ -101,7 +101,14 @@ export function createNativePublication(ports: NativePublicationPorts | null) {
     if (!plain(value)) refuse(422, 'invalid-request', 'Send one JSON object.');
     const actor = { issuer: principal.issuer, subject: principal.subject, kind: principal.kind } as const;
     const p = ports as NativePublicationPorts & { [K in 'authorize' | 'candidates' | 'publisher' | 'ledger' | 'audit']: NonNullable<NativePublicationPorts[K]> };
-    return { caseId, principal, sessionId, actor, body: value as Record<string, unknown>, p, scope: { clientId: p.clientId, caseId } };
+    // Called again by the atomic adapter under its shared mutation boundary, never as a saved admission verdict.
+    const recheckAuthority = async () => {
+      try {
+        await who.checkRevocation();
+        await p.authorize({ principal, sessionId, caseId, capability: 'publish' });
+      } catch (e) { authorityRefusal(e); }
+    };
+    return { caseId, principal, sessionId, actor, recheckAuthority, body: value as Record<string, unknown>, p, scope: { clientId: p.clientId, caseId } };
   }
   type Admitted = Awaited<ReturnType<typeof admit>>;
   const storage = <T>(work: Promise<T>): Promise<T> => work.catch((e) => {
@@ -122,13 +129,32 @@ export function createNativePublication(ports: NativePublicationPorts | null) {
     return s;
   }
 
-  async function audit(a: Admitted, action: 'publication.signoff' | 'publication.publish' | 'publication.withdraw', objectId: string, version: ResultsVersion, at: string) {
+  async function auditEvent(a: Admitted, action: 'publication.signoff' | 'publication.publish' | 'publication.withdraw', objectId: string, version: ResultsVersion, at: string): Promise<AuditEvent> {
     const session = (await sha256Hex(a.sessionId)).slice(0, 12);
     const event: AuditEvent = {
       eventId: `${action.replace('.', '-')}-${objectId}-${session}`.slice(0, 128), actor: { kind: 'verified', principal: { ...a.actor }, sessionId: a.sessionId },
       action, object: { kind: 'publication', id: objectId, caseId: a.caseId }, version, outcome: 'succeeded', at,
     };
+    return event;
+  }
+  async function audit(a: Admitted, event: AuditEvent) {
     try { await a.p.audit.append(event); } catch { refuse(503, 'audit-unavailable', 'The action is recorded but its audit event did not persist. Retry with the same operation id.'); }
+  }
+
+  /** Both early feedback and the adapter's serialized recheck use fresh sign-off/candidate facts. */
+  async function effectiveSignoff(a: Admitted, signoffId: string, signed?: SignoffIdentity): Promise<SignoffRecord> {
+    const so = await storage(a.p.ledger.signoff({ ...a.scope, signoffId }));
+    if (!so) return refuse(404, 'not-found', 'No such sign-off for this case.');
+    if (so.state !== 'audited' || so.invalidatedAt || (signed && differing(so, signed).length))
+      return refuse(409, 'signoff-not-effective', 'This sign-off is not effective. Sign off the current candidate again.');
+    const s = await candidate(a, so.candidateId);
+    const why = !s ? 'candidate-missing' : differing(so, identityOf(s)).length ? 'candidate-changed' : signoffBlocker(s) ? 'candidate-blocked'
+      : canonical([...newWarnings(s)].sort()) !== canonical(so.acknowledgements.map((x) => x.fingerprint)) || canonical([...s.validation.warningFingerprints].sort()) !== canonical(so.warningFingerprints) ? 'warnings-changed' : null;
+    if (why) {
+      await storage(a.p.ledger.invalidateSignoff({ ...a.scope, signoffId, at: a.p.now().toISOString(), reason: why }));
+      return refuse(409, 'signoff-stale', 'The candidate changed since sign-off. Review and sign off the current candidate.', { reason: why });
+    }
+    return so;
   }
 
   return {
@@ -168,11 +194,13 @@ export function createNativePublication(ports: NativePublicationPorts | null) {
       if (!preparer && selfApproval) return refuse(422, 'self-approval-mismatch', 'Only the preparer can record a self-approval.');
 
       const requestSha256 = await sha256Hex(canonical({ route: 'signoff', caseId: a.caseId, actor: a.actor, body: { ...b, acknowledgements: acks } }));
+      const signedAt = a.p.now().toISOString();
       const record: SignoffRecord = {
         ...current, signoffId: `so-${operationId}`, operationId, requestSha256, clientId: a.p.clientId, caseId: a.caseId,
         warningFingerprints: [...s.validation.warningFingerprints].sort(), acknowledgements: [...acks].sort((x, y) => (x.fingerprint < y.fingerprint ? -1 : 1)),
         signer: a.actor, preparedBy: { issuer: s.preparedBy.issuer, subject: s.preparedBy.subject }, selfApproval: preparer,
-        signedAt: a.p.now().toISOString(), state: 'recorded', invalidatedAt: null, invalidatedReason: null,
+        signedAt, auditEvent: await auditEvent(a, 'publication.signoff', `so-${operationId}`, current.resultsVersion, signedAt),
+        state: 'recorded', invalidatedAt: null, invalidatedReason: null,
       };
       const out = await storage(a.p.ledger.recordSignoff(record));
       if (out.kind === 'operation-reused') return refuse(409, 'operation-reused', 'This operation id was already used for a different request.');
@@ -180,7 +208,7 @@ export function createNativePublication(ports: NativePublicationPorts | null) {
       // Only an audited sign-off is effective; a retry of the same operation settles one whose event did not persist.
       const settles = out.record.state !== 'audited';
       if (settles) {
-        await audit(a, 'publication.signoff', out.record.signoffId, out.record.resultsVersion, out.record.signedAt);
+        await audit(a, out.record.auditEvent);
         await storage(a.p.ledger.settleSignoff({ ...a.scope, signoffId: out.record.signoffId }));
       }
       return json(settles ? 201 : 200, { signoffId: out.record.signoffId, state: 'signed-off', resultsVersion: out.record.resultsVersion, selfApproval: out.record.selfApproval });
@@ -194,25 +222,19 @@ export function createNativePublication(ports: NativePublicationPorts | null) {
       if (typeof operationId !== 'string' || !OPERATION.test(operationId) || typeof signoffId !== 'string' || !SIGNOFF.test(signoffId) || !expected) return refuse(422, 'invalid-request', 'The request is invalid.');
 
       const requestSha256 = await sha256Hex(canonical({ route: 'publish', caseId: a.caseId, actor: a.actor, body: b }));
-      // A retry of an operation that already changed the pointer only finishes recording it; it is not re-judged, and a
-      // later candidate edit cannot leave an applied publication unaudited.
+      // Reconcile even pending/failed operations BEFORE reading a possibly edited candidate. The storage receipt,
+      // not a best-effort ledger outcome update or today's pointer, is the durable proof of application.
       const prior = await storage(a.p.ledger.operation({ ...a.scope, operationId }));
-      if (prior && prior.requestSha256 === requestSha256 && (prior.state === 'applied' || prior.state === 'audited'))
-        return pointer(a, prior, () => Promise.reject(new Error('an applied operation is never applied again')));
-      const so = await storage(a.p.ledger.signoff({ ...a.scope, signoffId }));
-      if (!so) return refuse(404, 'not-found', 'No such sign-off for this case.');
-      if (so.state !== 'audited' || so.invalidatedAt) return refuse(409, 'signoff-not-effective', 'This sign-off is not effective. Sign off the current candidate again.');
-      // The candidate must still be exactly what was signed off, and still pass every check, with the same new warnings.
-      const s = await candidate(a, so.candidateId);
-      const why = !s ? 'candidate-missing' : differing(so, identityOf(s)).length ? 'candidate-changed' : signoffBlocker(s) ? 'candidate-blocked'
-        : canonical([...newWarnings(s)].sort()) !== canonical(so.acknowledgements.map((x) => x.fingerprint)) || canonical([...s.validation.warningFingerprints].sort()) !== canonical(so.warningFingerprints) ? 'warnings-changed' : null;
-      if (why) {
-        await storage(a.p.ledger.invalidateSignoff({ ...a.scope, signoffId, at: a.p.now().toISOString(), reason: why }));
-        return refuse(409, 'signoff-stale', 'The candidate changed since sign-off. Review and sign off the current candidate.', { reason: why });
+      if (prior) {
+        if (prior.requestSha256 !== requestSha256) return refuse(409, 'operation-reused', 'This operation id was already used for a different request.');
+        return pointer(a, prior);
       }
-
-      const op: OperationRecord = { operationId, requestSha256, clientId: a.p.clientId, caseId: a.caseId, kind: 'publish', signoffId, resultsVersion: so.resultsVersion, expected, actor: a.actor, state: 'pending', reason: null, at: a.p.now().toISOString() };
-      return pointer(a, op, () => a.p.publisher.publish({ caseId: a.caseId, resultsVersion: so.resultsVersion, manifestSha256: so.manifestSha256, expected, operationId }));
+      const so = await effectiveSignoff(a, signoffId), at = a.p.now().toISOString();
+      const { candidateId, linkId, submissionRevisionId, submissionManifestSha256, resultsVersion, manifestSha256, packageInputRevisionId, diagnosticsSha256, validatorVersion, snapshotRevision } = so;
+      const signedIdentity: SignoffIdentity = { candidateId, linkId, submissionRevisionId, submissionManifestSha256, resultsVersion, manifestSha256, packageInputRevisionId, diagnosticsSha256, validatorVersion, snapshotRevision };
+      const op: OperationRecord = { operationId, requestSha256, ...a.scope, kind: 'publish', signoffId, resultsVersion: so.resultsVersion, expected, actor: a.actor,
+        signedIdentity, auditEvent: await auditEvent(a, 'publication.publish', operationId, so.resultsVersion, at), state: 'pending', reason: null, at };
+      return pointer(a, op);
     }),
 
     /** POST /operator/publication/[caseId]/withdraw: withdraw the published results version only. */
@@ -224,38 +246,67 @@ export function createNativePublication(ports: NativePublicationPorts | null) {
       if (expected.kind !== 'published' || expected.resultsVersion !== resultsVersion) return refuse(422, 'invalid-request', 'Withdraw the version you expect to be published.');
       const rv = resultsVersion as ResultsVersion;
       const requestSha256 = await sha256Hex(canonical({ route: 'withdraw', caseId: a.caseId, actor: a.actor, body: b }));
-      const op: OperationRecord = { operationId, requestSha256, clientId: a.p.clientId, caseId: a.caseId, kind: 'withdraw', signoffId: null, resultsVersion: rv, expected, actor: a.actor, state: 'pending', reason: null, at: a.p.now().toISOString() };
-      return pointer(a, op, () => a.p.publisher.withdraw({ caseId: a.caseId, resultsVersion: rv, expected, operationId }));
+      const at = a.p.now().toISOString();
+      const op: OperationRecord = { operationId, requestSha256, ...a.scope, kind: 'withdraw', signoffId: null, resultsVersion: rv, expected, actor: a.actor,
+        signedIdentity: null, auditEvent: await auditEvent(a, 'publication.withdraw', operationId, rv, at), state: 'pending', reason: null, at };
+      return pointer(a, op);
     }),
   };
 
-  /** One recorded pointer operation: ledger first, then the storage CAS, then the outcome, then the audit event. */
-  async function pointer(a: Admitted, op: OperationRecord, apply: () => Promise<PointerOutcome>) {
+  function intentOf({ state: _state, reason: _reason, ...intent }: OperationRecord): PublicationIntent { return intent; }
+
+  /** Durable intent -> serialized recheck/CAS/receipt -> recoverable ledger outcome -> stable audit envelope. */
+  async function pointer(a: Admitted, op: OperationRecord) {
     const begun = await storage(a.p.ledger.beginOperation(op));
     if (begun.kind === 'operation-reused') return refuse(409, 'operation-reused', 'This operation id was already used for a different request.');
-    const rec = begun.record, action = op.kind === 'publish' ? 'publication.publish' as const : 'publication.withdraw' as const;
+    const rec = begun.record, intent = intentOf(rec), key = { ...a.scope, operationId: rec.operationId };
     if (rec.state === 'refused') return refuse(409, rec.reason === 'conflict' ? 'publication-conflict' : 'publication-refused', 'This operation was refused; nothing changed.');
+    const receipt = async () => {
+      const saved = await storage(a.p.publisher.receipt(key));
+      if (saved && canonical(saved.intent) !== canonical(intent)) return unavailable('receipt-mismatch', 'The operation receipt does not match its durable intent.');
+      return saved;
+    };
+    const applied = await receipt();
+    if (!applied && (rec.state === 'applied' || rec.state === 'audited')) return unavailable('receipt-missing', 'The applied operation receipt cannot be read. Retry with the same operation id.');
     if (rec.state === 'pending' || rec.state === 'failed') {
-      let out: PointerOutcome;
-      try { out = await apply(); } catch {
-        // A fault leaves the pointer as it was: the previous publication and all user work stay. Retry the same operation.
-        await storage(a.p.ledger.finishOperation({ ...a.scope, operationId: op.operationId, state: 'failed', reason: 'storage-fault' }));
-        return refuse(503, 'storage-unavailable', 'Publication storage is unavailable; nothing changed. Retry with the same operation id.');
+      if (!applied) {
+        // The adapter, not this outer function, chooses the atomic commit boundary. These checks MUST run inside it.
+        const recheck = async () => {
+          await a.recheckAuthority();
+          if (intent.kind === 'publish') {
+            if (!intent.signoffId || !intent.signedIdentity) return unavailable();
+            await effectiveSignoff(a, intent.signoffId, intent.signedIdentity);
+          }
+        };
+        let out: PointerOutcome;
+        const authority = { ...a.scope, principal: a.principal, sessionId: a.sessionId, capability: 'publish' as const };
+        try { out = await a.p.publisher[rec.kind]({ intent, authority, recheck }); } catch (e) {
+          if (e instanceof Refusal) throw e;
+          await storage(a.p.ledger.finishOperation({ ...key, state: 'failed', reason: 'storage-fault' }));
+          // A commit acknowledgement can be lost. Never claim nothing changed when the result is uncertain.
+          return refuse(503, 'storage-unavailable', 'Publication outcome is not confirmed. Retry with the same operation id.');
+        }
+        if (out.kind === 'guard-refused') {
+          if (out.reason === 'forbidden') return refuse(403, 'forbidden', 'You cannot publish results for this case.');
+          if (out.reason === 'invalid-session') return refuse(401, 'unauthenticated', 'Sign in to continue.');
+          return refuse(409, 'signoff-stale', 'The candidate or sign-off changed before commit. Review and sign off the current candidate.');
+        }
+        if (out.kind !== 'applied') {
+          await storage(a.p.ledger.finishOperation({ ...key, state: 'refused', reason: out.kind === 'conflict' ? 'conflict' : `refused:${out.reason}`.slice(0, 200) }));
+          return out.kind === 'conflict'
+            ? refuse(409, 'publication-conflict', 'The publication changed since you looked. Reload and try again.', { current: out.current })
+            : refuse(409, 'publication-refused', 'Storage refused this change; nothing changed.');
+        }
+        if (!await receipt()) return unavailable('receipt-missing', 'The apply receipt cannot be read. Retry with the same operation id.');
       }
-      if (out.kind !== 'applied') {
-        await storage(a.p.ledger.finishOperation({ ...a.scope, operationId: op.operationId, state: 'refused', reason: out.kind === 'conflict' ? 'conflict' : `refused:${out.reason}`.slice(0, 200) }));
-        return out.kind === 'conflict'
-          ? refuse(409, 'publication-conflict', 'The publication changed since you looked. Reload and try again.', { current: out.current })
-          : refuse(409, 'publication-refused', 'Storage refused this change; nothing changed.');
-      }
-      await storage(a.p.ledger.finishOperation({ ...a.scope, operationId: op.operationId, state: 'applied', reason: null }));
+      await storage(a.p.ledger.finishOperation({ ...key, state: 'applied', reason: null }));
     }
     if (rec.state !== 'audited') {
-      await audit(a, action, op.operationId, rec.resultsVersion, rec.at);
-      await storage(a.p.ledger.settleOperation({ ...a.scope, operationId: op.operationId }));
+      await audit(a, rec.auditEvent);
+      await storage(a.p.ledger.settleOperation(key));
     }
-    const state: PublicationState = op.kind === 'publish' ? { kind: 'published', resultsVersion: rec.resultsVersion } : { kind: 'withdrawn', resultsVersion: rec.resultsVersion };
-    return json(200, { operationId: op.operationId, publication: state });
+    const state: PublicationState = rec.kind === 'publish' ? { kind: 'published', resultsVersion: rec.resultsVersion } : { kind: 'withdrawn', resultsVersion: rec.resultsVersion };
+    return json(200, { operationId: rec.operationId, publication: state });
   }
 }
 export type PublicationController = ReturnType<typeof createNativePublication>;

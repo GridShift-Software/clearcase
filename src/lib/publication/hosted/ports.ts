@@ -1,4 +1,4 @@
-import type { AuditSink, CaseId, ClientId, Principal, ResultsVersion, SessionId } from '../../server/runtime/contracts.ts';
+import type { AuditEvent, AuditSink, CaseId, ClientId, Principal, ResultsVersion, SessionId } from '../../server/runtime/contracts.ts';
 import type { ImportLinkSignoffBinding } from '../../server/runtime/hosted/alpha-contracts.ts';
 
 // Native exact-version sign-off and publication (ADR-0010). Ports only: the parent composition supplies each one from
@@ -46,21 +46,40 @@ export type PublicationState =
 
 export type PointerOutcome =
   | { kind: 'applied'; repeated: boolean }
+  /** The adapter's atomic predicates failed, including a change after its recheck callback; no mutation/receipt. */
+  | { kind: 'guard-refused'; reason: 'forbidden' | 'invalid-session' | 'signoff-stale' }
   /** The pointer is not what the caller expected; nothing changed. */
   | { kind: 'conflict'; current: PublicationState }
   /** Storage refused for its own reason (unknown or unstored version, another case's version); nothing changed. */
   | { kind: 'refused'; reason: string };
 
+/** An operation-bound receipt, stored atomically with the pointer, never inferred from pointer equality. */
+export interface PublicationApplyReceipt { readonly intent: PublicationIntent }
+export interface AtomicPublicationMutation {
+  readonly intent: PublicationIntent;
+  /** Current retry session, deliberately NOT the original session in the persisted audit envelope. */
+  readonly authority: Readonly<{ clientId: ClientId; caseId: CaseId; principal: Principal; sessionId: SessionId; capability: 'publish' }>;
+  /** Fresh reads, not saved booleans. The adapter MUST run this inside its shared serialization boundary. */
+  recheck(): Promise<void>;
+}
 /**
- * The storage publisher (GRS-115 pointer owner). Each call is one guarded, atomic compare-and-set on the case's
- * publication pointer: it applies only when the pointer equals `expected`, and otherwise changes nothing. It never
- * deletes or rewrites a results version, an original or user work, and it never rolls anything back by deletion. A
- * fault rejects; a rejection leaves the previous pointer in place.
+ * REQUIRED parent atomic adapter, not an ordinary GRS-115 CAS wrapper. Before applying, load/compare the durable
+ * operation intent, then run `recheck` while serialized with candidate/link edits, sign-off invalidation, session and
+ * grant revocation. Hold that boundary through the expected-pointer CAS AND write-once apply receipt. All those
+ * writers must participate; an unguarded callback followed by CAS is NOT this contract. A refusal writes neither
+ * pointer nor receipt. Propagate recheck errors unchanged; predicate denials return `guard-refused`, not a generic
+ * storage refusal. Candidate edits must durably invalidate old sign-offs even if a publication is refused.
+ * Replays use the exact operation receipt, never current-pointer equality. A lost acknowledgement may reject after
+ * commit, so callers must reconcile `receipt` before any fresh validation or reapplication. Receipts survive edits,
+ * withdrawal, restart and later publications. No results, originals, user work or immutable evidence may be deleted.
+ * If this cannot be implemented on the parent's storage/authority boundary, compose null (503), not a fallback.
  */
 export interface StoragePublisher {
-  publish(a: { caseId: CaseId; resultsVersion: ResultsVersion; manifestSha256: string; expected: PublicationState; operationId: string }): Promise<PointerOutcome>;
-  /** Withdraws results only: the pointer becomes withdrawn and the version unreadable; originals and user work are untouched. */
-  withdraw(a: { caseId: CaseId; resultsVersion: ResultsVersion; expected: PublicationState; operationId: string }): Promise<PointerOutcome>;
+  readonly protocol: 'atomic-publication/1';
+  receipt(a: { clientId: ClientId; caseId: CaseId; operationId: string }): Promise<PublicationApplyReceipt | null>;
+  publish(a: AtomicPublicationMutation): Promise<PointerOutcome>;
+  /** Results-only mutation, with the same current-authority and atomic receipt obligations. */
+  withdraw(a: AtomicPublicationMutation): Promise<PointerOutcome>;
 }
 
 /**
@@ -96,6 +115,8 @@ export interface SignoffRecord extends SignoffIdentity {
   /** The signer prepared the candidate and confirmed approving their own work in this separate recorded action. */
   readonly selfApproval: boolean;
   readonly signedAt: string;
+  /** Stable envelope retained across sessions and interrupted audit settlement. */
+  readonly auditEvent: AuditEvent;
   /** recorded: written, its audit event not yet confirmed; audited: effective. Only an audited sign-off can publish. */
   readonly state: 'recorded' | 'audited';
   readonly invalidatedAt: string | null;
@@ -104,7 +125,7 @@ export interface SignoffRecord extends SignoffIdentity {
 
 export type OperationKind = 'publish' | 'withdraw';
 export type OperationState = 'pending' | 'applied' | 'refused' | 'failed' | 'audited';
-export interface OperationRecord {
+export interface PublicationIntent {
   readonly operationId: string;
   readonly requestSha256: string;
   readonly clientId: ClientId;
@@ -114,9 +135,14 @@ export interface OperationRecord {
   readonly resultsVersion: ResultsVersion;
   readonly expected: PublicationState;
   readonly actor: Readonly<Pick<Principal, 'issuer' | 'subject' | 'kind'>>;
+  /** Publish pins the whole immutable signed identity, not just a version or an approval flag. */
+  readonly signedIdentity: SignoffIdentity | null;
+  readonly auditEvent: AuditEvent;
+  readonly at: string;
+}
+export interface OperationRecord extends PublicationIntent {
   readonly state: OperationState;
   readonly reason: string | null;
-  readonly at: string;
 }
 
 /** The durable sign-off and publication ledger (namespace `pub_*`). Write-once rows; only the listed transitions. */

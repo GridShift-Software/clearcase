@@ -41,6 +41,12 @@
 // (--pin-target --pin-config --pin-artifact --pin-migrations --pin-entry --pin-source) and a reviewed --clients directory
 // outside the stage, because a stage can only agree with itself. `invocation` checks the exact no-override upload command.
 // Native command lines take exact flags only. Native reads use descriptors and refuse hard links and special files.
+//
+// NATIVE24 (native only): `scanModule` proves which runtime built-ins each dynamic import() can name (a literal, or a
+// forwarding wrapper whose every use is a direct literal call) and pipeline.ts admits only those the target's flags
+// enable; the artifact is artifact/cloudflare/_worker.js beside artifact/public/, judged by pipeline.ts
+// `nativeArtifactLayout`; `checkNativeArtifact` serves scripts/hosted-native-bundle; `readNativeStage` returns an
+// immutable reading of a verified stage for a separate binder.
 import { createHash } from 'node:crypto';
 import { closeSync, constants, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -56,7 +62,9 @@ import {
 	NATIVE_STAGED,
 	checkNativeWrangler,
 	distinctNative,
+	dynamicHostImportsOf,
 	hostImportsOf,
+	nativeArtifactLayout,
 	nativeStageRecord,
 	nativeUpload,
 	nativeUploadInvocationProblems,
@@ -66,7 +74,9 @@ import {
 	pinProblems,
 	uploadModuleProblems,
 	versionProblems,
+	type DynamicImportFact,
 	type ModuleFacts,
+	type NativeStageRecord,
 	type NativePins,
 	type NativeTarget,
 	type NativeUpload,
@@ -449,8 +459,8 @@ export function readRegular(file: string, root?: string): Buffer {
 	}
 }
 
-/** Every entry under `dir`, sorted per directory, from lstat only: a regular file or a directory, nothing else, and no file with a second hard link. A directory swapped while it is listed is refused. */
-function nativeWalk(dir: string, rel = ''): { rel: string; dir: boolean }[] {
+/** Every entry under `dir`, sorted per directory, from lstat only: a regular file or a directory, nothing else, and no file with a second hard link. A directory swapped while it is listed is refused. Exported for the native bundle contract (scripts/hosted-native-bundle). */
+export function nativeWalk(dir: string, rel = ''): { rel: string; dir: boolean }[] {
 	const at = path.join(dir, rel);
 	const before = lstatSync(at);
 	if (!before.isDirectory()) throw new Error(`${at} is not a directory (a symlink is refused)`);
@@ -551,55 +561,218 @@ export function checkNative(a: { client: string; targets: NativeTarget[]; format
  * `import()` and `require()` calls, and parse errors. It parses with TypeScript's parser (a root devDependency, loaded on
  * first use) and runs nothing; the walk is iterative so a deeply nested bundle cannot exhaust the stack. A comment or a
  * string that mentions an import is not an import.
+ *
+ * NATIVE24: every `import()` call is also classified (`dynamic`). A string-literal specifier is `literal`. An identifier
+ * specifier is `forwarder` only under this whole proof, else `unproven` with the reason:
+ *  - the call is the entire concise body of an arrow function with exactly one plain parameter, that identifier, and
+ *    one argument (no import options), so the parameter cannot be rewritten and `arguments` does not exist;
+ *  - the arrow is bound to a name W directly, or through esbuild's keep-names helper `__name(arrow, "W")`, by the
+ *    initializer of W's declaration or by one plain `W = ...` statement;
+ *  - W is declared exactly once, at module scope, unexported, and every other occurrence of the identifier W anywhere
+ *    in the module is a direct, non-optional call with exactly one string-literal argument (no alias, export, property
+ *    read, typeof, argument passing, reassignment or shadowing declaration): those literals are W's only specifiers;
+ *  - a keep-names helper is proven to be esbuild's `(target, value) => D(target, "name", { value, configurable: true })`
+ *    with D declared once as `Object.defineProperty`, neither reassigned nor used except as direct calls, and `Object`
+ *    neither declared nor written, and no static write to any `.defineProperty` or `.Object` property;
+ *  - the module contains no `eval` identifier (direct eval could read W; Workers refuse code generation anyway).
+ * Whether a proven specifier is allowed is pipeline.ts `uploadModuleProblems`' decision, from the target's flags.
  */
 export function scanModule(source: string): ModuleFacts {
 	const ts = createRequire(import.meta.url)('typescript') as typeof import('typescript');
 	const sf = ts.createSourceFile('_worker.js', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-	const facts: ModuleFacts = { syntaxErrors: [], specifiers: [], computedSpecifiers: 0, dynamicImports: 0, requireCalls: 0 };
+	const dynamic: DynamicImportFact[] = [];
+	const facts: ModuleFacts = { syntaxErrors: [], specifiers: [], computedSpecifiers: 0, dynamicImports: 0, requireCalls: 0, dynamic };
 	for (const d of (sf as unknown as { parseDiagnostics: import('typescript').Diagnostic[] }).parseDiagnostics) facts.syntaxErrors.push(ts.flattenDiagnosticMessageText(d.messageText, ' '));
-	const stack: import('typescript').Node[] = [sf];
+	type Node = import('typescript').Node;
+	type Identifier = import('typescript').Identifier;
+	const ids = new Map<string, Identifier[]>();
+	const imports: import('typescript').CallExpression[] = [];
+	const defineWrites: Node[] = [];
+	const INTRINSIC_NAMES = new Set(['defineProperty', 'Object']);
+	const stack: Node[] = [sf];
 	for (let n = stack.pop(); n; n = stack.pop()) {
-		if (ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) {
+		if (ts.isIdentifier(n)) {
+			const list = ids.get(n.text);
+			list ? list.push(n) : ids.set(n.text, [n]);
+		} else if (ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) {
 			if (n.moduleSpecifier) ts.isStringLiteral(n.moduleSpecifier) ? facts.specifiers.push(n.moduleSpecifier.text) : facts.computedSpecifiers++;
 		} else if (ts.isImportEqualsDeclaration(n) && ts.isExternalModuleReference(n.moduleReference)) {
 			ts.isStringLiteral(n.moduleReference.expression) ? facts.specifiers.push(n.moduleReference.expression.text) : facts.computedSpecifiers++;
 		} else if (ts.isCallExpression(n)) {
 			const callee = n.expression;
-			if (callee.kind === ts.SyntaxKind.ImportKeyword) facts.dynamicImports++;
+			if (callee.kind === ts.SyntaxKind.ImportKeyword) (facts.dynamicImports++, imports.push(n));
 			else if ((ts.isIdentifier(callee) && callee.text === 'require') || (ts.isPropertyAccessExpression(callee) && callee.name.text === 'require')) facts.requireCalls++;
-		}
+		} else if (((ts.isPropertyAccessExpression(n) && INTRINSIC_NAMES.has(n.name.text)) || (ts.isElementAccessExpression(n) && ts.isStringLiteral(n.argumentExpression) && INTRINSIC_NAMES.has(n.argumentExpression.text))) && isWriteTarget(n)) defineWrites.push(n);
 		n.forEachChild((c) => void stack.push(c));
+	}
+	const line = (n: Node) => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+	function isWriteTarget(n: Node): boolean {
+		let at = n;
+		while (at.parent && (ts.isParenthesizedExpression(at.parent) || ts.isArrayLiteralExpression(at.parent) || ts.isObjectLiteralExpression(at.parent) || ts.isSpreadElement(at.parent) || ts.isSpreadAssignment(at.parent) || ts.isShorthandPropertyAssignment(at.parent) || (ts.isPropertyAssignment(at.parent) && at.parent.initializer === at))) at = at.parent;
+		const p = at.parent;
+		if (!p) return false;
+		if (ts.isBinaryExpression(p) && p.left === at && p.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && p.operatorToken.kind <= ts.SyntaxKind.LastAssignment) return true;
+		if ((ts.isPrefixUnaryExpression(p) || ts.isPostfixUnaryExpression(p)) && (p.operator === ts.SyntaxKind.PlusPlusToken || p.operator === ts.SyntaxKind.MinusMinusToken)) return true;
+		if ((ts.isForInStatement(p) || ts.isForOfStatement(p)) && p.initializer === at) return true;
+		return ts.isDeleteExpression(p);
+	}
+	const isDeclarationName = (i: Identifier) => {
+		const p = i.parent as Node & { name?: Node };
+		return p.name === i && (ts.isVariableDeclaration(p) || ts.isParameter(p) || ts.isBindingElement(p) || ts.isFunctionDeclaration(p) || ts.isFunctionExpression(p) || ts.isClassDeclaration(p) || ts.isClassExpression(p) || ts.isImportClause(p) || ts.isImportSpecifier(p) || ts.isNamespaceImport(p) || ts.isImportEqualsDeclaration(p));
+	};
+	const directCall = (i: Identifier) => ts.isCallExpression(i.parent) && i.parent.expression === i && !i.parent.questionDotToken;
+	/** The one module-scope, unexported `var|let|const` declaration of `name`, or why there is not exactly one. */
+	const moduleDeclaration = (name: string): { decl?: import('typescript').VariableDeclaration; problem?: string } => {
+		const decls = (ids.get(name) ?? []).filter(isDeclarationName);
+		if (decls.length !== 1) return { problem: `${name} is declared ${decls.length} times (a second declaration could shadow it)` };
+		const d = decls[0]!.parent;
+		if (!ts.isVariableDeclaration(d) || !ts.isVariableDeclarationList(d.parent) || !ts.isVariableStatement(d.parent.parent) || d.parent.parent.parent !== sf) return { problem: `${name} is not declared by a module-scope variable statement` };
+		if (d.parent.parent.modifiers?.length) return { problem: `${name} is exported or modified` };
+		return { decl: d };
+	};
+	/** Every occurrence of `name` but `skip` must be a direct non-optional call (`check` adds a condition); else the line of the first other use. */
+	const onlyCalls = (name: string, skip: Node[], check: (c: import('typescript').CallExpression) => boolean = () => true) => {
+		for (const i of ids.get(name) ?? []) if (!skip.includes(i) && !(directCall(i) && check(i.parent as import('typescript').CallExpression))) return line(i);
+		return undefined;
+	};
+	const plainParam = (p: import('typescript').ParameterDeclaration | undefined) => !!p && ts.isIdentifier(p.name) && !p.initializer && !p.dotDotDotToken;
+	const helperProblems = new Map<string, string | null>();
+	/** Null when `name` is proven to be esbuild's keep-names helper (returns its first argument, retains nothing); else why not. */
+	const keepNamesHelper = (name: string): string | null => {
+		if (helperProblems.has(name)) return helperProblems.get(name)!;
+		const prove = (): string | null => {
+			const { decl, problem } = moduleDeclaration(name);
+			if (!decl) return problem!;
+			const init = decl.initializer;
+			if (!init || !ts.isArrowFunction(init) || init.modifiers?.length || init.parameters.length !== 2 || !init.parameters.every(plainParam)) return `${name} is not esbuild's keep-names helper (target, value) => ...`;
+			const [t, v] = init.parameters.map((p) => (p.name as Identifier).text);
+			const body = init.body;
+			if (!ts.isCallExpression(body) || body.questionDotToken || !ts.isIdentifier(body.expression) || body.arguments.length !== 3) return `${name} does not only call a defineProperty alias`;
+			const [a0, a1, a2] = body.arguments;
+			const props = a2 && ts.isObjectLiteralExpression(a2) ? a2.properties : undefined;
+			const value = props?.find((p) => p.name && ts.isIdentifier(p.name) && p.name.text === 'value');
+			const conf = props?.find((p) => p.name && ts.isIdentifier(p.name) && p.name.text === 'configurable');
+			const valueOk = !!value && ((ts.isShorthandPropertyAssignment(value) && v === 'value' && !value.objectAssignmentInitializer) || (ts.isPropertyAssignment(value) && ts.isIdentifier(value.initializer) && value.initializer.text === v));
+			const confOk = !!conf && ts.isPropertyAssignment(conf) && conf.initializer.kind === ts.SyntaxKind.TrueKeyword;
+			if (!a0 || !ts.isIdentifier(a0) || a0.text !== t || !a1 || !ts.isStringLiteral(a1) || a1.text !== 'name' || props?.length !== 2 || !valueOk || !confOk) return `${name} is not esbuild's keep-names helper D(target, "name", { value, configurable: true })`;
+			const alias = body.expression.text;
+			const d = moduleDeclaration(alias);
+			if (!d.decl) return d.problem!;
+			const di = d.decl.initializer;
+			if (!di || !ts.isPropertyAccessExpression(di) || di.questionDotToken || !ts.isIdentifier(di.expression) || di.expression.text !== 'Object' || di.name.text !== 'defineProperty') return `${alias} is not Object.defineProperty`;
+			const aliasUse = onlyCalls(alias, [d.decl.name]);
+			if (aliasUse !== undefined) return `${alias} is used at line ${aliasUse} other than as a direct call (it could be replaced)`;
+			const helperUse = onlyCalls(name, [decl.name]);
+			if (helperUse !== undefined) return `${name} is used at line ${helperUse} other than as a direct call (it could be replaced)`;
+			const object = (ids.get('Object') ?? []).find((i) => isDeclarationName(i) || isWriteTarget(i) || ts.isShorthandPropertyAssignment(i.parent));
+			if (object) return `Object is declared or written at line ${line(object)}`;
+			if (defineWrites.length) return `a defineProperty or Object property is written at line ${line(defineWrites[0]!)}`;
+			return null;
+		};
+		const r = prove();
+		helperProblems.set(name, r);
+		return r;
+	};
+	const forwarder = (call: import('typescript').CallExpression, param: Identifier): { name: string; calls: { specifier: string; line: number }[] } | string => {
+		const fn = call.parent;
+		if (!ts.isArrowFunction(fn) || fn.body !== call) return 'its specifier is a variable, and the import is not the entire body of an arrow function';
+		if (fn.modifiers?.length || fn.parameters.length !== 1 || !plainParam(fn.parameters[0]) || (fn.parameters[0]!.name as Identifier).text !== param.text) return 'its forwarding arrow does not take exactly one plain parameter that is the specifier';
+		if (ids.has('eval')) return `the module names eval (line ${line(ids.get('eval')![0]!)}), which could reach the forwarder`;
+		let holder: Node = fn;
+		const wrap = fn.parent;
+		if (ts.isCallExpression(wrap) && wrap.arguments[0] === fn) {
+			if (wrap.questionDotToken || !ts.isIdentifier(wrap.expression) || wrap.arguments.length !== 2 || !ts.isStringLiteral(wrap.arguments[1]!)) return 'its forwarding arrow is passed to a call that is not a keep-names helper call';
+			const helper = keepNamesHelper(wrap.expression.text);
+			if (helper) return `its forwarding arrow passes through ${wrap.expression.text}, which is not proven to return it unchanged: ${helper}`;
+			holder = wrap;
+		}
+		const bind = holder.parent;
+		let name: string, assigned: Identifier | undefined;
+		if (ts.isVariableDeclaration(bind) && bind.initializer === holder && ts.isIdentifier(bind.name)) name = bind.name.text;
+		else if (ts.isBinaryExpression(bind) && bind.operatorToken.kind === ts.SyntaxKind.EqualsToken && bind.right === holder && ts.isIdentifier(bind.left) && ts.isExpressionStatement(bind.parent)) (name = bind.left.text), (assigned = bind.left);
+		else return 'its forwarding arrow is not bound to a name by a declaration or one plain assignment statement';
+		const { decl, problem } = moduleDeclaration(name);
+		if (!decl) return `forwarder ${name}: ${problem}`;
+		if (assigned ? decl.initializer !== undefined : decl !== bind) return `forwarder ${name} is both initialised and assigned, or bound twice`;
+		const calls: { specifier: string; line: number }[] = [];
+		const other = onlyCalls(name, assigned ? [decl.name, assigned] : [decl.name], (c) => {
+			const arg = c.arguments[0];
+			if (c.arguments.length !== 1 || !arg || !ts.isStringLiteral(arg)) return false;
+			calls.push({ specifier: arg.text, line: line(c) });
+			return true;
+		});
+		if (other !== undefined) return `forwarder ${name} is used at line ${other} other than as a direct call with one string literal (it could escape or receive a computed specifier)`;
+		return { name, calls };
+	};
+	for (const call of imports.sort((x, y) => x.pos - y.pos)) {
+		const at = line(call);
+		const arg = call.arguments[0];
+		if (call.arguments.length !== 1 || !arg) dynamic.push({ via: 'unproven', reason: 'import() has import options or no single argument', line: at });
+		else if (ts.isStringLiteral(arg)) dynamic.push({ via: 'literal', specifier: arg.text, line: at });
+		else if (!ts.isIdentifier(arg)) dynamic.push({ via: 'unproven', reason: 'its specifier is computed (neither a string literal nor a proven forwarding parameter)', line: at });
+		else {
+			const proof = forwarder(call, arg);
+			dynamic.push(typeof proof === 'string' ? { via: 'unproven', reason: proof, line: at } : { via: 'forwarder', forwarder: proof.name, line: at, calls: proof.calls });
+		}
 	}
 	return facts;
 }
 
-/** What the staged artifact says about the final upload: its problems, and the upload record built from the bytes read once from the stage. */
-function nativeArtifactFacts(stageDir: string, t: NativeTarget): { problems: string[]; digest?: string; upload?: NativeUpload; entrySha?: string } {
+/** Every artifact file as `artifact/<posix path>`, with its own size and hash. */
+const artifactFiles = (files: { rel: string; bytes: number; sha256: string }[]) => files.map((f) => ({ path: path.posix.join('artifact', f.rel.split(path.sep).join('/')), bytes: f.bytes, sha256: f.sha256 }));
+
+/**
+ * The artifact tree at `artifactDir` judged as the final upload, read once through descriptors: the layout and public-asset
+ * policy, the entry module's imports under `flags`, and the upload record built from those bytes. `onFile` sees each
+ * file's `artifact/...` path and bytes. Shared by the stage, prebuilt and the bundle contract (scripts/hosted-native-bundle).
+ */
+function nativeArtifactUpload(artifactDir: string, flags: readonly string[], onFile?: (rel: string, bytes: Buffer) => void): { problems: string[]; digest?: string; upload?: NativeUpload; entrySha?: string } {
 	const problems: string[] = [];
-	const artifactDir = path.join(stageDir, 'artifact');
-	let entry: Buffer | undefined, version: Buffer | undefined;
+	let entry: Buffer | undefined, headers: Buffer | undefined;
 	let tree: ReturnType<typeof nativeTree>;
 	try {
 		tree = nativeTree(artifactDir, (rel, bytes) => {
-			if (bytes.includes(HOSTED_GATE_MARKER)) problems.push(`artifact/${rel} holds the hosted-gate test-double marker: not a production artifact`);
-			if (path.posix.join('artifact', rel.split(path.sep).join('/')) === NATIVE_STAGED.entry) entry = bytes;
-			if (path.posix.join('artifact', rel.split(path.sep).join('/')) === NATIVE_STAGED.version) version = bytes;
+			const at = path.posix.join('artifact', rel.split(path.sep).join('/'));
+			if (bytes.includes(HOSTED_GATE_MARKER)) problems.push(`${at} holds the hosted-gate test-double marker: not a production artifact`);
+			if (at === NATIVE_STAGED.entry) entry = bytes;
+			if (at === `${NATIVE_STAGED.assets}/_headers`) headers = bytes;
+			onFile?.(at, bytes);
 		});
 	} catch (e) {
 		return { problems: [(e as Error).message] };
 	}
-	problems.push(...versionProblems(version === undefined ? null : version.toString('utf8'), t));
 	if (entry === undefined) return { problems: [...problems, `${NATIVE_STAGED.entry} is not a regular file in the staged artifact`], digest: tree.digest };
+	const entrySha = sha256Of(entry);
+	const files = artifactFiles(tree.files);
+	const layout = nativeArtifactLayout({ files, entrySha256: entrySha, headersText: headers === undefined ? null : headers.toString('utf8') });
+	problems.push(...layout.problems);
 	let facts: ModuleFacts;
 	try {
 		facts = scanModule(new TextDecoder('utf-8', { fatal: true }).decode(entry));
 	} catch (e) {
 		return { problems: [...problems, `${NATIVE_STAGED.entry} cannot be read as UTF-8 JavaScript, so it is not valid JavaScript to judge: ${(e as Error).message}`], digest: tree.digest };
 	}
-	problems.push(...uploadModuleProblems(facts));
-	const entrySha = sha256Of(entry);
-	const upload = nativeUpload({ entry: { sha256: entrySha, bytes: entry.length }, hostImports: hostImportsOf(facts), files: tree.files.map((f) => ({ path: path.posix.join('artifact', f.rel.split(path.sep).join('/')), bytes: f.bytes, sha256: f.sha256 })) });
+	problems.push(...uploadModuleProblems(facts, NATIVE_STAGED.entry, flags));
+	const upload = nativeUpload({ entry: { sha256: entrySha, bytes: entry.length }, hostImports: hostImportsOf(facts), dynamicHostImports: dynamicHostImportsOf(facts), assets: layout.assets, files });
 	return { problems, digest: tree.digest, upload, entrySha };
+}
+
+/** NATIVE24: every reason the artifact directory (cloudflare/_worker.js beside public/) is not a final native upload under `compatibilityFlags`, and its upload record. Reads only; the bundle contract calls it before anything is staged. */
+export function checkNativeArtifact(a: { artifact: string; compatibilityFlags: readonly string[] }): { problems: string[]; digest?: string; upload?: NativeUpload } {
+	const root = realDirectory(a.artifact, 'artifact');
+	if (root) return { problems: [root] };
+	const r = nativeArtifactUpload(a.artifact, a.compatibilityFlags);
+	return { problems: r.problems, digest: r.digest, upload: r.upload };
+}
+
+/** What the staged artifact says about the final upload: its problems, and the upload record built from the bytes read once from the stage. */
+function nativeArtifactFacts(stageDir: string, t: NativeTarget): { problems: string[]; digest?: string; upload?: NativeUpload; entrySha?: string } {
+	let version: Buffer | undefined;
+	const r = nativeArtifactUpload(path.join(stageDir, 'artifact'), t.runtime.compatibilityFlags, (at, bytes) => {
+		if (at === NATIVE_STAGED.version) version = bytes;
+	});
+	if (r.digest === undefined) return r;
+	return { ...r, problems: [...versionProblems(version === undefined ? null : version.toString('utf8'), t), ...r.problems] };
 }
 
 /** The staged files' hashes, digests and identity checks shared by `stageNative` and `checkNativeStage`, read from the stage only; with `reviewed`, also the reviewed bytes and the external pins. Problems accumulate, so one refusal does not hide another. */
@@ -719,42 +892,81 @@ export function stageNative(a: { client: string; artifact: string; digest: strin
  * tell a reviewed pin from a forged one a caller chose.
  */
 export function checkNativeStage(a: { client: string; stage: string; clients: string; pins?: NativePins }): string[] {
+	return [...readNativeStage(a).problems];
+}
+
+/**
+ * NATIVE24 evidence API for a separate native-stage binder (which owns its own module and is not edited here): the same
+ * verification as `checkNativeStage`, run once, returned as an immutable reading. `record` is the stage record
+ * RECOMPUTED from the stage bytes (equal to stage.json byte for byte) and `files` the sha256 of the exact stage.json,
+ * target.json and wrangler.jsonc bytes judged; both are null unless `problems` is empty. A reading is structural
+ * evidence of one local check: every claim flag in it stays false, and it is not provider, controls or funding proof.
+ */
+export type NativeStageReading = {
+	readonly checker: 'checkNativeStage';
+	readonly client: string;
+	readonly pins: Readonly<NativePins> | null;
+	readonly problems: readonly string[];
+	readonly files: Readonly<{ stageJson: string; targetJson: string; configJsonc: string }> | null;
+	readonly record: NativeStageRecord | null;
+};
+const deepFreeze = <T>(v: T): T => {
+	if (v && typeof v === 'object' && !Object.isFrozen(v)) {
+		Object.freeze(v);
+		for (const x of Object.values(v)) deepFreeze(x);
+	}
+	return v;
+};
+export function readNativeStage(a: { client: string; stage: string; clients: string; pins?: NativePins }): NativeStageReading {
+	const given = parseNativePins(a.pins).pins;
+	const done = (problems: string[], record?: NativeStageRecord, stageJson?: string): NativeStageReading =>
+		deepFreeze({
+			checker: 'checkNativeStage',
+			client: a.client,
+			pins: given ? { ...given } : null,
+			problems: [...problems],
+			files: !problems.length && record && stageJson ? { stageJson, targetJson: record.files['target.json']!, configJsonc: record.files['wrangler.jsonc']! } : null,
+			record: !problems.length && record && stageJson ? structuredClone(record) : null,
+		});
 	const root = realDirectory(a.stage, 'stage');
-	if (root) return [root];
+	if (root) return done([root]);
 	const parsed = parseNativePins(a.pins);
-	if (!parsed.pins) return parsed.problems;
+	if (!parsed.pins) return done(parsed.problems);
 	const problems = reviewedSourceProblems(a.clients, a.stage);
 	let entries: { rel: string; dir: boolean }[];
 	try {
 		entries = nativeWalk(a.stage);
 	} catch (e) {
-		return [...problems, `the stage holds an entry that is not a regular file or directory, or has a hard link: ${(e as Error).message}`];
+		return done([...problems, `the stage holds an entry that is not a regular file or directory, or has a hard link: ${(e as Error).message}`]);
 	}
 	const top = new Map(entries.filter((e) => !e.rel.includes(path.sep)).map((e) => [e.rel, e.dir]));
 	const expected = new Map<string, boolean>([...NATIVE_CLIENT_FILES.map((f) => [f, false] as const), ['stage.json', false], ['artifact', true], [STAGED.migrations, true]]);
 	for (const [n, isDir] of top) if (expected.get(n) !== isDir) problems.push(`${n} is not part of a native stage (${[...expected.keys()].join(', ')}): ${n === CONFIG_FILES.cf || n === '.cloudflare' ? CF_NATIVE_GAP : 'the upload would read it and the check does not'}`);
 	for (const [n, isDir] of expected) if (top.get(n) !== isDir) problems.push(`${n} is missing from the stage`);
-	if (problems.length) return problems;
+	if (problems.length) return done(problems);
 	let sourceTargets: NativeTarget[];
 	try {
 		sourceTargets = loadNativeTargets(a.clients);
 	} catch (e) {
-		return [(e as Error).message];
+		return done([(e as Error).message]);
 	}
 	const facts = nativeStageFacts(a.stage, a.client, sourceTargets, { pins: parsed.pins, reviewedClients: a.clients });
-	if (facts.problems.length || !facts.record) return [...facts.problems, ...facts.reviewProblems];
+	if (facts.problems.length || !facts.record) return done([...facts.problems, ...facts.reviewProblems]);
 	let written: string;
+	let writtenSha: string;
 	let parsedRecord: unknown;
 	try {
-		written = readRegular(path.join(a.stage, 'stage.json'), a.stage).toString('utf8');
+		const bytes = readRegular(path.join(a.stage, 'stage.json'), a.stage);
+		writtenSha = sha256Of(bytes);
+		written = bytes.toString('utf8');
 		parsedRecord = parseNativeJson(written);
 	} catch (e) {
-		return [...facts.reviewProblems, `stage.json cannot be read as JSON: ${(e as Error).message}`];
+		return done([...facts.reviewProblems, `stage.json cannot be read as JSON: ${(e as Error).message}`]);
 	}
 	const recordProblems: string[] = [];
 	if (typeof parsedRecord !== 'object' || parsedRecord === null || (parsedRecord as { schema?: unknown }).schema !== NATIVE_STAGE_SCHEMA) recordProblems.push(`stage.json is not a ${NATIVE_STAGE_SCHEMA} record (a legacy stage is not a native one)`);
 	else if (written !== recordText(facts.record)) recordProblems.push('stage.json is not the record of these staged bytes: a file, digest, identity, upload or claim flag differs from what the stage holds');
-	return [...facts.reviewProblems, ...recordProblems];
+	return done([...facts.reviewProblems, ...recordProblems], facts.record, writtenSha);
 }
 
 /** Every reason `argv`, run with working directory `cwd`, is not the one native upload command for the stage `stage` of `client`. It runs nothing and reads no credential or environment; an ambient WRANGLER_* or CLOUDFLARE_* variable is the caller's to scrub and is not checked here. */

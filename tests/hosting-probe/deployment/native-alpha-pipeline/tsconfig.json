@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["*.ts", "../../../../deploy/probes/target.ts", "../../../../deploy/native-alpha/pipeline*.ts"]
+  "include": ["*.ts", "../../../../deploy/probes/target.ts", "../../../../deploy/native-alpha/pipeline*.ts", "../../../../scripts/hosted-native-bundle/*.ts"]
 }

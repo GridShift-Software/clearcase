@@ -31,10 +31,33 @@
 // `no_bundle` is true", so it is declared, not left to the default). Wrangler then uploads exactly the `main` module's
 // bytes plus the assets directory: nothing is resolved, bundled or shimmed at upload time. The module must therefore be
 // a closed, prebundled graph: a scan of its parsed syntax (target.ts, `scanModule`) must find no bare, relative,
-// outside-stage, computed or dynamic import, no `require` call and no host module beyond NATIVE_HOST_IMPORTS. The stage
+// outside-stage or computed import, no `require` call and no host module beyond NATIVE_HOST_IMPORTS. The stage
 // record then names every uploaded file by its own sha256 and the entry by bytes and hash. A self-contained final
 // bundle is the initial native profile; producing it (the real SvelteKit production build and its final bundling) is
 // parent-only and was not run here.
+//
+// Dynamic host imports (NATIVE24). The real framework bundle (Wrangler 4.151.1 over adapter-cloudflare 8.0.1, measured
+// d1a6ce…) keeps two literal `import("node:async_hooks")` (SvelteKit event.js, Svelte render-context.js) and Svelte's
+// `obfuscated_import = (module_name) => import(module_name)`, called only as `obfuscated_import("node:crypto")` in a
+// WebCrypto fallback. With no_bundle and find_additional_modules:false the uploaded Worker is one module, so a dynamic
+// import can only reach a runtime built-in. A dynamic import is therefore accepted only when every specifier it can
+// receive is statically proven (a string literal, or a forwarding wrapper whose every use is a direct call with a
+// string literal: target.ts `scanModule` holds the proof) AND names a module in NATIVE_DYNAMIC_HOST_IMPORTS that the
+// target's compatibility flags enable. The flag table follows Wrangler 4.151.1 itself: in its "als" mode (nodejs_als
+// without nodejs_compat) only `node:async_hooks` is external (als-external.ts), and any other node built-in needs
+// nodejs_compat (rewriteNodeCompatBuildFailure). Anything unproven, escaping, computed or user-derived is refused.
+//
+// Public assets (NATIVE24, L1). The server entry lives alone in artifact/cloudflare/ and the public assets alone in
+// artifact/public/, the one assets directory. Wrangler 4.151.1 uploads every file of the assets directory except its
+// root `.assetsignore`, `_headers` and `_redirects` (createAssetsIgnoreFunction), and uploads `_headers`/`_redirects`
+// as routing rules. `nativeArtifactLayout` refuses an .assetsignore (an empty one also silences Wrangler's own
+// _worker.js guard), `_redirects`, `_routes.json`, any `_headers` other than the exact adapter-cloudflare 8.0.1 rules,
+// source maps, dotfiles, `_worker.js*`, a byte-identical copy of the entry and Wrangler's 25 MiB / 20,000 limits, and it
+// classifies every public file by its own hash: what is hashed is exactly what is uploaded.
+//
+// Workers refuse code generation from strings at runtime (eval/new Function), so a string cannot reopen a proven import;
+// the forwarding proof also refuses any `eval` identifier. The proof assumes JavaScript intrinsics (Object.defineProperty,
+// through esbuild's keep-names `__name`) are not replaced by bundled code; direct shadowing or writes are refused.
 //
 // Reviewed pins (fix r1, M2). A stage record, the staged target.json and the staged hashes all come from the same
 // directory, so they can only agree with each other. `prebuilt` therefore also needs NativePins, supplied by the
@@ -53,7 +76,9 @@ export const NATIVE_STAGE_SCHEMA = 'clearcase.deploy-stage.native/1';
 export const NATIVE_CONFIG_FILE = 'wrangler.jsonc';
 export const NATIVE_CLIENT_FILES = ['target.json', NATIVE_CONFIG_FILE] as const;
 /** Same paths as target.ts STAGED (asserted equal by the unit tests); duplicated so this module imports nothing from target.ts. */
-export const NATIVE_STAGED = { entry: 'artifact/cloudflare/_worker.js', assets: 'artifact/cloudflare', migrations: 'migrations', version: 'artifact/cloudflare/_app/version.json' } as const;
+export const NATIVE_STAGED = { entry: 'artifact/cloudflare/_worker.js', assets: 'artifact/public', migrations: 'migrations', version: 'artifact/public/_app/version.json' } as const;
+/** NATIVE24: the entry and the public assets are separate trees (the legacy STAGED assets directory held the entry). */
+export const NATIVE_ENTRY_DIR = 'artifact/cloudflare';
 /** The hosted-gate test-double marker (scripts/ci/hosted-artifact.ts GATE); a production artifact never contains it. */
 export const HOSTED_GATE_MARKER = 'clearcase-test-double:hosted-gate';
 export const CF_NATIVE_GAP =
@@ -333,6 +358,9 @@ export function checkNativeWrangler(a: { client: string; targets: NativeTarget[]
 	else {
 		exactKeys(config.assets, ['directory', 'binding'], 'config.assets', problems);
 		expect('the assets directory', config.assets.directory, NATIVE_STAGED.assets);
+		const dir = typeof config.assets.directory === 'string' ? config.assets.directory.replace(/^(\.\/)+/, '').replace(/\/+$/, '') : undefined;
+		if (dir !== undefined && (dir === '' || dir === '.' || NATIVE_STAGED.entry === dir || NATIVE_STAGED.entry.startsWith(`${dir}/`)))
+			problems.push(`the assets directory ${JSON.stringify(config.assets.directory)} holds the Worker entry ${NATIVE_STAGED.entry}: the server bundle would be uploaded as a public asset (the public assets are ${NATIVE_STAGED.assets}, apart from the entry)`);
 		expect('the assets binding', config.assets.binding, target.runtime.assetsBinding);
 	}
 	if (!isObject(config.vars) || JSON.stringify(Object.entries(config.vars).sort()) !== JSON.stringify(Object.entries(target.vars).sort())) problems.push(`vars are ${show(config.vars)}, not ${a.client}'s ${show(target.vars)}`);
@@ -392,18 +420,55 @@ export function nativeUploadInvocationProblems(argv: readonly string[]): string[
  */
 export const NATIVE_HOST_IMPORTS = ['cloudflare:workers', 'node:async_hooks'] as const;
 
-/** What target.ts's parser found in the entry module's syntax (nothing here reads or runs the module). */
-export type ModuleFacts = { syntaxErrors: string[]; specifiers: string[]; computedSpecifiers: number; dynamicImports: number; requireCalls: number };
+/**
+ * NATIVE24: the only runtime built-ins a dynamic `import()` may name, each with the compatibility flags of which one must
+ * be on (and its `no_` opposite off). `node:async_hooks` is the AsyncLocalStorage module that SvelteKit and Svelte load;
+ * `node:crypto` is Svelte's WebCrypto fallback, a built-in only under nodejs_compat (Wrangler 4.151.1 treats any node
+ * built-in but async_hooks as needing nodejs_compat). Extending this table is a reviewed change to this file.
+ */
+export const NATIVE_DYNAMIC_HOST_IMPORTS: Readonly<Record<string, readonly string[]>> = Object.freeze({ 'node:async_hooks': Object.freeze(['nodejs_als', 'nodejs_compat']), 'node:crypto': Object.freeze(['nodejs_compat']) });
+/** The flags each static host import needs once the target's flags are known (`cloudflare:workers` needs none). */
+const STATIC_HOST_FLAGS: Readonly<Record<string, readonly string[]>> = { 'cloudflare:workers': [], 'node:async_hooks': ['nodejs_als', 'nodejs_compat'] };
+const enabled = (needs: readonly string[], flags: readonly string[]) => needs.length === 0 || needs.some((f) => flags.includes(f) && !flags.includes(`no_${f}`));
 
-/** Every reason the entry module is not a closed, prebundled graph that `no_bundle` may upload as it is. */
-export function uploadModuleProblems(f: ModuleFacts, entry: string = NATIVE_STAGED.entry): string[] {
+/** How one `import()` call site's specifiers were proven (target.ts `scanModule`), or why they were not. Lines are 1-based. */
+export type DynamicImportFact =
+	| { via: 'literal'; specifier: string; line: number }
+	| { via: 'forwarder'; forwarder: string; line: number; calls: { specifier: string; line: number }[] }
+	| { via: 'unproven'; reason: string; line: number };
+
+/** What target.ts's parser found in the entry module's syntax (nothing here reads or runs the module). `dynamic` classifies each `import()` call; facts without it refuse every dynamic import. */
+export type ModuleFacts = { syntaxErrors: string[]; specifiers: string[]; computedSpecifiers: number; dynamicImports: number; requireCalls: number; dynamic?: DynamicImportFact[] };
+
+/**
+ * Every reason the entry module is not a closed, prebundled graph that `no_bundle` may upload as it is. Without the
+ * target's `flags` (the pre-NATIVE24 two-argument call) or without the `dynamic` classification, every dynamic import is
+ * refused as before; with both, a dynamic import passes only when each specifier is proven and enabled by `flags`.
+ */
+export function uploadModuleProblems(f: ModuleFacts, entry: string = NATIVE_STAGED.entry, flags?: readonly string[]): string[] {
 	const problems: string[] = [];
 	if (f.syntaxErrors.length) problems.push(`${entry} is not valid JavaScript, so its imports cannot be judged: ${f.syntaxErrors.slice(0, 3).join('; ')}`);
 	for (const spec of [...new Set(f.specifiers)].sort())
 		if (!(NATIVE_HOST_IMPORTS as readonly string[]).includes(spec))
 			problems.push(`${entry} imports ${JSON.stringify(spec)}: with no_bundle nothing resolves it at upload time, so the final bundle must be closed (only ${NATIVE_HOST_IMPORTS.join(', ')} may be imported as host modules; a bare, relative or outside-stage import is refused)`);
+		else if (flags !== undefined && !enabled(STATIC_HOST_FLAGS[spec]!, flags))
+			problems.push(`${entry} imports ${JSON.stringify(spec)}, which the target's compatibility flags ${JSON.stringify(flags)} do not enable: it needs one of ${STATIC_HOST_FLAGS[spec]!.join(', ')}`);
 	if (f.computedSpecifiers) problems.push(`${entry} has ${f.computedSpecifiers} import or export-from with a specifier that is not a string literal`);
-	if (f.dynamicImports) problems.push(`${entry} has ${f.dynamicImports} dynamic import() call(s): a dynamic import cannot be bound to the uploaded bytes (computed or not, it is refused)`);
+	if (f.dynamicImports && (flags === undefined || f.dynamic === undefined))
+		problems.push(`${entry} has ${f.dynamicImports} dynamic import() call(s): a dynamic import cannot be bound to the uploaded bytes (computed or not, it is refused)`);
+	else if (f.dynamic !== undefined && flags !== undefined) {
+		if (f.dynamic.length !== f.dynamicImports) problems.push(`${entry} has ${f.dynamicImports} dynamic import() call(s) but ${f.dynamic.length} were classified: every dynamic import must be judged`);
+		const judge = (spec: string, line: number, via: string) => {
+			const needs = NATIVE_DYNAMIC_HOST_IMPORTS[spec];
+			if (!needs) problems.push(`${entry} has a dynamic import of ${JSON.stringify(spec)} (line ${line}, ${via}): only the runtime built-ins ${Object.keys(NATIVE_DYNAMIC_HOST_IMPORTS).join(', ')} may be imported dynamically; a package, relative chunk or other host module is refused (nothing else is uploaded)`);
+			else if (!enabled(needs, flags)) problems.push(`${entry} has a dynamic import of ${JSON.stringify(spec)} (line ${line}, ${via}) that the target's compatibility flags ${JSON.stringify(flags)} do not enable: it needs one of ${needs.join(', ')}`);
+		};
+		for (const d of f.dynamic) {
+			if (d.via === 'unproven') problems.push(`${entry} has a dynamic import() at line ${d.line} whose specifier is not proven to be a runtime built-in: ${d.reason}`);
+			else if (d.via === 'literal') judge(d.specifier, d.line, 'a string literal');
+			else for (const c of d.calls) judge(c.specifier, c.line, `through the forwarder ${d.forwarder} defined at line ${d.line}`);
+		}
+	}
 	if (f.requireCalls) problems.push(`${entry} has ${f.requireCalls} require() call(s): the final bundle must be a closed ES module graph`);
 	return problems;
 }
@@ -411,12 +476,82 @@ export function uploadModuleProblems(f: ModuleFacts, entry: string = NATIVE_STAG
 /** The static host imports a closed bundle uses, sorted and distinct, for the stage record. */
 export const hostImportsOf = (f: ModuleFacts): string[] => [...new Set(f.specifiers)].sort();
 
-export type UploadFile = { path: string; bytes: number; sha256: string };
-export type NativeUpload = { mode: 'prebundled-no-bundle'; bundler: 'none'; entry: { path: string; sha256: string; bytes: number }; hostImports: string[]; additionalModules: false; files: UploadFile[]; invocation: string[] };
+export type DynamicHostImport = { specifier: string; via: string; sites: number };
+/** The proven dynamic host imports, per specifier and proof (`literal` or `forwarder <name>`), with their call-site counts, sorted. */
+export function dynamicHostImportsOf(f: ModuleFacts): DynamicHostImport[] {
+	const count = new Map<string, DynamicHostImport>();
+	const add = (specifier: string, via: string) => {
+		const k = JSON.stringify([specifier, via]);
+		const c = count.get(k) ?? { specifier, via, sites: 0 };
+		c.sites++;
+		count.set(k, c);
+	};
+	for (const d of f.dynamic ?? []) {
+		if (d.via === 'literal') add(d.specifier, 'literal');
+		else if (d.via === 'forwarder') for (const c of d.calls) add(c.specifier, `forwarder ${d.forwarder}`);
+	}
+	return [...count.values()].sort((x, y) => (x.specifier < y.specifier ? -1 : x.specifier > y.specifier ? 1 : x.via < y.via ? -1 : x.via > y.via ? 1 : 0));
+}
 
-/** The record of the ACTUAL final upload bytes: the entry by bytes and hash, every uploaded file by its own hash, and the exact command. */
-export function nativeUpload(a: { entry: { sha256: string; bytes: number }; hostImports: string[]; files: UploadFile[] }): NativeUpload {
-	return { mode: 'prebundled-no-bundle', bundler: 'none', entry: { path: NATIVE_STAGED.entry, ...a.entry }, hostImports: a.hostImports, additionalModules: false, files: a.files, invocation: [...NATIVE_UPLOAD_ARGV] };
+export type UploadFile = { path: string; bytes: number; sha256: string };
+/** The public assets Wrangler uploads (every file of the assets directory but `_headers`), and the `_headers` rules it applies. */
+export type NativeAssets = { directory: typeof NATIVE_STAGED.assets; files: UploadFile[]; headers: UploadFile | null };
+export type NativeUpload = { mode: 'prebundled-no-bundle'; bundler: 'none'; entry: { path: string; sha256: string; bytes: number }; hostImports: string[]; dynamicHostImports: DynamicHostImport[]; additionalModules: false; assets: NativeAssets; files: UploadFile[]; invocation: string[] };
+
+/** The record of the ACTUAL final upload bytes: the entry by bytes and hash, the public assets and header rules by their own hashes, every artifact file, and the exact command. */
+export function nativeUpload(a: { entry: { sha256: string; bytes: number }; hostImports: string[]; dynamicHostImports: DynamicHostImport[]; assets: NativeAssets; files: UploadFile[] }): NativeUpload {
+	return { mode: 'prebundled-no-bundle', bundler: 'none', entry: { path: NATIVE_STAGED.entry, ...a.entry }, hostImports: a.hostImports, dynamicHostImports: a.dynamicHostImports, additionalModules: false, assets: a.assets, files: a.files, invocation: [...NATIVE_UPLOAD_ARGV] };
+}
+
+/**
+ * The exact `_headers` adapter-cloudflare 8.0.1 writes for a Workers build with no user `_headers` (generate_headers for
+ * app dir `_app`): noindex and no-cache on /_app/*, immutable caching on /_app/immutable/*. It is the only header policy
+ * the native profile accepts; any other byte, rule or file is refused.
+ */
+export const NATIVE_ADAPTER_HEADERS =
+	'# === START AUTOGENERATED SVELTE IMMUTABLE HEADERS ===\n/_app/*\n  X-Robots-Tag: noindex\n  Cache-Control: no-cache\n# === END AUTOGENERATED SVELTE IMMUTABLE HEADERS ===\n# === START AUTOGENERATED SVELTE IMMUTABLE HEADERS ===\n/_app/immutable/*\n  ! Cache-Control\n  Cache-Control: public, immutable, max-age=31536000\n# === END AUTOGENERATED SVELTE IMMUTABLE HEADERS ===';
+/** Wrangler 4.151.1 MAX_ASSET_SIZE and MAX_ASSET_COUNT_DEFAULT. */
+export const NATIVE_MAX_ASSET_BYTES = 25 * 1024 * 1024;
+export const NATIVE_MAX_ASSET_COUNT = 20_000;
+
+/**
+ * The artifact's layout and public-asset policy, from every artifact file (`artifact/...` posix paths, own sizes and
+ * hashes) and the `_headers` text when the public root holds one: problems, and the public assets classified. Only
+ * artifact/cloudflare/_worker.js may sit outside artifact/public, and the public tree must hold exactly what is served.
+ */
+export function nativeArtifactLayout(a: { files: UploadFile[]; entrySha256: string; headersText: string | null }): { problems: string[]; assets: NativeAssets } {
+	const problems: string[] = [];
+	const assets: NativeAssets = { directory: NATIVE_STAGED.assets, files: [], headers: null };
+	const pub = `${NATIVE_STAGED.assets}/`;
+	for (const f of a.files) {
+		if (f.path === NATIVE_STAGED.entry) continue;
+		if (f.path.startsWith(`${NATIVE_ENTRY_DIR}/`)) {
+			problems.push(`${f.path} is not the Worker entry: only ${NATIVE_STAGED.entry} is uploaded from ${NATIVE_ENTRY_DIR}, as the one module (a source map, chunk or asset beside it is refused)`);
+			continue;
+		}
+		if (!f.path.startsWith(pub)) {
+			problems.push(`${f.path} is not part of a native artifact (only ${NATIVE_STAGED.entry}, the server entry, and ${NATIVE_STAGED.assets}/, the public assets)`);
+			continue;
+		}
+		const rel = f.path.slice(pub.length);
+		const segments = rel.split('/');
+		const name = segments.at(-1)!;
+		if (rel === '.assetsignore') problems.push(`${f.path}: an .assetsignore (empty or not) changes which public files Wrangler uploads, and an empty one silences Wrangler's own _worker.js guard; the public directory must hold exactly what is served`);
+		else if (segments.some((s) => s.startsWith('.'))) problems.push(`${f.path} is a dotfile or lies in a dot directory: it is refused as a public asset`);
+		else if (rel === '_redirects') problems.push(`${f.path}: redirect rules are not part of the native profile (Wrangler would upload and apply them)`);
+		else if (rel === '_routes.json') problems.push(`${f.path} is a Pages routing file: in Workers static assets it would only be served as a public file`);
+		else if (rel === '_headers') {
+			if (a.headersText !== NATIVE_ADAPTER_HEADERS) problems.push(`${f.path} is not the exact adapter-cloudflare 8.0.1 header rules (noindex/no-cache on /_app/*, immutable on /_app/immutable/*): any other _headers policy is refused`);
+			else assets.headers = f;
+		} else if (segments.some((s) => s.startsWith('_worker.js'))) problems.push(`${f.path} is a server Worker file in the public assets: the server bundle must never be public`);
+		else if (name.endsWith('.map')) problems.push(`${f.path} is a source map: it is refused as a public asset`);
+		else if (f.sha256 === a.entrySha256) problems.push(`${f.path} is byte-identical to the Worker entry: a renamed server bundle would be public`);
+		else if (f.bytes > NATIVE_MAX_ASSET_BYTES) problems.push(`${f.path} is ${f.bytes} bytes, over the 25 MiB Workers asset limit (Wrangler 4.151.1 MAX_ASSET_SIZE)`);
+		else assets.files.push(f);
+	}
+	if (assets.files.length === 0) problems.push(`${NATIVE_STAGED.assets} holds no public assets`);
+	if (assets.files.length > NATIVE_MAX_ASSET_COUNT) problems.push(`${NATIVE_STAGED.assets} holds ${assets.files.length} public assets, over Wrangler 4.151.1's ${NATIVE_MAX_ASSET_COUNT}`);
+	return { problems, assets };
 }
 
 /** The external pins a credentialed caller supplies to `prebuilt`, from the reviewed record and never from the stage. */
@@ -491,3 +626,6 @@ export function versionProblems(text: string | null, t: NativeTarget): string[] 
 	if (!isObject(v) || v.version !== t.runtime.sourceSha) return [`${NATIVE_STAGED.version} names ${show(isObject(v) ? v.version : v)}, not the target's source ${t.runtime.sourceSha}`];
 	return [];
 }
+
+/** The native stage record, as written and recomputed (a separate binder reads it through target.ts `readNativeStage`). */
+export type NativeStageRecord = ReturnType<typeof nativeStageRecord>;

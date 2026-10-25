@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "@clerk/backend": "3.26.0",
+    "@cloudflare/puppeteer": "1.4.0",
     "@kenjiuno/msgreader": "1.29.0",
     "buffer": "6.0.3",
     "dompurify": "3.4.17",

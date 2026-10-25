@@ -13,7 +13,7 @@ import { preparePackage, type FileAssetClaim, type OriginalFact } from '../../..
 import { readModelDigest, type StagedProjection } from '../../../results/hosted/read-model.ts';
 import { d1SubmissionRepository } from '../../../submissions/repository.ts';
 import { storageAccess, type OpenStorage } from '../../../storage/cloud/access.ts';
-import type { CloudBindings, CloudD1Statement } from '../../../storage/cloud/bindings.ts';
+import type { CloudBindings, CloudD1Statement, CloudR2Head } from '../../../storage/cloud/bindings.ts';
 import { storageBudgets, type StorageBudgets } from '../../../storage/cloud/budgets.ts';
 import { originalKey, packageKey } from '../../../storage/cloud/keys.ts';
 import { verifiedRead } from '../../../storage/cloud/objects.ts';
@@ -72,48 +72,61 @@ export function createHostedCandidateStager(o: HostedCandidateStagerOptions): Ho
     await identity.checkRevocation();
   }
 
-  /** Every storage await (including an R2 body's await) checks current authority on both sides. */
+  /** Each raw storage invocation (including synchronous construction and R2 bodies) is authority-scoped. */
   function scoped(requestClient: ClientId, caseId: CaseId) {
     const check = () => authorize(requestClient, caseId);
     async function checked<T>(f: () => Promise<T>): Promise<T> {
       await check();
       let value!: T;
       try { value = await f(); }
-      catch (error) {
-        // Preserve deliberate contract refusals (integrity, invalid input, etc.); raw provider/transport
-        // failures from D1 or R2 are transient storage faults. Recheck authority before reporting either.
+      catch {
+        // Only raw binding invocations enter this catch: a driver's code (even a ContractError-shaped
+        // object) is not contract provenance. Authority checks and application refusals stay outside it.
         await check();
-        if (error instanceof Error && 'code' in error && typeof error.code === 'string') throw error;
         unavailable();
       }
       await check();
       return value;
     }
-    // Statement wrappers retain their raw statement only within this scope, for real D1 atomic batches.
-    const raw = new WeakMap<CloudD1Statement, CloudD1Statement>();
-    function statement(s: CloudD1Statement): CloudD1Statement {
+    // Defer prepare/bind until execution, inside the same try/await boundary as first/all/run/batch.
+    // The scope-local builders still produce raw statements for one real atomic D1 batch.
+    type BuildStatement = () => CloudD1Statement;
+    const raw = new WeakMap<CloudD1Statement, BuildStatement>();
+    function statement(build: BuildStatement): CloudD1Statement {
       const wrapped: CloudD1Statement = {
-        bind: (...v) => statement(s.bind(...v)),
-        first: <T>() => checked(() => s.first<T>()),
-        all: <T>() => checked(() => s.all<T>()),
-        run: () => checked(() => s.run()),
+        bind: (...v) => statement(() => build().bind(...v)),
+        first: <T>() => checked(() => build().first<T>()),
+        all: <T>() => checked(() => build().all<T>()),
+        run: () => checked(() => build().run()),
       };
-      raw.set(wrapped, s);
+      raw.set(wrapped, build);
       return wrapped;
     }
+    const metadata = (head: CloudR2Head): CloudR2Head => ({
+      key: head.key, size: head.size, etag: head.etag, version: head.version, checksums: { sha256: head.checksums.sha256 },
+    });
     const guarded: CloudBindings = {
       db: {
-        prepare: (sql) => statement(bindings.db.prepare(sql)),
-        batch: (ss) => checked(() => bindings.db.batch(ss.map((s) => raw.get(s) ?? integrity()))),
+        prepare: (sql) => statement(() => bindings.db.prepare(sql)),
+        batch: (ss) => {
+          // This is our own invariant failure, not a backend invocation; do not normalize it.
+          const builds = ss.map((s) => raw.get(s) ?? integrity());
+          return checked(() => bindings.db.batch(builds.map((build) => build())));
+        },
       },
       bucket: {
-        head: (key) => checked(() => bindings.bucket.head(key)),
-        put: (key, bytes, options) => checked(() => bindings.bucket.put(key, bytes, options)),
-        get: async (key) => {
-          const body = await checked(() => bindings.bucket.get(key));
-          return body && { key: body.key, size: body.size, etag: body.etag, version: body.version, checksums: body.checksums,
-            arrayBuffer: () => checked(() => body.arrayBuffer()) };
-        },
+        head: (key) => checked(async () => {
+          const head = await bindings.bucket.head(key);
+          return head && metadata(head);
+        }),
+        put: (key, bytes, options) => checked(async () => {
+          const head = await bindings.bucket.put(key, bytes, options);
+          return head && metadata(head);
+        }),
+        get: (key) => checked(async () => {
+          const body = await bindings.bucket.get(key);
+          return body && { ...metadata(body), arrayBuffer: () => checked(() => body.arrayBuffer()) };
+        }),
       },
     };
     const open = storageAccess({ bindings: guarded, clientId, budgets: b }, 'storage-unavailable');

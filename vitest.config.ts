@@ -2,8 +2,9 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import { BaseSequencer, type TestSpecification } from 'vitest/node';
+import nativeViewerConfig from './tests/hosted-smoke/native-viewer/vitest.config.ts';
 
 // Files that spend most of their run waiting on real SQLite locks and timers, longest first on pc1's CI VM. They start
 // first, so that no worker ends the run alone on one: without Vitest's results cache (a fresh checkout, as in CI)
@@ -18,13 +19,17 @@ class SlowFirst extends BaseSequencer {
 }
 
 export default defineConfig({
-  // the Svelte transform and SvelteKit's $lib alias, so a test that reaches a component (an owner's overview widget
-  // through the slot registry's import.meta.glob, say) compiles it instead of failing import analysis on the .svelte
-  // source or on a $lib import
-  plugins: [svelte({ configFile: false })],
+  // Shared aliases; Svelte compilation belongs to each project below, so the viewer's client transform never
+  // receives a component already compiled for the server.
   // the Workers runtime module exists only on workerd; unit tests see an env with no bindings
   resolve: { alias: { $lib: fileURLToPath(new URL('./src/lib', import.meta.url)), 'cloudflare:workers': fileURLToPath(new URL('./tests/hosted-foundation/runtime/cloudflare-workers.ts', import.meta.url)) } },
   test: {
+    // The viewer lifecycle needs client-compiled Svelte; keep it in its own project, once, while every other test
+    // inherits this root project's server compilation, aliases, setup and sequencer.
+    projects: [
+      { extends: true, plugins: [svelte({ configFile: false })], test: { name: 'root', exclude: [...configDefaults.exclude, 'tests/hosted-smoke/native-viewer/**'] } },
+      { ...nativeViewerConfig, test: { ...nativeViewerConfig.test, name: 'native-viewer' } },
+    ],
     // GRS-10's package suite, then the pilot's unit tests (storage, import, activation, originals, contracts), the
     // parity harness, the pilot e2e harness's own unit tests, and the M2 owners' write scopes
     // (.orchestration/reservations.tsv, CC-04 to CC-10), so a new owner's tests run without an edit here. Route-level

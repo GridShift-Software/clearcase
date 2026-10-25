@@ -15,7 +15,9 @@ const SOURCE = 'a'.repeat(40);
 const STAMP = { revision: SOURCE, dirty: false, exported: false, builtAt: '2026-10-25T06:40:03.000Z', bun: '1.4.2', buildId: 'synthetic-bootstrap', target: 'cloudflare', profile: 'production' };
 const worker = (stamp: unknown = STAMP) => `const embedded = ${JSON.stringify(JSON.stringify(stamp))};
 const forward = (name) => import(name);
-export default { async fetch() { await import("node:async_hooks"); await forward("node:crypto"); return new Response(embedded); } };\n`;
+const kit_manifest = (() => { return { app_dir: "_app", app_path: "_app", assets: new Set(["robots.txt"]), client: { start: "_app/immutable/start.js", app: "_app/immutable/app.js", imports: ["_app/immutable/chunk.js"], stylesheets: ["_app/immutable/site.css"], fonts: [] } }; })();
+const server = create_server(kit_manifest);
+export default { async fetch() { await server.respond(); await import("node:async_hooks"); await forward("node:crypto"); return new Response(embedded); } };\n`;
 const sha = (bytes: string | Uint8Array) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -29,6 +31,10 @@ function fixture() {
 	};
 	put('cloudflare/_worker.js', worker());
 	put('public/_app/version.json', JSON.stringify({ version: SOURCE }));
+	put('public/robots.txt', 'User-agent: *\nDisallow:\n');
+	put('public/_app/immutable/start.js', 'export function start() {}\n');
+	put('public/_app/immutable/app.js', 'import "./chunk.js";\n');
+	put('public/_app/immutable/chunk.js', 'export const loaded = true;\n');
 	put('public/_app/immutable/site.css', 'body { color: black; }\n');
 	put('public/_headers', NATIVE_ADAPTER_HEADERS);
 	const pins = (): BootstrapSettings => ({
@@ -109,7 +115,7 @@ describe('file-checking owner and bounded upload guard', () => {
 		expect(upload).not.toHaveProperty('invocation');
 		expect(upload.entry.sha256).toBe(f.settings.pins.entry);
 		expect(upload.dynamicHostImports.map((x) => x.specifier)).toEqual(['node:async_hooks', 'node:crypto']);
-		expect(upload.assets.files.map((x) => x.path)).toEqual(['artifact/public/_app/immutable/site.css', 'artifact/public/_app/version.json']);
+		expect(upload.assets.files.map((x) => x.path)).toEqual(['artifact/public/_app/immutable/app.js', 'artifact/public/_app/immutable/chunk.js', 'artifact/public/_app/immutable/site.css', 'artifact/public/_app/immutable/start.js', 'artifact/public/_app/version.json', 'artifact/public/robots.txt']);
 		expect(upload.assets.headers?.path).toBe('artifact/public/_headers');
 		for (const file of upload.files) {
 			const bytes = readFileSync(path.join(f.out, file.path));
@@ -221,7 +227,7 @@ describe('production identity and existing closed-artifact checks', () => {
 	});
 	it('refuses missing or conflicting production markers', () => {
 		const f = fixture();
-		f.put('cloudflare/_worker.js', 'export default { fetch() { return new Response("no marker"); } };');
+		f.put('cloudflare/_worker.js', worker('no marker'));
 		expect(() => prepareWorkersDevBootstrap({ artifact: f.artifact, out: f.out, settings: f.pins() })).toThrow(/production marker/);
 		f.put('cloudflare/_worker.js', `${worker()} const second = ${JSON.stringify(JSON.stringify({ ...STAMP, buildId: 'second' }))};`);
 		expect(() => prepareWorkersDevBootstrap({ artifact: f.artifact, out: f.out, settings: f.pins() })).toThrow(/production marker/);

@@ -28,7 +28,7 @@ import type { NativeImportPorts } from '../../../results-review/native/ports.ts'
 import { canonicalText } from '../../../case-package/canonical.ts';
 import { committedAuditRecovery, type RecoveryD1 } from '../../../audit/recovery.ts';
 import { createPublicationMaterialReader } from './publication-material.ts';
-import { LIMITS as CANONICAL_VALIDATION_LIMITS } from '../../../case-package/limits.ts';
+import { hostedValidationPolicy } from './validation-policy.ts';
 import { d1PublicationPublisher } from '../../../publication/hosted/d1-publisher.ts';
 import { d1PublicationLedger } from '../../../publication/hosted/ledger.ts';
 import { d1ReadinessFence } from '../../../publication/hosted/readiness-fence.ts';
@@ -173,10 +173,11 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 							} },
 						};
 					}
-					const material = createPublicationMaterialReader({ db: context.rawDb, bucket: cloud.bucket,
+					const validationLimits = hostedValidationPolicy(budgets);
+					const material = validationLimits && createPublicationMaterialReader({ db: context.rawDb, bucket: cloud.bucket,
 						clientId: clerk.config.clientId, identity, audit: services.audit, storageBudgets: budgets,
-						// The same fixed canonical parser policy used by the importer, not default resource budgets.
-						validationLimits: { ...CANONICAL_VALIDATION_LIMITS },
+						// Revalidate with the importer's complete effective parser + explicit resource policy.
+						validationLimits,
 						// Until the SDK build policy/closure is proved and composed, every required file stays pending.
 						renderChecker: null, now });
 					const publication: PublicationReadinessPorts | null = material ? {

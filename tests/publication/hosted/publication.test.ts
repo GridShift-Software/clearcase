@@ -306,15 +306,37 @@ describe('publication is a CAS on the exact signed-off candidate', () => {
   });
 });
 
+describe('an applied pointer change is always settled by retrying its operation', () => {
+  it('a publish whose audit event failed is applied once; the retry audits it even after a later candidate edit', async () => {
+    const w = world(), signoffId = await signedOff(w), body = { operationId: op(), signoffId, expected: { kind: 'none' } };
+    w.audit.failNext = 1;
+    let r = await call('publish', 'case-a', body);
+    expect(r.status).toBe(503);
+    expect(await code(r)).toBe('audit-unavailable');
+    expect(operations(w.db)[0]).toMatchObject({ state: 'applied' });
+    w.candidates.put(snapshot({ snapshotRevision: 'snap-9' }));
+    r = await call('publish', 'case-a', body);
+    expect(r.status).toBe(200);
+    expect(w.publisher.calls).toEqual([`publish:case-a:${RV_NEW}`]);
+    expect(operations(w.db)[0]).toMatchObject({ state: 'audited' });
+    expect(w.audit.events.map((e) => e.action)).toEqual(['publication.signoff', 'publication.publish']);
+  });
+});
+
 describe('withdrawal removes results only', () => {
   it('needs explicit publish authority and a matching expected pointer', async () => {
     const w = world();
     w.publisher.pointer.set('case-a', { kind: 'published', resultsVersion: RV_OLD });
     let r = await call('withdraw', 'case-a', { operationId: op(), resultsVersion: RV_OLD, expected: { kind: 'published', resultsVersion: RV_OLD } }, { who: identity({ principal: STRANGER }) });
     expect(r.status).toBe(403);
+    // an expectation that is not "this version is published" is malformed; a stale one is a CAS conflict
     r = await call('withdraw', 'case-a', { operationId: op(), resultsVersion: RV_OLD, expected: { kind: 'none' } });
+    expect(r.status).toBe(422);
+    w.publisher.pointer.set('case-a', { kind: 'published', resultsVersion: RV_NEW });
+    r = await call('withdraw', 'case-a', { operationId: op(), resultsVersion: RV_OLD, expected: { kind: 'published', resultsVersion: RV_OLD } });
     expect(r.status).toBe(409);
-    expect(w.publisher.current('case-a')).toEqual({ kind: 'published', resultsVersion: RV_OLD });
+    expect(await code(r)).toBe('publication-conflict');
+    expect(w.publisher.current('case-a')).toEqual({ kind: 'published', resultsVersion: RV_NEW });
   });
 
   it('withdraws the published version, audits it, and leaves originals and user work in place', async () => {

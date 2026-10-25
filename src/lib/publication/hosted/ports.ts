@@ -125,6 +125,7 @@ export interface PublicationLedger {
   signoff(a: { clientId: ClientId; caseId: CaseId; signoffId: string }): Promise<SignoffRecord | null>;
   settleSignoff(a: { clientId: ClientId; caseId: CaseId; signoffId: string }): Promise<void>;
   invalidateSignoff(a: { clientId: ClientId; caseId: CaseId; signoffId: string; at: string; reason: string }): Promise<void>;
+  operation(a: { clientId: ClientId; caseId: CaseId; operationId: string }): Promise<OperationRecord | null>;
   beginOperation(r: OperationRecord): Promise<{ kind: 'begun'; record: OperationRecord; repeated: boolean } | { kind: 'operation-reused' }>;
   finishOperation(a: { clientId: ClientId; caseId: CaseId; operationId: string; state: 'applied' | 'refused' | 'failed'; reason: string | null }): Promise<void>;
   settleOperation(a: { clientId: ClientId; caseId: CaseId; operationId: string }): Promise<void>;

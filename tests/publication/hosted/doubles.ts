@@ -120,10 +120,10 @@ export class MemoryPublisher {
 }
 
 export function snapshot(o: Partial<CandidateSnapshot> & { caseId?: CaseId; candidateId?: string; rv?: ResultsVersion } = {}): CandidateSnapshot {
-  const caseId = o.caseId ?? CASE_A, rv = o.rv ?? RV_NEW, candidateId = o.candidateId ?? 'cand-0001';
+  const { caseId = CASE_A, rv = RV_NEW, candidateId = 'cand-0001', ...facts } = o;
   return {
     link: {
-      linkId: `link-${candidateId}`, clientId: CLIENT, caseId, submissionRevisionId: 'subrev-op-0001-aaaaaaaaaaaaaaaa', submissionManifestSha256: hex('a'),
+      linkId: `link-${candidateId}`, clientId: CLIENT, caseId, submissionRevisionId: 'subrev-op-0001-aaaaaaaaaaaaaaaa', submissionManifestSha256: hex('a') as never,
       candidate: { clientId: CLIENT, caseId, candidateId, resultsVersion: rv, manifestSha256: hex('b') as never, packageInputRevisionId: id('input-revision', 'inrev-1') },
     } as CandidateSnapshot['link'],
     preparedBy: { issuer: ISSUER, subject: PREPARER.subject },
@@ -132,7 +132,7 @@ export function snapshot(o: Partial<CandidateSnapshot> & { caseId?: CaseId; cand
     trustedBaseline: ['e'.repeat(32)],
     requiredSections: [{ key: 'chronology', state: 'valid' }, { key: 'documents', state: 'valid' }],
     requiredPreviews: [{ assetId: 'orig-1', state: 'rendered' }],
-    ...o,
+    ...facts,
   };
 }
 

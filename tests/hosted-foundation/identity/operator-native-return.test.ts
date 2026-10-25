@@ -73,7 +73,7 @@ describe('the staff portal returns to the operator route', () => {
 		expect(new URL(clerkSignInTarget(workers.env, '/cases', 'staff', DEV_BROWSER)!.href).searchParams.has('__clerk_db_jwt')).toBe(false);
 		expect(clerkSignInTarget(workers.env, 'https://attacker.example.test/cases', 'staff')).toBeNull();
 	});
-	it.each(['/sign-in/operator?returnTo=/cases', '/sign-in', '/sign-out', '/SIGN-IN/operator', '/sign-in%2Foperator', '/cases/../sign-in/operator', '/%73ign-in/operator', '/sign-in%252Foperator'])(
+	it.each(['/sign-in/operator?returnTo=/cases', '/sign-in', '/sign-out', '/SIGN-IN/operator', '/sign-in%2Foperator', '/cases/../sign-in/operator', '/%73ign-in/operator', '/sign-in%252Foperator', '/%2F%2Fsign-in/operator'])(
 		'never nests a sign-in or sign-out page (%s) as the staff callback\'s final target', (back) => {
 			expect(callbackOf(clerkSignInTarget(workers.env, back, 'staff')!.href).href).toBe(`${ORIGIN}/sign-in/operator`);
 		},
@@ -89,7 +89,7 @@ describe('the operator page once the staff handshake has installed a session', (
 	});
 	it.each([
 		'https://attacker.example.test/cases', '//attacker.example.test/cases', '/\\attacker.example.test', '/cases\u0000x', '/cases\nx', 'javascript:alert(1)',
-		'/sign-in/operator?returnTo=/cases', '/sign-in/operator', '/sign-in', '/sign-out', '/sign-out/x', '/SIGN-IN/operator', '/sign-in%2Foperator', '/cases/../sign-in/operator', '/%73ign-in/operator', '/sign-in%252Foperator', '/%E0%A4%A',
+		'/sign-in/operator?returnTo=/cases', '/sign-in/operator', '/sign-in', '/sign-out', '/sign-out/x', '/SIGN-IN/operator', '/sign-in%2Foperator', '/cases/../sign-in/operator', '/%73ign-in/operator', '/sign-in%252Foperator', '/%2F%2Fsign-in/operator', '/%E0%A4%A',
 	])('sends a verified staff session to /cases instead of the return target %j', async (returnTo) => {
 		const staff = await identityOf(staffToken());
 		expect((await load(staff, `?returnTo=${encodeURIComponent(returnTo)}`)).thrown).toMatchObject({ status: 303, location: '/cases' });

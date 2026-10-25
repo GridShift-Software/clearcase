@@ -1,17 +1,23 @@
 import { error, fail, redirect, type Actions, type RequestEvent } from '@sveltejs/kit';
 import { env } from 'cloudflare:workers';
 import { refuse } from '$lib/server/runtime/hosted/http';
-import { clerkSignInTarget } from '$lib/auth/clerk/config';
-import { prepareSignIn, safeReturnTo } from '$lib/auth/clerk/flow';
+import { clerkSignInTarget, isSignInFlowPage } from '$lib/auth/clerk/config';
+import { DEFAULT_RETURN, prepareSignIn, safeReturnTo } from '$lib/auth/clerk/flow';
 
 // The per-client operator sign-in (GRS-113): ClearCase staff reach this client's origin through the internal staff Clerk
 // instance, on the client's own Worker. There is no staff host and no third Worker. A staff session still reaches a case
 // only when the case authorizer (GRS-114) grants it. The hosted-gate profile has no operator sign-in.
+// The staff portal returns here, so the hook takes the staff handshake; a verified staff session then goes on to returnTo.
 const unconfigured = () => error(503, { message: 'No operator sign-in is configured for this deployment.', code: 'identity-unavailable' });
-const staff = (url?: URL) => clerkSignInTarget(env, safeReturnTo(url?.searchParams.get('returnTo')), 'staff');
+const finalTarget = (url: URL) => {
+	const to = safeReturnTo(url.searchParams.get('returnTo'));
+	return isSignInFlowPage(new URL(to, url.origin).pathname) ? DEFAULT_RETURN : to;
+};
+const staff = (url: URL) => clerkSignInTarget(env, finalTarget(url), 'staff');
 
 export async function load({ locals, url }: RequestEvent) {
 	if (locals.runtime.testIdentity) error(404, { message: 'Not found.' });
+	if (locals.identity.kind === 'verified' && locals.identity.principal.kind === 'staff') redirect(303, finalTarget(url));
 	const target = staff(url);
 	if (!target) unconfigured();
 	return { provider: 'clerk-staff', href: target!.href, options: [] };

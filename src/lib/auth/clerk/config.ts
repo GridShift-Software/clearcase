@@ -176,6 +176,9 @@ export function readClerkIdentityConfig(env: Readonly<Record<string, unknown>>, 
  * browser, so a portal on another origin signs in this browser's client only when handed it, as @clerk/backend's
  * redirectToSignIn does; without it the portal signs in a client of its own and the handshake here stays signed out. It is
  * added for the client instance only: the cookie name is shared on this origin and nothing shows which instance minted it.
+ *
+ * The staff portal returns to the operator route, carrying the target as `returnTo`, not to the target itself: only that
+ * route takes the staff handshake for a browser with no staff session yet, and it sends the verified session on.
  */
 export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, returnTo: string, kind: InstanceKind = 'client', devBrowser: string | null = null): { href: string } | null {
 	const read = readClerkIdentityConfig(env, { keys: 'optional' });
@@ -183,6 +186,12 @@ export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, return
 	if (!read.ok || signInUrl === null) return null;
 	const target = new URL(signInUrl), back = new URL(returnTo, read.config.appOrigin);
 	if (back.origin !== read.config.appOrigin) return null;
+	if (kind === 'staff') {
+		const operator = new URL(STAFF_SIGN_IN_PAGE, read.config.appOrigin);
+		if (!isSignInFlowPage(back.pathname)) operator.searchParams.set('returnTo', `${back.pathname}${back.search}`);
+		target.searchParams.set('redirect_url', operator.href);
+		return { href: target.href };
+	}
 	target.searchParams.set('redirect_url', back.href);
 	const development = read.config[kind].publishableKey.startsWith('pk_test_');
 	if (kind === 'client' && development && devBrowser !== null && DEV_BROWSER.test(devBrowser) && target.origin !== read.config.appOrigin) target.searchParams.set('__clerk_db_jwt', devBrowser);
@@ -190,7 +199,29 @@ export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, return
 }
 
 // The sign-in page of each instance: its form posts to itself and is redirected (303) to that instance's portal.
-const SIGN_IN_PAGES: Readonly<Record<string, InstanceKind>> = { '/sign-in': 'client', '/sign-in/operator': 'staff' };
+const STAFF_SIGN_IN_PAGE = '/sign-in/operator';
+const SIGN_IN_PAGES: Readonly<Record<string, InstanceKind>> = { '/sign-in': 'client', [STAFF_SIGN_IN_PAGE]: 'staff' };
+const SIGN_IN_FLOW = /^\/sign-(?:in|out)(?:\/|$)/;
+
+/**
+ * Whether a same-origin path is a sign-in or sign-out page, which a sign-in never returns to: that would loop or end the
+ * new session at once. The path is decoded and normalized until it is stable, so no escape, dot segment or doubled
+ * slash hides one; a path that does not decode counts as one.
+ */
+export function isSignInFlowPage(pathname: string): boolean {
+	let path = pathname;
+	for (let i = 0; i < 4; i++) {
+		let next: string;
+		try {
+			next = new URL(`https://path.invalid/${decodeURIComponent(path)}`).pathname.replace(/\/{2,}/g, '/');
+		} catch {
+			return true;
+		}
+		if (next === path) return SIGN_IN_FLOW.test(path.toLowerCase());
+		path = next;
+	}
+	return true;
+}
 
 /**
  * The origins, beside 'self', a sign-in page's form-action must allow: a browser checks every redirect of a form

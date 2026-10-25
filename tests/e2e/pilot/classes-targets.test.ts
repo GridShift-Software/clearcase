@@ -304,8 +304,8 @@ const gitTracked = (root: string, rel: string) => spawnSync('git', ['ls-files', 
 // Driving code is a call on a reachable path from an enabled vitest test callback, over a small supported subset: straight-line
 // statements, try and finally blocks, and `if` conditions. A call behind a condition, a short circuit, an optional chain, a
 // loop or a switch does not count, and nothing after a statement that may end the function does: a return, throw or break
-// behind any non-literal condition, a local function that may throw, a loop or another unsupported statement. A call reaches local helpers, callbacks a helper runs through its parameter, and const aliases, object
-// tables and conditional or `??`/`||` choices of values. This is source evidence that the test executes the code, not that it passes.
+// behind any non-literal condition, a local function that may throw or holds a loop, switch or label, a loop or another unsupported statement. A call reaches local helpers, callbacks a helper runs through its parameter, and const aliases, object
+// tables and conditional or `??`/`||` choices of values, minus an arm its test proves is never selected. This is source evidence that the test executes the code, not that it passes.
 type Param = { fn: ts.SignatureDeclaration; index: number };
 type Value = ts.Node | Param | 'target';
 const isNode = (v: Value): v is ts.Node => typeof v === 'object' && 'kind' in v;
@@ -326,13 +326,28 @@ function literal(e: ts.Expression): boolean | undefined {
 }
 const FALLS_THROUGH = new Set([ts.SyntaxKind.ExpressionStatement, ts.SyntaxKind.VariableStatement, ts.SyntaxKind.EmptyStatement, ts.SyntaxKind.FunctionDeclaration, ts.SyntaxKind.ClassDeclaration, ts.SyntaxKind.InterfaceDeclaration, ts.SyntaxKind.TypeAliasDeclaration, ts.SyntaxKind.ImportDeclaration]);
 const NO_TARGETS = new Set<string>();
-/** Whether `n` may throw through a throw statement of its own or of a local function it calls (an IIFE or a helper). */
-function mayThrow(n: ts.Node, seen = new Set<ts.Node>()): boolean {
+/** Control flow the walk does not model: a loop, a switch or a label can keep a function from ever completing. */
+const UNMODELLED = (n: ts.Node) => ts.isIterationStatement(n, false) || ts.isSwitchStatement(n) || ts.isLabeledStatement(n) || ts.isWithStatement(n);
+/** Whether `n` may not complete: it throws, or holds a loop, switch or label, in its own statements or in a local function it
+ * calls (an IIFE or a helper, however deeply nested). A local function it passes as an argument to a local function is a callback that helper may
+ * run, so its loops count too; its throws do not, since a helper such as `outcome` catches them. */
+function mayNotComplete(n: ts.Node, seen = new Map<ts.Node, 'call' | 'callback'>(), throws = true): boolean {
  let hit = false;
+ const enter = (v: Value, call: boolean) => {
+  if (!isFn(v)) return;
+  const was = seen.get(v);
+  if (was === 'call' || (was && !call)) return;
+  seen.set(v, call ? 'call' : 'callback');
+  if (mayNotComplete(v.body!, seen, throws && call)) hit = true;
+ };
  const walk = (m: ts.Node): void => {
   if (hit || (m !== n && ts.isFunctionLike(m))) return;
-  if (ts.isThrowStatement(m)) hit = true;
-  else if (ts.isCallExpression(m)) for (const v of values(m.expression, NO_TARGETS)) if (isFn(v) && !seen.has(v)) { seen.add(v); if (mayThrow(v.body!, seen)) hit = true; }
+  if ((throws && ts.isThrowStatement(m)) || UNMODELLED(m)) hit = true;
+  else if (ts.isCallExpression(m)) {
+   const callees = values(m.expression, NO_TARGETS);
+   for (const v of callees) enter(v, true);
+   if (callees.some(isFn)) for (const a of m.arguments) for (const v of values(a, NO_TARGETS)) enter(v, false);
+  }
   ts.forEachChild(m, walk);
  };
  walk(n);
@@ -345,10 +360,10 @@ function ends(s: ts.Statement): boolean {
  if (ts.isBlock(s)) return s.statements.some(ends);
  if (ts.isIfStatement(s)) {
   const k = literal(s.expression), other = s.elseStatement !== undefined && ends(s.elseStatement);
-  return mayThrow(s.expression) || (k === true ? ends(s.thenStatement) : k === false ? other : other || ends(s.thenStatement));
+  return mayNotComplete(s.expression) || (k === true ? ends(s.thenStatement) : k === false ? other : other || ends(s.thenStatement));
  }
  if (ts.isTryStatement(s)) return ends(s.tryBlock) || (!!s.finallyBlock && ends(s.finallyBlock));
- if (ts.isExpressionStatement(s) || ts.isVariableStatement(s)) return mayThrow(s);
+ if (ts.isExpressionStatement(s) || ts.isVariableStatement(s)) return mayNotComplete(s);
  return !FALLS_THROUGH.has(s.kind);
 }
 const SHORT_CIRCUIT = new Set([ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.AmpersandAmpersandEqualsToken, ts.SyntaxKind.BarBarEqualsToken, ts.SyntaxKind.QuestionQuestionEqualsToken]);
@@ -378,28 +393,57 @@ function liveCalls(fn: ts.FunctionLikeDeclaration): ts.CallExpression[] {
  return out;
 }
 const bindsName = (b: ts.BindingName, name: string): boolean => ts.isIdentifier(b) ? b.text === name : b.elements.some((e) => ts.isBindingElement(e) && bindsName(e.name, name));
-/** What an identifier can hold at `at`: the nearest parameter, function or const in scope; a top-level `targets` name is the target. */
-function lookup(name: string, at: ts.Node, targets: Set<string>, depth: number): Value[] {
+type Binding = { param: Param } | { fn: ts.FunctionDeclaration } | { init: ts.Expression } | 'target' | undefined;
+/** What binds an identifier at `at`: the nearest parameter, function or const in scope; a top-level `targets` name is the target; undefined when opaque. */
+function binding(name: string, at: ts.Node, targets: Set<string>): Binding {
  for (let p = at.parent; p; p = p.parent) {
-  if (ts.isFunctionLike(p)) { const index = p.parameters.findIndex((q) => bindsName(q.name, name)); if (index >= 0) return ts.isIdentifier(p.parameters[index]!.name) ? [{ fn: p, index }] : []; }
-  if (ts.isSourceFile(p) && targets.has(name)) return ['target'];
+  if (ts.isFunctionLike(p)) { const index = p.parameters.findIndex((q) => bindsName(q.name, name)); if (index >= 0) return ts.isIdentifier(p.parameters[index]!.name) ? { param: { fn: p, index } } : undefined; }
+  if (ts.isSourceFile(p) && targets.has(name)) return 'target';
   if (!ts.isBlock(p) && !ts.isSourceFile(p)) continue;
   for (const s of p.statements) {
-   if (ts.isFunctionDeclaration(s) && s.name?.text === name) return [s];
+   if (ts.isFunctionDeclaration(s) && s.name?.text === name) return { fn: s };
    if (ts.isVariableStatement(s)) for (const d of s.declarationList.declarations) if (bindsName(d.name, name))
-    return s.declarationList.flags & ts.NodeFlags.Const && ts.isIdentifier(d.name) && d.initializer ? values(d.initializer, targets, depth + 1) : [];
+    return s.declarationList.flags & ts.NodeFlags.Const && ts.isIdentifier(d.name) && d.initializer ? { init: d.initializer } : undefined;
   }
  }
- return [];
+ return undefined;
 }
-/** What an expression can evaluate to: functions, object tables, a parameter, or the target; anything else is opaque ([]). */
+function lookup(name: string, at: ts.Node, targets: Set<string>, depth: number): Value[] {
+ const b = binding(name, at, targets);
+ if (b === 'target') return ['target'];
+ if (!b) return [];
+ if ('param' in b) return [b.param];
+ return 'fn' in b ? [b.fn] : values(b.init, targets, depth + 1);
+}
+/** What a choice's test provably says of an expression: a function or object is truthy and never nullish, a literal has its own
+ * truth and a const alias is followed. Undefined when opaque: that choice keeps both of its values. */
+function proof(e: ts.Expression, targets: Set<string>, depth = 0): { truthy: boolean; nullish: boolean } | undefined {
+ if (depth > 16) return undefined;
+ e = strip(e);
+ if (e.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(e) && e.text === 'undefined')) return { truthy: false, nullish: true };
+ if (ts.isArrowFunction(e) || ts.isFunctionExpression(e) || ts.isObjectLiteralExpression(e)) return { truthy: true, nullish: false };
+ if (ts.isIdentifier(e)) {
+  const b = binding(e.text, e, targets);
+  return b && typeof b === 'object' ? 'fn' in b ? { truthy: true, nullish: false } : 'init' in b ? proof(b.init, targets, depth + 1) : undefined : undefined;
+ }
+ const k = literal(e);
+ return k === undefined ? undefined : { truthy: k, nullish: false };
+}
+/** What an expression can evaluate to: functions, object tables, a parameter, or the target; anything else is opaque ([]). A
+ * choice drops a value only when its test proves that value unselectable; an opaque test keeps both. */
 function values(e: ts.Expression, targets: Set<string>, depth = 0): Value[] {
  if (depth > 16) return [];
  e = strip(e);
  if (ts.isIdentifier(e)) return lookup(e.text, e, targets, depth);
  if (ts.isArrowFunction(e) || ts.isFunctionExpression(e) || ts.isObjectLiteralExpression(e)) return [e];
- if (ts.isConditionalExpression(e)) return [...values(e.whenTrue, targets, depth + 1), ...values(e.whenFalse, targets, depth + 1)];
- if (ts.isBinaryExpression(e) && (e.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken || e.operatorToken.kind === ts.SyntaxKind.BarBarToken)) return [...values(e.left, targets, depth + 1), ...values(e.right, targets, depth + 1)];
+ if (ts.isConditionalExpression(e)) {
+  const k = proof(e.condition, targets)?.truthy;
+  return [...(k === false ? [] : values(e.whenTrue, targets, depth + 1)), ...(k === true ? [] : values(e.whenFalse, targets, depth + 1))];
+ }
+ if (ts.isBinaryExpression(e) && (e.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken || e.operatorToken.kind === ts.SyntaxKind.BarBarToken)) {
+  const p = proof(e.left, targets), left = e.operatorToken.kind === ts.SyntaxKind.BarBarToken ? p?.truthy : p && !p.nullish;
+  return [...values(e.left, targets, depth + 1), ...(left ? [] : values(e.right, targets, depth + 1))];
+ }
  if (!ts.isPropertyAccessExpression(e) && !ts.isElementAccessExpression(e)) return [];
  const key = ts.isPropertyAccessExpression(e) ? e.name.text : ts.isStringLiteralLike(e.argumentExpression) ? e.argumentExpression.text : undefined;
  return values(e.expression, targets, depth + 1).flatMap((v): Value[] => {
@@ -648,6 +692,13 @@ describe('hosted form evidence is refused when its driving setup is gone', () =>
   ['a call after a local helper whose body is an infinite loop', DIRECT, { ...MOD, [T]: directTest("const stop = () => { while (true) {} };\nit('x', () => { stop(); load(); });") }, false],
   ['a call chosen only by a dead nullish operand: the first value is never nullish', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const noop = () => 1; const h = noop ?? load; h(); });") }, false],
   ['a call chosen only by the dead arm of a literal conditional', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const h = true ? () => 1 : load; h(); });") }, false],
+  ['a call after a helper chain that ends in an infinite loop', DIRECT, { ...MOD, [T]: directTest("const spin = () => { for (;;) {} };\nconst stop = () => { spin(); };\nit('x', () => { stop(); load(); });") }, false],
+  ['a call after a helper that runs a looping callback', DIRECT, { ...MOD, [T]: directTest("const run = (f: () => unknown) => f();\nit('x', () => { run(() => { while (true) {} }); load(); });") }, false],
+  ['a call after a helper chain that completes', DIRECT, { ...MOD, [T]: directTest("const inner = () => 1;\nconst outer = () => inner();\nit('x', () => { outer(); load(); });") }, true],
+  ['a call chosen only by the dead right operand of ||', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const keep = () => 1; const h = keep || load; h(); });") }, false],
+  ['a call chosen only by the dead arm of a conditional on a named constant', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const on = true; const h = on ? () => 1 : load; h(); });") }, false],
+  ['a call chosen by the live right operand of a nullish literal', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const h = null ?? load; h(); });") }, true],
+  ['a call chosen by the live arm of a literal conditional', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const h = false ? () => 1 : load; h(); });") }, true],
   ['a call after an unconditional return', DIRECT, { ...MOD, [T]: directTest("it('x', () => { return; load(); });") }, false],
   ['a call after a return behind a literal true condition', DIRECT, { ...MOD, [T]: directTest("it('x', () => { if (true) return; load(); });") }, false],
   ['a call only in a nested function the test never calls', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const later = () => load(); });") }, false],

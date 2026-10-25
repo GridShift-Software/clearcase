@@ -3,11 +3,11 @@
 // barrel and reads the case folder). It imports only pure case-package modules.
 //
 // What it derives is everything the package states: the chronology rows, the asset index, the seed rows, the per-document
-// state, the attachment routes and the overview. The one fact it cannot derive is what the importing machine saw on disk.
-// Every file asset is taken at its indexed path, size, SHA-256 and media type, status `verified`, not download-only: the
-// bytes themselves are checked later, on every delivery, against the original the client uploaded. A projection that
-// records a case-mismatched original or a download-only one (facts only a case folder can show) therefore differs from
-// this one and is refused (`inconsistent-projection`); see docs/hosted-foundation/storage.md.
+// state, the attachment routes and the overview. The one thing it cannot derive from the bytes is what the importing side
+// saw of each original, so that is an explicit input: `OriginalFacts`, read by the caller from the case's own verified D1
+// association and R2 object (storage/cloud/original-facts.ts). A file asset with a fact is taken as that fact says
+// (`verified` or `case-mismatch`, download-only or not); one without is `unavailable`, exactly as the local project()
+// reports an original the case folder does not hold. A claimed status is never an input: see docs/hosted-foundation/storage.md.
 import { Candidate } from '../../case-package/candidate.ts';
 import { canonicalJson } from '../../case-package/canonical.ts';
 import { DiagSink } from '../../case-package/diagnostics.ts';
@@ -19,26 +19,46 @@ import type { StagedAsset, StagedDocument, StagedProjection, StagedSeed } from '
 
 type Mapping = ConstructorParameters<typeof Candidate>[0]['originals'] extends Map<string, infer M> ? M : never;
 export type PackageProjection = { ok: true; projection: StagedProjection; counts: Readonly<Record<string, number>> } | { ok: false; problems: string[] };
+/** A file asset as the package's asset index states it: the fingerprint an original must have. */
+export interface FileAssetClaim { key: string; path: string; sha256: string; size: number; mediaType: string }
+/** One verified original (local-case's `OriginalMapping`): the real name, the fingerprint it matched, and what its bytes sniff as. */
+export interface OriginalFact { path: string; sha256: string; size: number; mediaType: string; status: 'verified' | 'case-mismatch'; downloadOnly: boolean }
+/** Verified originals by asset key. A file asset with no entry is unavailable. */
+export type OriginalFacts = ReadonlyMap<string, OriginalFact>;
+export type PreparedPackage = { ok: true; fileAssets: readonly FileAssetClaim[]; project(facts: OriginalFacts): PackageProjection } | { ok: false; problems: string[] };
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
 const optStr = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
 const heads = (xs: unknown) => (Array.isArray(xs) ? xs.map((x) => ({ h: str((x as { h?: unknown }).h), t: str((x as { t?: unknown }).t) })) : []);
 
-/** Validates `files` (already verified against their identity by the caller) and projects them. Never touches a disk. */
-export function projectPackage(files: ReadonlyMap<string, Uint8Array>): PackageProjection {
+/** Validates `files` (already verified against their identity by the caller) once; `project(facts)` then projects them. Never touches a disk. */
+export function preparePackage(files: ReadonlyMap<string, Uint8Array>): PreparedPackage {
   const L = withLimits(undefined);
   const sink = new DiagSink(L.diagnosticsPerCode);
   const own = new Map([...files].map(([path, bytes]) => [path, new Uint8Array(bytes)] as const));
   const pkg = validateSnapshot({ files: own, present: new Map([...own].map(([path, bytes]) => [path, bytes.byteLength] as const)), transport: 'memory' }, sink, L);
   if (!pkg || sink.errors > 0) return { ok: false, problems: sink.finish(new Set()).filter((d) => d.severity === 'error').slice(0, 20).map((d) => `${d.code}: ${d.message}`) };
+  const fileAssets: FileAssetClaim[] = [];
+  for (const [key, a] of Object.entries(pkg.assets)) if (a.kind === 'file') fileAssets.push({ key, path: a.path, sha256: a.sha256, size: a.size, mediaType: a.mediaType });
+  const counts = Object.fromEntries([...sink.counts].sort(([a], [b]) => (a < b ? -1 : 1)));
+  return { ok: true, fileAssets, project: (facts) => projectWith(pkg, facts, counts) };
+}
+
+/** Prepares and projects in one step, for a caller that already holds its facts. */
+export function projectPackage(files: ReadonlyMap<string, Uint8Array>, facts: OriginalFacts): PackageProjection {
+  const prepared = preparePackage(files);
+  return prepared.ok ? prepared.project(facts) : prepared;
+}
+
+function projectWith(pkg: NonNullable<ReturnType<typeof validateSnapshot>>, facts: OriginalFacts, counts: Readonly<Record<string, number>>): PackageProjection {
   const originals = new Map<string, Mapping>();
   const unavailable = new Set<string>();
   for (const [key, a] of Object.entries(pkg.assets)) {
-    if (a.kind === 'file') originals.set(key, { ref: key, path: a.path, sha256: a.sha256, size: a.size, mediaType: a.mediaType, status: 'verified', downloadOnly: false } as Mapping);
-    else if (a.kind === 'missing') unavailable.add(key);
+    const fact = facts.get(key);
+    if (a.kind === 'file' && fact) originals.set(key, { ref: key, path: fact.path, sha256: fact.sha256, size: fact.size, mediaType: fact.mediaType, status: fact.status, downloadOnly: fact.downloadOnly } as Mapping);
+    else if (a.kind === 'file' || a.kind === 'missing') unavailable.add(key);
   }
   const candidate = new Candidate({ ...pkg, originals, unavailable });
-  const counts = Object.fromEntries([...sink.counts].sort(([a], [b]) => (a < b ? -1 : 1)));
 
   const r = readCandidate(candidate);
   const documents: StagedDocument[] = [];

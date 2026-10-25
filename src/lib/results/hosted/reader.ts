@@ -9,8 +9,10 @@ import { readViewContent } from '../../case-package/view-content.ts';
 import { verifyCandidateBytes } from '../../case-package/verify-bytes.ts';
 import type { OpenStorage } from '../../storage/cloud/access.ts';
 import { verifiedRead } from '../../storage/cloud/objects.ts';
+import { checkClaims, originalClaims } from '../../storage/cloud/original-facts.ts';
+import { admitVerification } from '../../storage/cloud/verification.ts';
 import { loadVerifiedModel, type LoadedModel } from './model.ts';
-import { projectPackage } from './project.ts';
+import { preparePackage } from './project.ts';
 import { readModelDigest } from './read-model.ts';
 import type { StorageEvent } from './index.ts';
 import { caseOfVersion, caseRow, caseRows, requirePublished, unavailable, versionInfo } from './versions.ts';
@@ -22,7 +24,7 @@ type FileRow = { path: string; sha256: string; size: number; object_key: string 
  * requires the exact published version (a candidate, a staging version and a withdrawn one, Keep-marked or not, are
  * refused alike), and authorizes and rechecks publication again before it hands back what an awaited read produced.
  */
-export function createCloudReader(a: { open: () => Promise<OpenStorage>; identity: C.Identity; record(e: StorageEvent): Promise<void>; stateRevision(s: C.Scope): Promise<C.CaseRevision> }): C.CaseReader {
+export function createCloudReader(a: { open: () => Promise<OpenStorage>; identity: C.Identity; record(e: StorageEvent): Promise<void>; stateRevision(s: C.Scope): Promise<C.CaseRevision>; now(): Date }): C.CaseReader {
   const { identity, open } = a;
   const providers = new Map<string, C.DocumentProvider>();
   // A version's read model, loaded and checked against its stored digest once per reader. The rows are immutable once a
@@ -115,20 +117,38 @@ export function createCloudReader(a: { open: () => Promise<OpenStorage>; identit
     async versionsOf(scope) { const rv = await store.activeVersionId(scope); const v = rv ? await store.getVersion({ resultsVersion: rv }) : null; return v ? [v] : []; },
     async verifyVersion(scope) {
       const s = await version(scope), started = Date.now();
+      const done = (ok: boolean, reason: string | null, checked?: Record<string, number>) => release(s, scope, { ok, ms: Date.now() - started, ...(reason ? { reason } : {}), ...(checked ? { checked } : {}) });
       const v = await s.db.prepare('SELECT manifest_sha256, read_model_sha256 FROM rs_results_version WHERE version_id = ?').bind(scope.resultsVersion).first<{ manifest_sha256: string; read_model_sha256: string }>().catch(unavailable);
+      if (!v) return done(false, 'integrity');
+      // D1 only so far: the stored model (counts and digest), its claims about originals, and the package file rows. A model
+      // that does not load fails here, before any object is read.
+      let loaded: LoadedModel;
+      try { loaded = await model(s, scope.resultsVersion); } catch (e) { if (codeOf(e) === 'integrity') return done(false, 'integrity'); throw e; }
+      const claims = originalClaims(loaded.assets);
+      if (!claims) return done(false, 'integrity');
+      const rows = (await fileRows(s, scope.resultsVersion)).results;
+      // The work is planned and admitted before any R2 read: every package file and each distinct claimed original, against the
+      // per-call bounds and the case's atomic work window. A refused plan reads nothing and reports no verdict on the bytes.
+      const originals = new Map(claims.map((c) => [c.sha256, c.size]));
+      const plan = { objects: rows.length + originals.size, bytes: rows.reduce((n, f) => n + f.size, 0) + [...originals.values()].reduce((n, x) => n + x, 0) };
+      const admitted = await admitVerification(s, scope.caseId, plan, a.now().getTime());
+      if (admitted !== 'admitted') return done(false, admitted, plan);
       const files = new Map<string, Uint8Array>();
-      let ok = !!v;
-      for (const f of (await fileRows(s, scope.resultsVersion)).results) {
-        try { files.set(f.path, await file(s, scope, f)); } catch (e) { if (e instanceof Error && 'code' in e && e.code === 'integrity') { ok = false; break; } throw e; }
+      for (const f of rows) {
+        try { files.set(f.path, await file(s, scope, f)); } catch (e) { if (e instanceof Error && 'code' in e && e.code === 'integrity') return done(false, 'integrity', plan); throw e; }
       }
-      if (ok && v) ok = verifyCandidateBytes(files, { resultsVersion: scope.resultsVersion, manifestSha256: v.manifest_sha256 }).ok;
-      if (ok && v) {
-        // The authoritative check: the rows in D1 are the read model of these package bytes. Rows rewritten together with the
-        // stored digest pass the load check above; they do not pass this one.
-        try { await model(s, scope.resultsVersion); } catch (e) { if (codeOf(e) === 'integrity') ok = false; else throw e; }
-        if (ok) { const derived = projectPackage(files); ok = derived.ok && (await readModelDigest(derived.projection)) === v.read_model_sha256; }
-      }
-      return release(s, scope, { ok, ms: Date.now() - started, ...(ok ? {} : { reason: 'integrity' }) });
+      if (!verifyCandidateBytes(files, { resultsVersion: scope.resultsVersion, manifestSha256: v.manifest_sha256 }).ok) return done(false, 'integrity', plan);
+      // The authoritative check: the rows in D1 are the read model of these package bytes. Rows rewritten together with the stored
+      // digest pass the load check above; they do not pass this one. Every original the stored model calls verified must still be
+      // a finalized original of this case with those bytes, hashed now (an original that was unavailable stays as stored). The
+      // model is then derived from the bytes under exactly those facts.
+      const prepared = preparePackage(files);
+      if (!prepared.ok) return done(false, 'integrity', plan);
+      const facts = await checkClaims(s, scope.caseId, prepared.fileAssets, claims);
+      if (!facts) return done(false, 'integrity', plan);
+      const derived = prepared.project(facts);
+      const ok = derived.ok && (await readModelDigest(derived.projection)) === v.read_model_sha256;
+      return done(ok, ok ? null : 'integrity', plan);
     },
     async activeVersionId(scope) {
       const s = await guard(scope);

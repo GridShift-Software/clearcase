@@ -12,7 +12,8 @@ import type { HostedProfile } from './hosted-imports.ts';
 import { manifestAssets, pinnedBrowserRefusal, PINNED_BROWSER_MODULES, scanModule, serverImportOfPinned } from './hosted-artifact-scope.ts';
 
 const LOCAL_MODULES = '(?:node:)?(?:fs|fs/promises|sqlite|child_process|net|http|https|http2|cluster|worker_threads|dgram|tls|readline|repl|v8|vm)';
-// import/export ... from, import(), require() and Node's getBuiltinModule naming a local-only module, or any bun: module
+// import/export ... from, import() and require() naming a local-only module, or any bun: module. Node's getBuiltinModule is
+// a use of the process global, refused by scope (hosted-artifact-scope.ts) unless it is one of Kit's exact KIT_PROBES.
 const IMPORT = new RegExp(`(?:\\bfrom\\s*|\\bimport\\s*\\(\\s*|\\brequire\\s*\\(\\s*|^\\s*import\\s*)["'\`](${LOCAL_MODULES}|bun:[a-z]+|better-sqlite3)["'\`]`, 'gm');
 // Test doubles: the memory doubles never ship; the hosted-gate doubles ship only in a hosted-gate artifact.
 const MEMORY = ['memory-contract-diagnostic', 'createMemoryBackend'];
@@ -33,7 +34,7 @@ export function scanArtifact(a: { root: string; profile: HostedProfile }): { err
 		for (const entry of readdirSync(base, { recursive: true, withFileTypes: true })) {
 			if (!entry.isFile() || !/\.(?:js|mjs|cjs)$/.test(entry.name)) continue;
 			const file = path.join(entry.parentPath, entry.name), name = path.relative(a.root, file).replaceAll(path.sep, '/');
-			const bytes = readFileSync(file), text = bytes.toString('utf8'), scan = scanModule(text);
+			const bytes = readFileSync(file), text = bytes.toString('utf8'), scan = scanModule(text, name.startsWith('.svelte-kit/output/server/'));
 			files++;
 			if (scan.unparsed) errors.push(`hosted-artifact: ${name}: not parseable as an ES module (${scan.unparsed})`);
 			// The reviewed PDF.js browser modules keep their Node branches only at their exact path, bytes and manifest role.

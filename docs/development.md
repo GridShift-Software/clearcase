@@ -141,7 +141,7 @@ It refuses each of the following with the import chain:
 - the memory doubles, and the gate doubles outside `hosted-gate`;
 - any package outside its allowlist (`svelte`, `@sveltejs/kit`, `typebox`; plus the Kit modules `$app/env|forms|navigation|paths|state` and `cloudflare:workers`).
 
-The allowlisted packages are not walked. `scripts/ci/hosted-artifact.ts` checks what was actually emitted for them: no import of a local-only module, no use of the `process` or `Bun` global (resolved by scope in `scripts/ci/hosted-artifact-scope.ts`, so comments, strings and local bindings do not count), no memory double, and gate doubles only in a gate artifact. The two pinned PDF.js browser modules are the one reviewed exception; see [pdf-static-assets.md](acceptance/hosting/pdf-static-assets.md#emitted-artifact-scope).
+The allowlisted packages are not walked. `scripts/ci/hosted-artifact.ts` checks what was actually emitted for them: no import of a local-only module, no use of the `process` or `Bun` global (resolved by scope in `scripts/ci/hosted-artifact-scope.ts`, so comments, strings and local bindings do not count, and optional chaining is no exemption; only Kit's exact server probes are), no memory double, and gate doubles only in a gate artifact. The two pinned PDF.js browser modules are the one reviewed exception; see [pdf-static-assets.md](acceptance/hosting/pdf-static-assets.md#emitted-artifact-scope).
 
 `bun run --bun probe:hosted-imports` commits one mutant per case in a disposable checkout under `.local/hosted/`, with its own generated Kit 3 tsconfig. It requires the real `check` to refuse each for its reason; `test:hosted` runs it.
 

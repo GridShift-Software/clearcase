@@ -14,11 +14,22 @@ const OPTIONS: ts.CompilerOptions = {
 
 export type ModuleScan = { uses: string[]; imports: string[]; unparsed: string | null };
 
+// Kit 3's server runtime reaches Node only through these calls (src/runtime/server/sourcemaps.js and internal.js), each
+// undefined in workerd, which defines no `process` without nodejs_compat. Only node:fs is a local-only module; Kit uses
+// it to apply sourcemaps to stack traces. Matched as the exact source text of the call, so `self.`, element notation,
+// escapes, comments, another quote style, target or argument all fail. tests/hosted-foundation/artifact-scope proves
+// the set equals the probes in the installed Kit source.
+export const KIT_PROBES: ReadonlySet<string> = new Set([
+	...['fs', 'url', 'path', 'module', 'util'].map((m) => `globalThis.process?.getBuiltinModule?.("node:${m}")`),
+	'globalThis.process?.cwd?.()',
+]);
+
 /** Every use of the process or Bun global in one emitted ES module, resolved by scope, plus its import specifiers.
- * Allowed probes: `typeof process`, `process.versions…` and optional chaining (`globalThis.process?.cwd?.()`), which
- * read undefined where workerd has no such global. Anything else that reaches the global is a use, including an
- * alias (`const p = process`), `globalThis.process.exit` and `process["env"]`. Comments and strings are not code. */
-export function scanModule(text: string): ModuleScan {
+ * Not uses: `typeof process`, `process.versions…`, and in Kit's server output (`kitServer`) the exact KIT_PROBES calls.
+ * Anything else that reaches the global is a use, optional chaining included (`globalThis.process?.exit?.()`,
+ * `process?.[k]`), and so are an alias (`const p = process`), `globalThis.process.exit` and `process["env"]`.
+ * Comments and strings are not code. */
+export function scanModule(text: string, kitServer = false): ModuleScan {
 	const name = '/artifact.mjs';
 	const sf = ts.createSourceFile(name, text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.JS);
 	const host: ts.CompilerHost = {
@@ -53,9 +64,9 @@ export function scanModule(text: string): ModuleScan {
 	const visit = (n: ts.Node): void => {
 		const kind = global(n);
 		if (kind) {
-			const parent = n.parent, key = property(parent, n as ts.Expression);
-			const probe = ts.isTypeOfExpression(parent)
-				|| (key !== undefined && (!!(parent as ts.PropertyAccessExpression).questionDotToken || (kind === 'process' && key === 'versions')));
+			const parent = n.parent, key = property(parent, n as ts.Expression), call = parent.parent;
+			const probe = ts.isTypeOfExpression(parent) || (kind === 'process' && key === 'versions')
+				|| (kitServer && ts.isCallExpression(call) && call.expression === parent && KIT_PROBES.has(call.getText()));
 			if (!probe) uses.push(key ? `${kind}.${key}` : kind);
 			if (!ts.isIdentifier(n)) return;
 		}

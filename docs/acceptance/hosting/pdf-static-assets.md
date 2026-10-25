@@ -42,7 +42,13 @@ The declared exact devDependency and installed package name/version must be `pdf
 
 ## Emitted-artifact scope
 
-`scripts/ci/hosted-artifact.ts` refuses every use of the `process` or `Bun` global in the emitted modules. `scripts/ci/hosted-artifact-scope.ts` resolves each name by scope with the TypeScript parser and binder. A module-scoped object, a parameter, a catch, import or hoisted binding named `process`, and the text of comments and strings are not uses. That covers the SDK JSDoc link `https://nodejs.org/api/process.html` that reaches `hooks.server.js` from `@cloudflare/puppeteer` `common/FileChooser.js`. An alias (`const p = process`), a destructure, a shorthand property, `process["env"]`, `globalThis.process.x`, `self.process.x` and `globalThis.Bun.x` are uses. The allowed probes are unchanged: `typeof process`, `process.versions…` and optional chaining. A module the parser cannot read is refused.
+`scripts/ci/hosted-artifact.ts` refuses every use of the `process` or `Bun` global in the emitted modules. `scripts/ci/hosted-artifact-scope.ts` resolves each name by scope with the TypeScript parser and binder. A module-scoped object, a parameter, a catch, import or hoisted binding named `process`, and the text of comments and strings are not uses. That covers the SDK JSDoc link `https://nodejs.org/api/process.html` that reaches `hooks.server.js` from `@cloudflare/puppeteer` `common/FileChooser.js`. An alias (`const p = process`), a destructure, a shorthand property, `process["env"]`, `globalThis.process.x`, `self.process.x` and `globalThis.Bun.x` are uses. Optional chaining is not a probe: `globalThis.process?.exit?.()`, `process?.env?.HOME`, `process?.[k]` and `globalThis.Bun?.spawn?.()` are uses. The allowed probes are `typeof process`, `process.versions…` and, only in Kit's server output (`.svelte-kit/output/server/`), the exact source text of Kit 3's own calls (`KIT_PROBES`):
+
+- `globalThis.process?.getBuiltinModule?.("node:fs")`, and the same for `node:url`, `node:path` and `node:module`, from `src/runtime/server/sourcemaps.js`;
+- `globalThis.process?.cwd?.()` from the same file;
+- `globalThis.process?.getBuiltinModule?.("node:util")` from `src/runtime/server/internal.js`.
+
+node:fs is the only local-only module among them. The other four were in the real emitted server output (`chunks/internal.js`) and passed unreviewed before; they are listed here, not waived as a class. Each reads undefined in workerd, which defines no `process` without `nodejs_compat`. Any other `getBuiltinModule` reach is refused: another module or `fs`, a computed, concatenated or escaped target, another quote style, an extra argument, `self.`/`global.`/bare `process`, element notation, an escaped member name, an alias, a bare read or `typeof` of the member. So is the exact Kit text in `.svelte-kit/cloudflare/`. The scoped tests check the list against the installed Kit source in both directions, so a Kit upgrade that changes a probe fails there first. A module the parser cannot read is refused.
 
 `pdfjs/pdf.min.mjs` and `pdfjs/pdf.worker.min.mjs` feature-detect Node (`process+""`, `process.type`), and `pdf.min.mjs` keeps six `process.getBuiltinModule` calls behind that branch. Their uses are accepted only when all of these hold:
 
@@ -51,7 +57,7 @@ The declared exact devDependency and installed package name/version must be `pdf
 - Kit's `.svelte-kit/output/server/manifest.js` lists `pdfjs/<file>` in `assets`;
 - the uses equal the reviewed list exactly.
 
-The same bytes anywhere else, any changed byte (a newline, CRLF, one character), an extra import and grafted code all fail. The Worker entry or any server module importing a pinned file also fails. The import, test-double and hosted-gate checks run on every file, the pinned ones included. Gap carried over from the regex scanner: an optional-chained `globalThis.process?.getBuiltinModule?.(...)` is a probe and is not refused, because Kit emits that form and workerd defines no `process` without `nodejs_compat`.
+The same bytes anywhere else, any changed byte (a newline, CRLF, one character), an extra import and grafted code all fail. The Worker entry or any server module importing a pinned file also fails. The import, test-double and hosted-gate checks run on every file, the pinned ones included.
 
 ## Lightweight verification
 

@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { scanArtifact } from '../../../scripts/ci/hosted-artifact.ts';
-import { PINNED_BROWSER_MODULES } from '../../../scripts/ci/hosted-artifact-scope.ts';
+import { KIT_PROBES, PINNED_BROWSER_MODULES } from '../../../scripts/ci/hosted-artifact-scope.ts';
 import { HOSTED_PDF_PACKAGE_DIGEST, prepareHostedPdfAssets, type PdfAssetInventory } from '../../../scripts/hosted-pdf-assets.ts';
 
 const REPO = path.resolve(import.meta.dirname, '../../..');
@@ -134,5 +134,59 @@ describe('process and Bun: global use against local bindings', () => {
 	});
 	it('refuses a module it cannot parse rather than skipping it', () => {
 		expect(errors({ [CHUNK]: 'export const = process.env;' }).join('\n')).toContain(`${CHUNK}: not parseable as an ES module`);
+	});
+});
+
+describe('getBuiltinModule and optional chains on the process global', () => {
+	const KIT_SERVER = '.svelte-kit/output/server/chunks/internal.js';
+	// Kit 3's server runtime: sourcemaps.js (fs, url, path, module, cwd) and internal.js (util), as Rolldown emits them.
+	const kit = ['fs', 'url', 'path', 'module'].map((m) => `var ${m} = globalThis.process?.getBuiltinModule?.("node:${m}");`)
+		.concat('var cwd = globalThis.process?.cwd?.();', 'var styleText = globalThis.process?.getBuiltinModule?.("node:util")?.styleText ?? ((_format, text) => text);');
+	it('pins each probe to the installed Kit source and nothing more', () => {
+		const source = ['sourcemaps.js', 'internal.js'].map((f) => readFileSync(path.join(REPO, 'node_modules/@sveltejs/kit/src/runtime/server', f), 'utf8')).join('\n');
+		const found = [...source.matchAll(/globalThis\.process\?\.[^;]*?\)/g)].map((m) => m[0].replaceAll("'", '"'));
+		expect(new Set(found)).toEqual(KIT_PROBES);
+		expect(found).toHaveLength(KIT_PROBES.size);
+	});
+	it('passes the exact Kit server probes in Kit\'s server output', () => {
+		expect(errors({ [KIT_SERVER]: kit.join('\n') })).toEqual([]);
+	});
+	it.each([
+		['node:child_process', 'globalThis.process?.getBuiltinModule?.("node:child_process");', 'process.getBuiltinModule'],
+		['node:fs/promises', 'globalThis.process?.getBuiltinModule?.("node:fs/promises");', 'process.getBuiltinModule'],
+		['bare fs', 'globalThis.process?.getBuiltinModule?.("fs");', 'process.getBuiltinModule'],
+		['an unreviewed literal module', 'globalThis.process?.getBuiltinModule?.("node:os");', 'process.getBuiltinModule'],
+		['a computed target', 'export const load = (m) => globalThis.process?.getBuiltinModule?.(m);', 'process.getBuiltinModule'],
+		['a concatenated target', 'globalThis.process?.getBuiltinModule?.("node:" + "fs");', 'process.getBuiltinModule'],
+		['an escaped target', 'globalThis.process?.getBuiltinModule?.("node:\\u0066s");', 'process.getBuiltinModule'],
+		['a single-quoted target', "globalThis.process?.getBuiltinModule?.('node:fs');", 'process.getBuiltinModule'],
+		['an extra argument', 'globalThis.process?.getBuiltinModule?.("node:fs", 1);', 'process.getBuiltinModule'],
+		['a bare process', 'process?.getBuiltinModule?.("node:fs");', 'process.getBuiltinModule'],
+		['self', 'self.process?.getBuiltinModule?.("node:fs");', 'process.getBuiltinModule'],
+		['global', 'global.process?.getBuiltinModule?.("node:fs");', 'process.getBuiltinModule'],
+		['globalThis element notation', 'globalThis["process"]?.getBuiltinModule?.("node:fs");', 'process.getBuiltinModule'],
+		['member element notation', 'globalThis.process?.["getBuiltinModule"]?.("node:fs");', 'process.getBuiltinModule'],
+		['an escaped member name', 'globalThis.process?.getBuiltin\\u004dodule?.("node:fs");', 'process.getBuiltinModule'],
+		['a comment inside the probe', 'globalThis.process?./* */getBuiltinModule?.("node:fs");', 'process.getBuiltinModule'],
+		['an aliased acquisition', 'const g = globalThis.process?.getBuiltinModule; export const fs = g?.("node:fs");', 'process.getBuiltinModule'],
+		['an optional member read', 'export const g = globalThis.process?.getBuiltinModule;', 'process.getBuiltinModule'],
+		['a typeof of the member', 'export const t = typeof globalThis.process?.getBuiltinModule;', 'process.getBuiltinModule'],
+		['a computed member', 'export const f = (k) => globalThis.process?.[k]?.("node:fs");', 'process'],
+		['an optional process.exit', 'globalThis.process?.exit?.(1);', 'process.exit'],
+		['an optional process.env', 'export const h = process?.env?.HOME;', 'process.env'],
+		['an optional process.binding', 'globalThis.process?.binding?.("fs");', 'process.binding'],
+		['an optional cwd off the bare global', 'export const c = process?.cwd?.();', 'process.cwd'],
+		['an optional Bun.spawn', 'globalThis.Bun?.spawn?.(["sh"]);', 'Bun.spawn'],
+	])('refuses %s in Kit\'s server output', (_, source, use) => {
+		expect(errors({ [KIT_SERVER]: source })).toContain(`hosted-artifact: ${KIT_SERVER}: uses ${use}`);
+	});
+	it.each([
+		['the Worker entry', '.svelte-kit/cloudflare/_worker.js'],
+		['a client chunk', '.svelte-kit/cloudflare/_app/immutable/chunks/x.js'],
+		['a pinned PDF.js path', PDF],
+	])('refuses the exact Kit probes in %s', (_, name) => {
+		const found = errors({ ...pinned(), [name]: kit.join('\n') });
+		expect(found.filter((e) => e === `hosted-artifact: ${name}: uses process.getBuiltinModule`)).toHaveLength(5);
+		expect(found).toContain(`hosted-artifact: ${name}: uses process.cwd`);
 	});
 });

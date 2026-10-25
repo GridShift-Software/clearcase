@@ -8,9 +8,9 @@ import { createOriginalIntake } from '../../../src/lib/storage/cloud/intake.ts';
 import { createResultsStaging } from '../../../src/lib/storage/cloud/staging.ts';
 import { id } from '../../../src/lib/server/runtime/ids.ts';
 import type { AssetsAccess, CaseRevision } from '../../../src/lib/server/runtime/contracts.ts';
-import { BUDGETS, QUOTAS, deployment, grantedIdentity, ids, publish, shaOf, syntheticPackage, withdraw } from '../../hosted-foundation/storage/fixture.ts';
+import { BUDGETS, QUOTAS, deployment, grantedIdentity, ids, packageOver, pdf, provide, publish, shaOf, syntheticPackage, withdraw } from '../../hosted-foundation/storage/fixture.ts';
 
-export { ids, publish, withdraw, shaOf, syntheticPackage };
+export { ids, packageOver, pdf, provide, publish, withdraw, shaOf, syntheticPackage };
 export const ORIGIN = 'https://client-a.clearcase.test';
 export const utf8 = (s: string) => new TextEncoder().encode(s);
 /** A synthetic PDF long enough to range over: fixed filler, no case content. */

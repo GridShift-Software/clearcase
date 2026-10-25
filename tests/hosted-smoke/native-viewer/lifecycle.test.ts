@@ -2,12 +2,9 @@
 // these are lifecycle regressions, not browser, protected-delivery or deployment evidence.
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+// @ts-expect-error jsdom ships no types and the root pins no @types/jsdom; the suite only constructs windows and types them as any.
+import { JSDOM } from 'jsdom';
 import type { WorkVersion } from '../../../src/lib/server/runtime/contracts.ts';
-// Private test dependency, deliberately not a runtime/Worker dependency. See acceptance note.
-const domModule = pathToFileURL(resolve(process.env.CLEARCASE_VIEWER_DOM ?? '.local/viewer-dom/node_modules/jsdom/lib/api.js')).href;
-const { JSDOM } = await import(/* @vite-ignore */ domModule);
 // The local Vitest config compiles this synthetic harness as a client component.
 import Harness from './ViewerHarness.svelte';
 

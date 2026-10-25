@@ -25,6 +25,7 @@ import type { CandidateImportLink } from '../../../src/lib/server/runtime/hosted
 import type { NativePreviewRenderChecker } from '../../../src/lib/viewer/hosted/render-check-contract.ts';
 import { createPublicationMaterialReader, type PublicationMaterialOptions } from '../../../src/lib/server/runtime/hosted/publication-material.ts';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
+import type { CandidateSnapshot } from '../../../src/lib/publication/hosted/ports.ts';
 
 export const CLIENT = id('client', 'client-a'), CASE = id('case', 'case-a');
 export const NOW = '2026-10-25T11:00:00.000Z';
@@ -46,11 +47,12 @@ export class PrimaryD1 extends SqliteD1 {
   sessions: string[] = [];
   withSession(constraint: 'first-primary') { this.sessions.push(constraint); return this; }
 }
-export async function world(o: { fold?: boolean; textStatus?: 'none' | 'extracted'; section?: boolean; page?: number; missing?: boolean; alias?: boolean; mediaType?: string; settled?: boolean; excerpt?: string; refs?: string[] } = {}) {
+export async function world(o: { fold?: boolean; textStatus?: 'none' | 'extracted'; section?: boolean; page?: number; missing?: boolean; alias?: boolean; mediaType?: string; settled?: boolean; excerpt?: string; refs?: string[];
+  row?: Record<string, unknown>; datasets?: Parameters<typeof buildPackage>[0]['datasets']; embedded?: boolean; provenanceMigration?: boolean } = {}) {
   const db = new PrimaryD1(), bucket = new MemoryR2();
   for (const p of ['tenancy/migrations/0001_tenant_case_grants.sql', 'tenancy/migrations/0002_tenant_grant_operations.sql',
     'results-review/native/migrations/0001_native_candidate_import.sql', 'publication/hosted/migrations/0001_publication_ledger.sql',
-    'publication/hosted/migrations/0002_atomic_publication.sql']) db.sqlite.exec(readFileSync(`src/lib/${p}`, 'utf8'));
+    'publication/hosted/migrations/0002_atomic_publication.sql', ...(o.provenanceMigration === false ? [] : ['publication/hosted/migrations/0003_provenance_generation.sql'])]) db.sqlite.exec(readFileSync(`src/lib/${p}`, 'utf8'));
   db.exec("INSERT INTO rs_storage_identity VALUES (1, ?, 'clearcase.rs/1')", CLIENT);
   db.exec('INSERT INTO rs_case VALUES (?, ?)', CASE, 'Synthetic only');
   bucket.setRaw('identity/client.json', utf8(JSON.stringify({ client_id: CLIENT })));
@@ -77,11 +79,12 @@ export async function world(o: { fold?: boolean; textStatus?: 'none' | 'extracte
       provenance: { source: 'synthetic', sourcePath: 'DATA.chronology', adapter: 'test@1' },
       data: refs.map((ref) => ({ ref, n: '1', seq: '1', date: '2001-01-01', filename: 'Letter.pdf', subject: 'Invented <script> content',
         sender: '', to: '', cc: '', excerpt: o.excerpt ?? (o.page !== undefined ? `See [[OD-001#p${o.page}]]` : ''), doc_type: 'other', bundle: '', amount: '', also_in: [],
-        text_status: textStatus, url: '', refs: o.refs ?? [], invoice_no: '', size: bytes.byteLength, attachments: [] })),
+        text_status: textStatus, url: '', refs: o.refs ?? [], invoice_no: '', size: bytes.byteLength, attachments: [], ...o.row })),
     }, ...(o.section ? [{ key: 'risk-matrix', kind: 'authored' as const, schema: 'v5.risk-matrix@1', required: true,
-      provenance: { source: 'synthetic', sourcePath: 'DATA.riskMatrix', adapter: 'test@1' }, data: [] }] : [])],
+      provenance: { source: 'synthetic', sourcePath: 'DATA.riskMatrix', adapter: 'test@1' }, data: [] }] : []), ...(o.datasets ?? [])],
     assets: Object.fromEntries([...refs.map((ref) => [ref, { kind: 'file' as const, path: indexedPath, sha256: hash, size: bytes.byteLength, mediaType, textStatus }]),
-      ...(o.missing ? [['OD-003', { kind: 'missing' as const, path: 'missing.pdf', mediaType: 'application/pdf', textStatus: 'pending' as const }]] : [])]),
+      ...(o.missing ? [['OD-003', { kind: 'missing' as const, path: 'missing.pdf', mediaType: 'application/pdf', textStatus: 'pending' as const }]] : []),
+      ...(o.embedded ? [['OD-003.a1', { kind: 'embedded' as const, parentRef: 'OD-003', ordinal: 1, member: 'Synthetic attachment', mediaType: 'application/pdf', textStatus: 'pending' as const }]] : [])]),
   });
   const prepared = preparePackage(built.files); if (!prepared.ok) throw new Error(JSON.stringify(prepared));
   const facts = await readOriginalFacts({ db, bucket, budgets: BUDGETS, clientId: CLIENT }, CASE, prepared.fileAssets);
@@ -107,14 +110,14 @@ export async function world(o: { fold?: boolean; textStatus?: 'none' | 'extracte
   await repository.record({ ...scope, operationId: 'import-one', origin: 'import', parentCandidateId: null, link, correction: null,
     auditEvent: await candidateAuditEvent({ origin: 'import', candidateId: scope.candidateId, link }, id('session', 'prepare-session')) });
   if (o.settled !== false) await repository.settleAudit(await repository.auditIntent(scope));
-  const state = { session: true, grant: true, audit: true, authorityHook: null as (() => void) | null, auditHook: null as (() => void) | null };
+  const state = { session: true, grant: true, audit: true, authorityHook: null as (() => void) | null, auditHook: null as ((e: AuditEvent) => void) | null };
   const events: AuditEvent[] = [], calls: CaseOperation[] = [], checkerCalls: Parameters<NativePreviewRenderChecker['verify']>[0][] = [];
   const identity: Identity = { clientId: CLIENT, kind: 'verified', principal: { issuer: 'synthetic', subject: 'distinct-reviewer', kind: 'staff' }, sessionId: id('session', 'review-session'),
     async checkRevocation() { if (!state.session) throw contractError('invalid-session'); },
     async authorize(a) { calls.push(a.operation); state.authorityHook?.(); if (!state.grant || a.caseId !== CASE || a.operation !== 'read-preview') throw contractError('forbidden'); } };
   const checker: NativePreviewRenderChecker = { async verify(a) { checkerCalls.push(a); return { state: 'rendered', rendererVersion: 'UNIT-DOUBLE-NOT-ACCEPTANCE', pages: 1, reason: null }; } };
   const options: PublicationMaterialOptions = { db, bucket, clientId: CLIENT, identity, storageBudgets: BUDGETS, validationLimits: { ...LIMITS }, renderChecker: checker,
-    audit: { async append(e) { state.auditHook?.(); if (!state.audit) throw contractError('audit-unavailable'); events.push(e); return { eventId: e.eventId }; } }, now: () => new Date(NOW) };
+    audit: { async append(e) { state.auditHook?.(e); if (!state.audit) throw contractError('audit-unavailable'); events.push(e); return { eventId: e.eventId }; } }, now: () => new Date(NOW) };
   const verifiedFacts = facts.facts;
   async function supersede() {
     const inspected = inspectPackage(built.files, CASE); if (!inspected.ok) throw new Error('fixture inspect');
@@ -139,7 +142,7 @@ export async function world(o: { fold?: boolean; textStatus?: 'none' | 'extracte
     await repository.settleAudit(await repository.auditIntent(nextScope));
     return nextScope;
   }
-  return { db, bucket, options, read: () => createPublicationMaterialReader(options)!.read(scope), scope, rv, link, validation, events, calls, checkerCalls, checker, state, supersede,
-    close: () => db.sqlite.close() };
+  return { db, bucket, options, read: async () => await createPublicationMaterialReader(options)!.read(scope) as CandidateSnapshot | null, scope, rv, link, validation, events, calls, checkerCalls, checker, state, supersede,
+    ctx, bytes, close: () => db.sqlite.close() };
 }
 const canonicalHash = (m: unknown) => sha256Hex(utf8(canonicalText(m)));

@@ -30,7 +30,8 @@ import type { NativePreviewRenderChecker } from '../../../viewer/hosted/render-c
 import { renderRequiredSections } from './required-section-render.ts';
 
 export interface PublicationMaterialOptions {
-  /** The SAME raw client DB used by the native import and atomic publisher, never a replica session. */
+  /** The SAME raw client DB used by native import and the atomic publisher, provisioned through publication 0003.
+   * Never a replica session. The parent installs migrations; requests execute no DDL. */
   db: PublicationD1Database;
   bucket: CloudR2;
   clientId: ClientId;
@@ -52,6 +53,7 @@ function fingerprints(value: unknown): string[] {
     || new Set(value).size !== value.length) return integrity();
   return [...value].sort();
 }
+type Primary = ReturnType<PublicationD1Database['withSession']>;
 type FileRow = { path: string; sha256: string; size: number; object_key: string };
 type StoredVersion = {
   version_id: ResultsVersion; case_id: CaseId; state: string; manifest_sha256: string; input_revision_id: string;
@@ -68,9 +70,6 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
     })) return null;
   const { db, bucket, clientId, identity, audit, renderChecker, now } = options;
   const b = Object.freeze({ ...options.storageBudgets }), limits = Object.freeze({ ...options.validationLimits });
-  const primary = db.withSession('first-primary');
-  const open = storageAccess({ bindings: { db: primary, bucket }, clientId, budgets: b }, 'storage-unavailable');
-  const candidates = d1NativeCandidateRepository(primary);
 
   async function authority(caseId: CaseId) {
     if (identity.clientId !== clientId) throw contractError('wrong-client');
@@ -80,16 +79,17 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
     // Read-preview is intentionally NOT operate: a separately granted publisher/reviewer can read this candidate.
     await identity.authorize({ caseId, operation: 'read-preview' });
   }
-  async function record(caseId: CaseId, candidateId: string, version: ResultsVersion | null, outcome: 'succeeded' | 'failed' | 'denied') {
+  async function record(caseId: CaseId, candidateId: string, version: ResultsVersion | null, outcome: 'succeeded' | 'failed' | 'denied' | 'refused') {
     const event = {
       eventId: crypto.randomUUID(), actor: identity.kind === 'verified'
         ? { kind: 'verified' as const, principal: identity.principal, sessionId: identity.sessionId }
         : { kind: 'anonymous' as const, principal: null, sessionId: null },
-      action: 'publication.material.read', object: { kind: 'candidate', id: candidateId, caseId }, version, outcome, at: now().toISOString(),
+      // A successful append records release INTENT, not completed disclosure. Later checks can still refuse.
+      action: outcome === 'succeeded' ? 'publication.material.read.intent' : 'publication.material.read', object: { kind: 'candidate', id: candidateId, caseId }, version, outcome, at: now().toISOString(),
     };
     if ((await audit.append(event)).eventId !== event.eventId) return unavailable();
   }
-  async function admit(caseId: CaseId, objects: number, bytes: number) {
+  async function admit(primary: Primary, caseId: CaseId, objects: number, bytes: number) {
     if (!count(objects, b.maxVerifyObjects) || !count(bytes, b.maxVerifyBytes)) return unavailable();
     if (await admitVerification({ db: primary, budgets: b }, caseId, { objects, bytes }, now().getTime()) !== 'admitted') return unavailable();
   }
@@ -101,7 +101,7 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
   }
 
   /** A single exact finalized revision, not an unbounded list of the case's submissions. */
-  async function submission(caseId: CaseId, revisionId: string): Promise<FinalizedSubmissionSnapshot> {
+  async function submission(primary: Primary, caseId: CaseId, revisionId: string): Promise<FinalizedSubmissionSnapshot> {
     const row = await primary.prepare(`SELECT r.operation_id FROM submissions_revision r JOIN submissions_upload u
       ON u.client_id = r.client_id AND u.case_id = r.case_id AND u.operation_id = r.operation_id
       WHERE r.client_id = ? AND r.case_id = ? AND r.revision_id = ? AND u.state = 'finalized'`)
@@ -117,7 +117,7 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
   }
 
   /** A baseline is accepted CURRENT publication evidence, never package data or a missing-port fallback. */
-  async function baseline(caseId: CaseId): Promise<{ token: string; warnings: string[] }> {
+  async function baseline(primary: Primary, caseId: CaseId): Promise<{ token: string; warnings: string[] }> {
     const p = await primary.prepare('SELECT state, version_id FROM rs_publication WHERE case_id = ?')
       .bind(caseId).first<{ state: string; version_id: string }>();
     const rows = await primary.prepare('SELECT fingerprint FROM rs_trusted_fingerprint WHERE case_id = ? ORDER BY fingerprint LIMIT ?')
@@ -156,16 +156,20 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
   return {
     async read(input): Promise<CandidateSnapshot | null> {
       const scope = Object.freeze({ ...input });
-      // No candidate/package/object reads before the current request's explicit staff authority.
+      let rv: ResultsVersion | null = null;
+      // Authority, initial primary-session/revision faults, absence and all material work share one audited lifecycle.
       try {
         if (scope.clientId !== clientId) throw contractError('wrong-client');
         await authority(scope.caseId);
-      }
-      catch (e) { await record(scope.caseId, scope.candidateId, null, isDenial(e) ? 'denied' : 'failed'); throw e; }
-      const revision = await d1PublicationSnapshotRevision(db, scope);
-      if (revision === null) return null;
-      let rv: ResultsVersion | null = null;
-      try {
+        const revision = await d1PublicationSnapshotRevision(db, scope);
+        if (revision === null) {
+          await record(scope.caseId, scope.candidateId, null, 'refused');
+          await authority(scope.caseId);
+          return null;
+        }
+        const primary = db.withSession('first-primary');
+        const open = storageAccess({ bindings: { db: primary, bucket }, clientId, budgets: b }, 'storage-unavailable');
+        const candidates = d1NativeCandidateRepository(primary);
         const storage = await open();
         if (!await primary.prepare('SELECT 1 AS x FROM rs_case WHERE case_id = ?').bind(scope.caseId).first()) return integrity();
         const linked = await candidates.candidate(scope);
@@ -208,10 +212,10 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
           unique.set(m.sha256, m.size);
           previewObjects += m.packageRefs.length; previewBytes += m.size * m.packageRefs.length;
         }
-        const oldBaseline = await baseline(scope.caseId);
+        const oldBaseline = await baseline(primary, scope.caseId);
         // One complete per-read plan before any protected R2 byte. Facts hash each distinct object; the checker gets
         // another verified read per package ref. Non-PDF/no-checker paths conservatively reserve that work too.
-        await admit(scope.caseId, files.results.length + unique.size + previewObjects,
+        await admit(primary, scope.caseId, files.results.length + unique.size + previewObjects,
           total + [...unique.values()].reduce((n, size) => n + size, 0) + previewBytes);
         const bytes = new Map<string, Uint8Array>();
         for (const f of files.results) bytes.set(f.path, await readBytes(f, b.maxPackageFileBytes));
@@ -238,7 +242,7 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
         if (result.verdict !== version.verdict || result.validatorVersion !== version.validator_version
           || result.diagnosticsSha256 !== version.diagnostics_sha256
           || !same(result.warningFingerprints, fingerprints(parseStrictJson(version.warning_fingerprints)))) return integrity();
-        const submitted = await submission(scope.caseId, link.submissionRevisionId);
+        const submitted = await submission(primary, scope.caseId, link.submissionRevisionId);
         if (submitted.storedManifestSha256 !== link.submissionManifestSha256) return integrity();
         const coverage = buildCoverage({ assets: inspected.value.assets, submission: submitted, caseMismatch: validated.caseMismatch, warningFingerprints: result.warningFingerprints });
         if (!coverage.ok || !same(coverage.coverage, link.coverage)) return integrity();
@@ -248,11 +252,19 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
         const stored = await primary.prepare('SELECT overview FROM rs_results_version WHERE version_id = ? AND case_id = ?').bind(rv, scope.caseId).first<{ overview: string }>();
         if (!stored || projectionDifferences({ documents: model.docs, assets: model.assets, seeds: model.seeds,
           chronologyJson: JSON.stringify(model.docs.map((d) => JSON.parse(d.list_json))), overview: stored.overview, expect: projected.projection.expect }, projected.projection).length) return integrity();
-        const requiredSections = await renderRequiredSections({ candidate: result.candidate, projection: projected.projection,
-          originals: new Map(mapped.flatMap((m) => m.packageRefs.map((ref) => [ref, m.submissionAssetId] as const))) });
+        const requiredSections = [...await renderRequiredSections({ candidate: result.candidate, projection: projected.projection,
+          originals: new Map(mapped.flatMap((m) => m.packageRefs.map((ref) => [ref, m.submissionAssetId] as const))) })];
         const requiredPreviews: { assetId: string; state: RequiredPreviewState }[] = [];
         const pagesByRef = referencePages(result.candidate);
-        for (const ref of pagesByRef.keys()) if (!result.candidate.assets[ref]) return integrity();
+        // Canonical uncapped counts cover ALL structured citations (including schema-specific arrays), not only
+        // the capped diagnostic list. Missing indexed assets also make supplied targets unopenable, even when the
+        // register contains the ref. The inline scan covers generated datasets and file-level tokens.
+        // This is separate mandatory display evidence, NOT a retagged warning or an invented diagnostic fingerprint.
+        if (['CITE_UNRESOLVED', 'CITE_TARGET_NO_ORIGINAL', 'CITE_TOKEN_INVALID', 'ASSET_NOT_INDEXED']
+          .some((code) => (result.counts[code] ?? 0) > 0)
+          || [...pagesByRef.keys()].some((ref) => !result.candidate!.assets[ref])) {
+          requiredSections.push({ key: 'supplied-references', state: 'invalid' });
+        }
         for (const [ref, asset] of Object.entries(result.candidate.assets).sort(([a], [b]) => a.localeCompare(b))) {
           let state: RequiredPreviewState = 'pending';
           const fact = originals.facts.get(ref);
@@ -272,7 +284,7 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
         if (await d1PublicationSnapshotRevision(db, scope) !== revision) return integrity();
         await record(scope.caseId, scope.candidateId, rv, 'succeeded');
         await authority(scope.caseId);
-        if ((await baseline(scope.caseId)).token !== oldBaseline.token) return integrity();
+        if ((await baseline(primary, scope.caseId)).token !== oldBaseline.token) return integrity();
         // ALL awaited package/fact/model/render/audit work is inside these real D1 revision observations.
         if (await d1PublicationSnapshotRevision(db, scope) !== revision) return integrity();
         // Post-await release authority is a distinct observation, not a Clerk/D1 lock. The parent owns the final
@@ -284,8 +296,8 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
             errorFingerprints: result.errorFingerprints, warningFingerprints: result.warningFingerprints }, trustedBaseline: oldBaseline.warnings, requiredSections, requiredPreviews });
       } catch (e) {
         // Failure releases no snapshot. Audit failure is itself a refusal; never replace it with a successful read.
-        try { await record(scope.caseId, scope.candidateId, rv, isDenial(e) ? 'denied' : 'failed'); }
-        finally { await d1PublicationSnapshotRevision(db, scope); }
+        // Do not depend on another metadata read here: the initial transport itself may be broken.
+        await record(scope.caseId, scope.candidateId, rv, isDenial(e) ? 'denied' : 'failed');
         throw e;
       }
     },
@@ -299,12 +311,11 @@ function referencePages(candidate: Candidate): ReadonlyMap<string, readonly numb
   const visit = (value: unknown): void => {
     if (typeof value === 'string') {
       for (const m of value.matchAll(new RegExp(CITATION_TOKEN.source, 'g'))) {
-        const token = parseCitationToken(m[1]);
-        if (!token && m[1].includes('#p')) return integrity();
-        if (token && token.page !== null) {
-          const found = pages.get(token.ref) ?? new Set<number>();
-          found.add(token.page); pages.set(token.ref, found);
-        }
+        const token = parseCitationToken(m[1].trim());
+        if (!token) return integrity();
+        const found = pages.get(token.ref) ?? new Set<number>();
+        if (token.page !== null) found.add(token.page);
+        pages.set(token.ref, found);
       }
     } else if (Array.isArray(value)) value.forEach(visit);
     else if (value && typeof value === 'object') Object.values(value).forEach(visit);

@@ -20,7 +20,8 @@ export interface NativeRequestCompositions {
 const requests=new WeakMap<Request,NativeRequestCompositions>();
 let installed=false;
 export function bindNativeRequestCompositions(request:Request,ports:NativeRequestCompositions):void {
- requests.set(request,Object.freeze({...ports}));
+ // The download ports carry this request's scheduler, so they are copied too: nothing grafted on later is used.
+ requests.set(request,Object.freeze({...ports,downloads:ports.downloads&&Object.freeze({...ports.downloads})}));
 }
 function executionContext(platform:unknown):{waitUntil(work:Promise<void>):void}|null {
  if(typeof platform!=='object'||platform===null)return null;
@@ -28,7 +29,7 @@ function executionContext(platform:unknown):{waitUntil(work:Promise<void>):void}
  if(typeof context!=='object'||context===null||typeof (context as {waitUntil?:unknown}).waitUntil!=='function')return null;
  return context as {waitUntil(work:Promise<void>):void};
 }
-/** Isolate setup only. Every resolution still requires this exact request and its actual execution context. */
+/** Isolate setup only. Every resolution still requires this exact request and its own scheduler or execution context. */
 export function installNativeCompositions():void {
  if(installed)return;installed=true;
  setIntakeComposition(({request})=>requests.get(request)?.intake??null);
@@ -37,8 +38,11 @@ export function installNativeCompositions():void {
  setReadinessComposition(({request})=>requests.get(request)?.publication??null);
  setRecoveryComposition(({request})=>requests.get(request)?.recovery??null);
  setOperatorDownloadComposition(({request,platform})=>{
-  const ports=requests.get(request)?.downloads,context=executionContext(platform);
-  if(!ports||!context)return null;
-  return {...ports,waitUntil:(work)=>context.waitUntil(work)};
+  const ports=requests.get(request)?.downloads;
+  if(!ports)return null;
+  // adapter-cloudflare 8 supplies no platform: the trusted parent binds the runtime's own per-invocation waitUntil.
+  if(typeof ports.waitUntil==='function')return ports;
+  const context=executionContext(platform);
+  return context?{...ports,waitUntil:(work)=>context.waitUntil(work)}:null;
  });
 }

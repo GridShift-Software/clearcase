@@ -75,8 +75,11 @@ function nativeContext(env: Readonly<Record<string, unknown>>, b: Bindings, cler
 	}
 }
 
+/** Keeps work running after the response for the invocation that calls it. */
+export interface RequestScheduler { waitUntil(work: Promise<void>): void }
+
 /** Fresh identity and audit state for this exact request; only immutable deployment configuration is shared. */
-export async function hostedServices(request: Request, env: Readonly<Record<string, unknown>>): Promise<Readiness> {
+export async function hostedServices(request: Request, env: Readonly<Record<string, unknown>>, scheduler: RequestScheduler | null = null): Promise<Readiness> {
 	const b = bindings(env), now = () => new Date();
 	const services: RequestServices = createUnavailableServices({ clientId: b.clientId ?? id('client', 'unconfigured'), now });
 	let dataReady = false;
@@ -216,7 +219,8 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 					} : null;
 					bindNativeRequestCompositions(request, {
 						intake: { clientId: clerk.config.clientId, budget, authorizeUpload, originals, repository, now },
-						downloads: { clientId: clerk.config.clientId, authorizeOperate, repository, assets: results.assets, audit: services.audit, now },
+						downloads: { clientId: clerk.config.clientId, authorizeOperate, repository, assets: results.assets, audit: services.audit, now,
+							...(scheduler ? { waitUntil: (work: Promise<void>) => scheduler.waitUntil(work) } : {}) },
 						imports, publication,
 					});
 					dataReady = true;

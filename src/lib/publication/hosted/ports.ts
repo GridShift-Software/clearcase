@@ -59,14 +59,18 @@ export interface AtomicPublicationMutation {
   readonly intent: PublicationIntent;
   /** Current retry session, deliberately NOT the original session in the persisted audit envelope. */
   readonly authority: Readonly<{ clientId: ClientId; caseId: CaseId; principal: Principal; sessionId: SessionId; capability: 'publish' }>;
-  /** Fresh reads, not saved booleans. The adapter MUST run this inside its shared serialization boundary. */
+  /** Fresh external-authority reads immediately before the primary D1 transaction, never saved booleans.
+   * Clerk cannot participate in a D1 lock: a later external revocation can race commit. The transaction still guards
+   * current D1 grants, candidate/sign-off generation, any local revocation fence, pointer and apply receipt. */
   recheck(): Promise<void>;
 }
 /**
  * REQUIRED parent atomic adapter, not an ordinary GRS-115 CAS wrapper. Before applying, load/compare the durable
- * operation intent, then run `recheck` while serialized with candidate/link edits, sign-off invalidation, session and
- * grant revocation. Hold that boundary through the expected-pointer CAS AND write-once apply receipt. All those
- * writers must participate; an unguarded callback followed by CAS is NOT this contract. A refusal writes neither
+ * operation intent, then run `recheck` immediately before the guarded primary-D1 transaction. External Clerk authority
+ * is observed at that last successful check; D1 does not lock Clerk and a later external revocation can race commit.
+ * Candidate/link edits, sign-off invalidation, current D1 grant state and positively observed local session denials
+ * must be guarded atomically through the expected-pointer CAS AND write-once apply receipt. Those D1 writers must
+ * participate; an external callback followed by an unguarded CAS is NOT this contract. A refusal writes neither
  * pointer nor receipt. Propagate recheck errors unchanged; predicate denials return `guard-refused`, not a generic
  * storage refusal. Candidate edits must durably invalidate old sign-offs even if a publication is refused.
  * Replays use the exact operation receipt, never current-pointer equality. A lost acknowledgement may reject after

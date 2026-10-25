@@ -40,6 +40,10 @@ import {
 	NATIVE_CLIENT_FILES,
 	NATIVE_CONFIG_FILE,
 	NATIVE_HOST_IMPORTS,
+	NATIVE_DYNAMIC_HOST_IMPORTS,
+	NATIVE_ADAPTER_HEADERS,
+	nativeArtifactLayout,
+	type DynamicHostImport,
 	NATIVE_STAGE_SCHEMA,
 	NATIVE_STAGED,
 	NATIVE_UPLOAD_ARGV,
@@ -124,7 +128,7 @@ const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const SHA40 = /^[0-9a-f]{40}$/;
 const EVIDENCE_KEYS = ['schema', 'checker', 'client', 'pins', 'problems', 'readAt', 'files'] as const;
 const FILE_KEYS = ['stageJson', 'targetJson', 'configJsonc'] as const;
-const UPLOAD_KEYS = ['mode', 'bundler', 'entry', 'hostImports', 'additionalModules', 'files', 'invocation'];
+const UPLOAD_KEYS = ['mode', 'bundler', 'entry', 'hostImports', 'dynamicHostImports', 'additionalModules', 'assets', 'files', 'invocation'];
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const show = (v: unknown) => (v === undefined ? 'missing' : JSON.stringify(v));
@@ -226,7 +230,7 @@ function evidenceShape(raw: unknown, client: string, pins: NativePins, now: numb
 }
 
 /** The staged upload section as DATA, with every problem found; `files` and `entry` come back only when well formed. */
-function uploadFacts(record: Record<string, unknown>, pins: NativePins, at: string): { problems: string[]; upload?: ReturnType<typeof nativeUpload> } {
+function uploadFacts(record: Record<string, unknown>, pins: NativePins, at: string, flags: readonly string[]): { problems: string[]; upload?: ReturnType<typeof nativeUpload> } {
 	const problems: string[] = [];
 	const fail = (m: string) => problems.push(`${at}: ${m}`);
 	const u = record.upload;
@@ -244,7 +248,7 @@ function uploadFacts(record: Record<string, unknown>, pins: NativePins, at: stri
 	else {
 		const seen = new Set<string>();
 		for (const f of u.files) {
-			if (!isObject(f) || Object.keys(f).length !== 3 || typeof f.path !== 'string' || !f.path.startsWith('artifact/') || typeof f.sha256 !== 'string' || !SHA256.test(f.sha256) || !Number.isInteger(f.bytes) || (f.bytes as number) < 0) fail(`stage record upload file ${show(f)} is not exactly { path under artifact/, bytes, sha256 }`);
+			if (!isObject(f) || Object.keys(f).length !== 3 || typeof f.path !== 'string' || !f.path.startsWith('artifact/') || f.path.includes('\\') || f.path.split('/').some((s) => !s || s === '.' || s === '..') || typeof f.sha256 !== 'string' || !SHA256.test(f.sha256) || !Number.isInteger(f.bytes) || (f.bytes as number) < 0) fail(`stage record upload file ${show(f)} is not exactly { path under artifact/, bytes, sha256 }`);
 			else if (seen.has(f.path)) fail(`stage record upload file ${f.path} is listed twice`);
 			else (seen.add(f.path), files.push({ path: f.path, bytes: f.bytes as number, sha256: f.sha256 }));
 		}
@@ -255,10 +259,31 @@ function uploadFacts(record: Record<string, unknown>, pins: NativePins, at: stri
 	}
 	const hosts = u.hostImports;
 	if (!Array.isArray(hosts) || !hosts.every((h) => typeof h === 'string' && (NATIVE_HOST_IMPORTS as readonly string[]).includes(h))) fail(`stage record upload.hostImports ${show(hosts)} is not a list within ${NATIVE_HOST_IMPORTS.join(', ')}`);
+	const dynamic: DynamicHostImport[] = [];
+	if (!Array.isArray(u.dynamicHostImports)) fail('stage record upload.dynamicHostImports is not a list');
+	else {
+		const seen = new Set<string>();
+		for (const d of u.dynamicHostImports) {
+			if (!isObject(d) || Object.keys(d).length !== 3 || typeof d.specifier !== 'string' || !Object.hasOwn(NATIVE_DYNAMIC_HOST_IMPORTS, d.specifier) || typeof d.via !== 'string' || !/^(literal|forwarder [A-Za-z_$][\w$]*)$/.test(d.via) || !Number.isSafeInteger(d.sites) || (d.sites as number) <= 0) {
+				fail(`stage record upload.dynamicHostImports fact ${show(d)} is invalid`);
+				continue;
+			}
+			if (!NATIVE_DYNAMIC_HOST_IMPORTS[d.specifier]!.some((f) => flags.includes(f))) fail(`dynamic host import ${d.specifier} has no required compatibility flag`);
+			const key = JSON.stringify([d.specifier, d.via]);
+			if (seen.has(key)) fail(`dynamic host import ${key} is listed twice`);
+			seen.add(key);
+			dynamic.push({ specifier: d.specifier, via: d.via, sites: d.sites as number });
+		}
+	}
+	const headers = files.find((f) => f.path === `${NATIVE_STAGED.assets}/_headers`);
+	const headerMatches = headers?.sha256 === sha256(NATIVE_ADAPTER_HEADERS) && headers.bytes === new TextEncoder().encode(NATIVE_ADAPTER_HEADERS).length;
+	const layout = nativeArtifactLayout({ files, entrySha256: pins.entry, headersText: headerMatches ? NATIVE_ADAPTER_HEADERS : null });
+	problems.push(...layout.problems.map((p) => `${at}: ${p}`));
+	if (JSON.stringify(u.assets) !== JSON.stringify(layout.assets)) fail('stage record upload.assets is not the exact public asset and header inventory of upload.files');
 	if (u.additionalModules !== false) fail(`stage record upload.additionalModules is ${show(u.additionalModules)}, not false`);
 	if (!Array.isArray(u.invocation) || u.invocation.length !== NATIVE_UPLOAD_ARGV.length || !NATIVE_UPLOAD_ARGV.every((x, i) => (u.invocation as unknown[])[i] === x)) fail(`stage record upload.invocation ${show(u.invocation)} is not exactly ${JSON.stringify(NATIVE_UPLOAD_ARGV)}`);
 	if (problems.length) return { problems };
-	const upload = nativeUpload({ entry: { sha256: (entry as Record<string, unknown>).sha256 as string, bytes: (entry as Record<string, unknown>).bytes as number }, hostImports: u.hostImports as string[], files });
+	const upload = nativeUpload({ entry: { sha256: (entry as Record<string, unknown>).sha256 as string, bytes: (entry as Record<string, unknown>).bytes as number }, hostImports: u.hostImports as string[], dynamicHostImports: dynamic, assets: layout.assets, files });
 	return { problems, upload };
 }
 
@@ -399,7 +424,7 @@ export function bindNativeStages(a: BindInput): NativeBindingResult {
 			continue;
 		}
 		if (record.client !== j.client) problems.push(`${at}: stage.json is for ${show(record.client)}, not ${j.client}`);
-		const up = uploadFacts(record, p, at);
+		const up = uploadFacts(record, p, at, j.target?.runtime.compatibilityFlags ?? []);
 		problems.push(...up.problems);
 		j.upload = up.upload;
 		if (j.target && up.upload) {

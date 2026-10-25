@@ -114,6 +114,7 @@ describe('the planner\'s render-budget rule agrees with the real checker constru
 		const real = await createNativePreviewRenderChecker({ db: { withSession: () => ({}) }, clientId: 'client-a', browser: { fetch: async () => new Response('x') }, assets: { fetch: async () => new Response('x') },
 			appOrigin: 'https://client-a.clearcase.test', pins: input.inventory, budget, now: () => new Date() } as unknown as NativePreviewRenderOptions);
 		const planned = exampleInput(); planned.clients[0]!.policy.nativeRenderBudget = budget;
+		planned.browserAllocation = { maxConcurrentBrowsers: 1, maxReservedBrowserMsPerDay: Number.MAX_SAFE_INTEGER }; // isolate the render-budget rule from the aggregate fit
 		let accepted = true; try { planNativeRuntimeConfig(planned); } catch { accepted = false; }
 		expect(accepted).toBe(real !== null);
 	});

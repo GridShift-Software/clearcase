@@ -42,7 +42,8 @@ describe('emitted vars, secret names and manifest', () => {
 	});
 	it('hashes every file in a manifest that claims no provider proof, provisioning or deployment', () => {
 		const manifest = plan.manifest;
-		expect(manifest).toMatchObject({ schema: NATIVE_RUNTIME_CONFIG_SCHEMA, settingsSchema: NATIVE_RUNTIME_SETTINGS_SCHEMA, providerProof: false, provisioned: false, deployed: false, plannedBrowserAllocation: null });
+		expect(manifest).toMatchObject({ schema: NATIVE_RUNTIME_CONFIG_SCHEMA, settingsSchema: NATIVE_RUNTIME_SETTINGS_SCHEMA, providerProof: false, provisioned: false, deployed: false,
+			plannedBrowserAllocation: { kind: 'planned-allocation', accountAvailabilityProven: false, spendProven: false, totals: { concurrentBrowsers: 1, reservedMsPerDay: 144_000 } } });
 		expect([...plan.files.keys()].sort()).toEqual(['client-a.runtime.json', 'client-b.runtime.json', NATIVE_RUNTIME_CONFIG_MANIFEST]);
 		for (const entry of manifest.clients) {
 			const text = plan.files.get(entry.file)!;

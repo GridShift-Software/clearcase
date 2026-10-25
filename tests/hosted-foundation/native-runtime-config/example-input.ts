@@ -29,7 +29,7 @@ const client = (slot: 'a' | 'b', render: Record<string, number> | null) => ({
 	policy: policy(render),
 });
 
-/** A fresh mutable object per call. Client A opts in to Browser with two runs a day; client B has no render budget. */
+/** A fresh mutable object per call. Client A opts in to Browser with two runs a day and an explicit allocation; client B has no render budget. */
 export function exampleInput() {
 	return {
 		manifest: {
@@ -40,7 +40,8 @@ export function exampleInput() {
 			client('a', { maxFileBytes: 1_000_000, maxPages: 4, maxCanvasPixels: 1_000_000, maxRunMs: 10_000, maxRunsPerCasePerDay: 1, maxRunsPerClientPerDay: 2 }),
 			client('b', null),
 		],
-		browserAllocation: null as null | { maxConcurrentBrowsers: number; maxReservedBrowserMsPerDay: number },
+		// Client A opts in, so an explicit aggregate policy is required; it exactly fits A's worst case: 2 runs x (10_000 + 2_000 + 60_000).
+		browserAllocation: { maxConcurrentBrowsers: 1, maxReservedBrowserMsPerDay: 144_000 } as null | { maxConcurrentBrowsers: number; maxReservedBrowserMsPerDay: number },
 	};
 }
 /** The example with both clients opted in and an explicit aggregate policy that exactly fits their worst case. */

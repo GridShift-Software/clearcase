@@ -23,8 +23,12 @@ export const NATIVE_RUNTIME_CLIENT_SCHEMA = 'clearcase.native-runtime-config.cli
 export const NATIVE_RUNTIME_SETTINGS_SCHEMA = 'clearcase.native-runtime/1';
 export const NATIVE_RUNTIME_CONFIG_VAR = 'CLEARCASE_NATIVE_CONFIG';
 export const NATIVE_RUNTIME_CONFIG_MANIFEST = 'runtime-config.json';
-/** Workers environment variable size limit as documented by the provider; not verified here. Larger refuses. */
-export const NATIVE_RUNTIME_CONFIG_MAX_BYTES = 5120;
+/**
+ * UTF-8 byte cap for EVERY emitted variable value. Cloudflare documents "5 KB" per environment variable without saying whether that
+ * is 5000 or 5120 bytes, so the cap is the conservative 5000: a value that fits is inside either reading. Larger refuses. The exact
+ * byte at which the provider refuses, any variable count limit and any account limit are not claimed or checked here.
+ */
+export const NATIVE_RUNTIME_CONFIG_MAX_BYTES = 5000;
 const MAX_CLIENTS = 8, MAX_NODES = 2048, MAX_DEPTH = 8, MAX_STRING = 8192, MAX_INPUT_BYTES = 262_144;
 // native-render-check.ts keeps these private. The tests drive the real checker and read lease_ms from its reservation, so a
 // drift in either constant fails there rather than silently under-planning the allocation.
@@ -214,7 +218,6 @@ function planClient(manifest: ReturnType<typeof validateClientManifest>, value: 
 	};
 	const nativeConfig = JSON.stringify(settings);
 	const nativeConfigBytes = Buffer.byteLength(nativeConfig);
-	if (nativeConfigBytes > NATIVE_RUNTIME_CONFIG_MAX_BYTES) refuse(`${at}: ${NATIVE_RUNTIME_CONFIG_VAR} exceeds ${NATIVE_RUNTIME_CONFIG_MAX_BYTES} bytes`);
 	const vars: Record<string, string> = {
 		[CLERK_ENV.clientId]: clerk.clientId, [CLERK_ENV.appOrigin]: clerk.appOrigin,
 		[CLERK_ENV.client.publishableKey]: clerk.client.publishableKey, [CLERK_ENV.staff.publishableKey]: clerk.staff.publishableKey,
@@ -225,6 +228,10 @@ function planClient(manifest: ReturnType<typeof validateClientManifest>, value: 
 		...(clerk.audience === null ? {} : { [CLERK_ENV.audience]: clerk.audience }),
 		[NATIVE_RUNTIME_CONFIG_VAR]: nativeConfig,
 	};
+	// One rule for the whole class: every emitted value, by UTF-8 bytes, before anything is written. The message names the variable
+	// (a fixed name from this module) and never its value.
+	for (const [name, value] of Object.entries(vars))
+		if (Buffer.byteLength(value) > NATIVE_RUNTIME_CONFIG_MAX_BYTES) refuse(`${at}: ${name} exceeds ${NATIVE_RUNTIME_CONFIG_MAX_BYTES} bytes`);
 	const file = {
 		schema: NATIVE_RUNTIME_CLIENT_SCHEMA, clientId: deployment.clientId, worker: deployment.worker, hostname: deployment.hostname,
 		vars, secrets: [...NATIVE_RUNTIME_SECRET_NAMES],
@@ -248,12 +255,15 @@ export function planNativeRuntimeConfig(value: unknown) {
 
 	// A planned allocation, not proof of account availability or spend. The reservation SQL charges every launch the full lease and
 	// refuses a launch before the previous lease ends (next_launch_ms), so one client never holds more than one browser at a time.
+	// Null means "no client renders": any opt-in must carry the explicit aggregate policy, because the finite check is the point.
+	const browsers = clients.filter((c) => c.render);
 	let allocation = null;
+	if (input.browserAllocation === null && browsers.length)
+		refuse('input.browserAllocation: an explicit planned allocation is required because a client opted in to Browser rendering; null is allowed only when no client opts in');
 	if (input.browserAllocation !== null) {
 		const policy = exact(input.browserAllocation!, ALLOCATION_KEYS, 'input.browserAllocation');
 		const maxConcurrentBrowsers = count(policy.maxConcurrentBrowsers!, 'input.browserAllocation.maxConcurrentBrowsers');
 		const maxReservedBrowserMsPerDay = count(policy.maxReservedBrowserMsPerDay!, 'input.browserAllocation.maxReservedBrowserMsPerDay');
-		const browsers = clients.filter((c) => c.render);
 		if (!browsers.length) refuse('input.browserAllocation: no planned client has a render budget to allocate');
 		const perClient = browsers.map((c) => {
 			const leaseMsWorstCase = nativeRenderLeaseMs(c.render!.maxRunMs);
@@ -294,12 +304,13 @@ function location(value: unknown, at: string): string {
 	if (typeof value !== 'string' || !value || value.includes('\0') || !path.isAbsolute(value) || path.normalize(value) !== value || (value.length > 1 && value.endsWith(path.sep))) refuse(`${at}: expected a canonical absolute path`);
 	return value as string;
 }
+const PRIVATE_DIRECTORY = 0o700, PRIVATE_FILE = 0o600;
 function readBytes(file: string, size: number): Buffer {
 	realPath(file, false);
 	const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
 	try {
 		const stat = fstatSync(fd);
-		if (!stat.isFile() || stat.nlink !== 1 || stat.size !== size) throw new Error('expected an unlinked file of the exact size');
+		if (!stat.isFile() || stat.nlink !== 1 || stat.size !== size || (stat.mode & 0o777) !== PRIVATE_FILE) throw new Error('expected a private unlinked file of the exact size');
 		return readFileSync(fd);
 	} finally { closeSync(fd); }
 }
@@ -323,10 +334,10 @@ export function prepareNativeRuntimeConfig(value: { input: unknown; out: string 
 	const plan = planNativeRuntimeConfig(v.input);
 	const out = location(v.out, 'prepare.out');
 	try { realPath(path.dirname(out), true); } catch { refuse('prepare.out: the parent must be a real directory'); }
-	try { mkdirSync(out, { mode: 0o700 }); } catch { refuse('prepare.out: must be a new directory'); }
+	try { mkdirSync(out, { mode: PRIVATE_DIRECTORY }); } catch { refuse('prepare.out: must be a new directory'); }
 	const owned = lstatSync(out);
 	try {
-		for (const [name, bytes] of plan.files) writeFileSync(path.join(out, name), bytes, { flag: 'wx', mode: 0o600 });
+		for (const [name, bytes] of plan.files) writeFileSync(path.join(out, name), bytes, { flag: 'wx', mode: PRIVATE_FILE });
 		return readNativeRuntimeConfig({ input: v.input, stage: out });
 	} catch (caught) {
 		const current = lstatSync(out, { throwIfNoEntry: false });
@@ -336,13 +347,14 @@ export function prepareNativeRuntimeConfig(value: { input: unknown; out: string 
 	}
 }
 
-/** Re-plans from `input` and requires the stage to hold exactly the planned entries, byte for byte, as regular unlinked files. */
+/** Re-plans from `input` and requires the stage to hold exactly the planned entries, byte for byte, as regular unlinked files (0600) in a 0700 directory. */
 export function readNativeRuntimeConfig(value: { input: unknown; stage: string }) {
 	const v = shallow(value, ['input', 'stage'], 'read');
 	const plan = planNativeRuntimeConfig(v.input);
 	const stage = location(v.stage, 'read.stage');
 	try {
 		realPath(stage, true);
+		if ((lstatSync(stage).mode & 0o777) !== PRIVATE_DIRECTORY) throw new Error('mode');
 		const entries = readdirSync(stage);
 		if (entries.length !== plan.files.size || entries.some((name) => !plan.files.has(name))) throw new Error('entries');
 		for (const [name, bytes] of plan.files) if (!readBytes(path.join(stage, name), Buffer.byteLength(bytes)).equals(Buffer.from(bytes))) throw new Error('bytes');

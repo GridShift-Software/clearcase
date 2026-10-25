@@ -1,10 +1,10 @@
 // Real route modules over the real strict /2 core. Synthetic D1/R2/identity only; not provider acceptance.
 import { afterEach, expect, it } from 'vitest';
 import { CASE, CLIENT } from '../recovery-native-adapters/world.ts';
-import { EXPORT, bindingOf, body, pair, post, run, snapshot, type Pair } from './fixture.ts';
+import { EXPORT, bindingOf, depsOf, body, pair, post, run, snapshot, type Pair } from './fixture.ts';
 const live: Pair[] = [];
 afterEach(() => { for (const p of live.splice(0)) for (const w of p.worlds) w.close(); });
-async function setup() { const p = await pair(); live.push(p); return { p, deps: await p.source.deps() }; }
+async function setup() { const p = await pair(); live.push(p); return { p, deps: await depsOf(p.source.options) }; }
 
 it('exports, verifies, plans and applies a /2 archive into the isolated target without activating anything', async () => {
   const { p, deps } = await setup(), binding = bindingOf(deps), who = p.source.identity;

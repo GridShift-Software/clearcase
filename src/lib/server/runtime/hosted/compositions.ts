@@ -13,7 +13,7 @@ export interface NativeRequestCompositions {
  readonly downloads: OperatorDownloadPorts | null;
  readonly imports?:NativeImportPorts|null;
  readonly publication?:PublicationReadinessPorts|null;
- /** Trusted parent only: this request's own deps plus its configured app origin. Absent means the recovery routes answer 503. */
+ /** Trusted parent only: this request's own source options (the receiving target is `source.target`) plus its configured app origin. Absent means the recovery routes answer 503. */
  readonly recovery?:NativeRecoveryBinding|null;
 }
 // Object identity, not path, cookie, session id or the last request. Unknown requests always fail closed.

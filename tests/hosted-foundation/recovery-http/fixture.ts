@@ -4,7 +4,8 @@ import { expect } from 'vitest';
 import { CASE, world, type World } from '../recovery-native-adapters/world.ts';
 import { nativeWorld, type NativeWorld } from '../recovery-native-evidence/world.ts';
 import { bindNativeRequestCompositions, installNativeCompositions } from '../../../src/lib/server/runtime/hosted/compositions.ts';
-import { nativeRecoveryBinding, type NativeRecoveryBinding } from '../../../src/lib/recovery/hosted/composition.ts';
+import { nativeRecoveryBinding, openNativeRecoveryDeps, type NativeRecoveryBinding } from '../../../src/lib/recovery/hosted/composition.ts';
+import type { NativeRecoveryOptions } from '../../../src/lib/recovery/hosted/native-adapters.ts';
 import type { RestoreDeps } from '../../../src/lib/recovery/hosted/restore.ts';
 import type { Identity } from '../../../src/lib/server/runtime/contracts.ts';
 import * as exportRoute from '../../../deploy/client/routes/api/cases/[caseId]/recovery/native/export/+server.ts';
@@ -23,8 +24,10 @@ export async function pair(): Promise<Pair> {
   source.options.target = target.options;
   return { source, target, worlds: [source, target] };
 }
+/** The reviewed adapters, opened from one set of source options whose `target` is the receiving authentication. */
+export const depsOf = (o: NativeRecoveryOptions): Promise<RestoreDeps> => openNativeRecoveryDeps(o);
 export function bindingOf(deps: RestoreDeps, over: Partial<NativeRecoveryBinding> = {}): NativeRecoveryBinding {
-  return nativeRecoveryBinding({ appOrigin: ORIGIN, caseId: CASE, deps, restore: deps.target ? { liveIsolationId: deps.liveIsolationId, target: deps.target } : null, ...over });
+  return nativeRecoveryBinding({ appOrigin: ORIGIN, caseId: CASE, deps, ...over });
 }
 export function post(step: Step, body: unknown, init: { origin?: string | null; type?: string | null; method?: string; raw?: string; headers?: Record<string, string> } = {}): Request {
   const headers = new Headers(init.headers);

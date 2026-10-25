@@ -1,9 +1,10 @@
 import { decodeUtf8Strict, isObject, parseStrictJson, type JsonObject, type JsonValue } from '../../case-package/strict-json.ts';
 import type { Identity } from '../../server/runtime/contracts.ts';
-import { codeOf } from '../../server/runtime/errors.ts';
 import { readAtMost } from '../../submissions/body.ts';
 import { ID, SHA } from './bytes.ts';
-import type { NativeRecoveryBinding } from './composition.ts';
+import { closedCode } from './closed-code.ts';
+import { scopeFault } from './binding.ts';
+import type { NativeRecoveryBinding } from './binding.ts';
 import { exportNativeCase, type NativeExportRequest } from './export.ts';
 import { verifyNativeExport } from './native-evidence.ts';
 import { applyNativeRestore, planNativeRestore, type RestoreDeps } from './restore.ts';
@@ -19,8 +20,8 @@ const fail = (status: number, code: string, message: string) => json(status, { c
 class Refusal { readonly response: Response; constructor(response: Response) { this.response = response; } }
 const refuse = (status: number, code: string, message: string): never => { throw new Refusal(fail(status, code, message)); };
 
-/** Fixed text per core code; a provider message, key, stack or cause never reaches the response. */
-const CODES: Record<string, [number, string]> = {
+/** Fixed text per core code; a provider message, key, stack or cause never reaches the response. Own entries only: see `statusFor`. */
+const CODES = new Map<string, readonly [number, string]>(Object.entries({
   'unauthenticated': [401, 'Sign in to continue.'],
   'invalid-session': [401, 'Sign in to continue.'],
   'wrong-client': [401, 'This session belongs to another client. Sign in for this client.'],
@@ -45,16 +46,22 @@ const CODES: Record<string, [number, string]> = {
   'audit-unavailable': [503, 'The audit log is unavailable. Nothing was read.'],
   'storage-unavailable': [503, 'Storage is unavailable. The outcome may be partial; plan again before retrying.'],
   'recovery-unavailable': [503, 'Recovery is not available on this deployment yet.'],
-};
+} as Record<string, readonly [number, string]>));
+const UNAVAILABLE = CODES.get('recovery-unavailable')!;
+const unavailable = () => fail(UNAVAILABLE[0], 'recovery-unavailable', UNAVAILABLE[1]);
+const refuseWith = (code: string): never => { const known = CODES.get(code)!; return refuse(known[0], code, known[1]); };
+
+/** A refusal, a known closed code with its fixed text, or the bounded 503. Never a success status, never a raw value. */
+function failureOf(e: unknown): Response {
+  try { if (e instanceof Refusal) return e.response; } catch { /* a hostile prototype chain is just an unknown error */ }
+  const code = closedCode(e), known = code === null ? undefined : CODES.get(code);
+  return known ? fail(known[0], code!, known[1]) : unavailable();
+}
 
 const ORIGIN = (r: RecoveryRequest, appOrigin: string | null) => {
   const origin = r.request.headers.get('origin');
   return origin !== null && origin === r.url.origin && (appOrigin === null || origin === appOrigin);
 };
-function sameSession(a: Identity, b: Identity): boolean {
-  return a.kind === 'verified' && b.kind === 'verified' && a.clientId === b.clientId && a.sessionId === b.sessionId &&
-    a.principal.issuer === b.principal.issuer && a.principal.subject === b.principal.subject && a.principal.kind === b.principal.kind;
-}
 
 type Field = 'exportId' | 'includeUserWork' | 'auditScope' | 'expectedManifestSha256' | 'confirmedPlanSha256' | 'operationId';
 const FIELDS: Record<Field, (v: JsonValue) => boolean> = {
@@ -69,16 +76,17 @@ const FIELDS: Record<Field, (v: JsonValue) => boolean> = {
 /** The four native /2 routes. Without a binding every route answers 503; nothing here supplies a default, a double or an allow. */
 export function createRecoveryController(binding: NativeRecoveryBinding | null) {
   /** Method, origin, media and binding precede identity; identity and case precede the body; the body precedes every core call. */
-  async function admit(r: RecoveryRequest, required: readonly Field[], optional: readonly Field[] = []) {
+  async function admit(r: RecoveryRequest, restore: boolean, required: readonly Field[], optional: readonly Field[] = []) {
     if (r.request.method !== 'POST') refuse(405, 'method-not-allowed', 'Send POST.');
     if (!ORIGIN(r, binding?.appOrigin ?? null)) refuse(403, 'cross-origin', 'Cross-origin writes are refused.');
     if ((r.request.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase() !== 'application/json') refuse(415, 'unsupported-media-type', 'Send application/json.');
-    if (!binding) refuse(503, 'recovery-unavailable', CODES['recovery-unavailable']![1]);
+    if (!binding) refuseWith('recovery-unavailable');
     const bound = binding!;
     const raw = r.params.caseId;
     if (!raw || !ID.test(raw) || raw !== bound.caseId) refuse(404, 'not-found', 'Not found.');
     if (r.identity.kind !== 'verified') refuse(401, 'unauthenticated', 'Sign in to continue.');
-    if (!sameSession(r.identity, bound.deps.identity)) refuse(503, 'recovery-unavailable', CODES['recovery-unavailable']![1]);
+    const early = scopeFault(bound, r.identity, restore);
+    if (early) refuseWith(early);
     const declared = r.request.headers.get('content-length');
     if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > MAX_COMMAND_BYTES)) refuse(413, 'too-large', 'The request is larger than a recovery command.');
     const read = await readAtMost(r.request.body, MAX_COMMAND_BYTES);
@@ -91,20 +99,16 @@ export function createRecoveryController(binding: NativeRecoveryBinding | null) 
     const known = new Set<string>([...required, ...optional]);
     if (Object.keys(body).some((k) => !known.has(k)) || required.some((k) => !(k in body))) refuse(422, 'invalid-request', 'The request has missing or unknown fields.');
     for (const k of Object.keys(body)) if (!FIELDS[k as Field](body[k]!)) refuse(422, 'invalid-request', `${k} is not valid.`);
-    return { body, deps: bound.deps, restore: bound.restore, caseId: bound.caseId };
+    // The body was awaited since admission: observe the scope again with no await before the core call.
+    const late = scopeFault(bound, r.identity, restore);
+    if (late) refuseWith(late);
+    return { body, deps: bound.deps, caseId: bound.caseId };
   }
-  const handle = (work: () => Promise<Response>) => work().catch((e) => {
-    if (e instanceof Refusal) return e.response;
-    const known = CODES[codeOf(e) ?? ''];
-    return known ? fail(known[0], codeOf(e)!, known[1]) : fail(503, 'recovery-unavailable', CODES['recovery-unavailable']![1]);
-  });
-  const restoreDeps = (a: { deps: NativeRecoveryBinding['deps']; restore: NativeRecoveryBinding['restore'] }): RestoreDeps =>
-    ({ ...a.deps, liveIsolationId: a.restore?.liveIsolationId ?? '', target: a.restore?.target ?? null });
-
+  const handle = (work: () => Promise<Response>) => work().catch(failureOf);
   return {
     /** POST .../recovery/native/export: `{exportId, includeUserWork, auditScope?}` writes one /2 archive. */
     exportArchive: (r: RecoveryRequest) => handle(async () => {
-      const a = await admit(r, ['exportId', 'includeUserWork'], ['auditScope']);
+      const a = await admit(r, false, ['exportId', 'includeUserWork'], ['auditScope']);
       const req: NativeExportRequest = { caseId: a.caseId, exportId: a.body.exportId as string, includeUserWork: a.body.includeUserWork as boolean };
       if ('auditScope' in a.body) req.auditScope = a.body.auditScope as 'case-audit/1' | 'none';
       const out = await exportNativeCase(a.deps, req);
@@ -115,7 +119,7 @@ export function createRecoveryController(binding: NativeRecoveryBinding | null) 
 
     /** POST .../recovery/native/verify: re-reads the stored archive against the pinned manifest digest. */
     verify: (r: RecoveryRequest) => handle(async () => {
-      const a = await admit(r, ['exportId', 'expectedManifestSha256']);
+      const a = await admit(r, false, ['exportId', 'expectedManifestSha256']);
       const out = await verifyNativeExport(a.deps, { caseId: a.caseId, exportId: a.body.exportId as string, expectedManifestSha256: a.body.expectedManifestSha256 as string });
       return json(200, { kind: 'verified', format: out.manifest.format, exportId: out.manifest.exportId, caseId: out.manifest.caseId, manifestSha256: out.manifestSha256,
         verifiedBlobs: out.verifiedBlobs, accounting: out.accounting });
@@ -123,15 +127,15 @@ export function createRecoveryController(binding: NativeRecoveryBinding | null) 
 
     /** POST .../recovery/native/plan: read-only restore plan into the isolated target. */
     plan: (r: RecoveryRequest) => handle(async () => {
-      const a = await admit(r, ['exportId', 'expectedManifestSha256']);
-      const plan = await planNativeRestore(restoreDeps(a), { caseId: a.caseId, exportId: a.body.exportId as string, expectedManifestSha256: a.body.expectedManifestSha256 as string });
+      const a = await admit(r, true, ['exportId', 'expectedManifestSha256']);
+      const plan = await planNativeRestore(a.deps, { caseId: a.caseId, exportId: a.body.exportId as string, expectedManifestSha256: a.body.expectedManifestSha256 as string });
       return json(200, { kind: 'planned', plan });
     }),
 
     /** POST .../recovery/native/apply: additive staging of the confirmed plan; never activates anything. */
     apply: (r: RecoveryRequest) => handle(async () => {
-      const a = await admit(r, ['exportId', 'expectedManifestSha256', 'confirmedPlanSha256', 'operationId']);
-      const report = await applyNativeRestore(restoreDeps(a), { caseId: a.caseId, exportId: a.body.exportId as string,
+      const a = await admit(r, true, ['exportId', 'expectedManifestSha256', 'confirmedPlanSha256', 'operationId']);
+      const report = await applyNativeRestore(a.deps, { caseId: a.caseId, exportId: a.body.exportId as string,
         expectedManifestSha256: a.body.expectedManifestSha256 as string, confirmedPlanSha256: a.body.confirmedPlanSha256 as string, operationId: a.body.operationId as string });
       return json(200, { kind: 'applied', report });
     }),

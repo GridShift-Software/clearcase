@@ -5,10 +5,10 @@ import { POLICY } from '../recovery-native-evidence/world.ts';
 import { createRecoveryController } from '../../../src/lib/recovery/hosted/http.ts';
 import { nativeRecoveryBinding } from '../../../src/lib/recovery/hosted/composition.ts';
 import { recoveryControllerFor } from '../../../src/lib/recovery/hosted/composition.ts';
-import { EXPORT, ORIGIN, ROUTES, bindingOf, body, expectUntouched, pair, post, run, snapshot, type Pair, type Step } from './fixture.ts';
+import { EXPORT, ORIGIN, ROUTES, bindingOf, depsOf, body, expectUntouched, pair, post, run, snapshot, type Pair, type Step } from './fixture.ts';
 const live: Pair[] = [];
 afterEach(() => { for (const p of live.splice(0)) for (const w of p.worlds) w.close(); });
-async function setup() { const p = await pair(); live.push(p); return { p, deps: await p.source.deps() }; }
+async function setup() { const p = await pair(); live.push(p); return { p, deps: await depsOf(p.source.options) }; }
 const PIN = { exportId: 'http-e1', expectedManifestSha256: 'b'.repeat(64) };
 const APPLY = { ...PIN, confirmedPlanSha256: 'c'.repeat(64), operationId: 'http-op' };
 const SHAPES: Record<Step, unknown> = { export: EXPORT, verify: PIN, plan: PIN, apply: APPLY };
@@ -42,7 +42,7 @@ describe('exact request binding', () => {
   });
   it('copies the binding: mutating the parent object afterwards changes nothing', async () => {
     const { p, deps } = await setup();
-    const mutable = { appOrigin: ORIGIN, caseId: CASE, deps, restore: null as ReturnType<typeof bindingOf>['restore'] };
+    const mutable = { appOrigin: ORIGIN, caseId: CASE, deps };
     const frozen = nativeRecoveryBinding(mutable);
     mutable.appOrigin = 'https://evil.example';
     expect(frozen.appOrigin).toBe(ORIGIN);
@@ -51,8 +51,8 @@ describe('exact request binding', () => {
   });
   it('rejects a malformed configured origin when the parent binds it', async () => {
     const { deps } = await setup();
-    expect(() => nativeRecoveryBinding({ appOrigin: `${ORIGIN}/path`, caseId: CASE, deps, restore: null })).toThrow();
-    expect(() => nativeRecoveryBinding({ appOrigin: 'not a url', caseId: CASE, deps, restore: null })).toThrow();
+    expect(() => nativeRecoveryBinding({ appOrigin: `${ORIGIN}/path`, caseId: CASE, deps })).toThrow();
+    expect(() => nativeRecoveryBinding({ appOrigin: 'not a url', caseId: CASE, deps })).toThrow();
   });
   it('is unavailable with no composition installed for the request at all', async () => {
     const controller = await recoveryControllerFor({ request: post('export', EXPORT), platform: null });
@@ -93,7 +93,7 @@ describe('absent trusted pieces stay unavailable through the real core', () => {
       const { p } = await setup();
       p.source.options.nativeEvidence = policy as never;
       const before = snapshot(p);
-      const res = await run('export', post('export', EXPORT), p.source.identity, bindingOf(await p.source.deps()));
+      const res = await run('export', post('export', EXPORT), p.source.identity, bindingOf(await depsOf(p.source.options)));
       expect(res.status).toBe(503);
       expect(await body(res)).toMatchObject({ code: 'recovery-unavailable' });
       expect(snapshot(p).puts).toBe(before.puts);
@@ -101,11 +101,11 @@ describe('absent trusted pieces stay unavailable through the real core', () => {
   });
   it.each(['plan', 'apply'] as const)('%s: no target or a non-isolated target is 503 before any target write', async (step) => {
     const { p, deps } = await setup();
-    const none = await run(step, post(step, SHAPES[step]), p.source.identity, bindingOf(deps, { restore: null }));
+    const none = await run(step, post(step, SHAPES[step]), p.source.identity, bindingOf(await depsOf({ ...p.source.options, target: null })));
     expect(none.status).toBe(503);
     expect(await body(none)).toMatchObject({ code: 'recovery-unavailable' });
-    const same = { liveIsolationId: deps.liveIsolationId, target: { ...deps.target!, objects: deps.objects! } };
-    const shared = await run(step, post(step, SHAPES[step]), p.source.identity, bindingOf(deps, { restore: same }));
+    const o = p.source.options, same = { ...o, target: { ...o.target!, resources: { ...o.target!.resources, bucket: o.resources.bucket } } };
+    const shared = await run(step, post(step, SHAPES[step]), p.source.identity, bindingOf(await depsOf(same)));
     expect(shared.status).toBe(503);
     expect(await body(shared)).toMatchObject({ code: 'target-not-isolated' });
     expect(p.target.bucket.puts).toEqual([]);

@@ -244,10 +244,11 @@ export const HOSTED_FORMS = {
 
 /**
  * What drives each HOSTED_FORMS route, by kind, so a reason cannot outlive its evidence (classes-targets.test.ts parses the
- * cited files; a comment, a harness file or a skipped test is not evidence):
+ * cited files; a comment, a harness file, a skipped test or a call no enabled test reaches is not evidence):
  *   smoke:     the hosted smoke run names the route in code. The three test-identity routes only, pinned in the test;
- *   unit:      a tracked *.test.ts imports the route `module` and calls it inside a live test;
- *   component: as unit, through `via`, a harness whose exported function uses `module`, which the test imports and calls.
+ *   unit:      a tracked *.test.ts imports the route `module`, and an enabled test reaches a call of it;
+ *   component: as unit, through `via`, a harness whose exported function reaches a call of a `module` handler (through
+ *              its handler table), and an enabled test in the test file reaches a call of that export.
  * unit and component run in Vitest over doubles; they are never browser or workerd proof.
  */
 const SMOKE_RUN = 'tests/hosted-foundation/runtime/smoke.ts';

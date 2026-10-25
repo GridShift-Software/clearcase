@@ -301,72 +301,165 @@ const parseTs = (root: string, rel: string) => ts.createSourceFile(rel, readFile
 const visit = (node: ts.Node, fn: (n: ts.Node) => void) => { fn(node); ts.forEachChild(node, (c) => visit(c, fn)); };
 const gitTracked = (root: string, rel: string) => spawnSync('git', ['ls-files', '--error-unmatch', '--', rel], { cwd: root, stdio: 'ignore' }).status === 0;
 
-/** The identifier a call or access chain starts from (`operator.actions.default!(…)` -> operator, `it.each(x)(…)` -> it). */
-function rootName(e: ts.Node): string | undefined {
- for (;;) {
-  if (ts.isIdentifier(e)) return e.text;
-  if (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e) || ts.isNonNullExpression(e) || ts.isParenthesizedExpression(e) || ts.isCallExpression(e)) e = e.expression;
-  else return undefined;
- }
+// Driving code is a call on a reachable path from an enabled vitest test callback, over a small supported subset: straight-line
+// statements, try and finally blocks, and `if` (an opaque condition may go either way, a literal one is folded). A call behind
+// a condition, a short circuit, an optional chain, a loop or a switch does not count, and nothing after an unsupported
+// statement does. A call reaches local helpers, callbacks a helper runs through its parameter, and const aliases, object
+// tables and conditional choices of values. This is source evidence that the test executes the code, not that it passes.
+type Param = { fn: ts.SignatureDeclaration; index: number };
+type Value = ts.Node | Param | 'target';
+const isNode = (v: Value): v is ts.Node => typeof v === 'object' && 'kind' in v;
+const isFn = (v: Value): v is ts.FunctionLikeDeclaration => isNode(v) && ts.isFunctionLike(v) && 'body' in v && v.body !== undefined;
+const strip = (e: ts.Expression): ts.Expression => {
+ while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e) || ts.isNonNullExpression(e) || ts.isTypeAssertionExpression(e)) e = e.expression;
+ return e;
+};
+/** A literal condition's truth, undefined when it is opaque. */
+function literal(e: ts.Expression): boolean | undefined {
+ e = strip(e);
+ if (e.kind === ts.SyntaxKind.TrueKeyword) return true;
+ if (e.kind === ts.SyntaxKind.FalseKeyword || e.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(e) && e.text === 'undefined')) return false;
+ if (ts.isNumericLiteral(e)) return Number(e.text) !== 0;
+ if (ts.isStringLiteralLike(e)) return e.text !== '';
+ if (ts.isPrefixUnaryExpression(e) && e.operator === ts.SyntaxKind.ExclamationToken) { const k = literal(e.operand); return k === undefined ? undefined : !k; }
+ return undefined;
 }
-/** Every name along a callee chain (`it.skip` -> it, skip). */
-function chainNames(e: ts.Node): string[] {
- const out: string[] = [];
- for (;;) {
-  if (ts.isIdentifier(e)) return [e.text, ...out];
-  if (ts.isPropertyAccessExpression(e)) out.unshift(e.name.text);
-  if (ts.isPropertyAccessExpression(e) || ts.isNonNullExpression(e) || ts.isParenthesizedExpression(e) || ts.isCallExpression(e)) e = e.expression;
-  else return out;
+const FALLS_THROUGH = new Set([ts.SyntaxKind.ExpressionStatement, ts.SyntaxKind.VariableStatement, ts.SyntaxKind.EmptyStatement, ts.SyntaxKind.FunctionDeclaration, ts.SyntaxKind.ClassDeclaration, ts.SyntaxKind.InterfaceDeclaration, ts.SyntaxKind.TypeAliasDeclaration, ts.SyntaxKind.ImportDeclaration]);
+/** Whether nothing after `s` in its block runs; an unsupported statement counts as ending it. */
+function ends(s: ts.Statement): boolean {
+ if (ts.isReturnStatement(s) || ts.isThrowStatement(s) || ts.isBreakOrContinueStatement(s)) return true;
+ if (ts.isBlock(s)) return s.statements.some(ends);
+ if (ts.isIfStatement(s)) {
+  const k = literal(s.expression), other = s.elseStatement !== undefined && ends(s.elseStatement);
+  return k === true ? ends(s.thenStatement) : k === false ? other : other && ends(s.thenStatement);
  }
+ if (ts.isTryStatement(s)) return (ends(s.tryBlock) && (!s.catchClause || ends(s.catchClause.block))) || (!!s.finallyBlock && ends(s.finallyBlock));
+ return !FALLS_THROUGH.has(s.kind);
 }
-/** Whether a node sits inside the callback of an `it` or `test` that is not skipped (or todo) and not under a skipped describe. */
-function inLiveTest(node: ts.Node): boolean {
- let live = false;
- for (let p = node.parent; p; p = p.parent) {
-  if (!ts.isCallExpression(p)) continue;
-  const names = chainNames(p.expression);
-  if (names.some((n) => /^(skip|skipIf|todo)$/.test(n))) return false;
-  if (names[0] === 'it' || names[0] === 'test') live = true;
+const SHORT_CIRCUIT = new Set([ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.AmpersandAmpersandEqualsToken, ts.SyntaxKind.BarBarEqualsToken, ts.SyntaxKind.QuestionQuestionEqualsToken]);
+const liveMemo = new WeakMap<ts.Node, ts.CallExpression[]>();
+/** The calls a function body makes on every run that reaches them, in the supported subset. */
+function liveCalls(fn: ts.FunctionLikeDeclaration): ts.CallExpression[] {
+ const memo = liveMemo.get(fn);
+ if (memo) return memo;
+ const out: ts.CallExpression[] = [];
+ const expr = (e: ts.Node | undefined): void => {
+  if (!e || ts.isFunctionLike(e) || ts.isClassLike(e) || ts.isOptionalChain(e)) return;
+  if (ts.isConditionalExpression(e)) return expr(e.condition);
+  if (ts.isBinaryExpression(e) && SHORT_CIRCUIT.has(e.operatorToken.kind)) return expr(e.left);
+  if (ts.isCallExpression(e)) out.push(e);
+  ts.forEachChild(e, expr);
+ };
+ const block = (ss: readonly ts.Statement[]) => { for (const s of ss) { statement(s); if (ends(s)) return; } };
+ const statement = (s: ts.Statement) => {
+  if (ts.isExpressionStatement(s) || ts.isReturnStatement(s) || ts.isThrowStatement(s)) expr(s.expression);
+  else if (ts.isVariableStatement(s)) for (const d of s.declarationList.declarations) expr(d.initializer);
+  else if (ts.isIfStatement(s)) expr(s.expression);
+  else if (ts.isBlock(s)) block(s.statements);
+  else if (ts.isTryStatement(s)) { block(s.tryBlock.statements); if (s.finallyBlock) block(s.finallyBlock.statements); }
+ };
+ if (fn.body && ts.isBlock(fn.body)) block(fn.body.statements); else expr(fn.body);
+ liveMemo.set(fn, out);
+ return out;
+}
+const bindsName = (b: ts.BindingName, name: string): boolean => ts.isIdentifier(b) ? b.text === name : b.elements.some((e) => ts.isBindingElement(e) && bindsName(e.name, name));
+/** What an identifier can hold at `at`: the nearest parameter, function or const in scope; a top-level `targets` name is the target. */
+function lookup(name: string, at: ts.Node, targets: Set<string>, depth: number): Value[] {
+ for (let p = at.parent; p; p = p.parent) {
+  if (ts.isFunctionLike(p)) { const index = p.parameters.findIndex((q) => bindsName(q.name, name)); if (index >= 0) return ts.isIdentifier(p.parameters[index]!.name) ? [{ fn: p, index }] : []; }
+  if (ts.isSourceFile(p) && targets.has(name)) return ['target'];
+  if (!ts.isBlock(p) && !ts.isSourceFile(p)) continue;
+  for (const s of p.statements) {
+   if (ts.isFunctionDeclaration(s) && s.name?.text === name) return [s];
+   if (ts.isVariableStatement(s)) for (const d of s.declarationList.declarations) if (bindsName(d.name, name))
+    return s.declarationList.flags & ts.NodeFlags.Const && ts.isIdentifier(d.name) && d.initializer ? values(d.initializer, targets, depth + 1) : [];
+  }
  }
- return live;
+ return [];
 }
-/** The local names a source binds to the module at `target`: a static import or an `await import('…')` of a relative path; `only` narrows to one named export. */
+/** What an expression can evaluate to: functions, object tables, a parameter, or the target; anything else is opaque ([]). */
+function values(e: ts.Expression, targets: Set<string>, depth = 0): Value[] {
+ if (depth > 16) return [];
+ e = strip(e);
+ if (ts.isIdentifier(e)) return lookup(e.text, e, targets, depth);
+ if (ts.isArrowFunction(e) || ts.isFunctionExpression(e) || ts.isObjectLiteralExpression(e)) return [e];
+ if (ts.isConditionalExpression(e)) return [...values(e.whenTrue, targets, depth + 1), ...values(e.whenFalse, targets, depth + 1)];
+ if (!ts.isPropertyAccessExpression(e) && !ts.isElementAccessExpression(e)) return [];
+ const key = ts.isPropertyAccessExpression(e) ? e.name.text : ts.isStringLiteralLike(e.argumentExpression) ? e.argumentExpression.text : undefined;
+ return values(e.expression, targets, depth + 1).flatMap((v): Value[] => {
+  // a member every function or object has (`bind`, `toString`, …) is not the route's code, so calling it drives nothing
+  if (v === 'target') return key !== undefined && (key in Function.prototype || key in Object.prototype) ? [] : ['target'];
+  if (!isNode(v) || !ts.isObjectLiteralExpression(v)) return [];
+  return v.properties.flatMap((m): Value[] => {
+   const named = m.name && (ts.isIdentifier(m.name) || ts.isStringLiteralLike(m.name)) ? m.name.text : undefined;
+   if (key !== undefined && named !== key) return [];
+   if (ts.isPropertyAssignment(m)) return values(m.initializer, targets, depth + 1);
+   if (ts.isShorthandPropertyAssignment(m)) return values(m.name, targets, depth + 1);
+   return ts.isMethodDeclaration(m) ? [m] : [];
+  });
+ });
+}
+/** Whether a call reachable from `roots` invokes a `targets` binding (or a member of one). */
+function reaches(roots: ts.FunctionLikeDeclaration[], targets: Set<string>): boolean {
+ const reached = new Set<ts.Node>(roots), runs = new Map<ts.Node, Set<number>>();
+ for (let grew = true; grew;) {
+  grew = false;
+  const reach = (v: Value) => { if (isFn(v) && !reached.has(v)) { reached.add(v); grew = true; } };
+  for (const fn of [...reached] as ts.FunctionLikeDeclaration[]) for (const call of liveCalls(fn)) for (const v of values(call.expression, targets)) {
+   if (v === 'target') return true;
+   if (!isNode(v)) { const s = runs.get(v.fn) ?? new Set(); if (!s.has(v.index)) { runs.set(v.fn, s.add(v.index)); grew = true; } continue; }
+   reach(v);
+   for (const i of runs.get(v) ?? []) if (call.arguments[i]) values(call.arguments[i]!, targets).forEach(reach);
+  }
+ }
+ return false;
+}
+const chain = (e: ts.Expression): string[] | undefined => ts.isIdentifier(e) ? [e.text] : ts.isPropertyAccessExpression(e) ? chain(e.expression)?.concat(e.name.text) : undefined;
+/** The callbacks of the vitest tests that run: registered at the top level or in a describe, with no modifier but concurrent or
+ * sequential, a name, a parameterless callback and at most a numeric timeout. A file with an `only` registration gives none. */
+function enabledTests(sf: ts.SourceFile): ts.FunctionLikeDeclaration[] {
+ const vitest = new Map<string, string>();
+ for (const s of sf.statements) if (ts.isImportDeclaration(s) && ts.isStringLiteral(s.moduleSpecifier) && s.moduleSpecifier.text === 'vitest' && s.importClause?.namedBindings && ts.isNamedImports(s.importClause.namedBindings))
+  for (const e of s.importClause.namedBindings.elements) vitest.set(e.name.text, (e.propertyName ?? e.name).text);
+ const kind = (names?: string[]) => names && ['it', 'test', 'describe'].includes(vitest.get(names[0]!) ?? '') ? vitest.get(names[0]!) : undefined;
+ let only = false;
+ visit(sf, (n) => { if (ts.isCallExpression(n)) { const names = chain(n.expression); if (kind(names) && names!.includes('only')) only = true; } });
+ const tests: ts.FunctionLikeDeclaration[] = [];
+ const walk = (ss: readonly ts.Statement[]) => {
+  for (const s of ss) {
+   const c = ts.isExpressionStatement(s) && ts.isCallExpression(s.expression) ? s.expression : undefined, names = c && chain(c.expression), k = kind(names);
+   const [, fn, ...rest] = c?.arguments ?? [];
+   if (c && k && names!.slice(1).every((m) => m === 'concurrent' || m === 'sequential') && fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) && !fn.parameters.length && rest.length <= 1 && rest.every(ts.isNumericLiteral)) {
+    if (k !== 'describe') tests.push(fn);
+    else if (ts.isBlock(fn.body)) walk(fn.body.statements);
+   }
+   if (ends(s)) return;
+  }
+ };
+ walk(sf.statements);
+ return only ? [] : tests;
+}
+/** The local names a source binds at its top level to the module at `target`: a static import or a const `await import('…')` of a relative path; `only` narrows to one named export. */
 function bindingsOf(root: string, rel: string, sf: ts.SourceFile, target: string, only?: string): Set<string> {
  const names = new Set<string>();
  const hits = (spec?: string) => spec !== undefined && spec.startsWith('.') && resolve(root, rel, '..', spec) === join(root, target);
  const addPattern = (name: ts.BindingName) => { if (ts.isIdentifier(name)) names.add(name.text); else for (const e of name.elements) if (ts.isBindingElement(e)) addPattern(e.name); };
- visit(sf, (n) => {
-  if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier) && hits(n.moduleSpecifier.text)) {
-   const c = n.importClause;
-   if (!c || c.isTypeOnly) return;
+ for (const s of sf.statements) {
+  if (ts.isImportDeclaration(s) && ts.isStringLiteral(s.moduleSpecifier) && hits(s.moduleSpecifier.text)) {
+   const c = s.importClause;
+   if (!c || c.isTypeOnly) continue;
    if (only === undefined && c.name) names.add(c.name.text);
    const nb = c.namedBindings;
    if (nb && ts.isNamespaceImport(nb) && only === undefined) names.add(nb.name.text);
    if (nb && ts.isNamedImports(nb)) for (const e of nb.elements) if (!e.isTypeOnly && (only === undefined || (e.propertyName ?? e.name).text === only)) names.add(e.name.text);
   }
-  if (only === undefined && ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword && n.arguments[0] && ts.isStringLiteralLike(n.arguments[0]) && hits(n.arguments[0].text)) {
-   let p: ts.Node = n.parent;
-   while (ts.isAwaitExpression(p) || ts.isParenthesizedExpression(p)) p = p.parent;
-   if (ts.isVariableDeclaration(p)) addPattern(p.name);
+  if (only === undefined && ts.isVariableStatement(s) && s.declarationList.flags & ts.NodeFlags.Const) for (const d of s.declarationList.declarations) {
+   let e = d.initializer;
+   while (e && (ts.isAwaitExpression(e) || ts.isParenthesizedExpression(e))) e = e.expression;
+   if (e && ts.isCallExpression(e) && e.expression.kind === ts.SyntaxKind.ImportKeyword && e.arguments[0] && ts.isStringLiteralLike(e.arguments[0]) && hits(e.arguments[0].text)) addPattern(d.name);
   }
- });
+ }
  return names;
-}
-/** Whether a live test in `sf` calls one of `drivers`, directly or through a top-level helper that does. */
-function testCalls(sf: ts.SourceFile, drivers: Set<string>): boolean {
- const calls: ts.CallExpression[] = [];
- visit(sf, (n) => { if (ts.isCallExpression(n)) calls.push(n); });
- const helpers: [string, ts.Node][] = [];
- for (const s of sf.statements) {
-  if (ts.isFunctionDeclaration(s) && s.name) helpers.push([s.name.text, s]);
-  if (ts.isVariableStatement(s)) for (const d of s.declarationList.declarations) if (ts.isIdentifier(d.name) && d.initializer) helpers.push([d.name.text, d.initializer]);
- }
- const callsDriver = (node: ts.Node) => { let found = false; visit(node, (n) => { if (ts.isCallExpression(n) && drivers.has(rootName(n.expression) ?? '')) found = true; }); return found; };
- for (let grew = true; grew;) {
-  grew = false;
-  for (const [name, node] of helpers) if (!drivers.has(name) && callsDriver(node)) { drivers.add(name); grew = true; }
- }
- return calls.some((c) => drivers.has(rootName(c.expression) ?? '') && inLiveTest(c));
 }
 
 /** Why a route's evidence does not show it driven, empty when it does. `tracked` is injectable for a synthetic tree. */
@@ -389,17 +482,17 @@ function evidenceProblems(root: string, route: string, ev: Evidence, tracked: (r
   if (!tracked(ev.via.file) || !existsSync(join(root, ev.via.file))) return bad(`${ev.via.file} is not a tracked file`);
   const harness = parseTs(root, ev.via.file);
   const mod = bindingsOf(root, ev.via.file, harness, ev.module);
-  let uses = false;
+  const entry: ts.FunctionLikeDeclaration[] = [];
   for (const s of harness.statements) {
-   const exported = (ts.canHaveModifiers(s) ? ts.getModifiers(s) : undefined)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
-   const declares = (ts.isFunctionDeclaration(s) && s.name?.text === ev.via.export) || (ts.isVariableStatement(s) && s.declarationList.declarations.some((d) => ts.isIdentifier(d.name) && d.name.text === ev.via!.export));
-   if (exported && declares) visit(s, (n) => { if (ts.isIdentifier(n) && mod.has(n.text)) uses = true; });
+   if (!(ts.canHaveModifiers(s) ? ts.getModifiers(s) : undefined)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) continue;
+   if (ts.isFunctionDeclaration(s) && s.name?.text === ev.via.export) entry.push(s);
+   if (ts.isVariableStatement(s) && s.declarationList.flags & ts.NodeFlags.Const) for (const d of s.declarationList.declarations) if (ts.isIdentifier(d.name) && d.name.text === ev.via.export && d.initializer) entry.push(...values(d.initializer, mod).filter(isFn));
   }
-  if (!uses) return bad(`${ev.via.file} does not import ${ev.module} and use it in its exported ${ev.via.export}`);
+  if (!reaches(entry, mod)) return bad(`${ev.via.file} does not import ${ev.module} and use it in its exported ${ev.via.export}: no reachable call there invokes a handler of it`);
   drivers = bindingsOf(root, ev.test, sf, ev.via.file, ev.via.export);
  } else drivers = bindingsOf(root, ev.test, sf, ev.module);
  if (!drivers.size) return bad(`${ev.test} does not import ${ev.via ? `${ev.via.export} from ${ev.via.file}` : ev.module}`);
- return testCalls(sf, drivers) ? [] : bad(`no live test in ${ev.test} calls ${[...drivers].join(', ')}`);
+ return reaches(enabledTests(sf), drivers) ? [] : bad(`no enabled test in ${ev.test} reaches a call of ${[...drivers].join(', ')}`);
 }
 
 describe('hosted forms are declared, with a reason the suite checks', () => {
@@ -524,7 +617,8 @@ describe('hosted form evidence is refused when its driving setup is gone', () =>
   ['a harness that imports the route but whose dispatch does not use it', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport const keep = r;\nexport async function dispatch() { return 1; }\n", [T]: viaTest("it('x', async () => { await dispatch(); });") }, false],
   ['a harness with no dispatch export', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport const compose = () => r.load();\n", [T]: viaTest("it('x', () => 1);") }, false],
   ['a test that calls only another harness export', VIA, { ...MOD, [H]: HARNESS, [T]: viaTest("it('x', () => { compose(); });") }, false],
-  ['a test that never calls the harness dispatch', VIA, { ...MOD, [H]: HARNESS, [T]: viaTest("it('x', () => 1);") }, false],  // only a call on a reachable path from an enabled vitest test callback counts; an opaque condition may go either way, a
+  ['a test that never calls the harness dispatch', VIA, { ...MOD, [H]: HARNESS, [T]: viaTest("it('x', () => 1);") }, false],
+  // only a call on a reachable path from an enabled vitest test callback counts; an opaque condition may go either way, a
   // literal one is folded, a call behind any condition does not count, and an unsupported shape is refused
   ['a call through a helper that runs its callback', DIRECT, { ...MOD, [T]: directTest("const outcome = async (f: () => unknown) => { try { return { value: await f() }; } catch (e) { return { thrown: e }; } };\nit('x', async () => { await outcome(() => load()); });") }, true],
   ['a call after an early return behind an opaque condition', DIRECT, { ...MOD, [T]: directTest("it('x', () => { if (Date.now() < 0) return; load(); });") }, true],
@@ -538,6 +632,7 @@ describe('hosted form evidence is refused when its driving setup is gone', () =>
   ['a call in a test that takes its context, which can skip it', DIRECT, { ...MOD, [T]: directTest("it('x', (ctx) => { ctx.skip(); load(); });") }, false],
   ['a call behind a condition', DIRECT, { ...MOD, [T]: directTest("it('x', () => { if (Date.now() < 0) load(); });") }, false],
   ['a call in a test while another test in the file is only', DIRECT, { ...MOD, [T]: directTest("it('x', () => load());\nit.only('y', () => 1);") }, false],
+  ['a call only of a member every function has', DIRECT, { ...MOD, [T]: directTest("it('x', () => { load.bind(null); load.toString(); });") }, false],
   ['a call in a test registered by a local it, not vitest', DIRECT, { ...MOD, [T]: "import { load } from '../deploy/client/routes/r/+page.server.ts';\nconst it = (_n: string, _f: () => unknown) => {};\nit('x', () => load());" }, false],
   ['a harness dispatch that calls its route handler through a handler table', VIA, { ...MOD, [H]: TABLE_HARNESS("return h();"), [T]: viaTest("it('x', async () => { await dispatch('GET'); });") }, true],
   ['a harness dispatch that only mentions the route and answers 405', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport async function dispatch() { void r; return new Response(null, { status: 405 }); }\n", [T]: viaTest("it('x', async () => { await dispatch(); });") }, false],

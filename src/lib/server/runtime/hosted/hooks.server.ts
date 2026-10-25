@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { createHandle, handleError } from './handle.ts';
 import { hostedServices } from './services.ts';
 import { clerkBrowserHandshakeFromEnv, handshakeResponse } from '../../../auth/clerk/browser.ts';
+import { signInFormActionOrigins } from '../../../auth/clerk/config.ts';
 import { installNativeCompositions } from './compositions.ts';
 installNativeCompositions();
 
@@ -11,5 +12,5 @@ let browser: ReturnType<typeof clerkBrowserHandshakeFromEnv> | undefined;
 export const handle = createHandle((request) => hostedServices(request, env), async (request) => {
 	browser ??= clerkBrowserHandshakeFromEnv(env);
 	return browser.ok ? handshakeResponse(await browser.handshake.handle(request)) : null;
-});
+}, (path) => signInFormActionOrigins(env, path));
 export { handleError };

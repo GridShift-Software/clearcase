@@ -180,3 +180,22 @@ export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, return
 	target.searchParams.set('redirect_url', back.href);
 	return { href: target.href };
 }
+
+// The sign-in page of each instance: its form posts to itself and is redirected (303) to that instance's portal.
+const SIGN_IN_PAGES: Readonly<Record<string, InstanceKind>> = { '/sign-in': 'client', '/sign-in/operator': 'staff' };
+
+/**
+ * The origins, beside 'self', a sign-in page's form-action must allow: a browser checks every redirect of a form
+ * submission against it, so the sign-in POST's 303 to the configured portal needs that portal's exact origin, and the
+ * instance's own Frontend API origin for the portal's hand-back. Only for the two sign-in pages, each with its own
+ * instance; only https origins whose host is a plain DNS name; nothing from the request. Anything else is [].
+ */
+export function signInFormActionOrigins(env: Readonly<Record<string, unknown>>, path: string): readonly string[] {
+	const kind = Object.hasOwn(SIGN_IN_PAGES, path) ? SIGN_IN_PAGES[path]! : null;
+	const read = kind ? readClerkIdentityConfig(env, { keys: 'optional' }) : null;
+	if (!kind || !read?.ok) return [];
+	const signInUrl = kind === 'client' ? read.config.signInUrl : read.config.staffSignInUrl;
+	const portal = signInUrl === null ? null : new URL(signInUrl);
+	if (!portal || portal.protocol !== 'https:' || !HOST.test(portal.hostname)) return [];
+	return [...new Set([portal.origin, read.config[kind].issuer])];
+}

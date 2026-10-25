@@ -24,6 +24,7 @@ import { admitVerification, type VerificationPlan } from '../../../storage/cloud
 import type { AuditEvent, AuditSink, CaseId, ClientId, Identity, ResultsVersion } from '../contracts.ts';
 import { contractError, isDenial } from '../errors.ts';
 import type { FinalizedSubmissionSnapshot } from './alpha-contracts.ts';
+import { hostedValidationPolicy } from './validation-policy.ts';
 
 /** Request-scoped, trusted deployment inputs. No defaults, request bindings, or success-stager injection. */
 export interface HostedCandidateStagerOptions {
@@ -60,6 +61,7 @@ export function createHostedCandidateStager(o: HostedCandidateStagerOptions): Ho
   const budgets = storageBudgets(o.budgets), quotas = storageQuotas(o.quotas);
   if (!budgets || !quotas || !o.bindings || !o.clientId || typeof o.authorizeOperate !== 'function' || typeof o.audit?.append !== 'function') unavailable();
   const b = budgets!, q = quotas!, clientId = o.clientId, identity = o.identity;
+  const limits = hostedValidationPolicy(b) ?? unavailable();
   const bindings = { db: o.bindings.db, bucket: o.bindings.bucket };
 
   async function authorize(requestClient: ClientId, caseId: CaseId) {
@@ -265,7 +267,6 @@ export function createHostedCandidateStager(o: HostedCandidateStagerOptions): Ho
           }
           facts.set(asset.key, { path: f.path, sha256: f.sha256, size: f.size, mediaType: asset.mediaType, status: f.path === asset.path ? 'verified' : 'case-mismatch', downloadOnly: contentContradictsType(asset.mediaType, bytes.subarray(0, 1024)) });
         }
-        const limits = { packageFiles: b.maxPackageFiles, fileBytes: b.maxPackageFileBytes, manifestBytes: b.maxPackageFileBytes, packageBytes: b.maxPackageBytes, originalBytes: b.maxOriginalBytes, originalsTotalBytes: b.maxVerifyBytes };
         const bootstrap = validateHostedPackage({ files, originals: facts, limits });
         if (bootstrap.result.verdict === 'reject') return refused('validator-rejected', ...bootstrap.result.diagnostics.filter((d) => d.severity === 'error').map((d) => d.code));
         if (bootstrap.result.candidate.caseId !== a.caseId) return refused('wrong-case', 'package names another case');

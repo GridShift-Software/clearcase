@@ -203,12 +203,12 @@ class RemoveTests(ScratchCase):
         neighbour, neighbour_token = self.make('alpha')
         (target / 'payload.txt').write_text('x')
 
-        def partial(name, dir_fd=None):
+        def partial(dir_fd, keep=(), depth=0):
             os.unlink('payload.txt', dir_fd=dir_fd)  # part of the target goes, then the removal fails
             raise OSError(13, 'Permission denied')
 
         stderr = io.StringIO()
-        with mock.patch.object(scratch.shutil, 'rmtree', side_effect=partial), \
+        with mock.patch.object(scratch, 'remove_entries', side_effect=partial), \
                 mock.patch.object(scratch, 'REPO', self.repo), contextlib.redirect_stderr(stderr):
             code = scratch.main(['remove', str(target), '--token', token])
         self.assertEqual(code, 1)
@@ -216,6 +216,73 @@ class RemoveTests(ScratchCase):
         self.assertTrue(neighbour.is_dir())
         self.remove(neighbour, neighbour_token)
         self.assertFalse(neighbour.exists())
+
+
+    def test_swap_inside_the_removal_call_removes_nothing_foreign(self):
+        """The name is swapped for a foreign directory on the first removal call, after every check has passed. The
+        removal must stay on the checked directory: the foreign tree, its neighbours and a link target survive."""
+        target, token = self.make('alpha')
+        neighbour, neighbour_token = self.make('alpha')
+        bystander = self.tmp / 'bystander'
+        bystander.mkdir()
+        (bystander / 'kept.txt').write_text('kept')
+        (target / 'owned.txt').write_text('owned')
+        (target / 'sub' / 'deep').mkdir(parents=True)
+        (target / 'sub' / 'deep' / 'owned.txt').write_text('owned')
+        os.symlink(bystander, target / 'sub' / 'link')  # removed as a link, never followed
+        victim = self.tmp / 'victim'
+        (victim / 'inner').mkdir(parents=True)
+        (victim / 'precious.txt').write_text('precious')
+        (victim / 'inner' / 'precious.txt').write_text('precious')
+        (self.root / 'keep.txt').write_text('keep')
+        moved = self.tmp / 'moved'
+        tripped = []
+
+        def swap():
+            if not tripped:
+                tripped.append(True)
+                target.rename(moved)
+                victim.rename(target)
+
+        def first(real):
+            def call(*args, **kwargs):
+                swap()
+                return real(*args, **kwargs)
+            return call
+
+        # Whichever primitive the removal reaches first swaps the name, then runs as it would have
+        primitives = [(shutil, 'rmtree'), (os, 'listdir'), (os, 'scandir'), (os, 'unlink'), (os, 'rmdir')]
+        stderr = io.StringIO()
+        with contextlib.ExitStack() as stack:
+            for owner, attr in primitives:
+                stack.enter_context(mock.patch.object(owner, attr, first(getattr(owner, attr))))
+            stack.enter_context(mock.patch.object(scratch, 'REPO', self.repo))
+            stack.enter_context(contextlib.redirect_stderr(stderr))
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            code = scratch.main(['remove', str(target), '--token', token])
+        self.assertTrue(tripped)
+        # The foreign tree that took the name, the neighbours and the link target are untouched
+        self.assertEqual((target / 'precious.txt').read_text(), 'precious')
+        self.assertEqual((target / 'inner' / 'precious.txt').read_text(), 'precious')
+        self.assertEqual((bystander / 'kept.txt').read_text(), 'kept')
+        self.assertTrue(neighbour.is_dir())
+        self.assertTrue((self.root / 'keep.txt').exists())
+        # The checked directory is the one that was emptied, and the report says what is left
+        self.assertEqual(code, 1)
+        self.assertIn('FAILED', stderr.getvalue())
+        self.assertIn('replaced', stderr.getvalue())
+        self.assertFalse((moved / 'owned.txt').exists())
+        self.assertFalse((moved / 'sub').exists())
+        self.assertTrue((moved / MARKER).is_file())  # kept to the end, so the failure is visible
+        # With no swap, a nested tree with a link goes, and the link target stays
+        self.remove(neighbour, neighbour_token)
+        again, again_token = self.make('alpha')
+        (again / 'sub').mkdir()
+        os.symlink(bystander, again / 'sub' / 'link')
+        (again / 'sub' / 'file.txt').write_text('x')
+        self.remove(again, again_token)
+        self.assertFalse(again.exists())
+        self.assertEqual((bystander / 'kept.txt').read_text(), 'kept')
 
 
 class CliTests(ScratchCase):

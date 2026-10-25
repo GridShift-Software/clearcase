@@ -1,28 +1,38 @@
 #!/usr/bin/env python3
-"""Owned scratch directories for one checkout: create one, remove exactly that one.
+"""Owned scratch directories for one checkout: create one, remove the contents of exactly that one.
 
     python3 -I scripts/agent-tools/safe-scratch create LABEL
     python3 -I scripts/agent-tools/safe-scratch remove PATH --token TOKEN
 
 create makes a new directory `.local/agent-scratch/LABEL-<16 hex>` under this checkout, writes a marker that names
-the checkout, this UID and the token's SHA-256, and prints the exact path and the token. The token is shown once and
-is not stored. remove deletes the directory only when PATH is that exact literal path, the marker is a plain file that
-names this checkout, this UID and the token, and the name still points at the directory that was checked. Nothing else
-is removed. Standard library only; Python >= 3.12. Refusals exit 1 with no change; see docs/agent-tooling.md.
+the checkout, this UID and the token's SHA-256, and prints the exact path and the token on stdout. The token is shown
+once and is not stored; anything that records this output (a terminal, an agent transcript) holds it. remove opens
+the checkout's `.local` and scratch root one component at a time without following links, opens the named directory
+without following a link, checks the marker (a plain file naming this checkout, this UID, the directory's device and
+inode, and the token) against that opened descriptor, and then removes the contents of that opened directory through
+descriptors, so a name swapped after the check is never used to find what to delete. The last step removes the name
+with rmdir, which takes an empty directory only. Not guaranteed: a process of the same user that writes into the
+scratch tree, or moves entries into the opened directory while it is being emptied, is outside this guarantee. This
+is not global or atomic isolation. Standard library only; Python >= 3.12 is enforced. Refusals exit 1 with no change;
+see docs/agent-tooling.md.
 """
+
+import sys
+
+if sys.version_info < (3, 12):
+    sys.exit(f'safe-scratch needs Python 3.12 or newer; this is {sys.version_info.major}.{sys.version_info.minor}')
 
 import argparse
 import contextlib
 import datetime
+import errno
 import hashlib
 import hmac
 import json
 import os
 import re
 import secrets
-import shutil
 import stat
-import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -32,39 +42,54 @@ SCHEMA = 'clearcase-safe-scratch/1'
 LABEL = re.compile(r'[a-z0-9][a-z0-9-]{0,39}')
 NAME = re.compile(r'([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{16})')
 DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+MAX_DEPTH = 256
 
 
 class Refused(Exception):
     """A request the helper will not act on. Nothing was changed."""
 
 
-def real_dir(path, create_mode=None):
-    """PATH must be a real directory owned by this UID; a link, file or foreign owner is refused. A missing PATH is
-    made with CREATE_MODE, and an existing one is never changed."""
+class Incomplete(Exception):
+    """A removal that stopped after it began. The message says what was and was not removed."""
+
+
+def open_dir(parent_fd, name, shown, create_mode=None):
+    """Open NAME under PARENT_FD without following a link; it must be a directory owned by this UID. A missing NAME
+    is made with CREATE_MODE, and an existing one is never changed. SHOWN names it in a refusal."""
     try:
-        st = os.lstat(path)
+        fd = os.open(name, DIR_FLAGS, dir_fd=parent_fd)
     except FileNotFoundError:
         if create_mode is None:
-            raise Refused(f'{path} does not exist')
+            raise Refused(f'{shown} does not exist')
         try:
-            os.mkdir(path, create_mode)
+            os.mkdir(name, create_mode, dir_fd=parent_fd)
         except FileExistsError:
             pass
-        st = os.lstat(path)
-    if stat.S_ISLNK(st.st_mode):
-        raise Refused(f'{path} is a symbolic link')
-    if not stat.S_ISDIR(st.st_mode):
-        raise Refused(f'{path} is not a directory')
-    if st.st_uid != os.getuid():
-        raise Refused(f'{path} is not owned by this user')
-    return st
+        return open_dir(parent_fd, name, shown)
+    except OSError:
+        raise Refused(f'{shown} is a link, not a directory, or cannot be opened')
+    if os.fstat(fd).st_uid != os.getuid():
+        os.close(fd)
+        raise Refused(f'{shown} is not owned by this user')
+    return fd
 
 
 def scratch_fd(repo, create):
-    """A descriptor for the checkout's scratch root, checked component by component from the checkout down."""
-    real_dir(repo / '.local', 0o755 if create else None)
-    real_dir(repo / SCRATCH, 0o700 if create else None)
-    return os.open(repo / SCRATCH, DIR_FLAGS)
+    """A descriptor for the checkout's scratch root. `.local` and then `agent-scratch` are each opened relative to
+    the one above with O_NOFOLLOW, so no link can be followed between a check and the open. The checkout directory
+    itself is the resolved location of this script and is opened as is; its own parents are not re-verified."""
+    try:
+        repo_fd = os.open(repo, DIR_FLAGS)
+    except OSError:
+        raise Refused(f'{repo} cannot be opened as a directory')
+    try:
+        local_fd = open_dir(repo_fd, SCRATCH.parts[0], str(repo / SCRATCH.parts[0]), 0o755 if create else None)
+        try:
+            return open_dir(local_fd, SCRATCH.parts[1], str(repo / SCRATCH), 0o700 if create else None)
+        finally:
+            os.close(local_fd)
+    finally:
+        os.close(repo_fd)
 
 
 def digest(token):
@@ -163,6 +188,39 @@ def check_marker(marker, name, repo, st, token):
         raise Refused('token does not match the marker')
 
 
+def remove_entries(dir_fd, keep=(), depth=0):
+    """Remove the entries of the directory open at DIR_FD, except the names in KEEP, using descriptors only. A
+    subdirectory is opened relative to its parent with O_NOFOLLOW and must be the entry that was listed; links are
+    unlinked, never followed. It does not remove DIR_FD itself."""
+    if depth > MAX_DEPTH:
+        raise OSError(errno.E2BIG, f'the tree is nested more than {MAX_DEPTH} levels deep')
+    for name in os.listdir(dir_fd):
+        if name in keep:
+            continue
+        st = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+        if not stat.S_ISDIR(st.st_mode):
+            os.unlink(name, dir_fd=dir_fd)
+            continue
+        child = os.open(name, DIR_FLAGS, dir_fd=dir_fd)
+        try:
+            now = os.fstat(child)
+            if (now.st_dev, now.st_ino) != (st.st_dev, st.st_ino):
+                raise OSError(errno.ESTALE, f'{name} changed while it was being removed')
+            remove_entries(child, depth=depth + 1)
+        finally:
+            os.close(child)
+        os.rmdir(name, dir_fd=dir_fd)
+
+
+def same_entry(root_fd, name, st):
+    """True when NAME under ROOT_FD is still the directory whose fstat is ST."""
+    try:
+        now = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    return (now.st_dev, now.st_ino) == (st.st_dev, st.st_ino)
+
+
 def remove_scratch(repo, path, token, before_remove=None):
     """Remove the scratch directory at PATH when TOKEN matches. BEFORE_REMOVE runs after every check and before the
     removal; tests use it to replace the directory and show the recheck refuses."""
@@ -184,11 +242,21 @@ def remove_scratch(repo, path, token, before_remove=None):
             check_marker(read_marker(fd), name, repo, st, token)
             if before_remove is not None:
                 before_remove()
-            # The name must still point at the directory that was checked, or the removal would reach another one.
-            now = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
-            if (now.st_dev, now.st_ino) != (st.st_dev, st.st_ino):
+            if not same_entry(root_fd, name, st):
                 raise Refused('the directory was replaced during the check; nothing was removed')
-            shutil.rmtree(name, dir_fd=root_fd)
+            # Everything below goes through FD, the directory that was checked, never through its name. The marker
+            # stays until the end, so a removal that stops part way can be repeated with the same token.
+            remove_entries(fd, keep=(MARKER,))
+            if not same_entry(root_fd, name, st):
+                raise Incomplete('the name was replaced while the contents were being removed. The contents of the '
+                                 f'checked directory except {MARKER} are gone; the directory now at the name was '
+                                 'not touched')
+            os.unlink(MARKER, dir_fd=fd)
+            try:
+                os.rmdir(name, dir_fd=root_fd)  # an empty directory only; a replacement with contents is refused
+            except OSError as error:
+                raise Incomplete(f'the checked directory is empty and unmarked, but its name was not removed '
+                                 f'({error.strerror or error}); remove it by hand if it is still yours')
         finally:
             os.close(fd)
     finally:
@@ -210,15 +278,24 @@ def main(argv=None):
             path, token = create_scratch(REPO, args.label)
             print(f'path: {path}')
             print(f'token: {token}')
-            print('The token is the only way to remove this directory. It is not stored; keep it private.')
+            print('The token is the only way to remove this directory. It is not stored by this tool, but it is '
+                  'on stdout now: whatever records this output holds it.')
         else:
             print(f'removed: {remove_scratch(REPO, args.path, args.token)}')
     except Refused as error:
         print(f'REFUSED {error}', file=sys.stderr)
         return 1
+    except Incomplete as error:
+        print(f'FAILED {error}', file=sys.stderr)
+        return 1
     except OSError as error:
-        # A removal that stops part way can have touched only entries inside the directory it named.
-        print(f'FAILED {error.strerror or error}; only entries inside the named scratch directory can have changed',
+        if args.command == 'create':
+            print(f'FAILED {error.strerror or error}', file=sys.stderr)
+            return 1
+        # The removal works on the checked directory only, so a stop part way leaves some of its entries removed (the
+        # marker last) and, at most, an empty directory behind.
+        print(f'FAILED {error.strerror or error}; some entries of the checked scratch directory may already be '
+              'gone; the marker is removed last, so repeating the command with the same token can finish it',
               file=sys.stderr)
         return 1
     return 0

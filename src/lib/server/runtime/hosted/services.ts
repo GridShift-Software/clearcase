@@ -1,5 +1,5 @@
 import type { Readiness } from './handle.ts';
-import type { Identity, IdentityState, Principal, RequestServices, SessionId } from '../contracts.ts';
+import type { Identity, IdentityState, RequestServices } from '../contracts.ts';
 import { createUnavailableServices } from '../unavailable.ts';
 import { contractError } from '../errors.ts';
 import { id } from '../ids.ts';
@@ -20,11 +20,7 @@ import { storageQuotas } from '../../../storage/cloud/quotas.ts';
 import { d1SubmissionRepository } from '../../../submissions/repository.ts';
 import { intakeBudget } from '../../../submissions/budget.ts';
 import { bindNativeRequestCompositions } from './compositions.ts';
-import { createHostedCandidateStager } from './candidate-stager.ts';
-import { nativeImportBudget } from '../../../results-review/native/budget.ts';
-import { d1NativeCandidateRepository } from '../../../results-review/native/repository.ts';
-import { submissionSnapshotReader } from '../../../results-review/native/submission-reader.ts';
-import type { NativeImportPorts } from '../../../results-review/native/ports.ts';
+import { caseAuthority, nativeImportPorts } from './import-composition.ts';
 import { canonicalText } from '../../../case-package/canonical.ts';
 import { committedAuditRecovery, type RecoveryD1 } from '../../../audit/recovery.ts';
 import { createPublicationMaterialReader } from './publication-material.ts';
@@ -124,24 +120,13 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 				const work = createD1UserWork({ db: native.db, config, identity: services.identity, audit: services.audit, store: results.store, now, tableDefinitions: null });
 				services.store = results.store; services.assets = results.assets; services.userWork = work;
 				const identity = services.identity;
-				const session = async (a: { principal: Principal; sessionId: SessionId }) => {
-					if (identity.kind !== 'verified') throw contractError('unauthenticated');
-					if (a.sessionId !== identity.sessionId || a.principal.issuer !== identity.principal.issuer ||
-						a.principal.subject !== identity.principal.subject || a.principal.kind !== identity.principal.kind) throw contractError('invalid-session');
-					await identity.checkRevocation();
-				};
-				const cases = d1CaseDirectory({ db: context.db, deployment: context.deployment });
-				const grants = d1GrantRepository(context.db);
-				const authorizer = () => createCaseAuthorizer({ deployment: context.deployment, grants, cases, audit: services.audit, now });
+				const authority = caseAuthority({ identity, deployment: context.deployment, db: context.db, audit: services.audit, now });
+				const { session, cases, grants, authorizer, authorizeOperate } = authority;
 				const upload = createUploadAuthorizer({ deployment: context.deployment, grants,
 					uploads: d1UploadGrantReader(context.db, context.deployment), cases, session, audit: services.audit, now });
 				const authorizeUpload: NonNullable<typeof upload> = async (a) => {
 					const scoped = { ...a, principal: { ...a.principal } };
 					await session(scoped); await upload!(scoped);
-				};
-				const authorizeOperate: ReturnType<typeof authorizer>['authorizeCapability'] = async (a) => {
-					const scoped = { ...a, principal: { ...a.principal } };
-					await session(scoped); await authorizer().authorizeCapability(scoped);
 				};
 				const quotas = storageQuotas(context.settings.storageQuotas);
 				const budget = intakeBudget(context.settings.intakeBudget, { maxOriginalBytes: budgets.maxOriginalBytes });
@@ -157,27 +142,9 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 					const requestActor = structuredClone(stateOf(identity));
 					if (requestActor.kind === 'verified') Object.freeze(requestActor.principal);
 					Object.freeze(requestActor);
-					const importBudget = nativeImportBudget(context.settings.importBudget, { stagerMaxPackageBytes: budgets.maxPackageBytes });
-					let imports: NativeImportPorts | null = null;
-					if (importBudget && importBudget.maxFiles <= budgets.maxPackageFiles && importBudget.maxFileBytes <= budgets.maxPackageFileBytes) {
-						const operate: NonNullable<NativeImportPorts['authorizeOperate']> = (a) => authorizeOperate({ ...a, capability: 'operate' });
-						const staged = createHostedCandidateStager({ bindings: { db: context.db, bucket: cloud.bucket },
-							clientId: clerk.config.clientId, budgets, quotas, identity, authorizeOperate: operate, audit: services.audit, now });
-						const candidates = d1NativeCandidateRepository(context.db);
-						imports = { clientId: clerk.config.clientId, budget: importBudget, authorizeOperate: operate,
-							submissions: submissionSnapshotReader(repository), stager: staged.stager, packages: staged.packages, repository: candidates, now,
-							audit: { append: async (event) => {
-								if (canonicalText(event.actor) === canonicalText(requestActor)) return services.audit.append(event);
-								// A new session cannot impersonate an old one. Only this exact immutable committed candidate
-								// envelope may be delivered historically; ordinary reads/refusals retain the request sink.
-								if (event.actor.kind !== 'verified' || event.object.kind !== 'candidate' || !event.object.caseId ||
-									!['results.import-candidate', 'results.correct-candidate'].includes(event.action)) throw contractError('invalid-event');
-								const intent = await candidates.auditIntent({ clientId: clerk.config.clientId, caseId: event.object.caseId, candidateId: event.object.id });
-								if (canonicalText(intent.event) !== canonicalText(event)) throw contractError('invalid-event');
-								return historical.candidate.appendCommitted(intent);
-							} },
-						};
-					}
+					const imports = nativeImportPorts({ clientId: clerk.config.clientId, identity, db: context.db, bucket: cloud.bucket, budgets, quotas,
+						importBudget: context.settings.importBudget, authority, audit: services.audit, submissions: repository,
+						historical: historical.candidate, requestActor, now });
 					const validationLimits = hostedValidationPolicy(budgets);
 					const browserBinding = env.BROWSER;
 					const assetsBinding = env.ASSETS as { fetch?: (request: Request) => Promise<Response> } | undefined;

@@ -65,8 +65,8 @@ describe('/sign-in hands a development portal this browser\'s own Clerk client',
 		workers.env = { ...configured, CLERK_STAFF_SIGN_IN_URL: STAFF_SIGN_IN };
 		const operator = await import('../../../deploy/client/routes/sign-in/operator/+page.server.ts');
 		const r = await outcome(() => operator.actions.default!({ locals: production, url: new URL(`${ORIGIN}/sign-in/operator`), request: new Request(`${ORIGIN}/sign-in/operator`, { method: 'POST', headers: { cookie: `__clerk_db_jwt=${DEV_BROWSER}` } }) } as never));
-		expect(r.thrown).toMatchObject({ status: 303, location: `${STAFF_SIGN_IN}?redirect_url=${encodeURIComponent(`${ORIGIN}/cases`)}` });
-		expect(clerkSignInTarget(workers.env, '/cases', 'staff', DEV_BROWSER)?.href).toBe(`${STAFF_SIGN_IN}?redirect_url=${encodeURIComponent(`${ORIGIN}/cases`)}`);
+		expect(r.thrown).toMatchObject({ status: 303, location: `${STAFF_SIGN_IN}?redirect_url=${encodeURIComponent(`${ORIGIN}/sign-in/operator?returnTo=${encodeURIComponent('/cases')}`)}` });
+		expect(clerkSignInTarget(workers.env, '/cases', 'staff', DEV_BROWSER)?.href).toBe(`${STAFF_SIGN_IN}?redirect_url=${encodeURIComponent(`${ORIGIN}/sign-in/operator?returnTo=${encodeURIComponent('/cases')}`)}`);
 	});
 });
 

@@ -28,7 +28,7 @@ const outcome = async (f: () => unknown) => { try { return { value: await f() };
 describe('/sign-in/operator', () => {
 	it('links to the staff instance sign-in page, returning to this origin, with no key in the page data', async () => {
 		const r = await outcome(() => operator.load({ locals: production, url: new URL(`${ORIGIN}/sign-in/operator`) } as never));
-		expect(r.value).toEqual({ provider: 'clerk-staff', href: `${STAFF_SIGN_IN}?redirect_url=${encodeURIComponent(`${ORIGIN}/cases`)}`, options: [] });
+		expect(r.value).toEqual({ provider: 'clerk-staff', href: `${STAFF_SIGN_IN}?redirect_url=${encodeURIComponent(`${ORIGIN}/sign-in/operator?returnTo=${encodeURIComponent('/cases')}`)}`, options: [] });
 		expect(JSON.stringify(r)).not.toContain(B.secretKey);
 	});
 	it('stays 503 without the staff sign-in URL and 404 on the hosted-gate profile, which has no operator sign-in', async () => {

@@ -305,7 +305,7 @@ const gitTracked = (root: string, rel: string) => spawnSync('git', ['ls-files', 
 // statements, try and finally blocks, and `if` conditions. A call behind a condition, a short circuit, an optional chain, a
 // loop or a switch does not count, and nothing after a statement that may end the function does: a return, throw or break
 // behind any non-literal condition, a local function that may throw, a loop or another unsupported statement. A call reaches local helpers, callbacks a helper runs through its parameter, and const aliases, object
-// tables and conditional choices of values. This is source evidence that the test executes the code, not that it passes.
+// tables and conditional or `??`/`||` choices of values. This is source evidence that the test executes the code, not that it passes.
 type Param = { fn: ts.SignatureDeclaration; index: number };
 type Value = ts.Node | Param | 'target';
 const isNode = (v: Value): v is ts.Node => typeof v === 'object' && 'kind' in v;
@@ -399,6 +399,7 @@ function values(e: ts.Expression, targets: Set<string>, depth = 0): Value[] {
  if (ts.isIdentifier(e)) return lookup(e.text, e, targets, depth);
  if (ts.isArrowFunction(e) || ts.isFunctionExpression(e) || ts.isObjectLiteralExpression(e)) return [e];
  if (ts.isConditionalExpression(e)) return [...values(e.whenTrue, targets, depth + 1), ...values(e.whenFalse, targets, depth + 1)];
+ if (ts.isBinaryExpression(e) && (e.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken || e.operatorToken.kind === ts.SyntaxKind.BarBarToken)) return [...values(e.left, targets, depth + 1), ...values(e.right, targets, depth + 1)];
  if (!ts.isPropertyAccessExpression(e) && !ts.isElementAccessExpression(e)) return [];
  const key = ts.isPropertyAccessExpression(e) ? e.name.text : ts.isStringLiteralLike(e.argumentExpression) ? e.argumentExpression.text : undefined;
  return values(e.expression, targets, depth + 1).flatMap((v): Value[] => {

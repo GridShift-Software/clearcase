@@ -8,10 +8,10 @@ import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } f
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { NATIVE_CONTROLS_SCHEMA, bindStageRecord, parseNativeManifest, type NativeManifest, type ProviderReadback } from '../../../../deploy/native-alpha/controls.ts';
-import { bindNativeStages, nativeBindingProblems, sha256Text, type BindInput, type NativeStageEvidence, type NativeStageReader } from '../../../../deploy/native-alpha/native-stage-binding.ts';
+import { NATIVE_STAGE_EVIDENCE_SCHEMA, bindNativeStages, nativeBindingProblems, sha256Text, type BindInput, type NativeStageEvidence, type NativeStageReader } from '../../../../deploy/native-alpha/native-stage-binding.ts';
 import { NATIVE_ADAPTER_HEADERS, nativeStageRecord, parseNativeJson, parseNativeTarget, type NativePins } from '../../../../deploy/native-alpha/pipeline.ts';
 import { bindCheckedNativeStages, isIssuedNativeStageEvidence, readNativeStageEvidence } from '../../../../deploy/native-alpha/native-stage-evidence.ts';
-import { checkNativeStage, digestDir, readNativeStage, readRegular, stageNative } from '../../../../deploy/probes/target.ts';
+import { checkNativeStage, digestDir, nativeWalk, readNativeStage, readRegular, stageNative } from '../../../../deploy/probes/target.ts';
 
 const ROOT = path.join(import.meta.dirname, '../../../..');
 const MODULE = path.join(ROOT, 'deploy/native-alpha/native-stage-binding.ts');
@@ -108,6 +108,12 @@ function world(clients = path.join(FIXTURES, 'clients'), artifact = path.join(FI
 	return { clients, artifact, stages, pins, manifest: manifestFor(clients, artifact) };
 }
 
+/** The stage's actual artifact bytes from its own tree with the real readRegular: the entry as text, every public file as base64. */
+const stageBytes = (stage: string): NativeStageEvidence['artifact'] => ({
+	entryText: readRegular(path.join(stage, 'artifact/cloudflare/_worker.js'), stage).toString('utf8'),
+	publicFiles: nativeWalk(path.join(stage, 'artifact/public')).filter((e) => !e.dir).map((e) => ({ path: `artifact/public/${e.rel}`, base64: readRegular(path.join(stage, 'artifact/public', e.rel), stage).toString('base64') })),
+});
+
 /** The typed parent adapter: the REAL checkNativeStage before and after reading the stage's bytes with the real readRegular. */
 function realReader(w: World, readAt = READ_AT, tamper?: (client: string, e: NativeStageEvidence) => void): NativeStageReader {
 	return {
@@ -117,8 +123,9 @@ function realReader(w: World, readAt = READ_AT, tamper?: (client: string, e: Nat
 			const first = check();
 			const file = (f: string) => readRegular(path.join(stage, f), stage).toString('utf8');
 			const files = { stageJson: file('stage.json'), targetJson: file('target.json'), configJsonc: file('wrangler.jsonc') };
+			const artifact = stageBytes(stage);
 			const second = check();
-			const e: NativeStageEvidence = { schema: 'clearcase.native-stage-evidence/1', checker: 'checkNativeStage', client, pins: w.pins[client]!, problems: [...first, ...second.filter((p) => !first.includes(p))], readAt, files };
+			const e: NativeStageEvidence = { schema: NATIVE_STAGE_EVIDENCE_SCHEMA, checker: 'checkNativeStage', client, pins: w.pins[client]!, problems: [...first, ...second.filter((p) => !first.includes(p))], readAt, files, artifact };
 			tamper?.(client, e);
 			return e;
 		},
@@ -745,5 +752,137 @@ describe('boundaries of the module', () => {
 
 	test('a fixture directory listing sanity check: the shared stage inputs are the synthetic copies only', () => {
 		expect(readdirSync(FIXTURES).sort()).toEqual(['artifact', 'clients']);
+	});
+});
+
+describe('the actual artifact bytes carried by the evidence', () => {
+	const w = world();
+	const ENTRY = 'artifact/cloudflare/_worker.js';
+	const FAVICON = 'artifact/public/favicon.svg';
+	const issue = (wld: World, client: string) => readNativeStageEvidence({ client, stage: wld.stages[client]!, clients: wld.clients, pins: wld.pins[client]!, now: () => READ_AT });
+	const b64 = (s: string | Buffer) => Buffer.from(s).toString('base64');
+	const withBytes = (edit: (a: NativeStageEvidence['artifact']) => unknown) => realReader(w, READ_AT, (c, e) => void (c === 'client-a' && (e.artifact = (edit(e.artifact) ?? e.artifact) as NativeStageEvidence['artifact'])));
+	/** The fixture's synthetic Kit-shaped entry with its static Set, response body or a trailing line changed: still a valid pinned entry shape. */
+	const kitEntry = (o: { assets?: string[]; body?: string; tail?: string } = {}) => {
+		let text = readFileSync(path.join(FIXTURES, 'artifact/cloudflare/_worker.js'), 'utf8');
+		if (o.assets) text = text.replace('new Set(["favicon.svg"])', `new Set(${JSON.stringify(o.assets)})`);
+		if (o.body) text = text.replace('<main id="app"></main>', `<main id="app">${o.body}</main>`);
+		return `${text}${o.tail ?? ''}`;
+	};
+	const rebuilt = (edit: (dir: string) => void) => {
+		const artifact = copy(path.join(FIXTURES, 'artifact'), edit);
+		const clients = copy(path.join(FIXTURES, 'clients'), (d) => { for (const c of CLIENTS) editJson(path.join(d, c, 'target.json'), (t) => void (t.runtime.artifactSha256 = digestDir(artifact))); });
+		return world(clients, artifact);
+	};
+
+	test('the issuer captures the descriptor-read entry text and every public byte of the checked inventory, frozen', () => {
+		const e = issue(w, 'client-a');
+		const stage = w.stages['client-a']!;
+		const inventory = JSON.parse(e.files.stageJson).upload.files as { path: string }[];
+		expect(e.schema).toBe('clearcase.native-stage-evidence/2');
+		expect(e.artifact.entryText).toBe(readFileSync(path.join(stage, ENTRY), 'utf8'));
+		expect(sha(e.artifact.entryText)).toBe(w.pins['client-a']!.entry);
+		expect(e.artifact.publicFiles.map((f) => f.path).sort()).toEqual(inventory.map((f) => f.path).filter((p) => p !== ENTRY).sort());
+		for (const f of e.artifact.publicFiles) expect(Buffer.from(f.base64, 'base64').equals(readFileSync(path.join(stage, f.path))), f.path).toBe(true);
+		expect(Object.isFrozen(e.artifact)).toBe(true);
+		expect(Object.isFrozen(e.artifact.publicFiles)).toBe(true);
+		expect(Object.isFrozen(e.artifact.publicFiles[0])).toBe(true);
+		expect(() => void e.artifact.publicFiles.push({ path: 'artifact/public/x', base64: '' })).toThrow();
+		expect(() => void (e.artifact.publicFiles[0]!.base64 = b64('x'))).toThrow();
+		expect(() => void (e.artifact.entryText = '')).toThrow();
+	});
+
+	test('evidence without the actual bytes fails closed: no section, no entry text, no public bytes or one file dropped', () => {
+		hold(bind(w, { reader: realReader(w, READ_AT, (_c, e) => void delete (e as any).artifact) }), /evidence key artifact is missing/);
+		hold(bind(w, { reader: withBytes(() => true) }), /actual final entry text and public bytes are required/);
+		hold(bind(w, { reader: withBytes((a) => ({ publicFiles: a.publicFiles })) }), /actual final entry text and public bytes are required/);
+		hold(bind(w, { reader: withBytes((a) => ({ ...a, publicFiles: [] })) }), /evidence carries no actual bytes for this upload file/);
+		hold(bind(w, { reader: withBytes((a) => ({ ...a, publicFiles: a.publicFiles.filter((f) => f.path !== FAVICON) })) }), /favicon\.svg: the evidence carries no actual bytes/);
+	});
+
+	test('tampered public bytes, hashes or markers in place of bytes and non-canonical base64 are refused', () => {
+		const swap = (base64: string) => withBytes((a) => ({ ...a, publicFiles: a.publicFiles.map((f) => (f.path === FAVICON ? { path: f.path, base64 } : f)) }));
+		const real = readFileSync(path.join(w.stages['client-a']!, FAVICON));
+		hold(bind(w, { reader: swap(b64('<svg xmlns="http://www.w3.org/2000/svg"/>')) }), /favicon\.svg: public provenance is not bound to its actual bytes/);
+		hold(bind(w, { reader: swap(b64('<svg xmlns="http://www.w3.org/2000/svg"/>')) }), /digest to .* not the external artifact pin/);
+		for (const marker of [sha(real), 'checked', `${b64(real)}\n`, b64(real).replace(/=+$/, '')]) hold(bind(w, { reader: swap(marker) }), /not canonical base64/);
+	});
+
+	test('an edited entry text, or a valid Kit-shaped entry from another build, is refused', () => {
+		hold(bind(w, { reader: withBytes((a) => ({ ...a, entryText: `${a.entryText} ` })) }), /captured entry text .* is not the external entry pin/);
+		hold(bind(w, { reader: withBytes((a) => ({ ...a, entryText: kitEntry({ body: 'other build' }) })) }), /public provenance is not bound to the actual final entry bytes/);
+	});
+
+	test('bytes outside the inventory, outside artifact/public, unsafe or repeated are refused', () => {
+		const add = (path: string, base64 = b64('grafted')) => withBytes((a) => ({ ...a, publicFiles: [...a.publicFiles, { path, base64 }] }));
+		hold(bind(w, { reader: add('artifact/public/grafted.txt') }), /grafted\.txt: the evidence carries bytes for a file outside the upload inventory/);
+		for (const p of [ENTRY, 'artifact/public/../stage.json', 'artifact/public//x', 'stage.json', 'artifact/public/a\\b']) hold(bind(w, { reader: add(p) }), /not a canonical path under artifact\/public/);
+		hold(bind(w, { reader: withBytes((a) => ({ ...a, publicFiles: [...a.publicFiles, a.publicFiles[0]!] })) }), /are given twice/);
+		hold(bind(w, { reader: withBytes((a) => ({ ...a, publicFiles: [{ ...a.publicFiles[0]!, sha256: sha('x') } as any, ...a.publicFiles.slice(1)] })) }), /not exactly \{ path, base64 \}/);
+	});
+
+	test('a lying reader whose record and inventory agree with grafted bytes is refused only by the re-derived artifact pin', () => {
+		const fake = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1v1H0z"/></svg>');
+		const f = forge(w, 'client-a', { record: (r) => { for (const list of [r.upload.files, r.upload.assets.files]) for (const x of list) if (x.path === FAVICON) Object.assign(x, { bytes: fake.length, sha256: sha(fake) }); } });
+		f.evidence.artifact = { ...f.evidence.artifact, publicFiles: f.evidence.artifact.publicFiles.map((p) => (p.path === FAVICON ? { path: FAVICON, base64: b64(fake) } : p)) };
+		const res = bind(w, lying(w, 'client-a', f));
+		hold(res, /digest/);
+		expect(res.problems).toEqual([expect.stringMatching(/^client-a: the captured artifact bytes digest to sha256:[0-9a-f]{64}, not the external artifact pin sha256:/)]);
+	});
+
+	test('revalidation compares the bytes: public bytes that change only on the second read are a HOLD', () => {
+		let reads = 0;
+		const reader: NativeStageReader = { read: (c) => {
+			const e = realReader(w).read(c);
+			if (c === 'client-a' && ++reads === 2) e.artifact.publicFiles = e.artifact.publicFiles.map((p) => (p.path === FAVICON ? { path: p.path, base64: b64('later') } : p));
+			return e;
+		} };
+		hold(bind(w, { reader }), /revalidation read different evidence/);
+	});
+
+	test('issued evidence with its bytes edited in a copy, or a reader that edits its bytes after the read, changes nothing', () => {
+		const real = issue(w, 'client-a');
+		const edited = { ...clone(real), artifact: { ...real.artifact, entryText: `${real.artifact.entryText} ` } };
+		hold(bindCheckedNativeStages(input(w, { reader: { read: () => edited } })), /not issued/);
+		const kept: NativeStageEvidence[] = [];
+		const res = bind(w, { reader: realReader(w, READ_AT, (_c, e) => void kept.push(e)) });
+		const before = JSON.stringify(res);
+		for (const e of kept) (e.artifact.entryText = ''), (e.artifact.publicFiles = []);
+		expect(res.state).toBe('BOUND-STRUCTURAL');
+		expect(JSON.stringify(res)).toBe(before);
+	});
+
+	test('an honestly pinned artifact holding an empty directory cannot carry byte evidence and never binds', () => {
+		const empty = rebuilt((d) => mkdirSync(path.join(d, 'public/empty')));
+		expect(() => issue(empty, 'client-a')).toThrow(/empty directory cannot be carried as byte evidence/);
+		hold(bind(empty), /digest to .* not the external artifact pin/);
+	});
+
+	test('a Kit-shaped expanded stage (dynamic host import, exact adapter headers, an extra static asset) binds through the bridge on its real bytes', () => {
+		const expanded = rebuilt((d) => {
+			writeFileSync(path.join(d, 'cloudflare/_worker.js'), kitEntry({ assets: ['favicon.svg', 'synthetic.txt'], tail: 'const load = () => import("node:async_hooks");\n' }));
+			writeFileSync(path.join(d, 'public/_headers'), NATIVE_ADAPTER_HEADERS);
+			writeFileSync(path.join(d, 'public/synthetic.txt'), 'synthetic asset');
+		});
+		const reader: NativeStageReader = { read: (client) => issue(expanded, client) };
+		const e = reader.read('client-a');
+		const upload = JSON.parse(e.files.stageJson).upload;
+		expect(upload.dynamicHostImports).toEqual([{ specifier: 'node:async_hooks', via: 'literal', sites: 1 }]);
+		expect(upload.assets.headers.path).toBe('artifact/public/_headers');
+		expect(upload.assets.files.map((f: any) => f.path)).toContain('artifact/public/synthetic.txt');
+		expect(e.artifact.publicFiles.map((f) => f.path)).toContain('artifact/public/_headers');
+		expect(bindCheckedNativeStages(input(expanded, { reader })).problems).toEqual([]);
+		hold(bind(expanded, { reader: realReader(expanded, READ_AT, (_c, x) => void (x.artifact.publicFiles = x.artifact.publicFiles.map((p) => (p.path.endsWith('/_headers') ? { path: p.path, base64: b64(`${NATIVE_ADAPTER_HEADERS}\n/x\n  X-Extra: 1`) } : p)))) }), /_headers/);
+	});
+
+	test('a different but valid Kit-shaped stage, honestly pinned with its own real bytes, does not bind to the original observation', () => {
+		const other = rebuilt((d) => writeFileSync(path.join(d, 'cloudflare/_worker.js'), kitEntry({ body: 'other build' })));
+		expect(bindCheckedNativeStages(input(other, { reader: { read: (client) => issue(other, client) } })).problems).toEqual([]);
+		hold(bindCheckedNativeStages(input(other, { observed: { manifest: w.manifest, readback: readbackFor(w.manifest) }, reader: { read: (client) => issue(other, client) } })), /artifact/i);
+	});
+
+	test('with real bytes, the canonical stage record and the exact upload invocation are still required', () => {
+		hold(bind(w, lying(w, 'client-a', forge(w, 'client-a', { record: (r) => void r.upload.invocation.push('--no-bundle') }))), /upload\.invocation/);
+		hold(bind(w, lying(w, 'client-a', forge(w, 'client-a', { stageText: (s) => s.replace(/\n$/, '') }))), /stage\.json is not the record/);
 	});
 });

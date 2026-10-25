@@ -1,7 +1,7 @@
 import type { CaseId, Identity } from '../../server/runtime/contracts.ts';
 import { contractError } from '../../server/runtime/errors.ts';
 import { closedCode } from './closed-code.ts';
-import { createNativeRecoveryAdapters, type NativeRecoveryOptions } from './native-adapters.ts';
+import { createNativeRecoveryAdapters, type NativeRecoveryOptions, type NativeRecoveryResources } from './native-adapters.ts';
 import type { RestoreDeps } from './restore.ts';
 
 /**
@@ -37,28 +37,41 @@ function receivingFault(s: NativeRecoveryOptions, who: Who): Fault | null {
   } catch { return 'target-not-isolated'; }
 }
 
+const place = (r: NativeRecoveryResources): NativeRecoveryResources => Object.freeze({ ...r, deployment: Object.freeze({ ...r.deployment }), boundResources: Object.freeze({ ...r.boundResources }) });
 /**
- * Opens the reviewed adapters from ONE set of source options, whose `target` is the receiving authentication, and records the
- * scope they were opened for. A receiving target that fails its isolation or person checks is not opened: export and verify
- * keep working and plan and apply answer 503 `target-not-isolated`. Every other unusable configuration throws.
+ * The caller's options, read ONCE and now. The scope below is derived from this copy and the adapters are opened from this
+ * same copy, so what the bridge validated and records is exactly what the adapters consume, whatever the parent does to its own
+ * options object while the open is pending. Identity, audit, db and bucket stay the caller's own handles; the plain-data
+ * fields adapters read after their first await (the case, the resource tuples) are private frozen copies.
+ */
+function capture(o: NativeRecoveryOptions): NativeRecoveryOptions {
+  const { resources, target, ...rest } = o; // destructuring reads each caller property exactly once
+  return Object.freeze({ ...rest, resources: place(resources), target: target ? Object.freeze({ ...target, resources: place(target.resources) }) : null });
+}
+
+/**
+ * Opens the reviewed adapters from ONE captured copy of the source options, whose `target` is the receiving authentication, and
+ * records the scope they were opened for. A receiving target that fails its isolation or person checks is not opened: export and
+ * verify keep working and plan and apply answer 503 `target-not-isolated`. Every other unusable configuration throws.
  */
 export async function openNativeRecoveryDeps(options: NativeRecoveryOptions): Promise<RestoreDeps> {
-  const who = whoIs(options.identity);
-  let targetFault: Fault | null = null;
+  let s: NativeRecoveryOptions, who: Who | null, targetFault: Fault | null = null;
   try {
-    if (!who || options.resources.deployment.clientId !== who.clientId) throw new Error('scope');
-    if (options.target) targetFault = receivingFault(options, who);
+    s = capture(options);
+    who = whoIs(s.identity);
+    if (!who || s.resources.deployment.clientId !== who.clientId) throw new Error('scope');
+    if (s.target) targetFault = receivingFault(s, who);
   } catch { throw contractError('recovery-unavailable', true); }
-  const withTarget = options.target && !targetFault;
+  const withTarget = s.target && !targetFault;
   let deps: RestoreDeps;
-  try { deps = await createNativeRecoveryAdapters(withTarget ? options : { ...options, target: null }); } catch (e) {
+  try { deps = await createNativeRecoveryAdapters(withTarget ? s : { ...s, target: null }); } catch (e) {
     if (!withTarget || closedCode(e) !== 'target-not-isolated') throw e;
     targetFault = 'target-not-isolated';
-    deps = await createNativeRecoveryAdapters({ ...options, target: null });
+    deps = await createNativeRecoveryAdapters({ ...s, target: null });
   }
   if (!sameSession(whoIs(deps.identity), who)) throw contractError('recovery-unavailable', true);
-  const receiving = options.target && !targetFault ? { identity: options.target.identity, who: whoIs(options.target.identity)! } : null;
-  opened.set(deps, Object.freeze({ caseId: options.caseId, identity: deps.identity, who: who!, receiving, targetFault }));
+  const receiving = s.target && !targetFault ? { identity: s.target.identity, who: whoIs(s.target.identity)! } : null;
+  opened.set(deps, Object.freeze({ caseId: s.caseId, identity: deps.identity, who, receiving, targetFault }));
   return deps;
 }
 

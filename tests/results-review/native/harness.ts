@@ -16,7 +16,6 @@ const migration = (p: string) => path.join(root, p);
 export const MIGRATIONS: readonly string[] = [
   migration('src/lib/submissions/migrations/0001_submissions_intake.sql'),
   migration('src/lib/results-review/native/migrations/0001_native_candidate_import.sql'),
-  migration('src/lib/results-review/native/migrations/0002_candidate_audit_intent.sql'),
 ];
 
 export type Route = 'imports' | 'candidates' | 'candidate' | 'corrections';

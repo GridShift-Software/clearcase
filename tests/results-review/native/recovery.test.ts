@@ -9,7 +9,7 @@ import type { IdentityState } from '../../../src/lib/server/runtime/contracts.ts
 import { createCandidateReader, createNativeResultsImport, d1NativeCandidateRepository, recoverNativeCandidateAudits, type CandidateAuditRecovery, type NativeD1, type NativeImportPorts, type StageRequest } from '../../../src/lib/results-review/native/index.ts';
 import { CASE_A, CASE_B, CLIENT, NOW, finalizeSubmission, who } from './doubles.ts';
 import { buildFixture, pdf } from './fixtures.ts';
-import { world } from './harness.ts';
+import { compose, dispatch, world } from './harness.ts';
 
 let seq = 0;
 const op = () => `recovery-${++seq}-abcdef1234567890`;
@@ -130,6 +130,54 @@ it('hands the stager the exact trusted finalized revision, not a package-selecte
   expect(handed?.submission.manifest).toEqual(x.manifest);
   expect(handed?.submission.storedManifestSha256).toMatch(/^[a-f0-9]{64}$/);
   expect(handed?.submission.manifest.revisionId).toBe(x.request.submissionRevisionId);
+});
+
+it('verifies byte-identical correction retry readback and actor/request binding with a moving clock', async () => {
+  const x = await ready();
+  const imported = await x.service.importPackage(x.token, x.request);
+  if (imported.kind !== 'linked') throw new Error('setup import failed');
+  let clock = Date.parse(NOW);
+  x.w.ports.now = () => new Date(clock);
+  const fix = correction(imported.candidate.candidateId);
+  x.w.db.failNext = /INSERT INTO native_import_link/;
+  await expect(x.service.correct(x.token, fix)).rejects.toMatchObject({ code: 'storage-unavailable' });
+  const firstFiles = x.w.stager.calls[1].files;
+  clock += 1000;
+  const other = await x.service.admit({ identity: who({ subject: 'operator-2' }), caseId: CASE_A, access: 'write' });
+  expect(await x.service.correct(other, fix)).toMatchObject({ kind: 'refused', code: 'operation-reused' });
+  expect(await x.service.correct(x.token, { ...fix, reason: 'Changed request' })).toMatchObject({ kind: 'refused', code: 'operation-reused' });
+  const retry = await x.service.correct(x.token, fix);
+  expect(retry).toMatchObject({ kind: 'linked', candidate: { current: true } });
+  expect(x.w.stager.calls[2].files).toEqual(firstFiles);
+  expect(await x.service.correct(x.token, fix)).toMatchObject({ kind: 'linked', repeated: true });
+  expect(x.w.audit.events.filter(e => e.action === 'results.correct-candidate')).toHaveLength(1);
+});
+
+it('rejects foreign composition tokens on all read/write APIs and rejects copied tokens', async () => {
+  const x = await ready();
+  const imported = await x.service.importPackage(x.token, x.request);
+  if (imported.kind !== 'linked') throw new Error('setup import failed');
+  const denied = createNativeResultsImport({ ...x.ports, authorizeOperate: async () => { throw new Error('must not reach admission'); } })!;
+  await expect(denied.listCandidates(x.token)).rejects.toMatchObject({ code: 'forbidden' });
+  await expect(denied.readCandidate(x.token, imported.candidate.candidateId)).rejects.toMatchObject({ code: 'forbidden' });
+  await expect(denied.importPackage(x.token, x.request)).rejects.toMatchObject({ code: 'forbidden' });
+  await expect(denied.correct(x.token, correction(imported.candidate.candidateId))).rejects.toMatchObject({ code: 'forbidden' });
+  await expect(x.service.listCandidates({ ...x.token })).rejects.toMatchObject({ code: 'forbidden' });
+  expect(x.w.stager.calls).toHaveLength(1);
+});
+
+it('denies an ungranted staff operator both route reads against the populated repository', async () => {
+  const x = await ready();
+  const imported = await x.service.importPackage(x.token, x.request);
+  if (imported.kind !== 'linked') throw new Error('setup import failed');
+  compose({ ...x.w.ports, authorizeOperate: async () => { throw Object.assign(new Error('forbidden'), { code: 'forbidden' }); } });
+  for (const route of ['candidates', 'candidate'] as const) {
+    const url = new URL(`https://client-a.clearcase.test/operator/results/case-a/candidates/${imported.candidate.candidateId}`);
+    const response = await dispatch(route, 'GET', { request: new Request(url), url, params: { caseId: 'case-a', candidateId: imported.candidate.candidateId }, locals: { identity: who({ subject: 'ungranted-staff' }) } });
+    expect(response.status).toBe(404);
+    expect(await response.text()).not.toContain(imported.candidate.candidateId);
+  }
+  expect(await x.repo.list(scope)).toHaveLength(1);
 });
 
 it('uses the real requestAuditSink for original-principal retry and never impersonates that actor during another review', async () => {

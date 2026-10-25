@@ -16,4 +16,4 @@ export { buildCoverage, type CoverageResult, type UnlinkedCode, type UnlinkedRea
 export { candidateIdOf, linkIdOf } from './digest.ts';
 export { nativeImportBudget } from './budget.ts';
 /** Migration file names under src/lib/results-review/native/migrations, in apply order, for the parent's per-client schema aggregation. */
-export const NATIVE_IMPORT_MIGRATIONS = ['0001_native_candidate_import.sql', '0002_candidate_audit_intent.sql'] as const;
+export const NATIVE_IMPORT_MIGRATIONS = ['0001_native_candidate_import.sql'] as const;

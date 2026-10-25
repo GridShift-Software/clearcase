@@ -139,7 +139,9 @@ describe('runner', () => {
 
 describe('suite', () => {
 	test('the default vitest run includes the parity suite', async () => {
-		const { default: root } = await import('../../vitest.config');
-		expect(root.test?.include).toContain('tests/parity/**/*.test.ts');
+		const { default: config } = await import('../../vitest.config');
+		const named = ((config.test?.projects ?? []) as { test?: { name?: string; include?: string[] } }[]).filter((p) => p.test?.name === 'root');
+		expect(named, 'one project named root').toHaveLength(1);
+		expect(named[0]!.test?.include).toContain('tests/parity/**/*.test.ts');
 	});
 });

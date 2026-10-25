@@ -4,10 +4,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { WorkVersion } from '../../../src/lib/server/runtime/contracts.ts';
 // Private test dependency, deliberately not a runtime/Worker dependency. See acceptance note.
 const domModule = pathToFileURL(resolve(process.env.CLEARCASE_VIEWER_DOM ?? '.local/viewer-dom/node_modules/jsdom/lib/api.js')).href;
 const { JSDOM } = await import(/* @vite-ignore */ domModule);
-// @ts-expect-error The local Vitest config compiles this synthetic harness as a client component.
+// The local Vitest config compiles this synthetic harness as a client component.
 import Harness from './ViewerHarness.svelte';
 
 function deferred<T>() {
@@ -15,11 +16,11 @@ function deferred<T>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-const note = (id: string, body = `remark-${id}`) => ({ rowId: `note-${id}`, assetId: id, page: 1, body, version: 'v1', current: true });
+const note = (id: string, body = `remark-${id}`) => ({ rowId: `note-${id}`, assetId: id, page: 1, body, version: 'v1' as WorkVersion, current: true });
 const data = (assetId = 'A', caseId = 'case-a') => ({ caseId, assetId,
-  view: { state: 'available', mode: 'pdf', filename: `${assetId}.pdf`, mediaType: 'application/pdf', size: 123,
+  view: { state: 'available' as const, mode: 'pdf' as const, filename: `${assetId}.pdf`, mediaType: 'application/pdf', size: 123,
     srcHref: `/cases/${caseId}/originals/${assetId}`, downloadHref: `/cases/${caseId}/originals/${assetId}?download=1` },
-  notesHref: `/cases/${caseId}/originals/${assetId}/notes`, notes: { state: 'available', items: [note(assetId)] },
+  notesHref: `/cases/${caseId}/originals/${assetId}/notes`, notes: { state: 'available' as const, items: [note(assetId)] },
 });
 const reader = () => ({ pages: 3, draw: vi.fn(async () => {}), destroy: vi.fn() });
 let dom: any, component: any;
@@ -54,7 +55,7 @@ it.each([['B', 'case-a'], ['A', 'case-b']])('replaces reader, notes, draft, page
   if (asset !== 'A') expect(document.body.textContent).not.toContain('remark-A');
   expect(draft().value).toBe('');
   expect(fresh.draw).toHaveBeenLastCalledWith(1, 1.2);
-  const fetcher = vi.fn(async () => reply('new original note')); vi.stubGlobal('fetch', fetcher);
+  const fetcher = vi.fn(async (_url: RequestInfo | URL, _init: RequestInit) => reply('new original note')); vi.stubGlobal('fetch', fetcher);
   type('new original note'); submit(); await settle();
   expect(fetcher.mock.calls[0]![0]).toBe(data(asset, caseId).notesHref);
 });
@@ -128,8 +129,44 @@ it('shows transport failure, retains draft and reuses only that exact retry oper
   expect(bodies()[2].operationId).not.toBe(bodies()[1].operationId);
 });
 
+it('cleans up an adapter script still loading when its original is replaced', async () => {
+  component = mount(Harness, { target: document.body, props: { initial: data() } }); flushSync(); await settle();
+  const script = document.querySelector('script')!;
+  expect(script.src).toContain('/pdfjs/pdf-reader.mjs');
+  const fresh = reader(), open = vi.fn(async () => fresh); (window as any).clearcasePdfReader = { open };
+  component.navigate(data('B')); flushSync(); await settle();
+  expect(script.isConnected).toBe(false);
+  window.dispatchEvent(new Event('clearcase:pdf-reader')); await settle();
+  expect(open).toHaveBeenCalledOnce();
+});
+
+it('does not merge a response whose JSON body settles after navigation', async () => {
+  start(); await settle(); const json = deferred<unknown>();
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: () => json.promise })));
+  type('old'); submit(); await settle(); component.navigate(data('B')); flushSync(); await settle(); type('new');
+  json.resolve({ note: note('old', 'late JSON') }); await settle();
+  expect(draft().value).toBe('new'); expect(document.body.textContent).not.toContain('late JSON');
+});
+
+it('aborts a pending delete and ignores its completion after navigation', async () => {
+  start(); await settle(); const held = deferred<Response>(), fetcher = vi.fn(() => held.promise); vi.stubGlobal('fetch', fetcher);
+  [...document.querySelectorAll('button')].find((b) => b.textContent === 'Delete')!.click();
+  component.navigate(data('B')); flushSync(); await settle(); held.resolve(new Response('{}')); await settle();
+  expect(document.body.textContent).toContain('remark-B');
+  expect((fetcher.mock.calls as any)[0][1].signal.aborted).toBe(true);
+});
+
+it('retries a failed delete with the same operation and keeps the note until success', async () => {
+  start(); await settle(); const fetcher = vi.fn().mockResolvedValueOnce(new Response('{}', { status: 503 })).mockResolvedValueOnce(new Response('{}'));
+  vi.stubGlobal('fetch', fetcher);
+  const remove = () => [...document.querySelectorAll('button')].find((b) => b.textContent === 'Delete')!.click();
+  remove(); await settle(); expect(document.body.textContent).toContain('remark-A');
+  remove(); await settle(); expect(document.body.textContent).not.toContain('remark-A');
+  expect(JSON.parse(fetcher.mock.calls[0]![1].body).operationId).toBe(JSON.parse(fetcher.mock.calls[1]![1].body).operationId);
+});
+
 it('does not reuse a failed operation after changing its page or body', async () => {
-  start(); await settle(); const fetcher = vi.fn(async () => new Response('{}', { status: 503 })); vi.stubGlobal('fetch', fetcher);
+  start(); await settle(); const fetcher = vi.fn(async (_url: RequestInfo | URL, _init: RequestInit & { body: string }) => new Response('{}', { status: 503 })); vi.stubGlobal('fetch', fetcher);
   type('first'); submit(); await settle(); type('second'); submit(); await settle();
   [...document.querySelectorAll('button')].find((b) => b.textContent === 'Next')!.click(); submit(); await settle();
   const bodies = fetcher.mock.calls.map(([, init]) => JSON.parse(init.body));

@@ -10,25 +10,53 @@ const base = new URL('./', import.meta.url).href;
 
 window.clearcasePdfReader = {
 	/** Opens `src`; resolves { pages, draw(page, scale), destroy() } or rejects when the file cannot be read as a PDF. */
-	async open({ src, canvas }) {
+	async open({ src, canvas, signal }) {
 		const task = pdfjs.getDocument({
 			url: src, withCredentials: false, isEvalSupported: false, enableXfa: false, enableScripting: false, useWasm: false,
 			standardFontDataUrl: `${base}standard_fonts/`, cMapUrl: `${base}cmaps/`, cMapPacked: true, iccUrl: `${base}iccs/`,
 		});
-		const doc = await task.promise;
-		let ticket = 0;
+		let ticket = 0, destroyed = false, rendering = null;
+		let tail = Promise.resolve();
+		const destroy = () => {
+			if (destroyed) return;
+			destroyed = true;
+			ticket++;
+			signal?.removeEventListener('abort', destroy);
+			rendering?.cancel();
+			void task.destroy().catch(() => {});
+		};
+		signal?.addEventListener('abort', destroy, { once: true });
+		if (signal?.aborted) destroy();
+		let doc;
+		try {
+			doc = await task.promise;
+			if (destroyed) throw new Error('reader cancelled');
+		} catch (error) { destroy(); throw error; }
 		return {
 			pages: doc.numPages,
-			async draw(number, scale) {
+			draw(number, scale) {
 				const mine = ++ticket;
-				const page = await doc.getPage(number);
-				if (mine !== ticket) return;
-				const viewport = page.getViewport({ scale });
-				canvas.width = Math.floor(viewport.width);
-				canvas.height = Math.floor(viewport.height);
-				await page.render({ canvas, viewport }).promise;
+				rendering?.cancel();
+				// Cancel promptly, but do not resize or reuse the canvas until the prior RenderTask settles.
+				const drawing = tail.then(async () => {
+					if (destroyed || mine !== ticket) return;
+					const page = await doc.getPage(number);
+					if (destroyed || mine !== ticket) return;
+					const viewport = page.getViewport({ scale });
+					canvas.width = Math.floor(viewport.width);
+					canvas.height = Math.floor(viewport.height);
+					const render = rendering = page.render({ canvas, viewport });
+					try { await render.promise; }
+					finally { if (rendering === render) rendering = null; }
+				}).catch((error) => {
+					// A superseded/destroyed draw has no UI to report to. Current PDF failures still reject.
+					if (!destroyed && mine === ticket) throw error;
+				});
+				// A current failure must not poison the queue for a later attempt.
+				tail = drawing.catch(() => {});
+				return drawing;
 			},
-			destroy() { ticket++; void task.destroy(); },
+			destroy,
 		};
 	},
 };

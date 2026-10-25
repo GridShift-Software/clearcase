@@ -16,53 +16,105 @@
 	let notes = $state<PageNote[]>(untrack(() => [...initial]));
 	let draft = $state('');
 	let noteError = $state('');
+	let pending = $state(false);
+	let draftRevision = 0;
 	type Reader = { pages: number; draw(page: number, scale: number): Promise<void>; destroy(): void };
-	type Global = { clearcasePdfReader?: { open(a: { src: string; canvas: HTMLCanvasElement }): Promise<Reader> } };
+	type Global = { clearcasePdfReader?: { open(a: { src: string; canvas: HTMLCanvasElement; signal: AbortSignal }): Promise<Reader> } };
 	let reader: Reader | null = null;
+	let active = false;
+	let drawGeneration = 0;
+	const lifetime = new AbortController();
+	// Retry identity belongs to exactly one draft/page, never to subsequent text or another mounted original.
+	let retry: { revision: number; page: number; body: string; operationId: string } | null = null;
+	const deleteRetries = new Map<string, string>();
 
 	// The adapter is a static module next to pdf.js (not in the Worker bundle): loaded once from this origin, then asked to open the file.
 	function adapter(): Promise<NonNullable<Global['clearcasePdfReader']>> {
 		const g = window as unknown as Global;
 		if (g.clearcasePdfReader) return Promise.resolve(g.clearcasePdfReader);
 		return new Promise((resolve, reject) => {
-			window.addEventListener('clearcase:pdf-reader', () => (g.clearcasePdfReader ? resolve(g.clearcasePdfReader) : reject(new Error('reader'))), { once: true });
 			const s = document.createElement('script');
+			const cleanup = () => {
+				window.removeEventListener('clearcase:pdf-reader', loaded);
+				lifetime.signal.removeEventListener('abort', failed);
+				s.onerror = null;
+				s.remove();
+			};
+			const failed = () => { cleanup(); reject(new Error('reader')); };
+			const loaded = () => { cleanup(); if (g.clearcasePdfReader) resolve(g.clearcasePdfReader); else reject(new Error('reader')); };
+			window.addEventListener('clearcase:pdf-reader', loaded, { once: true });
+			lifetime.signal.addEventListener('abort', failed, { once: true });
 			s.type = 'module';
 			s.src = READER;
-			s.onerror = () => reject(new Error('reader'));
+			s.onerror = failed;
 			document.head.append(s);
 		});
 	}
-	const draw = () => (reader && canvas ? reader.draw(current, scale).catch(() => { status = 'error'; }) : Promise.resolve());
+	const draw = () => {
+		const r = reader, generation = ++drawGeneration;
+		return active && r && canvas ? r.draw(current, scale).catch(() => {
+			if (active && r === reader && generation === drawGeneration) status = 'error';
+		}) : Promise.resolve();
+	};
 	onMount(() => {
-		let gone = false;
+		active = true;
+		// The route keys this component by its authorized load. Capture the source before any await.
+		const source = src, target = canvas!;
 		adapter()
-			.then((a) => a.open({ src, canvas: canvas! }))
+			.then((a) => active ? a.open({ src: source, canvas: target, signal: lifetime.signal }) : null)
 			.then(async (r) => {
-				if (gone) return r.destroy();
+				if (!r) return;
+				if (!active) return r.destroy();
 				reader = r;
 				pages = r.pages;
 				status = 'ready';
 				await draw();
 			})
-			.catch(() => { status = 'error'; });
-		return () => { gone = true; reader?.destroy(); reader = null; };
+			.catch(() => { if (active) status = 'error'; });
+		return () => { active = false; drawGeneration++; lifetime.abort(); reader?.destroy(); reader = null; };
 	});
 	const go = (n: number) => { current = Math.min(Math.max(1, Math.trunc(n) || 1), Math.max(pages, 1)); void draw(); };
 	const zoom = (f: number) => { scale = Math.min(4, Math.max(0.4, scale * f)); void draw(); };
 	const operation = () => `note-${crypto.randomUUID()}`;
 	async function send(method: 'POST' | 'DELETE', body: Record<string, unknown>) {
 		noteError = '';
-		const r = await fetch(notesHref, { method, headers: { 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ operationId: operation(), ...body }) });
-		if (!r.ok) { noteError = r.status === 409 ? 'This note changed elsewhere. Reload and try again.' : 'The note was not saved.'; return null; }
-		return r.json();
+		try {
+			const r = await fetch(notesHref, { method, headers: { 'content-type': 'application/json' }, credentials: 'same-origin', signal: lifetime.signal, body: JSON.stringify(body) });
+			if (!active) return null;
+			if (!r.ok) { noteError = r.status === 409 ? 'This note changed elsewhere. Reload and try again.' : 'The note was not saved.'; return null; }
+			const out = await r.json();
+			return active ? out : null;
+		} catch {
+			if (active) noteError = 'The note was not saved.';
+			return null;
+		}
 	}
 	async function add() {
-		const out = await send('POST', { page: current, body: draft });
-		if (out?.note) { notes = [...notes, out.note].sort((a, b) => a.page - b.page); draft = ''; }
+		if (!active || pending || status !== 'ready' || !notesAvailable) return;
+		const revision = draftRevision, page = current, body = draft;
+		if (!retry || retry.revision !== revision || retry.page !== page || retry.body !== body) retry = { revision, page, body, operationId: operation() };
+		pending = true;
+		try {
+			const out = await send('POST', { page, body, operationId: retry.operationId });
+			if (active && out?.note) {
+				notes = [...notes.filter((n) => n.rowId !== out.note.rowId), out.note].sort((a, b) => a.page - b.page);
+				if (draftRevision === revision) draft = '';
+				retry = null;
+			}
+		} finally { if (active) pending = false; }
 	}
 	async function remove(n: PageNote) {
-		if (await send('DELETE', { rowId: n.rowId, version: n.version })) notes = notes.filter((x) => x.rowId !== n.rowId);
+		if (!active || pending || !notesAvailable) return;
+		const key = JSON.stringify([n.rowId, n.version]);
+		const operationId = deleteRetries.get(key) ?? operation();
+		deleteRetries.set(key, operationId);
+		pending = true;
+		try {
+			if (await send('DELETE', { rowId: n.rowId, version: n.version, operationId })) {
+				if (active) notes = notes.filter((x) => x.rowId !== n.rowId);
+				deleteRetries.delete(key);
+			}
+		} finally { if (active) pending = false; }
 	}
 </script>
 
@@ -89,14 +141,14 @@
 	{:else}
 		<ul>
 			{#each notes as n (n.rowId)}
-				<li data-page={n.page}>Page {n.page}: {n.body}{n.current ? '' : ' (the original has changed since this note)'} <button type="button" onclick={() => remove(n)}>Delete</button></li>
+				<li data-page={n.page}>Page {n.page}: {n.body}{n.current ? '' : ' (the original has changed since this note)'} <button type="button" onclick={() => remove(n)} disabled={pending}>Delete</button></li>
 			{:else}
 				<li>No notes yet.</li>
 			{/each}
 		</ul>
 		<form onsubmit={(e) => { e.preventDefault(); void add(); }}>
-			<label>Note on page {current} <textarea bind:value={draft} maxlength="2000" required></textarea></label>
-			<button type="submit">Save note</button>
+			<label>Note on page {current} <textarea bind:value={draft} oninput={() => { draftRevision++; }} maxlength="2000" required></textarea></label>
+			<button type="submit" disabled={pending || status !== 'ready'}>Save note</button>
 		</form>
 		{#if noteError}<p role="alert">{noteError}</p>{/if}
 	{/if}

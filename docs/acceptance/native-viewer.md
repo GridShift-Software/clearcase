@@ -29,10 +29,27 @@ A note is a person's remark on one page of one original, kept in user work (`Asy
 1. **Static assets.** Copy `node_modules/pdfjs-dist/build/pdf.min.mjs`, `build/pdf.worker.min.mjs`, `standard_fonts/`, `cmaps/`, `iccs/` and `src/lib/viewer/hosted/static/pdf-reader.mjs` into the deployed static directory as `/pdfjs/`. Do not copy the pdf.js scripting sandbox or wasm (the reader sets `useWasm: false`, `enableScripting: false`). The pdf.js package stays outside the hosted import allowlist; only this static adapter loads it.
 2. **CSP for `/cases/*/originals/*/view`.** `script-src 'self'`; `worker-src 'self'`; `connect-src 'self'`; `img-src 'self' blob: data:`; `style-src 'self' 'unsafe-inline'` if the layout needs it; `object-src 'none'`; `frame-ancestors 'none'`; `base-uri 'none'`. The hooks, layout and CSP are shared files.
 3. **Links.** The case overview (`cases/[caseId]/+page.svelte` and `+page.server.ts`, owned elsewhere) still links `/originals/[assetId]`, which is now the byte route. It should link `/originals/[assetId]/view` and keep the byte route for the download link. `AssetsAccess.links` already returns `viewerHref: null`; the composer can pass `viewerRoute` (`createCloudResults`) to offer `/cases/<id>/originals/<asset>/view`.
-4. **Root vitest include.** Add `tests/hosted-smoke/native-viewer/**/*.test.ts` (this directory carries its own `vitest.config.ts`, and note the Vitest include list replaces the root list).
+4. **Root Vitest integration.** Run this directory with its own `vitest.config.ts` (maxWorkers 1, include replaces the root list). For root integration, preserve this as a separate test project: the lifecycle tests need the Svelte client entry/transform and the PDF.js synthetic transport alias from this config, not just an added root include. Provision the private jsdom dependency described below, or add the same pin to reviewed dev dependencies. Neither jsdom nor the test transport belongs in the Worker graph.
 5. **Content class from the access port.** The sniff probe should become a stored content class on `AssetMetadata` set at acknowledgement (a shared runtime change). Until then the route reads the first KiB through `AssetsAccess.get`, so every inline view records two `asset.read-original` events and verifies the object twice; objects over the buffered budget are refused as before.
 6. **Notes in the shared model.** `NoteTarget` has no original target, so page notes use a register store. If the glossary owner wants them as Notes, `NoteTarget` needs an `original` kind (shared contract).
 7. **Composition.** `locals.assets` and `locals.userWork` must be the real cloud adapters. Null ports answer 503 on every route here; there is no test login, default allow or in-memory fallback in these files.
+
+## Navigation, rendering and save regressions
+
+Every fresh authorized viewer page load replaces the PDF component, including same-case/same-asset reloads after content changes. The key is the load object, not a content hash or storage id; no new server field is required. This deliberately resets page, zoom, notes, draft and retry identity on every load. The parent must continue passing a fresh load object, not mutate the old object in place.
+
+The component aborts pending reader loads and note requests on destruction. Late reader/load/render/save/delete completions cannot update a replacement viewer. An aborted request may already have committed on the server; it stays addressed to the old original, and its result is ignored, never redirected. Adapter `open({ src, canvas, signal? })` accepts an optional AbortSignal; existing callers without a signal remain supported. Its `draw()` cancels the active PDF.js RenderTask and waits for it before resizing/reusing the canvas. Superseded work is ignored; a current PDF failure still rejects.
+
+Only one note mutation can be in flight per mounted viewer. The textarea remains editable. A save clears only the submitted draft revision; newer typing, even text changed away and back, survives. A failed unchanged draft/page retries the same operation id; changing either starts a new operation. Deletes retain their own operation id for retries. Transport failures show the not-saved message, not an unhandled rejection.
+
+Written adverse cases in `lifecycle.test.ts` and `render-lifecycle.test.ts` exercise the real compiled route/component and real pinned PDF.js RenderTasks respectively:
+
+- Navigate A to B, or between cases with the same asset id: destroy the old reader, reset page/zoom/draft/notes, and POST only to the new original.
+- Reload the same URL with new authorized data (including changed content); finish or reject an old pending load, or fail an old draw after a newer draw: no stale state or permanent error.
+- Hold a save; type a newer draft or edit away and back; submit twice; complete after navigation or after JSON parsing is delayed: no duplicate concurrent write, lost typing or cross-document merge.
+- Reject transport or return 503, retry unchanged/changed text/page, and navigate during delete: retain correct operation identity and ignore old completions.
+- Navigate while the adapter script loads: remove its script/listeners; a late event cannot open the old document.
+- Pause a real RenderTask, request page/zoom repeatedly, destroy or abort before/after open, delay getPage, and recover after a current PDF error: no canvas overlap, stale resize, poisoned queue or destruction leak.
 
 ## Not covered
 
@@ -40,4 +57,6 @@ No text layer, search, selection, thumbnails, print, rotation, page-citation nav
 
 ## Evidence
 
-`tests/hosted-smoke/native-viewer/` (74 unit tests): the real `createCloudResults` assets and storage adapters over the storage SQLite/in-memory doubles, the real route modules, synthetic bytes only. Run alone with `bunx vitest run --config tests/hosted-smoke/native-viewer/vitest.config.ts`.
+`tests/hosted-smoke/native-viewer/`: 74 unchanged protected delivery/notes tests plus 22 lifecycle regressions (96 total). The protected tests use real `createCloudResults` assets and storage adapters over SQLite/in-memory doubles and real route modules. Lifecycle tests use jsdom with reader/fetch doubles; render tests use the pinned PDF.js, installed native canvas, synthetic two-page bytes and an in-memory transport with onContinue pauses. They do not prove browser delivery, CSP or production persistence.
+
+In a fresh checkout, run `bun install --frozen-lockfile`, then `bun run --bun svelte-kit sync` for type checks. Provision jsdom privately (no app dependency or lock changes): `mkdir -p .local/viewer-dom && printf '%s\\n' '{"private":true,"dependencies":{"jsdom":"27.4.0"}}' > .local/viewer-dom/package.json`, then `scripts/agent-tools/receipt --name viewer-dom-install -- bun install --cwd .local/viewer-dom`. The default loader reads that ignored path; `CLEARCASE_VIEWER_DOM` can name another jsdom `lib/api.js` file. Run `scripts/agent-tools/receipt --name viewer-tests -- bun run --bun test --config tests/hosted-smoke/native-viewer/vitest.config.ts`. No root suite, browser, build or provider is started.

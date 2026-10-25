@@ -56,6 +56,21 @@ it('drops a delayed old getPage completion and draws only the latest zoom', asyn
   await Promise.all([first, second]); expect(canvas.width).toBe(200); expect(controls.tasks).toHaveLength(1);
 });
 
+it('a current PDF failure rejects, but does not poison subsequent renders', async () => {
+  const canvas = createCanvas(100, 100); reader = await open(canvas);
+  await expect(reader.draw(999, 1)).rejects.toThrow();
+  await expect(reader.draw(2, 2)).resolves.toBeUndefined(); expect(canvas.width).toBe(200);
+});
+
+it('abort after open cancels rendering and destroys only once', async () => {
+  const controller = new AbortController(); reader = await open(createCanvas(100, 100), controller.signal);
+  const destroy = vi.spyOn(controls.loads[0], 'destroy'); controls.pauseNext = true;
+  const drawing = reader.draw(1, 1); drawing.catch(() => {});
+  await vi.waitFor(() => expect(controls.paused).toBeTypeOf('function'));
+  controller.abort(); reader.destroy(); await expect(drawing).resolves.toBeUndefined();
+  expect(destroy).toHaveBeenCalledOnce();
+});
+
 it('abort destroys the loading task even before open settles', async () => {
   const controller = new AbortController(), opening = open(createCanvas(100, 100), controller.signal); opening.catch(() => {});
   const destroy = vi.spyOn(controls.loads[0], 'destroy'); controller.abort();

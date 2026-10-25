@@ -10,7 +10,11 @@
 {#if data.view.state === 'unavailable'}
 	<p role="alert" data-viewer-state="unavailable" data-reason={data.view.reason}>{REASON[data.view.reason]}</p>
 {:else if data.view.mode === 'pdf'}
-	<PdfViewer src={data.view.srcHref} downloadHref={data.view.downloadHref} notesHref={data.notesHref} notes={data.notes.items} notesAvailable={data.notes.state === 'available'} />
+	<!-- A fresh authorized load replaces all document-bound state, even for the same URL after an original changes.
+	     Key the load object rather than exposing a content hash or object-storage identity to the client. -->
+	{#key data}
+		<PdfViewer src={data.view.srcHref} downloadHref={data.view.downloadHref} notesHref={data.notesHref} notes={data.notes.items} notesAvailable={data.notes.state === 'available'} />
+	{/key}
 {:else if data.view.mode === 'image'}
 	<img data-viewer-state="image" src={data.view.srcHref} alt={data.view.filename} style="max-width: 100%" referrerpolicy="no-referrer" />
 	<p><a data-action="download-original" href={data.view.downloadHref}>Download the original</a></p>

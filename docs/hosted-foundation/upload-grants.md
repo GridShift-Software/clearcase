@@ -1,6 +1,6 @@
 # Case upload grant: `case.upload-originals` (NATIVE24)
 
-Status: PREPARED/UNVERIFIED. Source factories, a migration and unit tests over node:sqlite stand-ins and in-memory doubles. No D1, Clerk, audit-log, Worker or provisioning run has happened, and nothing is composed into the hosted runtime: the intake still answers 503 until the parent composes an authorizer. This is a separate scope from [GRS-114 grants](provisioning.md); it changes none of that source, its actor logic, its contracts or its audit.
+Status: PREPARED/UNVERIFIED. Source factories, a migration and unit tests over node:sqlite stand-ins, the real audit adapter and in-memory doubles. No provider D1, Clerk, Worker or provisioning run has happened, and nothing is composed into the hosted runtime: the intake still answers 503 until the parent composes an authorizer. This is a separate scope from [GRS-114 grants](provisioning.md); it changes none of that source, its actor logic, its contracts or its audit.
 
 ## What it is
 
@@ -28,7 +28,11 @@ Allowed only for a verified principal of this deployment with a live session, an
 | session check, grant lookup, case lookup, unbound or foreign database fails | `identity-unavailable` (retryable) | 503 |
 | the access event does not persist | `audit-unavailable` (retryable) | 503 |
 
-Both grant lookups always run, so a refusal's shape never says which grant was missing. A denial event is scoped to the case only when the principal already holds case read access to a case that exists; otherwise `caseId` is null.
+The authorizer uses an ordered versioned protocol: case grants **before**, upload grants, then case grants **after**. Both case reads must contain the same effective read grant id and version. GRS-114 never reuses or revives grant ids and advances versions on changes, so that unchanged read grant was active at the upload snapshot. A revoked or replaced read grant cannot combine with a newly issued upload grant across a gap. Expiry is evaluated after all three reads. The three reads run even when either authority is missing; a confirming-read fault is retryable `identity-unavailable`.
+
+Parent composition must use uncached, ordered reads against the **same primary D1 database** (the existing adapters, without a read-replica session). Do not substitute independently stale replicas or caches for these ports; such a composition needs its own atomic snapshot protocol. The public factory signature is unchanged.
+
+A refusal's shape never says which grant was missing. A denial event is scoped to the case only when the versioned check proves case read access to a case that exists; otherwise `caseId` is null.
 
 ## Provisioning
 
@@ -36,7 +40,8 @@ Trusted, non-request only. There is no HTTP route, manager, grant-admin or Globa
 
 - The target must be a principal of this client (its client issuer) or of staff (the staff issuer). `control-plane:` issuers, the `control-plane` kind, empty subjects and unknown cases are `invalid`.
 - The ledger actor is `control-plane:<clientId>` plus the `operator` label. The audit event actor is the honest system actor `{ kind: 'system', component: 'provisioning', operator }`: no principal, issuer or session. It is attribution only and confers no identity privilege.
-- Event: `upload-grant-op:<operationId>`, action `grant.upload.issue` or `grant.upload.revoke`, object `upload-grant` with the case id.
+- Identifiers use the real audit contract before a tuple is reserved: case ids are 1–128 ASCII letters/digits/`.`/`_`/`-`, starting with a letter or digit. Colon-bearing case ids are explicitly `invalid`, never rewritten or persisted under another case identity. An unrepresentable generated grant id is also `invalid` before any grant or ledger write.
+- Event: `upload-grant-op:<operationId>` when that fits the sink's 128-character limit (preserving existing short-id replay); otherwise `upload-grant-hash:<SHA-256(canonical([clientId, operationId]))>`. The full operation identity is hashed, not truncated; the disjoint prefixes prevent literal/hash aliases. Operation ids still accept all 128 characters. Action is `grant.upload.issue` or `grant.upload.revoke`, object `upload-grant` with the unchanged case id.
 - The audit port must have `append` and `find`. An issue stays `pending` (granting nothing) until `find` returns the byte-identical event, or an append is acknowledged, or a read-back after a lost acknowledgement matches. A different event under the id is `conflict/audit-mismatch`. Only then does the ledger row become `audited` and the grant `active`. A revoke takes effect first and its event is confirmed after.
 - Idempotent on the operation id, bound to operator, type and request (`conflict/operation-reused` otherwise). One live grant per tuple (`conflict/slot-taken`). Revoke is compare-and-set on `version`. Storage faults are retryable `storage-unavailable`; only a constraint violation is a lost race.
 
@@ -58,4 +63,4 @@ scripts/agent-tools/receipt --base e571558f17fde8781cf01f16ff04971adeb873de --na
 node_modules/.bin/tsc -p tests/hosted-foundation/upload-grant/tsconfig.json
 ```
 
-The focused config's `include` replaces the root list. node:sqlite is a durable-SQLite stand-in with D1's one-transaction batch, not D1 provider proof. The real-D1 two-client proof, the audit-log adapter, the hosted import guard rule, the full suite and the gate are UNRUN.
+The focused config's `include` replaces the root list. node:sqlite is a durable-SQLite stand-in with D1's one-transaction batch, not D1 provider proof. The real audit adapter is covered by `review-regressions.test.ts`: identifier boundaries, issue/revoke/replay and lost acknowledgement. The same file covers disjoint snapshots, replacement grants, version changes and confirming-read failure. The original 67 tests are unchanged. The real-D1 two-client proof, the hosted import guard rule, the full suite and the gate are UNRUN.

@@ -50,6 +50,35 @@ describe('M1: identifiers must fit the real provisioning audit contract before r
     expect(r.w.ledger().every((o) => (o as { state: string }).state === 'audited')).toBe(true);
   });
 
+  it('keeps literal event ids at the exact boundary and hashes only ids past it', async () => {
+    const limit = 128 - 'upload-grant-op:'.length;
+    for (const length of [limit, limit + 1]) {
+      const r = await realAudit(), operationId = 'o'.repeat(length);
+      expect(await r.provisioning.grant(r.request(operationId))).toMatchObject({ kind: 'applied' });
+      const eventId = r.aw.rows()[0].event_id;
+      if (length === limit) expect(eventId).toBe(`upload-grant-op:${operationId}`);
+      else expect(eventId).toMatch(/^upload-grant-hash:[0-9a-f]{64}$/);
+      expect(eventId.length).toBeLessThanOrEqual(128);
+    }
+  });
+
+  it('recovers a long-id issue after the real audit persisted but its acknowledgement was lost', async () => {
+    const r = await realAudit();
+    let appends = 0;
+    const audit = { find: r.audit.find, append: async (event: Parameters<typeof r.audit.append>[0]) => {
+      appends++;
+      await r.audit.append(event);
+      throw new Error('lost acknowledgement');
+    } };
+    const p = createUploadProvisioning({ deployment: r.w.deployment, db: r.w.handle, cases: { exists: async () => true }, audit, now });
+    const request = r.request('l'.repeat(128));
+    expect(await p.grant(request)).toMatchObject({ kind: 'applied' });
+    // A new factory must use the durable recorded event, not rebuild its id, actor or time.
+    expect(await r.provisioning.grant(request)).toMatchObject({ kind: 'applied', repeated: true });
+    expect(appends).toBe(1);
+    expect(r.aw.rows()).toHaveLength(1);
+  });
+
   it('rejects a colon-bearing case id before reservation, without silently changing case identity', async () => {
     const r = await realAudit('case:one');
     for (let i = 0; i < 2; i++) {
@@ -115,6 +144,19 @@ describe('M2: read and upload authority must coexist', () => {
       } }, session: w.session, audit: w.requestAudit, now })!;
     expect((await refusal(authorize(w.request(USER)))).code).toBe('forbidden');
     expect(w.events.filter((e) => e.action === 'case.upload-originals' && e.outcome === 'succeeded')).toHaveLength(0);
+  });
+
+  it('requires the same read grant version, not merely the same id on both sides of the upload query', async () => {
+    const w = await world(), readId = w.seedCase(USER, 'viewer', CASE_1);
+    await w.issue(USER, CASE_1, 'read-version');
+    const reads = d1GrantRepository(w.handle), uploads = d1UploadGrantReader(w.handle, w.deployment);
+    const authorize = createUploadAuthorizer({ deployment: w.deployment, grants: reads, cases: { exists: async () => true },
+      uploads: { heldBy: async (a) => {
+        const captured = await uploads.heldBy(a);
+        w.db.prepare('UPDATE tenant_case_grants SET version = version + 1 WHERE grant_id = ?').run(readId);
+        return captured;
+      } }, session: w.session, audit: w.requestAudit, now })!;
+    expect((await refusal(authorize(w.request(USER)))).code).toBe('forbidden');
   });
 
   it('fails closed if the confirming read query is unavailable', async () => {

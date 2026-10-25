@@ -1,3 +1,4 @@
+import { validCaseId } from '../audit/event.ts';
 import type { AuditSink, CaseId, ClientId, IdentityState, Principal, SessionId } from '../server/runtime/contracts.ts';
 import { codeOf, contractError } from '../server/runtime/errors.ts';
 import type { D1 } from '../server/runtime/hosted/bindings.ts';
@@ -49,7 +50,8 @@ export type UploadAuthorizer = (a: { principal: Principal; sessionId: SessionId;
 export interface UploadAuthorizerOptions {
   /** The validated resource identity of this deployment, from trusted configuration; never a request value. */
   deployment: ClientResourceIdentity;
-  /** Explicit case access (GRS-114). Only `grantsOf` is used: the upload check needs real, current case read access. */
+  /** Explicit case access (GRS-114), with ordered, uncached reads of one database. Grant ids are never reused and
+   * versions increase on change: the same active id/version before and after the upload query proves coexistence. */
   grants: Pick<GrantRepository, 'grantsOf'>;
   uploads: UploadGrantReader;
   cases: CaseDirectory;
@@ -59,7 +61,6 @@ export interface UploadAuthorizerOptions {
   newEventId?: () => string;
 }
 
-const CASE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const ACTION = 'case.upload-originals';
 const unavailable = () => contractError('identity-unavailable', true);
 const fn = (v: unknown) => typeof v === 'function';
@@ -99,25 +100,30 @@ export function createUploadAuthorizer(o: UploadAuthorizerOptions | null): Uploa
 
   return async (a) => {
     const principal = a?.principal ?? null, sessionId = a?.sessionId ?? null, who = actor(principal, sessionId);
-    const objectId = typeof a?.caseId === 'string' && CASE_LABEL.test(a.caseId) ? a.caseId : 'invalid';
+    const objectId = validCaseId(a?.caseId) ? a.caseId : 'invalid';
     const deny = async (code: 'wrong-client' | 'forbidden', scoped: CaseId | null = null): Promise<never> => {
       await event(who, objectId, scoped, 'denied').catch(() => undefined); // the refusal stands whether or not its event persists
       throw contractError(code);
     };
     if (!principal || !sessionId || typeof principal.issuer !== 'string' || typeof principal.subject !== 'string' || !principal.subject) throw contractError('unauthenticated');
     if (a.clientId !== clientId || !belongs(deployment, principal)) return deny('wrong-client');
-    if (typeof a.caseId !== 'string' || !CASE_LABEL.test(a.caseId)) return deny('forbidden');
+    if (!validCaseId(a.caseId)) return deny('forbidden');
     try { await o.session({ principal, sessionId }); } catch (e) {
       const code = codeOf(e);
       throw code === 'invalid-session' || code === 'unauthenticated' ? contractError('invalid-session') : unavailable();
     }
-    const caseId = a.caseId, scope = { kind: 'case', caseId } as const, now = o.now();
-    // Both lookups always run, so a refusal's shape never depends on which of the two grants was missing.
-    const [access, uploads] = await Promise.all([
-      o.grants.grantsOf({ clientId, principal: { issuer: principal.issuer, subject: principal.subject }, scope }).catch(() => { throw unavailable(); }),
-      o.uploads.heldBy({ clientId, caseId, principal }).catch(() => { throw unavailable(); }),
-    ]);
-    const reads = access.some((g) => effective(g, { clientId, principal, scope, now }) && permits(g.role, 'read'));
+    const caseId = a.caseId, scope = { kind: 'case', caseId } as const;
+    const access = () => o.grants.grantsOf({ clientId, principal: { issuer: principal.issuer, subject: principal.subject }, scope }).catch(() => { throw unavailable(); });
+    // Ordered versioned validation, not independent Promise.all snapshots. The read grant must remain the SAME active
+    // row/version across the upload SELECT. GRS-114 revokes/replaces rather than reviving ids, and advances versions on
+    // every change. Thus a matching row was live at the upload snapshot; a revoked/replaced grant cannot bridge a gap.
+    // All three reads run even when either authority is absent. No cache, replica hopping or unordered reads may sit
+    // behind these ports; the D1 adapters use the same primary database (no read-replica session).
+    const before = await access();
+    const uploads = await o.uploads.heldBy({ clientId, caseId, principal }).catch(() => { throw unavailable(); });
+    const after = await access(), now = o.now();
+    const readable = (g: (typeof before)[number]) => effective(g, { clientId, principal, scope, now }) && permits(g.role, 'read');
+    const reads = after.some((g) => readable(g) && before.some((old) => readable(old) && old.grantId === g.grantId && old.version === g.version));
     const uploaded = uploads.some((g) => uploadEffective(g, { clientId, caseId, principal, now }));
     const exists = async () => (await o.cases.exists({ clientId, caseId }).catch(() => undefined)) === true;
     if (!reads || !uploaded) return deny('forbidden', reads && (await exists()) ? caseId : null);

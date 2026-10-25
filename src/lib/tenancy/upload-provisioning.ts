@@ -1,3 +1,4 @@
+import { validCaseId, validEventId } from '../audit/event.ts';
 import type { CaseId, ClientId, Principal, SystemAuditActor } from '../server/runtime/contracts.ts';
 import { contractError } from '../server/runtime/errors.ts';
 import type { D1, D1Statement } from '../server/runtime/hosted/bindings.ts';
@@ -62,7 +63,6 @@ export interface UploadProvisioningOptions {
   newGrantId?: () => string;
 }
 
-const CASE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const REUSED = { kind: 'conflict', reason: 'operation-reused' } as const;
 const isConstraint = (e: unknown) => e instanceof Error && /constraint/i.test(e.message);
 
@@ -166,7 +166,11 @@ export function createUploadProvisioning(o: UploadProvisioningOptions) {
   async function record(a: { operationId: string; operation: UploadOperationType; operator: string; request: string; grantId: string; caseId: CaseId }): Promise<NewOperation> {
     const at = o.now().toISOString();
     const actor: SystemAuditActor = { kind: 'system', component: 'provisioning', operator: a.operator };
-    const event = { eventId: `upload-grant-op:${a.operationId}`, actor, action: `grant.upload.${a.operation}`, object: { kind: 'upload-grant', id: a.grantId, caseId: a.caseId }, version: null, outcome: 'succeeded', at } as AnyAuditEvent;
+    // Keep existing short ids stable for replay. Long ids use a disjoint namespace and the full client/operation
+    // digest, not truncation (which aliases operations differing only in their suffix). Both forms fit the real sink.
+    const literal = `upload-grant-op:${a.operationId}`;
+    const eventId = validEventId(literal) ? literal : `upload-grant-hash:${await digestOf(canonical([clientId, a.operationId]))}`;
+    const event = { eventId, actor, action: `grant.upload.${a.operation}`, object: { kind: 'upload-grant', id: a.grantId, caseId: a.caseId }, version: null, outcome: 'succeeded', at } as AnyAuditEvent;
     const json = canonical(event);
     return { operationId: a.operationId, operation: a.operation, actor: control(a.operator), request: a.request, grantId: a.grantId, event: json, eventDigest: await digestOf(json), recordedAt: at };
   }
@@ -237,16 +241,19 @@ export function createUploadProvisioning(o: UploadProvisioningOptions) {
     async grant(a: { operator: string; operationId: string; target: UploadGrantee; caseId: CaseId; expiresAt: string | null }): Promise<UploadResult> {
       if (typeof a?.operator !== 'string' || !OPERATION.test(a.operator)) return { kind: 'invalid', reason: 'operator is invalid' };
       if (typeof a.operationId !== 'string' || !OPERATION.test(a.operationId)) return { kind: 'invalid', reason: 'operationId is invalid' };
+      // Case identity must be representable unchanged in the real audit scope, before any tuple is reserved or resumed.
+      if (!validCaseId(a.caseId)) return { kind: 'invalid', reason: 'caseId is invalid' };
       const request = JSON.stringify(['upload-issue', a.target?.issuer, a.target?.subject, a.target?.kind, a.caseId, a.expiresAt]);
       const resumed = await again(a.operator, 'issue', a.operationId, request);
       if (resumed) return resumed;
       const t = a.target;
       if (!t || typeof t.issuer !== 'string' || typeof t.subject !== 'string' || !t.subject || (t.kind !== 'client' && t.kind !== 'staff') || !belongs(deployment, t as Principal)) return { kind: 'invalid', reason: 'the target is not a principal of this client or of staff' };
-      if (typeof a.caseId !== 'string' || !CASE_LABEL.test(a.caseId)) return { kind: 'invalid', reason: 'caseId is invalid' };
       if (a.expiresAt !== null && (typeof a.expiresAt !== 'string' || !isIso(a.expiresAt))) return { kind: 'invalid', reason: 'expiresAt must be an exact ISO instant or null' };
       if (a.expiresAt !== null && Date.parse(a.expiresAt) <= o.now().getTime()) return { kind: 'invalid', reason: 'expiresAt is not in the future' };
       if ((await db(o.cases.exists({ clientId, caseId: a.caseId }))) !== true) return { kind: 'invalid', reason: 'unknown case' };
       const grantId = newGrantId();
+      // The audit object's id has the same grammar as an event id. A bad injected generator must not poison a live slot.
+      if (!validEventId(grantId)) return { kind: 'invalid', reason: 'grantId is invalid' };
       const operation = await record({ operationId: a.operationId, operation: 'issue', operator: a.operator, request, grantId, caseId: a.caseId });
       const stored = await db(store.insertPending({
         grant: { grantId, clientId, caseId: id('case', a.caseId), issuer: t.issuer, subject: t.subject, principalKind: t.kind, expiresAt: a.expiresAt, createdOperationId: a.operationId, request, createdAt: operation.recordedAt },

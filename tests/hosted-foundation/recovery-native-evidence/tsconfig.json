@@ -1,0 +1,4 @@
+{
+  "extends": "../../../tsconfig.json",
+  "include": ["../../../src/lib/recovery/hosted/**/*.ts", "./**/*.ts", "../recovery-native-adapters/**/*.ts"]
+}

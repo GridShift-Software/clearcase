@@ -12,11 +12,20 @@ export type RecoveryCode =
 export interface Limits { maxFiles: number; maxFileBytes: number; maxTotalBytes: number }
 export const DEFAULT_LIMITS: Readonly<Limits> = Object.freeze({ maxFiles: 20_000, maxFileBytes: 512 * 1024 * 1024, maxTotalBytes: 8 * 1024 * 1024 * 1024 });
 
+/** Trusted controller callbacks, never request data. IO implementations run them after their own preflight,
+ * then observe their genuine local authority last. They do not promise distributed atomic revocation. */
+export interface ReadBoundary { beforeRead?(): Promise<void> }
+export interface CommitBoundary { beforeCommit?(): Promise<void> }
+export interface RecoveryUserWork {
+  exportAll(a: Parameters<AsyncUserWork['exportAll']>[0] & ReadBoundary): ReturnType<AsyncUserWork['exportAll']>;
+}
+
 /** A durable, private, client-scoped object store. `putIfAbsent` never overwrites. A test stand-in says so and production refuses it. */
 export interface PrivateObjectPort {
   readonly kind: 'durable-private' | 'test-standin';
-  putIfAbsent(a: { key: string; bytes: Uint8Array; sha256: string }): Promise<{ kind: 'created' } | { kind: 'exists' }>;
-  get(key: string): Promise<Uint8Array | null>;
+  /** After preflight: controller hook, then receiving authority, then conditional write without another source await. */
+  putIfAbsent(a: { key: string; bytes: Uint8Array; sha256: string } & CommitBoundary): Promise<{ kind: 'created' } | { kind: 'exists' }>;
+  get(key: string, boundary?: ReadBoundary): Promise<Uint8Array | null>;
 }
 
 /** Published previews are not enumerable through `AssetsAccess`; the production adapter is an integration handoff. */
@@ -31,15 +40,26 @@ export interface VersionVisibilityPort {
   isVisible(a: { identity: Identity; caseId: CaseId; resultsVersion: ResultsVersion }): Promise<boolean>;
 }
 
-export type ReaderPort = Pick<CaseReader, 'getCase' | 'versionsOf' | 'activeVersionId' | 'stateRevision' | 'verifyVersion' | 'packageFile' | 'packageFilePaths'>;
+/** The live case-audit view entitlement (AuditReadGate.caseAudit) of this exact request identity and case. Content grants,
+ * staff kind and preview authority never satisfy it. Every native /2 storage controller requires it before protected IO,
+ * even for audit:none content. Resolves only when held; a denial is `forbidden`, a fault refuses.
+ */
+export interface CaseAuditPort {
+  readonly kind: 'current-policy' | 'test-standin';
+  requireCaseAudit(a: { identity: Identity; caseId: CaseId }): Promise<void>;
+}
+
+export type ReaderPort =Pick<CaseReader, 'getCase' | 'versionsOf' | 'activeVersionId' | 'stateRevision' | 'verifyVersion' | 'packageFile' | 'packageFilePaths'>;
 export type AssetsPort = Pick<AssetsAccess, 'originals' | 'availability' | 'get'>;
 
 export interface RecoveryDeps {
   profile: Profile; now(): Date; newId(): string;
   identity: Identity; store: ReaderPort; assets: AssetsPort; previews: PreviewCatalog | null;
   visibility: VersionVisibilityPort | null;
-  userWork: Pick<AsyncUserWork, 'exportAll'>; audit: AuditSink;
+  userWork: RecoveryUserWork; audit: AuditSink;
   objects: PrivateObjectPort | null; limits?: Partial<Limits>;
+  /** Explicit native /2 capability. Its absence never lifts the legacy native-lineage HOLD. */
+  nativeEvidence?: import('./native-evidence.ts').NativeEvidencePort | null;
 }
 
 export interface BlobRef { sha256: string; size: number; blob: string }

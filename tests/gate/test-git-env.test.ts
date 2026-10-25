@@ -46,7 +46,7 @@ const WIRED = [
 	'tests/results-review/native/vitest.config.ts',
 	'vitest.config.ts',
 ];
-const NO_GIT = [
+const NO_GIT: readonly (readonly [string, string])[] = [
 	['tests/hosted-foundation/artifact-scope/vitest.config.ts', 'static artifact scans over text fixtures'],
 	['tests/hosted-foundation/native-runtime-migration/vitest.config.ts', 'runs the migration script with the Bun executable only'],
 	['tests/hosted-foundation/native-schema/vitest.config.ts', 'runs the schema script with the Bun executable only'],
@@ -58,7 +58,7 @@ const NO_GIT = [
 	['tests/hosting-probe/deployment/workers-dev-bootstrap-runtime-config/vitest.config.ts', 'synthetic file checks, no git'],
 	['tests/hosting-probe/deployment/workers-dev-bootstrap/vitest.config.ts', 'synthetic file checks, no git'],
 	['tests/publication/hosted/atomic-d1/vitest.config.ts', 'local D1 transaction tests, no git'],
-] as const;
+];
 // A test that names git as a command: a quoted 'git' argument, or a shell string starting `git <word>`.
 const GIT_CALL = /['"`]git['"`]|['"`]git\s+\S/;
 // The Workers config imports a plugin only the deployment probe installs, so its source is read instead of imported.

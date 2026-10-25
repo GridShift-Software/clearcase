@@ -290,16 +290,19 @@ describe('hosted forms are declared, with a reason the suite checks', () => {
  const app = join(import.meta.dirname, '..', '..', '..');
  const found: string[] = hostedForms(app);
  const declaredRoutes = Object.keys(declared.HOSTED_FORMS ?? {});
- test('discovery finds the hosted sign-in, sign-out and case-list forms', () => {
-  expect(found).toEqual(['/cases', '/sign-in', '/sign-out']);
+ test('discovery finds exactly the hosted sign-in, operator sign-in, sign-out, case-list, notes, chronology filter and intake forms', () => {
+  expect(found).toEqual(['/cases', '/cases/[caseId]/notes', '/cases/[caseId]/views/[resultsVersion]/chronology', '/client/intake/[caseId]', '/sign-in', '/sign-in/operator', '/sign-out']);
  });
  test('every hosted form is declared and every declaration names a form discovery finds', () => {
   expect(declaredRoutes.sort()).toEqual(found);
+  expect(Object.keys(declared.HOSTED_FORM_EVIDENCE).sort()).toEqual(found);
   for (const route of declaredRoutes) expect(declared.HOSTED_FORMS[route].length).toBeGreaterThan(20);
  });
- test('the hosted smoke run drives each declared route', () => {
-  const smoke = readFileSync(join(app, 'tests', 'hosted-foundation', 'runtime', 'smoke.ts'), 'utf8');
-  for (const route of declaredRoutes) expect(smoke).toContain(`'${route}'`);
+ test('a tracked test drives each declared route', () => {
+  for (const route of declaredRoutes) {
+   const { file, needle } = declared.HOSTED_FORM_EVIDENCE[route];
+   expect(readFileSync(join(app, file), 'utf8'), `${route}: ${file} must contain ${needle}`).toContain(needle);
+  }
  });
  test('discovery reads a form from a page and from exported actions, and ignores a page with neither', () => {
   const dir = mkdtempSync(join(tmpdir(), 'cc-hosted-'));

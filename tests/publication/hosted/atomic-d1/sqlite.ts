@@ -13,7 +13,9 @@ export class FileD1 implements PublicationD1Database, PublicationD1 {
   failReads = false;
   failSql: RegExp | null = null;
   sessions: string[] = [];
-  constructor(readonly path: string, migrate = false) {
+  readonly path: string;
+  constructor(path: string, migrate = false) {
+    this.path = path;
     this.sqlite = new DatabaseSync(path);
     this.sqlite.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 1000');
     if (migrate) for (const path of [

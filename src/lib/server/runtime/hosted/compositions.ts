@@ -2,10 +2,16 @@ import {setIntakeComposition} from '../../../submissions/composition.ts';
 import type {IntakePorts} from '../../../submissions/ports.ts';
 import {setOperatorDownloadComposition} from '../../../submissions/download/composition.ts';
 import type {OperatorDownloadPorts} from '../../../submissions/download/ports.ts';
+import {setNativeImportComposition} from '../../../results-review/native/composition.ts';
+import type {NativeImportPorts} from '../../../results-review/native/ports.ts';
+import {setPublicationComposition} from '../../../publication/hosted/composition.ts';
+import type {NativePublicationPorts} from '../../../publication/hosted/ports.ts';
 
 export interface NativeRequestCompositions {
  readonly intake: IntakePorts | null;
  readonly downloads: OperatorDownloadPorts | null;
+ readonly imports?:NativeImportPorts|null;
+ readonly publication?:NativePublicationPorts|null;
 }
 // Object identity, not path, cookie, session id or the last request. Unknown requests always fail closed.
 const requests=new WeakMap<Request,NativeRequestCompositions>();
@@ -23,6 +29,8 @@ function executionContext(platform:unknown):{waitUntil(work:Promise<void>):void}
 export function installNativeCompositions():void {
  if(installed)return;installed=true;
  setIntakeComposition(({request})=>requests.get(request)?.intake??null);
+ setNativeImportComposition(({request})=>requests.get(request)?.imports??null);
+ setPublicationComposition(({request})=>requests.get(request)?.publication??null);
  setOperatorDownloadComposition(({request,platform})=>{
   const ports=requests.get(request)?.downloads,context=executionContext(platform);
   if(!ports||!context)return null;

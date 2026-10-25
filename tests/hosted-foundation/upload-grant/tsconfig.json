@@ -1,0 +1,5 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": { "paths": { "$lib": ["../../../src/lib"], "$lib/*": ["../../../src/lib/*"] } },
+  "include": ["../../../src/lib/tenancy/**/*.ts", "../../../src/lib/submissions/**/*.ts", "../../../deploy/client/routes/client/intake/**/*.ts", "../../hosted-smoke/intake/*.ts", "../provisioning/world.ts", "./**/*.ts", "../../../src/app.d.ts"]
+}

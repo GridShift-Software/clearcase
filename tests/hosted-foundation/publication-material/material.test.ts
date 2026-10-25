@@ -261,10 +261,10 @@ describe('primary D1 publication material (synthetic component evidence, NOT nat
       VALUES ('pub-grant', ?, 'case', ?, ?, ?, 'staff', 'publisher', 'publisher', 'active', NULL, 1, 'grant-op', '{}', ?, ?, ?)`,
       CLIENT, CASE, who.principal.issuer, who.principal.subject, who.principal.issuer, who.principal.subject, NOW);
     const publisher = d1PublicationPublisher({ db: w.db, clientId: CLIENT, checkSession: async () => {} });
-    // Parent checkSnapshot currently requires bare hex, contrary to the canonical validator's tagged digest. Preserve
-    // exact validation here; exercise the real ledger/atomic adapter directly, never fake or strip the canonical digest.
+    // The integrated guard now accepts the genuine tagged digest without altering the material identity.
+    // Keep the real ledger/atomic baseline checks below; this is still not native acceptance evidence.
     expect(snapshot.validation.diagnosticsSha256).toMatch(/^sha256:/);
-    expect(checkSnapshot(snapshot)).toBeNull(); // remaining parent hook, NOT an accepted controller journey
+    expect(checkSnapshot(snapshot)).toEqual(snapshot);
     const identity: SignoffIdentity = { candidateId: w.scope.candidateId, linkId: snapshot.link.linkId,
       submissionRevisionId: snapshot.link.submissionRevisionId, submissionManifestSha256: snapshot.link.submissionManifestSha256,
       resultsVersion: w.rv, manifestSha256: snapshot.link.candidate.manifestSha256, packageInputRevisionId: snapshot.link.candidate.packageInputRevisionId,

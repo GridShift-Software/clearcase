@@ -27,6 +27,12 @@ import { submissionSnapshotReader } from '../../../results-review/native/submiss
 import type { NativeImportPorts } from '../../../results-review/native/ports.ts';
 import { canonicalText } from '../../../case-package/canonical.ts';
 import { committedAuditRecovery, type RecoveryD1 } from '../../../audit/recovery.ts';
+import { createPublicationMaterialReader } from './publication-material.ts';
+import { LIMITS as CANONICAL_VALIDATION_LIMITS } from '../../../case-package/limits.ts';
+import { d1PublicationPublisher } from '../../../publication/hosted/d1-publisher.ts';
+import { d1PublicationLedger } from '../../../publication/hosted/ledger.ts';
+import { d1ReadinessFence } from '../../../publication/hosted/readiness-fence.ts';
+import type { PublicationReadinessPorts } from '../../../publication/hosted/readiness.ts';
 
 type NativeContext = {
 	db: D1;
@@ -142,6 +148,10 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 							await authorizeUpload({ principal: identity.principal, sessionId: identity.sessionId, clientId: mutation.clientId, caseId: mutation.caseId });
 						} });
 					const repository = d1SubmissionRepository(context.db);
+					const historical = committedAuditRecovery({ db: context.rawDb, config: context.audit, now });
+					const requestActor = structuredClone(stateOf(identity));
+					if (requestActor.kind === 'verified') Object.freeze(requestActor.principal);
+					Object.freeze(requestActor);
 					const importBudget = nativeImportBudget(context.settings.importBudget, { stagerMaxPackageBytes: budgets.maxPackageBytes });
 					let imports: NativeImportPorts | null = null;
 					if (importBudget && importBudget.maxFiles <= budgets.maxPackageFiles && importBudget.maxFileBytes <= budgets.maxPackageFileBytes) {
@@ -149,10 +159,6 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 						const staged = createHostedCandidateStager({ bindings: { db: context.db, bucket: cloud.bucket },
 							clientId: clerk.config.clientId, budgets, quotas, identity, authorizeOperate: operate, audit: services.audit, now });
 						const candidates = d1NativeCandidateRepository(context.db);
-						const historical = committedAuditRecovery({ db: context.rawDb, config: context.audit, now });
-						const requestActor = structuredClone(stateOf(identity));
-						if (requestActor.kind === 'verified') Object.freeze(requestActor.principal);
-						Object.freeze(requestActor);
 						imports = { clientId: clerk.config.clientId, budget: importBudget, authorizeOperate: operate,
 							submissions: submissionSnapshotReader(repository), stager: staged.stager, packages: staged.packages, repository: candidates, now,
 							audit: { append: async (event) => {
@@ -167,10 +173,33 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 							} },
 						};
 					}
+					const material = createPublicationMaterialReader({ db: context.rawDb, bucket: cloud.bucket,
+						clientId: clerk.config.clientId, identity, audit: services.audit, storageBudgets: budgets,
+						// The same fixed canonical parser policy used by the importer, not default resource budgets.
+						validationLimits: { ...CANONICAL_VALIDATION_LIMITS },
+						// Until the SDK build policy/closure is proved and composed, every required file stays pending.
+						renderChecker: null, now });
+					const publication: PublicationReadinessPorts | null = material ? {
+						clientId: clerk.config.clientId, candidates: material, now,
+						authorize: async (a) => {
+							if (a.principal.kind !== 'staff' || a.capability !== 'publish') throw contractError('forbidden');
+							await session(a);
+							await authorizer().authorizeCapability(a);
+						},
+						publisher: d1PublicationPublisher({ db: context.rawDb, clientId: clerk.config.clientId, checkSession: async (a) => {
+							if (a.clientId !== clerk.config.clientId || a.capability !== 'publish' || a.principal.kind !== 'staff') throw contractError('forbidden');
+							await session(a);
+						} }),
+						ledger: d1PublicationLedger(context.db),
+						readinessFence: d1ReadinessFence({ db: context.rawDb, clientId: clerk.config.clientId }),
+						audit: { append: (event) => canonicalText(event.actor) === canonicalText(requestActor)
+							? services.audit.append(event)
+							: historical.publication.append(event) },
+					} : null;
 					bindNativeRequestCompositions(request, {
 						intake: { clientId: clerk.config.clientId, budget, authorizeUpload, originals, repository, now },
 						downloads: { clientId: clerk.config.clientId, authorizeOperate, repository, assets: results.assets, audit: services.audit, now },
-						imports,
+						imports, publication,
 					});
 					dataReady = true;
 				}

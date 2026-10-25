@@ -36,7 +36,8 @@ describe('operator workbench exact controller payloads', () => {
   it('accepts the genuine canonical diagnostic encoding without changing exact reviewed identity',async()=>{
     const f=fixture(),validation=validateHostedPackage({files:f.files,originals:factsFor(f.docs,f.stored)}).result;
     expect(validation.diagnosticsSha256).toMatch(/^sha256:[0-9a-f]{64}$/);
-    const v=await readiness();v.identity.diagnosticsSha256=validation.diagnosticsSha256;v.identity.validatorVersion=validation.validatorVersion;
+    const base=await readiness();
+    const v={...base,identity:{...base.identity,diagnosticsSha256:validation.diagnosticsSha256,validatorVersion:validation.validatorVersion}};
     expect(()=>assertReadiness(v,CASE,candidate(),submission())).not.toThrow();
     const body=signoffPayload(v,OP,{[FP]:'Synthetic canonical diagnostic reviewed'},true,RV);
     expect(body.identity.diagnosticsSha256).toBe(validation.diagnosticsSha256);

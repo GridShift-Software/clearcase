@@ -41,13 +41,16 @@ function exact(value: unknown, keys: string[], at: string): asserts value is Rec
 /** Pure function: exact pinned input bytes, paths and order; no SQL, source-pin or target overrides. */
 export function assembleNativeSchema(inputs: readonly { path: string; bytes: Uint8Array }[]) {
 	if (!Array.isArray(inputs) || inputs.length !== NATIVE_SCHEMA_INPUTS.length) throw new Error('missing or extra schema inputs');
-	const chunks = inputs.map((input, i) => {
+	const chunks: string[] = [];
+	for (let i = 0; i < NATIVE_SCHEMA_INPUTS.length; i++) {
+		if (!Object.hasOwn(inputs, i)) throw new Error(`missing schema input at ${i}`);
+		const input = inputs[i];
 		exact(input, ['path', 'bytes'], `input ${i}`);
 		const pin = NATIVE_SCHEMA_INPUTS[i]!;
 		if (input.path !== pin.path) throw new Error(`schema input order/path differs at ${i}: expected ${pin.path}`);
 		if (!(input.bytes instanceof Uint8Array) || input.bytes.byteLength !== pin.bytes || sha(input.bytes) !== pin.sha256) throw new Error(`${pin.path}: schema input bytes differ from source pin`);
-		return `-- ${pin.path}\n${new TextDecoder('utf-8', { fatal: true }).decode(input.bytes)}\n`;
-	});
+		chunks.push(`-- ${pin.path}\n${new TextDecoder('utf-8', { fatal: true }).decode(input.bytes)}\n`);
+	}
 	const sql = `-- ClearCase native alpha schema; source ${NATIVE_SCHEMA_SOURCE}\n-- DDL only. Trusted binding identities, cases, grants and runtime sentinel data are separate.\n${NATIVE_RUNTIME_DDL}\n${chunks.join('\n')}`;
 	const targets = (Object.keys(CLIENTS) as NativeSchemaSlot[]).map(slot => {
 		const db = CLIENTS[slot];

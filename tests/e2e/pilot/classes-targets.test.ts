@@ -595,7 +595,7 @@ describe('hosted form evidence is refused when its driving setup is gone', () =>
  const DIRECT: Evidence = { kind: 'unit', test: T, module: MODULE };
  const VIA: Evidence = { kind: 'component', test: T, module: MODULE, via: { file: H, export: 'dispatch' } };
  const HARNESS = "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport const compose = () => 0;\nexport async function dispatch() { return r.load(); }\n";
- const TABLE_HARNESS = (tail: string) => `import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport async function dispatch(method: string) {\n const handlers: Record<string, (() => unknown) | undefined> = method === 'GET' ? { GET: r.load } : { PUT: r.load };\n const h = handlers[method];\n if (!h) return new Response(null, { status: 405 });\n ${tail}\n}\n`;
+ const TABLE_HARNESS = (guard: string, tail: string) => `import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport async function dispatch(method: string) {\n const handlers: Record<string, (() => unknown) | undefined> = method === 'GET' ? { GET: r.load } : { PUT: r.load };\n const h = handlers[method];\n ${guard}\n ${tail}\n}\n`;
  const viaTest = (body: string) => `import { describe, it } from 'vitest';\nimport { compose, dispatch } from './harness.ts';\n${body}`;
  const directTest = (body: string, head = "import { it } from 'vitest';\nimport { load } from '../deploy/client/routes/r/+page.server.ts';\n") => head + body;
  const cases: [string, Evidence, Record<string, string>, boolean][] = [
@@ -618,10 +618,17 @@ describe('hosted form evidence is refused when its driving setup is gone', () =>
   ['a harness with no dispatch export', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport const compose = () => r.load();\n", [T]: viaTest("it('x', () => 1);") }, false],
   ['a test that calls only another harness export', VIA, { ...MOD, [H]: HARNESS, [T]: viaTest("it('x', () => { compose(); });") }, false],
   ['a test that never calls the harness dispatch', VIA, { ...MOD, [H]: HARNESS, [T]: viaTest("it('x', () => 1);") }, false],
-  // only a call on a reachable path from an enabled vitest test callback counts; an opaque condition may go either way, a
-  // literal one is folded, a call behind any condition does not count, and an unsupported shape is refused
+  // only a call on a reachable path from an enabled vitest test callback counts: a call behind any condition does not, nor
+  // does one after a statement that may end the function (an opaque or named condition, a loop, a local function that may
+  // throw), and an unsupported shape is refused
   ['a call through a helper that runs its callback', DIRECT, { ...MOD, [T]: directTest("const outcome = async (f: () => unknown) => { try { return { value: await f() }; } catch (e) { return { thrown: e }; } };\nit('x', async () => { await outcome(() => load()); });") }, true],
-  ['a call after an early return behind an opaque condition', DIRECT, { ...MOD, [T]: directTest("it('x', () => { if (Date.now() < 0) return; load(); });") }, true],
+  ['a call after an early return behind an opaque condition', DIRECT, { ...MOD, [T]: directTest("it('x', () => { if (Date.now() < 0) return; load(); });") }, false],
+  ['a call after a return behind a named constant', DIRECT, { ...MOD, [T]: directTest("const off = true;\nit('x', () => { if (off) return; load(); });") }, false],
+  ['a call after a throw behind a named constant', DIRECT, { ...MOD, [T]: directTest("const off = true;\nit('x', () => { if (off) throw new Error('off'); load(); });") }, false],
+  ['a call after a try block that may return', DIRECT, { ...MOD, [T]: directTest("const off = true;\nit('x', () => { try { if (off) return; } finally { void 0; } load(); });") }, false],
+  ['a call after a literal infinite loop', DIRECT, { ...MOD, [T]: directTest("it('x', () => { while (true) { void 0; } load(); });") }, false],
+  ['a call after a short circuit into a throwing function', DIRECT, { ...MOD, [T]: directTest("const off = true;\nit('x', () => { off && (() => { throw new Error('off'); })(); load(); });") }, false],
+  ['a call after a local helper that may throw', DIRECT, { ...MOD, [T]: directTest("const stop = () => { throw new Error('stop'); };\nit('x', () => { stop(); load(); });") }, false],
   ['a call after an unconditional return', DIRECT, { ...MOD, [T]: directTest("it('x', () => { return; load(); });") }, false],
   ['a call after a return behind a literal true condition', DIRECT, { ...MOD, [T]: directTest("it('x', () => { if (true) return; load(); });") }, false],
   ['a call only in a nested function the test never calls', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const later = () => load(); });") }, false],
@@ -634,9 +641,10 @@ describe('hosted form evidence is refused when its driving setup is gone', () =>
   ['a call in a test while another test in the file is only', DIRECT, { ...MOD, [T]: directTest("it('x', () => load());\nit.only('y', () => 1);") }, false],
   ['a call only of a member every function has', DIRECT, { ...MOD, [T]: directTest("it('x', () => { load.bind(null); load.toString(); });") }, false],
   ['a call in a test registered by a local it, not vitest', DIRECT, { ...MOD, [T]: "import { load } from '../deploy/client/routes/r/+page.server.ts';\nconst it = (_n: string, _f: () => unknown) => {};\nit('x', () => load());" }, false],
-  ['a harness dispatch that calls its route handler through a handler table', VIA, { ...MOD, [H]: TABLE_HARNESS("return h();"), [T]: viaTest("it('x', async () => { await dispatch('GET'); });") }, true],
+  ['a harness dispatch that calls its route handler through a handler table', VIA, { ...MOD, [H]: TABLE_HARNESS('', 'return h!();'), [T]: viaTest("it('x', async () => { await dispatch('GET'); });") }, true],
+  ['a harness dispatch whose handler call follows an opaque early return', VIA, { ...MOD, [H]: TABLE_HARNESS('if (!h) return new Response(null, { status: 405 });', 'return h();'), [T]: viaTest("it('x', async () => { await dispatch('GET'); });") }, false],
   ['a harness dispatch that only mentions the route and answers 405', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport async function dispatch() { void r; return new Response(null, { status: 405 }); }\n", [T]: viaTest("it('x', async () => { await dispatch(); });") }, false],
-  ['a harness dispatch that builds the handler table but never calls a handler', VIA, { ...MOD, [H]: TABLE_HARNESS("return new Response(null, { status: h ? 200 : 405 });"), [T]: viaTest("it('x', async () => { await dispatch('GET'); });") }, false],
+  ['a harness dispatch that builds the handler table but never calls a handler', VIA, { ...MOD, [H]: TABLE_HARNESS('', 'return new Response(null, { status: h ? 200 : 405 });'), [T]: viaTest("it('x', async () => { await dispatch('GET'); });") }, false],
   ['a harness dispatch that calls the route only after its return', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport async function dispatch() { return new Response(null, { status: 405 }); r.load(); }\n", [T]: viaTest("it('x', async () => { await dispatch(); });") }, false],
  ];
  test.each(cases)('%s', (_name, ev, files, ok) => {

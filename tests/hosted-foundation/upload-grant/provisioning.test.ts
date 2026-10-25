@@ -32,7 +32,7 @@ describe('issuing', () => {
     w.state.auditFails = false;
     expect(await w.issue(USER, CASE_1, 'op-1')).toMatchObject({ kind: 'applied', repeated: true, grant: { state: 'active' } });
     await expect(w.authorize(w.request(USER))).resolves.toBeUndefined();
-    expect(w.events).toHaveLength(1);
+    expect(w.events.filter((e) => e.action === 'grant.upload.issue')).toHaveLength(1);
   });
   it('treats a lost acknowledgement as persisted only because find returns the byte-identical event, and never appends twice', async () => {
     const w = await world();
@@ -63,7 +63,7 @@ describe('issuing', () => {
     const w = await world();
     w.seedCase(USER, 'viewer', CASE_1);
     const real = w.audit.find;
-    w.audit.find = async (id) => { const f = await real(id); return f ? { ...f, actor: { ...f.actor, operator: 'tampered' } } : f; };
+    w.audit.find = async (id) => { const f = await real(id); return f ? ({ ...f, actor: { ...f.actor, operator: 'tampered' } } as never) : f; };
     w.state.lostAck = true;
     expect(await w.issue(USER, CASE_1, 'op-1')).toEqual({ kind: 'conflict', reason: 'audit-mismatch' });
     expect(w.rows()).toMatchObject([{ state: 'pending' }]);

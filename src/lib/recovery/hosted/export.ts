@@ -6,6 +6,9 @@ import { DEFAULT_LIMITS, EXPORT_FORMAT, type Accounting, type BlobRef, type Embe
 import { recheckExportAuthority, requireVisibility, requireVisible } from './visibility.ts';
 
 export interface ExportRequest { caseId: string; exportId: string; includeUserWork: boolean }
+
+// RED bridge: the native evidence entry initially exercises the existing fail-closed source.
+export const exportNativeCase = exportCase;
 interface Budget { files: number; bytes: number; limits: Limits }
 const take = (b: Budget, size: number) => {
   if (!Number.isSafeInteger(size) || size < 0 || size > b.limits.maxFileBytes) throw fail('export-too-large');

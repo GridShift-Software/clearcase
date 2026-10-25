@@ -121,7 +121,9 @@ written or listed), keeps only the planner's frozen result and never reads the c
 rethrown as `runtimeConfig: <the planner's fixed diagnostic>`; no input value, key, hostname or thrown value is echoed.
 
 Each planned client is matched against the exact bootstrap target: client id `client-a` or `client-b` (not `staff`), Worker, D1 name
-and UUID and R2 bucket must equal the table above, and the hostname must be `<Worker>.<one account label>.workers.dev`. Planning a
+and UUID and R2 bucket must equal the table above, and the hostname must be exactly `<Worker>.shiny-sunset-211d.workers.dev`. That
+account subdomain is pinned in the bootstrap beside the account id (public provider metadata, observed from the account API and the live
+URLs); a caller-supplied label, even one that matches the shape, or different labels for A and B, is refused. Planning a
 single client leaves the other as the unchanged shell. The merge then puts the planner's public vars after
 `CLEARCASE_INSTANCE_ROLE` and `CLEARCASE_CLIENT_ID` in that client's config (the planned client id must equal the slot, so role and
 client stay locked). Only these names are admitted: the planner's public Clerk values, `CLEARCASE_APP_ORIGIN`, `AUTH_MFA_REQUIRED`

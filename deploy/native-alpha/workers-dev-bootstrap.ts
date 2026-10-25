@@ -30,6 +30,8 @@ export type BootstrapSettings = {
 	runtimeConfig?: unknown;
 };
 const ACCOUNT = 'fb4c31b91c5d89b7a54afbdc34823170';
+/** The account's workers.dev subdomain: public provider metadata observed from the account API and every live URL, pinned beside ACCOUNT. */
+const WORKERS_DEV_SUBDOMAIN = 'shiny-sunset-211d';
 const SLOTS = ['client-a', 'client-b', 'staff'] as const;
 const CLIENTS = {
 	'client-a': { worker: 'cc-sbx-a-20261023', database: 'cc-sbx-a-20261023-db', uuid: 'cd257736-7bf3-49f6-8544-ac58c2207802', bucket: 'cc-sbx-a-20261023-files' },
@@ -107,7 +109,6 @@ const PUBLIC_VARS = new Set<string>([
 	CLERK_ENV.signInUrl, CLERK_ENV.staffSignInUrl, CLERK_ENV.audience, NATIVE_RUNTIME_CONFIG_VAR,
 ].filter((name) => !SECRET_SET.has(name)));
 const TUPLE_KEYS = ['clientId', 'hostname', 'worker', 'd1DatabaseId', 'd1DatabaseName', 'r2Bucket'] as const;
-const WORKERS_DEV_LABEL = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
 type RuntimeClient = { vars: Readonly<Record<string, string>>; requiredSecretNames: readonly string[]; renders: boolean; fileSha256: string };
 type RuntimePlan = { record: { manifestSha256: string; manifest: NativeRuntimeConfigPlan['manifest'] }; clients: ReadonlyMap<BootstrapClientSlot, RuntimeClient> };
 const sameList = (a: readonly unknown[], b: readonly unknown[]) => a.length === b.length && a.every((v, i) => v === b[i]);
@@ -141,8 +142,8 @@ function runtimeConfig(input: unknown, browserClients: readonly BootstrapClientS
 		const expected = { clientId: slot, hostname: file.hostname, worker: target.worker, d1DatabaseId: target.uuid, d1DatabaseName: target.database, r2Bucket: target.bucket };
 		if (!deployment || !sameList(Object.keys(deployment), TUPLE_KEYS) || TUPLE_KEYS.some((key) => deployment![key] !== expected[key]) || file.worker !== target.worker)
 			deny('a planned deployment tuple is not this bootstrap target');
-		// workers.dev serves <worker>.<account subdomain>.workers.dev: the one label between is the account's, which is not known here.
-		if (!new RegExp(`^${target.worker}\\.${WORKERS_DEV_LABEL}\\.workers\\.dev$`).test(file.hostname)) deny('a planned hostname is not this Worker on workers.dev');
+		// workers.dev serves <worker>.<account subdomain>.workers.dev: the subdomain is this account's pinned one, never the caller's.
+		if (file.hostname !== `${target.worker}.${WORKERS_DEV_SUBDOMAIN}.workers.dev`) deny('a planned hostname is not this Worker on the pinned workers.dev account subdomain');
 		const record = plan.manifest.clients.find((c) => c.clientId === slot);
 		if (!record || record.browserBinding !== file.bindings.browser) deny('the planner manifest disagrees with the planned client file');
 		clients.set(slot as BootstrapClientSlot, freeze({ vars: { ...file.vars }, requiredSecretNames: [...file.secrets], renders: file.bindings.browser !== null, fileSha256: record!.sha256 }));

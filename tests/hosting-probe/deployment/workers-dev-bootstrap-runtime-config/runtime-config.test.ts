@@ -29,10 +29,10 @@ afterEach(() => {
 	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-/** The exact bootstrap targets the runtime configuration must name; hostnames are workers.dev shaped under an invented subdomain. */
+/** The exact bootstrap targets the runtime configuration must name; hostnames are under the bootstrap's pinned workers.dev account subdomain. */
 const TUPLE = {
-	'client-a': { worker: 'cc-sbx-a-20261023', d1DatabaseName: 'cc-sbx-a-20261023-db', d1DatabaseId: 'cd257736-7bf3-49f6-8544-ac58c2207802', r2Bucket: 'cc-sbx-a-20261023-files', hostname: 'cc-sbx-a-20261023.synthetic-sub.workers.dev' },
-	'client-b': { worker: 'cc-sbx-b-20261023', d1DatabaseName: 'cc-sbx-b-20261025-r1-db', d1DatabaseId: '7c340891-9fcc-4398-8128-68abe726f130', r2Bucket: 'cc-sbx-b-20261023-files', hostname: 'cc-sbx-b-20261023.synthetic-sub.workers.dev' },
+	'client-a': { worker: 'cc-sbx-a-20261023', d1DatabaseName: 'cc-sbx-a-20261023-db', d1DatabaseId: 'cd257736-7bf3-49f6-8544-ac58c2207802', r2Bucket: 'cc-sbx-a-20261023-files', hostname: 'cc-sbx-a-20261023.shiny-sunset-211d.workers.dev' },
+	'client-b': { worker: 'cc-sbx-b-20261023', d1DatabaseName: 'cc-sbx-b-20261025-r1-db', d1DatabaseId: '7c340891-9fcc-4398-8128-68abe726f130', r2Bucket: 'cc-sbx-b-20261023-files', hostname: 'cc-sbx-b-20261023.shiny-sunset-211d.workers.dev' },
 } as const;
 const SLOTS = ['client-a', 'client-b'] as const;
 type Mode = 'a' | 'both' | 'none';
@@ -203,7 +203,7 @@ describe('the runtime configuration must match the exact bootstrap targets', () 
 		input.clients[0].deployment.worker = input.manifest.clients[0].worker = 'sentinel-worker-name';
 		const message = refusal({ ...shellSettings(), browserClients: ['client-a'], runtimeConfig: input });
 		expect(message).toMatch(REFUSED);
-		for (const secret of ['sentinel-worker-name', 'synthetic-sub', 'pk_test', 'clerk.test']) expect(message).not.toContain(secret);
+		for (const secret of ['sentinel-worker-name', 'synthetic-sub', 'shiny-sunset-211d', 'pk_test', 'clerk.test']) expect(message).not.toContain(secret);
 	});
 });
 
@@ -325,7 +325,7 @@ describe('malformed, secret-shaped and over-ceiling configuration is refused by 
 	])('refuses %s', (_, edit) => {
 		const message = refusal(configured('a', edit));
 		expect(message).toMatch(REFUSED);
-		for (const leak of ['pk_', 'clerk.test', 'synthetic-sub']) expect(message).not.toContain(leak);
+		for (const leak of ['pk_', 'clerk.test', 'synthetic-sub', 'shiny-sunset-211d']) expect(message).not.toContain(leak);
 	});
 	const SECRETS: readonly (readonly [string, string])[] = [
 		['a secret key', ['sk', 'test', 'a'.repeat(24)].join('_')],

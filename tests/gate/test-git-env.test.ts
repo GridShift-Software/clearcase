@@ -1,17 +1,74 @@
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 // A test run must never write into another repository. A Git hook (or another checkout's script) that runs the tests
 // exports GIT_DIR, and every scratch repository a test builds with a bare `git` call would then be built in the
 // repository the variable names (the commits land on its branch). The test boundary strips GIT_*: scripts/gate.mjs gives
-// each step an environment without it, and tests/setup/strip-git-env.ts, listed by every tracked Vitest config, deletes it for a direct
+// each step an environment without it, and tests/setup/strip-git-env.ts, listed by every Vitest config whose tests can call git (WIRED below), deletes it for a direct
 // `bun run --bun test` or `vitest --config <config>`.
 // Synthetic repositories only.
 const REPO_ROOT = join(import.meta.dirname, '..', '..');
+// Every tracked Vitest config is in exactly one list. WIRED configs list tests/setup/strip-git-env.ts first (identity inherits
+// the root config's setup). NO_GIT configs are explicit private include lists whose test files never call git, with the reason.
+const WIRED = [
+	'tests/acceptance/CC-23/vitest.config.ts',
+	'tests/hosted-foundation/audit-recovery/vitest.config.ts',
+	'tests/hosted-foundation/audit/vitest.config.ts',
+	'tests/hosted-foundation/case-grant-provisioning/vitest.config.ts',
+	'tests/hosted-foundation/hosted-validation/vitest.config.ts',
+	'tests/hosted-foundation/identity/vitest.config.ts',
+	'tests/hosted-foundation/native-runtime-config/vitest.config.ts',
+	'tests/hosted-foundation/native-stager/vitest.config.ts',
+	'tests/hosted-foundation/provisioning/vitest.config.ts',
+	'tests/hosted-foundation/publication-material/vitest.config.ts',
+	'tests/hosted-foundation/recovery-http/vitest.config.ts',
+	'tests/hosted-foundation/recovery-native-adapters/vitest.config.ts',
+	'tests/hosted-foundation/recovery-native-evidence/vitest.config.ts',
+	'tests/hosted-foundation/recovery/vitest.config.ts',
+	'tests/hosted-foundation/storage/vitest.config.ts',
+	'tests/hosted-foundation/upload-grant/vitest.config.ts',
+	'tests/hosted-foundation/user-work/vitest.config.ts',
+	'tests/hosted-smoke/case-overview/vitest.config.ts',
+	'tests/hosted-smoke/intake/vitest.config.ts',
+	'tests/hosted-smoke/native-viewer/vitest.config.ts',
+	'tests/hosted-smoke/operator-download/vitest.config.ts',
+	'tests/hosted-smoke/operator-workbench/vitest.config.ts',
+	'tests/hosted-smoke/pdf-static-assets/vitest.config.ts',
+	'tests/hosting-probe/deployment/vitest.config.ts',
+	'tests/hosting-probe/identity/vitest.config.ts',
+	'tests/native-alpha-journey/vitest.config.ts',
+	'tests/parity/vitest.config.ts',
+	'tests/publication/hosted/vitest.config.ts',
+	'tests/results-review/native/vitest.config.ts',
+	'vitest.config.ts',
+];
+const NO_GIT = [
+	['tests/hosted-foundation/artifact-scope/vitest.config.ts', 'static artifact scans over text fixtures'],
+	['tests/hosted-foundation/native-runtime-migration/vitest.config.ts', 'runs the migration script with the Bun executable only'],
+	['tests/hosted-foundation/native-schema/vitest.config.ts', 'runs the schema script with the Bun executable only'],
+	['tests/hosting-probe/deployment/app/vitest.workers.config.mjs', 'Workers pool run only through deployment P5, which supplies an allowlisted environment'],
+	['tests/hosting-probe/deployment/native-alpha-controls/vitest.config.ts', 'injected provider data, no git or child process'],
+	['tests/hosting-probe/deployment/native-alpha-pipeline/vitest.config.ts', 'synthetic fixtures built and checked with the Bun executable, no git'],
+	['tests/hosting-probe/deployment/native-browser-binding/vitest.config.ts', 'synthetic file checks, no git'],
+	['tests/hosting-probe/deployment/native-stage-binding/vitest.config.ts', 'real stages on a temp directory, no git'],
+	['tests/hosting-probe/deployment/workers-dev-bootstrap-runtime-config/vitest.config.ts', 'synthetic file checks, no git'],
+	['tests/hosting-probe/deployment/workers-dev-bootstrap/vitest.config.ts', 'synthetic file checks, no git'],
+	['tests/publication/hosted/atomic-d1/vitest.config.ts', 'local D1 transaction tests, no git'],
+] as const;
+// A test that names git as a command: a quoted 'git' argument, or a shell string starting `git <word>`.
+const GIT_CALL = /['"`]git['"`]|['"`]git\s+\S/;
+// The Workers config imports a plugin only the deployment probe installs, so its source is read instead of imported.
+const loadConfig = async (config: string) => {
+	if (!config.endsWith('.mjs')) return (await import(pathToFileURL(join(REPO_ROOT, config)).href)).default;
+	const source = readFileSync(join(REPO_ROOT, config), 'utf8');
+	const include = /include:\s*\[([^\]]*)\]/.exec(source)?.[1].match(/'[^']+'/g)?.map((q) => q.slice(1, -1)) ?? [];
+	return { root: dirname(join(REPO_ROOT, config)), test: { include, setupFiles: source.includes('strip-git-env') ? ['strip-git-env.ts'] : [] } };
+};
+const configRoot = (cfg: { root?: string; test?: { root?: string } }) => resolve(REPO_ROOT, cfg.test?.root ?? cfg.root ?? '.');
 let ws: string, target: string;
 const clean = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
 const nestedCallers = [
@@ -67,26 +124,51 @@ describe('a test run with an inherited GIT_DIR leaves that repository alone', ()
 		expect(git(target, 'log', '-1', '--format=%s')).toBe('target');
 	});
 
-	// Each direct TypeScript Vitest entry wires the strip. The separately inventoried Workers config runs only through
-	// deployment P5, whose caller supplies an allowlisted environment.
-	it.each(['vitest.config.ts', 'tests/parity/vitest.config.ts', 'tests/acceptance/CC-23/vitest.config.ts', 'tests/hosting-probe/deployment/vitest.config.ts', 'tests/hosting-probe/identity/vitest.config.ts'])('%s runs tests/setup/strip-git-env.ts first', async (config) => {
-		const { default: cfg } = await import(pathToFileURL(join(REPO_ROOT, config)).href);
+	// Each Vitest config whose tests can build a scratch repository wires the strip. The separately inventoried Workers config
+	// runs only through deployment P5, whose caller supplies an allowlisted environment.
+	it.each(WIRED)('%s runs tests/setup/strip-git-env.ts first', async (config) => {
+		const cfg = await loadConfig(config);
 		const entries: string[] = cfg.test?.setupFiles ?? [];
-		// Root-run configs resolve relative entries against the repository root; nested configs use absolute, config-relative entries.
-		const resolved = entries.map((e) => resolve(REPO_ROOT, e));
+		// Relative entries resolve against the config's root (the repository root unless it names another); nested configs use absolute entries.
+		const resolved = entries.map((e) => resolve(configRoot(cfg), e));
 		expect(resolved[0], `${config} test.setupFiles`).toBe(join(REPO_ROOT, 'tests', 'setup', 'strip-git-env.ts'));
 	});
 
-	it('the list above is every tracked Vitest config', () => {
+	it('the lists above are every tracked Vitest config, each in exactly one of them', () => {
 		const tracked = spawnSync('git', ['ls-files', '*vitest.config.*', '*vitest.workspace.*', '*vitest.*.config.*'], { cwd: REPO_ROOT, encoding: 'utf8', env: clean() }).stdout.split('\n').filter(Boolean).sort();
-		expect(tracked).toEqual([
-			'tests/acceptance/CC-23/vitest.config.ts',
-			'tests/hosting-probe/deployment/app/vitest.workers.config.mjs',
-			'tests/hosting-probe/deployment/vitest.config.ts',
-			'tests/hosting-probe/identity/vitest.config.ts',
-			'tests/parity/vitest.config.ts',
-			'vitest.config.ts',
-		]);
+		const exempt = NO_GIT.map(([config]) => config);
+		expect([...WIRED].sort().filter((c) => exempt.includes(c)), 'configs listed as both wired and exempt').toEqual([]);
+		expect([...WIRED, ...exempt].sort()).toEqual(tracked);
+		expect(tracked).toHaveLength(41);
+	});
+
+	// An exempt config is not a free pass: it must not wire the strip (otherwise it belongs in WIRED), and no test file it
+	// includes may call `git` (a bare call would build its scratch repository in the repository an inherited GIT_DIR names).
+	describe.each(NO_GIT)('%s (exempt: %s)', (config) => {
+		it('does not wire the strip, so the list stays exact', async () => {
+			const cfg = await loadConfig(config);
+			expect(((cfg.test?.setupFiles ?? []) as string[]).map((e) => basename(e)), `${config} test.setupFiles`).not.toContain('strip-git-env.ts');
+		});
+
+		it('includes only test files that never call git', async () => {
+			const cfg = await loadConfig(config);
+			const root = configRoot(cfg);
+			const prefix = relative(REPO_ROOT, root).split(sep).join('/');
+			const files = new Set<string>();
+			for (const pattern of cfg.test?.include as string[]) {
+				const spec = `:(glob)${prefix ? `${prefix}/` : ''}${pattern}`;
+				const found = spawnSync('git', ['ls-files', '--', spec], { cwd: REPO_ROOT, encoding: 'utf8', env: clean() }).stdout.split('\n').filter(Boolean);
+				expect(found, `${config} include ${pattern} matches no tracked file`).not.toEqual([]);
+				for (const f of found) files.add(f);
+			}
+			const callers = [...files].filter((f) => GIT_CALL.test(readFileSync(join(REPO_ROOT, f), 'utf8')));
+			expect(callers, `${config} includes tests that call git; wire the strip in the config and move it to WIRED`).toEqual([]);
+		});
+	});
+
+	it('the exempt scan sees a bare git call, so an empty result means no caller', () => {
+		for (const call of ["spawnSync('git', ['init'])", 'spawnSync("git", args)', "execFileSync('git', ['-C', d])", 'execSync(`git init -q`)', "run('git init')"]) expect(GIT_CALL.test(call), call).toBe(true);
+		for (const text of ["const x = 'digit';", 'a legit comment', "import { gitEnv } from './gate'"]) expect(GIT_CALL.test(text), text).toBe(false);
 	});
 
 	it.each(nestedCallers)('%s direct package test preserves Git isolation with a clean environment', (name, file, title) => {

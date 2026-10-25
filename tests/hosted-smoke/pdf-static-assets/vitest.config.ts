@@ -2,5 +2,5 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 export default defineConfig({
   root: fileURLToPath(new URL('../../..', import.meta.url)),
-  test: { include: ['tests/hosted-smoke/pdf-static-assets/**/*.test.ts', 'tests/gate/source-check.test.ts'], pool: 'forks', maxWorkers: 1 },
+  test: { include: ['tests/hosted-smoke/pdf-static-assets/**/*.test.ts', 'tests/gate/source-check.test.ts'], pool: 'forks', setupFiles: ['tests/setup/strip-git-env.ts'], maxWorkers: 1 },
 });

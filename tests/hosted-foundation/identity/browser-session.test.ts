@@ -2,6 +2,7 @@
 // puts a session cookie on THIS origin, the identity switch between client and staff, safe return targets and sign-out.
 // SYNTHETIC keys, a synthetic Frontend API host and a loopback Backend API. The unit contract only: no real Clerk
 // handshake, browser, cookie jar or CSP has run, so none of this is wired-browser evidence.
+import { createHash } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { clerkBrowserHandshakeFromEnv, clerkCookieClears, handshakeResponse, planSignIn, safeReturnTo, signOutClerkSession, type HandshakeOutcome } from '../../../src/lib/auth/clerk/browser.ts';
 import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
@@ -180,5 +181,112 @@ describe('sign-out: revoke the right Clerk session at its own instance, then nam
 			status.outage(false);
 		}
 		await expect(signOutClerkSession({ env: {}, request: cookieReq('__session=x'), identity })).rejects.toMatchObject({ code: 'identity-unavailable' });
+	});
+});
+
+// The shapes a real development handshake returned (GRS-113, 25 Oct): a payload holding only `handshake`, five directives
+// (__client_uat cleared then set, __session, __refresh_<suffix> with a standard-base64 value, __clerk_db_jwt). Names and
+// value classes only; every value here is synthetic.
+describe('the cookies a real development handshake returns', () => {
+	const suffix = (pk: string) => createHash('sha1').update(pk).digest('base64url').slice(0, 8);
+	const REFRESH = 'Zm9v+YmFy/YmF6cXV4+cXV1eA/c3ludGhldGljLXJlZnJlc2g=';
+	const real = (session: string, refresh = `__refresh_${suffix(A.publishableKey)}`) => [
+		'__client_uat=; Path=/; Domain=clearcase.test; Max-Age=0; SameSite=Lax',
+		'__client_uat=1761400000; Path=/; Domain=clearcase.test; Max-Age=315360000; SameSite=Lax; Secure',
+		`__session=${session}; Path=/; Domain=clearcase.test; Max-Age=60; SameSite=Lax; Secure`,
+		`${refresh}=${REFRESH}; Path=/; Domain=clearcase.test; Max-Age=315360000; HttpOnly; SameSite=Lax; Secure`,
+		'__clerk_db_jwt=dvb_synthetic0123456789abcdef; Path=/; Max-Age=315360000; SameSite=Lax; Secure',
+	];
+	const identityOf = async (jar: string) => {
+		const made = clerkIdentityProviderFromEnv(env(), { authorizeCase: async () => {} });
+		if (!made.ok) throw new Error(made.reason);
+		return made.provider.authenticate({ request: new Request(`${ORIGIN}/cases`, { headers: { cookie: jar } }) });
+	};
+	const SESSION_CATEGORY = { cat: 'cl_B7d4PD111AAA' };
+
+	it('signs the browser in from the real directive set, storing the session and never the refresh token', async () => {
+		const session = tokenA();
+		const o = redirectOf(await handshake().handle(page(`/cases?__clerk_handshake=${A.sign({ handshake: real(session) })}`)));
+		expect(o.location).toBe(`${ORIGIN}/cases`);
+		const names = o.setCookies.map((c) => c.split('=')[0]);
+		expect(names).toEqual(['__client_uat', '__client_uat', '__session', '__clerk_db_jwt']);
+		expect(o.setCookies.join('\n')).not.toContain(REFRESH);
+		for (const c of o.setCookies) expect(c).not.toMatch(/Domain=/i);
+		expect(o.setCookies[2]).toMatch(/^__session=[^;]+; Path=\/; Max-Age=60; SameSite=Lax; HttpOnly; Secure$/);
+		const jar = o.setCookies.slice(1).map((c) => c.split(';')[0]).join('; ');
+		expect(await identityOf(jar)).toMatchObject({ kind: 'verified', principal: { kind: 'client', subject: 'user_a1' }, sessionId: 'sess_a1' });
+	});
+	it('signs in with a session token carrying the session-token category in its header', async () => {
+		const session = A.token({ sub: 'user_a1', sid: 'sess_a1', azp: ORIGIN, header: SESSION_CATEGORY });
+		const o = redirectOf(await handshake().handle(page(`/cases?__clerk_handshake=${A.sign({ handshake: real(session) }, SESSION_CATEGORY)}`)));
+		expect(o.setCookies.some((c) => c.startsWith(`__session=${session};`))).toBe(true);
+		expect(await identityOf(`__session=${session}`)).toMatchObject({ kind: 'verified', principal: { kind: 'client', subject: 'user_a1' } });
+		expect(await handshake().handle(page('/cases', `__clerk_db_jwt=dvb_synthetic0123456789abcdef; __client_uat=1761400000; __session=${session}`))).toEqual({ kind: 'continue' });
+	});
+	it.each([
+		['an M2M token', 'cl_B7d4PD333AAA'], ['a JWT template token', 'cl_B7d4PD222AAA'], ['the ignore category', 'cl_I7d4PD111III'],
+		['an unknown category', 'cl_B7d4PD999AAA'], ['a numeric category', 7], ['an empty category', ''],
+	])('still refuses a session token whose header names %s', async (_name, cat) => {
+		const session = A.token({ sub: 'user_a1', sid: 'sess_a1', azp: ORIGIN, header: { cat } });
+		expect(await handshake().handle(page(`/cases?__clerk_handshake=${A.sign({ handshake: real(session) })}`))).toMatchObject({ kind: 'refuse' });
+		expect(await identityOf(`__session=${session}`)).toMatchObject({ kind: 'anonymous' });
+	});
+	it.each([
+		['a refresh-like name', '__refreshing'], ['a refresh name with a dotted suffix', '__refresh_a.b'], ['a foreign prefix', '__clerk_refresh'],
+		['a suffix over 32 characters', `__refresh_${'a'.repeat(33)}`], ['an unknown Clerk-like name', '__clerk_session'],
+	])('still refuses the whole handshake for %s', async (_name, name) => {
+		expect(await handshake().handle(page(`/cases?__clerk_handshake=${A.sign({ handshake: real(tokenA(), name) })}`))).toEqual({ kind: 'refuse', status: 502, code: 'handshake-cookie-refused' });
+	});
+	it('refuses a handshake that returns only a refresh token, which sets nothing', async () => {
+		const only = A.sign({ handshake: [real(tokenA())[3]!] });
+		expect(await handshake().handle(page(`/cases?__clerk_handshake=${only}`))).toEqual({ kind: 'refuse', status: 400, code: 'handshake-invalid' });
+	});
+	it('never lets a presented refresh cookie make the Worker call the Backend API, and hands an expired session to the handshake', async () => {
+		const calls = status.calls.length, fetched = vi.spyOn(globalThis, 'fetch');
+		const cookie = `__clerk_db_jwt=dvb_synthetic0123456789abcdef; __client_uat=1761400000; __session=${tokenA('sess_a1', expired)}; __refresh_${suffix(A.publishableKey)}=${REFRESH}; __refresh=${REFRESH}`;
+		const o = redirectOf(await handshake().handle(page('/cases', cookie)));
+		expect(`${new URL(o.location).origin}${new URL(o.location).pathname}`).toBe('https://client-a.clerk.test/v1/client/handshake');
+		expect(status.calls.length).toBe(calls);
+		expect(fetched).not.toHaveBeenCalled();
+	});
+});
+
+// A staff browser comes back from the staff portal to /cases with no staff session yet: only the signed handshake token
+// shows which instance answered. The pick follows a signature that verifies with a configured key, never the URL alone.
+describe('the instance a returning handshake belongs to', () => {
+	const staffSession = () => B.token({ sub: 'user_b1', sid: 'sess_b1', azp: ORIGIN });
+	const identityOf = async (jar: string) => {
+		const made = clerkIdentityProviderFromEnv(env(), { authorizeCase: async () => {} });
+		if (!made.ok) throw new Error(made.reason);
+		return made.provider.authenticate({ request: new Request(`${ORIGIN}/cases`, { headers: { cookie: jar } }) });
+	};
+	const jarOf = (o: HandshakeOutcome) => redirectOf(o).setCookies.map((c) => c.split(';')[0]).join('; ');
+
+	it('applies a staff-signed handshake on /cases for a browser with no session, as a staff session', async () => {
+		const o = await handshake().handle(page(`/cases?__clerk_handshake=${B.sign({ handshake: [`__session=${staffSession()}; Path=/`, '__client_uat=1761400000; Path=/'] })}`));
+		expect(redirectOf(o).location).toBe(`${ORIGIN}/cases`);
+		expect(await identityOf(jarOf(o))).toMatchObject({ kind: 'verified', principal: { kind: 'staff', subject: 'user_b1' } });
+	});
+	it('follows the verified signer over a stale session of the other instance', async () => {
+		const o = await handshake().handle(page(`/cases?__clerk_handshake=${A.sign({ handshake: [`__session=${tokenA()}; Path=/`] })}`, `__client_uat=1; __session=${tokenB(expired)}`));
+		expect(await identityOf(jarOf(o))).toMatchObject({ kind: 'verified', principal: { kind: 'client' } });
+	});
+	it.each([
+		['signed by an unconfigured instance', () => C.sign({ handshake: [`__session=${staffSession()}; Path=/`] })],
+		['staff-signed but carrying a client session', () => B.sign({ handshake: [`__session=${tokenA()}; Path=/`] })],
+		['client-signed but carrying a staff session', () => A.sign({ handshake: [`__session=${staffSession()}; Path=/`] })],
+		['with a staff header and a client signature', () => `${B.sign({ handshake: [] }).split('.')[0]}.${A.sign({ handshake: [`__session=${tokenA()}; Path=/`] }).split('.').slice(1).join('.')}`],
+		['an unsigned token', () => `${B.sign({ handshake: [`__session=${staffSession()}; Path=/`] }).split('.').slice(0, 2).join('.')}.`],
+	])('sets no session for a handshake %s', async (_name, token) => {
+		const o = await handshake().handle(page(`/cases?__clerk_handshake=${token()}`));
+		if (o.kind === 'redirect') expect(await identityOf(jarOf(o))).toMatchObject({ kind: 'anonymous' });
+		else expect(o).toMatchObject({ kind: 'refuse' });
+	});
+	it('keeps the operator route on the staff instance even for a client-signed handshake', async () => {
+		expect(await handshake().handle(page(`/sign-in/operator?__clerk_handshake=${A.sign({ handshake: [`__session=${tokenA()}; Path=/`] })}`))).toMatchObject({ kind: 'refuse' });
+	});
+	it('still sends a browser with no session and no handshake token to the client instance, whatever the query says', async () => {
+		const host = async (r: Request) => new URL(redirectOf(await handshake().handle(r)).location).host;
+		expect(await host(page('/cases?kind=staff&__clerk_db_jwt=dvb_synthetic0123456789abcdef'))).toBe('client-a.clerk.test');
 	});
 });

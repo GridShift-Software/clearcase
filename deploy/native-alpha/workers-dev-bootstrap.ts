@@ -8,7 +8,12 @@ import path from 'node:path';
 import { types } from 'node:util';
 import ts from 'typescript';
 import { checkNativeArtifact, nativeWalk, readRegular } from '../probes/target.ts';
+import { CLERK_ENV } from '../../src/lib/auth/clerk/config.ts';
 import { NATIVE_BROWSER_BINDING, NATIVE_STAGED, parseNativeJson } from './pipeline.ts';
+import {
+	NATIVE_RUNTIME_CONFIG_MAX_BYTES, NATIVE_RUNTIME_CONFIG_VAR, NATIVE_RUNTIME_SECRET_NAMES, nativeRuntimeConfigDiagnostic, planNativeRuntimeConfig,
+	type NativeRuntimeConfigPlan,
+} from './runtime-config.ts';
 import { validateBuildStamp } from '../../src/lib/server/runtime/build.ts';
 
 export const WORKERS_DEV_BOOTSTRAP_SCHEMA = 'clearcase.workers-dev-bootstrap/1';
@@ -20,6 +25,9 @@ export type BootstrapSettings = {
 	compatibilityFlags: ['nodejs_compat'];
 	/** Explicit opt-in, absent by default: the client slots (distinct, in client-a, client-b order) that bind exactly BROWSER. Staff is refused. */
 	browserClients?: readonly BootstrapClientSlot[];
+	/** Explicit, absent by default: the INPUT of planNativeRuntimeConfig (never a vars map). Its validated public vars are merged into the matching
+	 * client configs; every planned tuple must be this bootstrap's own, and the planned renderers must equal browserClients. */
+	runtimeConfig?: unknown;
 };
 const ACCOUNT = 'fb4c31b91c5d89b7a54afbdc34823170';
 const SLOTS = ['client-a', 'client-b', 'staff'] as const;
@@ -66,8 +74,8 @@ function strings(value: unknown, max: number): string[] | null {
 	}
 	return captured;
 }
-function settings(value: unknown): BootstrapSettings {
-	const top = capture(value, ['pins', 'compatibilityDate', 'compatibilityFlags'], 'settings', ['browserClients']);
+function settings(value: unknown) {
+	const top = capture(value, ['pins', 'compatibilityDate', 'compatibilityFlags'], 'settings', ['browserClients', 'runtimeConfig']);
 	const pins = capture(top.pins, ['source', 'artifact', 'entry'], 'external pins');
 	if (typeof pins.source !== 'string' || !/^[0-9a-f]{40}$/.test(pins.source)) throw new Error('external source pin must be a full Git SHA');
 	for (const k of ['artifact', 'entry']) if (typeof pins[k] !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(pins[k] as string)) throw new Error(`external ${k} pin must be sha256:<64 lowercase hex>`);
@@ -82,10 +90,67 @@ function settings(value: unknown): BootstrapSettings {
 		if (JSON.stringify(clients) !== JSON.stringify(SLOTS.filter((c) => clients.includes(c)))) throw new Error('browserClients must list each client at most once, in client-a, client-b order');
 		browserClients = clients as BootstrapClientSlot[];
 	}
-	return {
+	// The planner snapshots its own input here, inside planning, so before any file is read; nothing later touches the caller's object.
+	const runtime = Object.hasOwn(top, 'runtimeConfig') ? runtimeConfig(top.runtimeConfig, browserClients ?? []) : null;
+	const resolved: BootstrapSettings = {
 		pins: { source: pins.source, artifact: pins.artifact as string, entry: pins.entry as string }, compatibilityDate: date, compatibilityFlags: ['nodejs_compat'],
 		...(browserClients ? { browserClients } : {}),
 	};
+	return { settings: resolved, runtime };
+}
+
+// The only variable names the planner may hand a Worker: its public Clerk values and the settings blob. Secret bindings, the instance role
+// and anything else are refused here even if a changed planner emitted them (names, not values, are all this module reads of a refusal).
+const SECRET_SET = new Set<string>(NATIVE_RUNTIME_SECRET_NAMES);
+const PUBLIC_VARS = new Set<string>([
+	CLERK_ENV.clientId, CLERK_ENV.appOrigin, CLERK_ENV.client.publishableKey, CLERK_ENV.staff.publishableKey, CLERK_ENV.apiUrl, CLERK_ENV.mfaRequired,
+	CLERK_ENV.signInUrl, CLERK_ENV.staffSignInUrl, CLERK_ENV.audience, NATIVE_RUNTIME_CONFIG_VAR,
+].filter((name) => !SECRET_SET.has(name)));
+const TUPLE_KEYS = ['clientId', 'hostname', 'worker', 'd1DatabaseId', 'd1DatabaseName', 'r2Bucket'] as const;
+const WORKERS_DEV_LABEL = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
+type RuntimeClient = { vars: Readonly<Record<string, string>>; requiredSecretNames: readonly string[]; renders: boolean; fileSha256: string };
+type RuntimePlan = { record: { manifestSha256: string; manifest: NativeRuntimeConfigPlan['manifest'] }; clients: ReadonlyMap<BootstrapClientSlot, RuntimeClient> };
+const sameList = (a: readonly unknown[], b: readonly unknown[]) => a.length === b.length && a.every((v, i) => v === b[i]);
+const deny = (why: string): never => { throw new Error(`runtimeConfig: ${why}`); };
+
+/** One planner result, checked against this bootstrap's own targets. Only fixed text is thrown: the planner's issued diagnostic or a static
+ * label, never an input value, key, hostname or thrown value. Plain `unknown` in; frozen derived records out. */
+function runtimeConfig(input: unknown, browserClients: readonly BootstrapClientSlot[]): RuntimePlan {
+	let plan: NativeRuntimeConfigPlan;
+	try {
+		plan = planNativeRuntimeConfig(input);
+	} catch (caught) {
+		return deny(nativeRuntimeConfigDiagnostic(caught) ?? 'refused by the runtime configuration planner');
+	}
+	const clients = new Map<BootstrapClientSlot, RuntimeClient>();
+	for (const file of plan.clients) {
+		const slot = file.clientId;
+		if (slot !== 'client-a' && slot !== 'client-b') deny('a planned client is not a bootstrap client slot');
+		const target = CLIENTS[slot as BootstrapClientSlot];
+		if (clients.has(slot as BootstrapClientSlot)) deny('a client may be planned once');
+		const names = Object.keys(file.vars);
+		if (names.some((name) => !PUBLIC_VARS.has(name)) || names.some((name) => typeof file.vars[name] !== 'string' || Buffer.byteLength(file.vars[name]!) > NATIVE_RUNTIME_CONFIG_MAX_BYTES))
+			deny('the planned variables are not exactly the planner public values');
+		if (file.vars[CLERK_ENV.clientId] !== slot) deny('the planned client id is not the bootstrap slot');
+		if (!sameList(file.secrets, NATIVE_RUNTIME_SECRET_NAMES)) deny('the planned secret names are not the fixed list');
+		const bindings = Object.keys(file.bindings);
+		if (!sameList(bindings, ['d1', 'r2', 'assets', 'browser']) || file.bindings.d1 !== 'DB' || file.bindings.r2 !== 'BUCKET' || file.bindings.assets !== 'ASSETS' ||
+			(file.bindings.browser !== null && file.bindings.browser !== NATIVE_BROWSER_BINDING)) deny('the planned bindings are not DB, BUCKET, ASSETS and an optional BROWSER');
+		let deployment: Record<string, unknown> | null = null;
+		try { deployment = (JSON.parse(file.vars[NATIVE_RUNTIME_CONFIG_VAR] ?? '') as { deployment?: Record<string, unknown> }).deployment ?? null; } catch { /* refused below */ }
+		const expected = { clientId: slot, hostname: file.hostname, worker: target.worker, d1DatabaseId: target.uuid, d1DatabaseName: target.database, r2Bucket: target.bucket };
+		if (!deployment || !sameList(Object.keys(deployment), TUPLE_KEYS) || TUPLE_KEYS.some((key) => deployment![key] !== expected[key]) || file.worker !== target.worker)
+			deny('a planned deployment tuple is not this bootstrap target');
+		// workers.dev serves <worker>.<account subdomain>.workers.dev: the one label between is the account's, which is not known here.
+		if (!new RegExp(`^${target.worker}\\.${WORKERS_DEV_LABEL}\\.workers\\.dev$`).test(file.hostname)) deny('a planned hostname is not this Worker on workers.dev');
+		const record = plan.manifest.clients.find((c) => c.clientId === slot);
+		if (!record || record.browserBinding !== file.bindings.browser) deny('the planner manifest disagrees with the planned client file');
+		clients.set(slot as BootstrapClientSlot, freeze({ vars: { ...file.vars }, requiredSecretNames: [...file.secrets], renders: file.bindings.browser !== null, fileSha256: record!.sha256 }));
+	}
+	// The planned renderers and BROWSER bindings come from one decision: the explicit plan. browserClients may only repeat it.
+	const renderers = SLOTS.filter((slot): slot is BootstrapClientSlot => slot !== 'staff' && clients.get(slot)?.renders === true);
+	if (!sameList(renderers, browserClients)) deny('browserClients must list exactly the clients the plan renders');
+	return freeze({ record: { manifestSha256: sha(plan.manifestText), manifest: plan.manifest }, clients });
 }
 function freeze<T>(value: T): T {
 	if (value !== null && typeof value === 'object') {
@@ -97,8 +162,9 @@ function freeze<T>(value: T): T {
 
 /** No files or provider state read. Pins must come from the parent's reviewed build, never from a stage. */
 export function planWorkersDevBootstrap(value: unknown) {
-	const s = settings(value);
+	const { settings: s, runtime } = settings(value);
 	const targets = SLOTS.map((slot) => {
+		const planned = slot === 'staff' ? undefined : runtime?.clients.get(slot);
 		const client = slot === 'staff' ? null : CLIENTS[slot];
 		const browser = slot !== 'staff' && s.browserClients?.includes(slot) === true;
 		const config = {
@@ -108,7 +174,8 @@ export function planWorkersDevBootstrap(value: unknown) {
 			// Workers Free enforces its own CPU ceiling and rejects even a 10ms custom limit.
 			send_metrics: false, workers_dev: true, preview_urls: false, routes: [],
 			assets: { directory: NATIVE_STAGED.assets, binding: 'ASSETS' },
-			vars: { CLEARCASE_INSTANCE_ROLE: client ? 'client' : 'staff', CLEARCASE_CLIENT_ID: client ? slot : '' },
+			// Role and client id come first and are locked: the planned CLEARCASE_CLIENT_ID is checked equal, so the merge never moves them.
+			vars: { CLEARCASE_INSTANCE_ROLE: client ? 'client' : 'staff', CLEARCASE_CLIENT_ID: client ? slot : '', ...planned?.vars },
 			// No migrations, secrets, service bindings or raw config escape hatch. Staff has no client stores.
 			...(client ? {
 				d1_databases: [{ binding: 'DB', database_name: client.database, database_id: client.uuid }],
@@ -127,9 +194,11 @@ export function planWorkersDevBootstrap(value: unknown) {
 			stores: client ? { d1Jurisdiction: 'eu', r2Jurisdiction: 'eu', r2Public: false, r2DevUrl: false } : null,
 			readiness: client ? 'services-unconfigured' : 'unconfigured-portal-shell',
 			...(browser ? { browser: { binding: NATIVE_BROWSER_BINDING } } : {}),
+			// Names and the planner file's hash only: secret VALUES are the parent's, supplied out of band, and no secret binding is in the config.
+			...(planned ? { runtime: { varNames: Object.keys(planned.vars), requiredSecretNames: planned.requiredSecretNames, plannerFileSha256: planned.fileSha256 } } : {}),
 		};
 	});
-	return freeze({ schema: WORKERS_DEV_BOOTSTRAP_SCHEMA, settings: s, targets });
+	return freeze({ schema: WORKERS_DEV_BOOTSTRAP_SCHEMA, settings: s, targets, ...(runtime ? { runtimeConfig: runtime.record } : {}) });
 }
 
 /** Extract the existing build:hosted JSON string marker, without executing uploaded code. External entry pins

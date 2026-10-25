@@ -112,6 +112,38 @@ loading disabled (`CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false`,
 concern and must never enter this API, the manifest or reports. The guard checks
 argv/cwd/files, not the parent's eventual process environment or executable.
 
+## Optional runtime configuration
+
+`settings.runtimeConfig` is absent by default, and then every output byte is the shell-only output above. When present it is the
+**input of `planNativeRuntimeConfig`** (`runtime-config.ts`): `{ manifest, clients, browserAllocation }`. It is never a vars map,
+and it carries no secret value. The bootstrap hands the value to the reviewed planner during planning (so before any file is read,
+written or listed), keeps only the planner's frozen result and never reads the caller's object again. Any planner refusal is
+rethrown as `runtimeConfig: <the planner's fixed diagnostic>`; no input value, key, hostname or thrown value is echoed.
+
+Each planned client is matched against the exact bootstrap target: client id `client-a` or `client-b` (not `staff`), Worker, D1 name
+and UUID and R2 bucket must equal the table above, and the hostname must be `<Worker>.<one account label>.workers.dev`. Planning a
+single client leaves the other as the unchanged shell. The merge then puts the planner's public vars after
+`CLEARCASE_INSTANCE_ROLE` and `CLEARCASE_CLIENT_ID` in that client's config (the planned client id must equal the slot, so role and
+client stay locked). Only these names are admitted: the planner's public Clerk values, `CLEARCASE_APP_ORIGIN`, `AUTH_MFA_REQUIRED`
+and `CLEARCASE_NATIVE_CONFIG`; each value is a string of at most 5000 UTF-8 bytes. Secret names, the role variable and anything else
+are refused even if a changed planner emitted them, as are changed secret-name lists and bindings other than `DB`, `BUCKET`,
+`ASSETS` and an optional `BROWSER`.
+
+The renderer set comes from one decision, the explicit plan: the clients with a render budget must equal `browserClients` exactly,
+in both directions. A missing or extra `BROWSER` binding refuses the plan. Staff stays an honest `ASSETS`-only identity shell with
+the two shell vars, no stores, no `runtime` record and `readiness: 'unconfigured-portal-shell'` (the planner records it as
+`unsupported`). A configured client keeps `readiness: 'services-unconfigured'`: its secrets are not bound, and nothing is
+claimed deployed, provisioned or identity-ready.
+
+The plan gains a top-level `runtimeConfig: { manifestSha256, manifest }` (the planner's manifest, with `providerProof`,
+`provisioned` and `deployed` all false) and each configured target a `runtime: { varNames, requiredSecretNames, plannerFileSha256 }`
+record: secret NAMES only, to be supplied by the parent out of band. Because the vars live in the canonical config bytes,
+every stage record, the checker, every reread and every invocation compare the same values; a changed, added, removed or reordered
+var, or a settings value that differs from the one prepared, is refused as a difference from the exact bootstrap profile.
+
+The input graph grows by the planner's: `runtime-config.ts` reaches `native-render-check.ts`, which statically imports
+`@cloudflare/puppeteer` (loaded, never launched here). Nothing in the graph reads the environment, a provider or a network.
+
 ## Checks and remaining deployment work
 
 Preparation and every read use the existing `checkNativeArtifact` on actual bytes:
@@ -146,4 +178,6 @@ Focused synthetic checks (no provider, workerd or deployment execution):
 ```sh
 scripts/agent-tools/receipt --name workers-dev-bootstrap-unit -- bun run --bun test --config tests/hosting-probe/deployment/workers-dev-bootstrap/vitest.config.ts
 scripts/agent-tools/receipt --name workers-dev-bootstrap-tsc -- bun node_modules/typescript/bin/tsc --noEmit -p tests/hosting-probe/deployment/workers-dev-bootstrap/tsconfig.json
+scripts/agent-tools/receipt --name workers-dev-bootstrap-runtime-config-unit -- bun run --bun test --config tests/hosting-probe/deployment/workers-dev-bootstrap-runtime-config/vitest.config.ts
+scripts/agent-tools/receipt --name workers-dev-bootstrap-runtime-config-tsc -- bun node_modules/typescript/bin/tsc --noEmit -p tests/hosting-probe/deployment/workers-dev-bootstrap-runtime-config/tsconfig.json
 ```

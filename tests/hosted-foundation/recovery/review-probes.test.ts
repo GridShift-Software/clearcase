@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { applyRestore, exportCase, planRestore, verifyExport } from '../../../src/lib/recovery/hosted/index.ts';
-import { CASE, RV, enc, restoreDeps, target, world } from './world.ts';
+import { CASE, enc, restoreDeps, target, world } from './world.ts';
 
 async function exported() {
   const w = world();
@@ -8,21 +8,26 @@ async function exported() {
   const ref = { caseId: CASE, exportId: 'probe-export', expectedManifestSha256: r.manifestSha256 };
   return { w, r, ref };
 }
-const outcome = <T>(p: Promise<T>) => p.then(value => ({kind: 'resolved', value}), (e: {code?: string}) => ({kind:'refused', code:e.code}));
+const outcome = <T>(p: Promise<T>) => p.then(value => ({kind: 'resolved' as const, value}), (e: {code?: string}) => ({kind:'refused' as const, code:e.code}));
 
 it('P1: retained results cannot be exposed or restored after withdrawal under an otherwise current case grant', async () => {
   const {w, ref} = await exported();
+  const tg = target(); const deps = restoreDeps(w, tg.t);
+  // Confirm before withdrawal too: a retained plan must not become a bypass.
+  const priorPlan = await planRestore(deps, ref);
   w.deps.store.getCase = async () => ({caseId:CASE, caseLabel:'Synthetic', publication:{kind:'withdrawn'}, href:'/c', documents:null});
   w.deps.store.activeVersionId = async () => null;
   w.deps.store.versionsOf = async () => [];
   const verify = await outcome(verifyExport(w.deps, ref));
-  const tg = target(); const deps = restoreDeps(w, tg.t);
-  const plan = await planRestore(deps, ref);
-  const restored = await applyRestore(deps, {...ref, confirmedPlanSha256:plan.planSha256, operationId:'probe-withdrawn'});
+  const plan = await outcome(planRestore(deps, ref));
+  const restored = await outcome(applyRestore(deps, {...ref, confirmedPlanSha256:priorPlan.planSha256, operationId:'probe-withdrawn'}));
   const protectedFile = [...tg.objects.map.values()].some(b => new TextDecoder().decode(b) === '[1,2,3]');
-  console.log('P1 observed', JSON.stringify({verify:verify.kind, previews:verify.kind === 'resolved' ? verify.value.manifest.previews.length : 0, restored:restored.ok, protectedFile}));
+  console.log('P1 observed', JSON.stringify({verify:verify.kind, previews:verify.kind === 'resolved' ? verify.value.manifest.previews.length : 0, restored:restored.kind, protectedFile}));
   expect(verify.kind).toBe('refused');
   expect(protectedFile).toBe(false);
+  expect(plan).toMatchObject({kind:'refused', code:'not-found'});
+  expect(restored).toMatchObject({kind:'refused', code:'not-found'});
+  expect(tg.log).toEqual([]);
 });
 
 it('P2: revocation during stored-export verification must be checked again before returning protected manifest', async () => {
@@ -44,4 +49,8 @@ it('P3: failed staged-object integrity must refuse before importing user work', 
   const result=await outcome(applyRestore(deps,{...ref,confirmedPlanSha256:plan.planSha256,operationId:'probe-corrupt-target'}));
   console.log('P3 observed', JSON.stringify({outcome:result.kind,reportOk:result.kind === 'resolved' ? result.value.ok : null, imports:tg.imports.length, log:tg.log}));
   expect(tg.imports).toHaveLength(0);
+  expect(result).toMatchObject({kind:'refused', code:'restore-failed'});
+  expect(tg.log).toEqual(['snapshot']);
+  expect(tg.snaps.size).toBe(1);
+  expect(tg.objects.map.size).toBe(plan.stage.objects);
 });

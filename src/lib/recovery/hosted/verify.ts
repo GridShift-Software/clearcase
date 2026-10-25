@@ -1,10 +1,11 @@
 import type { CaseId } from '../../server/runtime/contracts.ts';
-import { authorizeAndAudit, recordAfter, requireCaseId, requireObjects } from './authority.ts';
+import { authorizeAndAudit, recordAfter, recordFailure, requireCaseId, requireObjects } from './authority.ts';
 import { canonicalJson, fail, ID, objectKeys, SHA, sha256Hex } from './bytes.ts';
 import { accountOf } from './export.ts';
 import { DEFAULT_LIMITS, EXPORT_FORMAT, type ExportManifest, type Limits, type RecoveryDeps } from './types.ts';
+import { checkVisibility, recheckExportAuthority, requireVisibility } from './visibility.ts';
 
-export type VerifyDeps = Pick<RecoveryDeps, 'profile' | 'now' | 'newId' | 'identity' | 'audit' | 'objects' | 'limits'>;
+export type VerifyDeps = Pick<RecoveryDeps, 'profile' | 'now' | 'newId' | 'identity' | 'audit' | 'objects' | 'limits' | 'visibility'>;
 export interface VerifyRequest { caseId: string; exportId: string; expectedManifestSha256: string }
 export interface Verified { manifest: ExportManifest; manifestSha256: string; blobs: ReadonlyMap<string, Uint8Array>; accounting: ExportManifest['accounting'] }
 const KEYS = ['format', 'exportId', 'clientId', 'caseId', 'createdAt', 'createdBy', 'source', 'selection', 'originals', 'embedded', 'previews', 'resultsVersions', 'userWork', 'accounting'];
@@ -42,6 +43,7 @@ export function parseManifest(bytes: Uint8Array): ExportManifest {
  */
 export async function loadExport(deps: VerifyDeps, req: VerifyRequest, scopesFor: (c: CaseId) => Parameters<typeof authorizeAndAudit>[1]['scopes'], action: string): Promise<Verified & { caseId: CaseId }> {
   const objects = requireObjects(deps);
+  requireVisibility(deps);
   const caseId = requireCaseId(req.caseId);
   if (!ID.test(req.exportId) || !SHA.test(req.expectedManifestSha256)) throw fail('invalid-request');
   await authorizeAndAudit(deps, { action, objectKind: 'case-export', objectId: req.exportId, caseId, scopes: scopesFor(caseId) });
@@ -57,6 +59,7 @@ export async function loadExport(deps: VerifyDeps, req: VerifyRequest, scopesFor
     const manifest = parseManifest(mbytes);
     if (new TextDecoder().decode(mbytes) !== canonicalJson(manifest)) throw fail('manifest-invalid'); // canonical bytes only
     if (manifest.caseId !== caseId || manifest.clientId !== deps.identity.clientId || manifest.exportId !== req.exportId) throw fail('foreign-input');
+    await checkVisibility(deps, manifest); // before any retained protected blob is read
     const entries = [...manifest.originals, ...manifest.previews, ...manifest.resultsVersions.flatMap((v) => v.files), ...(manifest.userWork ? [manifest.userWork] : [])];
     if (entries.length > limits.maxFiles || entries.some((e) => e.size > limits.maxFileBytes)) throw fail('export-too-large');
     const distinct = new Map<string, number>();
@@ -69,15 +72,20 @@ export async function loadExport(deps: VerifyDeps, req: VerifyRequest, scopesFor
       if (bytes.length !== size || await sha256Hex(bytes) !== sha) throw fail('export-corrupt');
       blobs.set(sha, bytes);
     }
+    await recheckExportAuthority(deps, manifest, scopesFor(caseId));
     return { manifest, manifestSha256, blobs, accounting: manifest.accounting, caseId };
   } catch (e) {
-    await recordAfter(deps, { ...audit, outcome: 'failed' });
+    await recordFailure(deps, audit, e);
     throw e;
   }
 }
 export const exportScopes = (caseId: CaseId) => [{ caseId, operation: 'read' as const }, { caseId, operation: 'read-original' as const }, { caseId, operation: 'read-preview' as const }];
 export async function verifyExport(deps: VerifyDeps, req: VerifyRequest) {
   const v = await loadExport(deps, req, exportScopes, 'recovery.verify');
-  await recordAfter(deps, { action: 'recovery.verify', objectKind: 'case-export', objectId: req.exportId, caseId: v.caseId, outcome: 'succeeded' });
-  return { manifest: v.manifest, manifestSha256: v.manifestSha256, accounting: v.accounting, verifiedBlobs: v.blobs.size };
+  const audit = { action: 'recovery.verify', objectKind: 'case-export', objectId: req.exportId, caseId: v.caseId };
+  try {
+    await recordAfter(deps, { ...audit, outcome: 'succeeded' });
+    await recheckExportAuthority(deps, v.manifest, exportScopes(v.caseId));
+    return { manifest: v.manifest, manifestSha256: v.manifestSha256, accounting: v.accounting, verifiedBlobs: v.blobs.size };
+  } catch (e) { await recordFailure(deps, audit, e); throw e; }
 }

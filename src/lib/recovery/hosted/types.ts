@@ -22,12 +22,22 @@ export interface PrivateObjectPort {
 /** Published previews are not enumerable through `AssetsAccess`; the production adapter is an integration handoff. */
 export interface PreviewCatalog { previewsOf(a: { caseId: CaseId; resultsVersion: ResultsVersion }): Promise<readonly OriginalEntry[]> }
 
+/** Current caller-bound publication policy, never an archived publication flag or a case-level preview grant.
+ * Production composition must consult live publication and version entitlement in the receiving client instance.
+ * A candidate, withdrawn or superseded client-invisible identity returns false; no policy fault may default to true.
+ */
+export interface VersionVisibilityPort {
+  readonly kind: 'current-policy' | 'test-standin';
+  isVisible(a: { identity: Identity; caseId: CaseId; resultsVersion: ResultsVersion }): Promise<boolean>;
+}
+
 export type ReaderPort = Pick<CaseReader, 'getCase' | 'versionsOf' | 'activeVersionId' | 'stateRevision' | 'verifyVersion' | 'packageFile' | 'packageFilePaths'>;
 export type AssetsPort = Pick<AssetsAccess, 'originals' | 'availability' | 'get'>;
 
 export interface RecoveryDeps {
   profile: Profile; now(): Date; newId(): string;
   identity: Identity; store: ReaderPort; assets: AssetsPort; previews: PreviewCatalog | null;
+  visibility: VersionVisibilityPort | null;
   userWork: Pick<AsyncUserWork, 'exportAll'>; audit: AuditSink;
   objects: PrivateObjectPort | null; limits?: Partial<Limits>;
 }

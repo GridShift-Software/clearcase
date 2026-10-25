@@ -1,8 +1,9 @@
 import type { AsyncUserWork, CaseId, CaseRevision, ClientId, UserWorkExport } from '../../server/runtime/contracts.ts';
-import { authorizeAndAudit, recheck, recordAfter } from './authority.ts';
+import { recordAfter, recordFailure } from './authority.ts';
 import { canonicalJson, encode, fail, ID, SHA, sha256Hex } from './bytes.ts';
 import { exportScopes, loadExport, type VerifyRequest, type Verified } from './verify.ts';
 import type { Accounting, PrivateObjectPort, RecoveryDeps } from './types.ts';
+import { recheckExportAuthority } from './visibility.ts';
 
 /** An isolated restore target: a scope that is not the live client instance. Nothing in it is ever the live case's data. */
 export interface RestoreTarget {
@@ -63,7 +64,7 @@ async function plan(deps: RestoreDeps, req: RestoreRequest, action: string, scop
     const prefix = prefixOf(t, req.exportId);
     for (const [sha, bytes] of v.blobs) await conflict(t.objects, `${prefix}/blobs/${sha}`, bytes);
     return { v, t, revision, plan: { ...p, planSha256: await sha256Hex(encode(canonicalJson(p))) } as RestorePlan };
-  } catch (e) { await recordAfter(deps, { action, objectKind: 'case-export', objectId: req.exportId, caseId: v.caseId, outcome: 'failed' }); throw e; }
+  } catch (e) { await recordFailure(deps, { action, objectKind: 'case-export', objectId: req.exportId, caseId: v.caseId }, e); throw e; }
 }
 async function conflict(o: PrivateObjectPort, key: string, bytes: Uint8Array) {
   const have = await o.get(key).catch(() => { throw fail('storage-unavailable', true); });
@@ -73,8 +74,12 @@ async function conflict(o: PrivateObjectPort, key: string, bytes: Uint8Array) {
 /** Read-only: verifies the export, the target's isolation, emptiness and revision, and returns the plan to confirm. Writes nothing. */
 export async function planRestore(deps: RestoreDeps, req: RestoreRequest): Promise<RestorePlan> {
   const { plan: p, v } = await plan(deps, req, 'recovery.restore.plan', exportScopes);
-  await recordAfter(deps, { action: 'recovery.restore.plan', objectKind: 'case-export', objectId: req.exportId, caseId: v.caseId, outcome: 'succeeded' });
-  return p;
+  const audit = { action: 'recovery.restore.plan', objectKind: 'case-export', objectId: req.exportId, caseId: v.caseId };
+  try {
+    await recordAfter(deps, { ...audit, outcome: 'succeeded' });
+    await recheckExportAuthority(deps, v.manifest, exportScopes(v.caseId));
+    return p;
+  } catch (e) { await recordFailure(deps, audit, e); throw e; }
 }
 
 /**
@@ -98,14 +103,16 @@ export async function applyRestore(deps: RestoreDeps, req: ApplyRequest): Promis
       try { snapshot = JSON.parse(new TextDecoder().decode(v.blobs.get(uw.sha256)!)) as UserWorkExport; } catch { throw fail('manifest-invalid'); }
       if (snapshot.format !== 'clearcase.user-work/1' || !Array.isArray(snapshot.tables)) throw fail('manifest-invalid');
     }
-    await recheck(deps, writeScope(v.caseId));
     const items: [string, Uint8Array][] = [[`${prefix}/manifest.json`, encode(canonicalJson(v.manifest))], ...[...v.blobs].map(([sha, b]) => [`${prefix}/blobs/${sha}`, b] as [string, Uint8Array])];
     await conflict(t.objects, items[0]![0], items[0]![1]);
     const objects = { planned: items.length, written: 0, alreadyPresent: 0, verified: 0 };
     // Pre-restore snapshot of the target's own work, before the first change to it.
+    await recheckExportAuthority(deps, v.manifest, writeScope(v.caseId));
     if (snapshot) snapshotId = await t.userWork.snapshots.put({ caseId: t.caseId, snapshot: await emptyUserWork(t), revision });
     for (const [key, bytes] of items) {
-      const r = await t.objects.putIfAbsent({ key, bytes, sha256: await sha256Hex(bytes) }).catch(() => { throw fail('storage-unavailable', true); });
+      const sha256 = await sha256Hex(bytes);
+      await recheckExportAuthority(deps, v.manifest, writeScope(v.caseId));
+      const r = await t.objects.putIfAbsent({ key, bytes, sha256 }).catch(() => { throw fail('storage-unavailable', true); });
       if (r.kind === 'created') objects.written += 1; else objects.alreadyPresent += 1;
     }
     for (const [key, bytes] of items) {
@@ -113,8 +120,12 @@ export async function applyRestore(deps: RestoreDeps, req: ApplyRequest): Promis
       if (back && back.length === bytes.length && await sha256Hex(back) === await sha256Hex(bytes)) objects.verified += 1;
     }
     invariants.push({ name: 'objects-accounted', ok: objects.written + objects.alreadyPresent === objects.planned }, { name: 'objects-verified', ok: objects.verified === objects.planned });
+    // Integrity is a precondition, not merely a post-import warning. Keep the snapshot/additive objects for inspection.
+    if (objects.verified !== objects.planned || objects.written + objects.alreadyPresent !== objects.planned) throw fail('restore-failed');
+    if (snapshot && !snapshotId) throw fail('restore-failed');
     if (snapshot && snapshotId) {
-      // The expected-revision guard is the only gate on the import: a target that moved since the plan changes nothing.
+      await recheckExportAuthority(deps, v.manifest, writeScope(v.caseId));
+      // The expected-revision guard also prevents importing into a target that moved since the plan.
       const r = await t.userWork.importAll({ caseId: t.caseId, expectedRevision: revision, operationId: req.operationId, snapshot, preRestore: snapshotId as never });
       if (r.kind === 'stale') throw fail('stale-state');
       if (r.kind === 'gone') throw fail('not-found');
@@ -123,6 +134,7 @@ export async function applyRestore(deps: RestoreDeps, req: ApplyRequest): Promis
       invariants.push({ name: 'user-work-rows-accounted', ok: r.value.rows === uw!.rows && r.value.tables === uw!.tables }, { name: 'nothing-deleted', ok: deleted === 0 && replaced === 0 });
     }
     await recordAfter(deps, { ...audit, outcome: invariants.every((i) => i.ok) ? 'succeeded' : 'failed' });
+    await recheckExportAuthority(deps, v.manifest, writeScope(v.caseId));
     return { ok: invariants.every((i) => i.ok), planSha256: p.planSha256, preRestoreSnapshot: snapshotId, objects, userWork: { planned: { tables: uw?.tables ?? 0, rows: uw?.rows ?? 0 }, imported }, invariants, activated: false };
-  } catch (e) { await recordAfter(deps, { ...audit, outcome: 'failed' }); throw e; }
+  } catch (e) { await recordFailure(deps, audit, e); throw e; }
 }

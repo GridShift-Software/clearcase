@@ -1,8 +1,9 @@
 import type { AssetRef, OriginalEntry } from '../../server/runtime/contracts.ts';
 import { contractError } from '../../server/runtime/errors.ts';
-import { authorizeAndAudit, recheck, recordAfter, requireCaseId, requireObjects } from './authority.ts';
+import { authorizeAndAudit, recordAfter, recordFailure, requireCaseId, requireObjects } from './authority.ts';
 import { canonicalJson, encode, fail, ID, objectKeys, sha256Hex } from './bytes.ts';
 import { DEFAULT_LIMITS, EXPORT_FORMAT, type Accounting, type BlobRef, type EmbeddedRecord, type ExportManifest, type ExportResult, type Limits, type OriginalRecord, type PreviewRecord, type RecoveryDeps, type VersionRecord } from './types.ts';
+import { recheckExportAuthority, requireVisibility, requireVisible } from './visibility.ts';
 
 export interface ExportRequest { caseId: string; exportId: string; includeUserWork: boolean }
 interface Budget { files: number; bytes: number; limits: Limits }
@@ -21,6 +22,7 @@ const take = (b: Budget, size: number) => {
  */
 export async function exportCase(deps: RecoveryDeps, req: ExportRequest): Promise<ExportResult> {
   const objects = requireObjects(deps);
+  requireVisibility(deps);
   const caseId = requireCaseId(req.caseId);
   if (!ID.test(req.exportId) || typeof req.includeUserWork !== 'boolean') throw fail('invalid-request');
   const limits: Limits = { ...DEFAULT_LIMITS, ...deps.limits };
@@ -61,6 +63,7 @@ export async function exportCase(deps: RecoveryDeps, req: ExportRequest): Promis
     const published = info.publication.kind === 'published' ? info.publication.resultsVersion : null;
     const previews: PreviewRecord[] = [];
     if (published) {
+      await requireVisible(deps, caseId, published);
       if (!deps.previews) throw fail('recovery-unavailable', true);
       const entries = await deps.previews.previewsOf({ caseId, resultsVersion: published });
       for (const entry of entries) {
@@ -76,6 +79,7 @@ export async function exportCase(deps: RecoveryDeps, req: ExportRequest): Promis
     const resultsVersions: VersionRecord[] = [];
     for (const version of await store.versionsOf({ caseId })) {
       if (version.case_id !== caseId) throw fail('foreign-input');
+      await requireVisible(deps, caseId, version.id);
       const scope = { caseId, resultsVersion: version.id };
       const verdict = await store.verifyVersion(scope);
       if (!verdict.ok) throw fail('package-corrupt');
@@ -122,14 +126,15 @@ export async function exportCase(deps: RecoveryDeps, req: ExportRequest): Promis
       if (!back) throw fail('export-incomplete', true);
       if (back.length !== bytes.length || await sha256Hex(back) !== sha) throw fail('export-corrupt');
     }
-    await recheck(deps, scopes);
     const manifestSha256 = await sha256Hex(manifestBytes);
+    await recheckExportAuthority(deps, manifest, scopes);
     const put = await objects.putIfAbsent({ key: keys.manifest, bytes: manifestBytes, sha256: manifestSha256 }).catch(() => { throw fail('storage-unavailable', true); });
     if (put.kind === 'exists') throw fail('export-exists');
     await recordAfter(deps, { ...audit, outcome: 'succeeded' });
+    await recheckExportAuthority(deps, manifest, scopes);
     return { manifest, manifestSha256, manifestKey: keys.manifest, accounting: manifest.accounting };
   } catch (e) {
-    await recordAfter(deps, { ...audit, outcome: 'failed' });
+    await recordFailure(deps, audit, e);
     throw e;
   }
 }

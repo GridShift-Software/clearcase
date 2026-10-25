@@ -25,6 +25,11 @@ export async function record(deps: Pick<RecoveryDeps, 'audit' | 'identity' | 'no
 /** The completion/failure record is best effort: the required record already preceded the first byte. */
 export async function recordAfter(deps: Parameters<typeof record>[0], a: Parameters<typeof record>[1]) { try { await record(deps, a); } catch { /* the outcome stands; the pre-read record exists */ } }
 
+/** Late authority/visibility denials must not be recorded merely as successful reads or storage faults. */
+export async function recordFailure(deps: Parameters<typeof record>[0], a: Omit<Parameters<typeof record>[1], 'outcome'>, error: unknown) {
+  await recordAfter(deps, { ...a, outcome: isDenial(error) || codeOf(error) === 'not-found' ? 'denied' : 'failed' });
+}
+
 /**
  * Explicit authority for every scope, then the required audit record, all before any byte is read. A denial appends a scoped
  * denial (best effort) and is rethrown unchanged; an audit fault refuses the work, because an unrecorded read is not allowed.
@@ -46,5 +51,7 @@ export async function authorizeAndAudit(deps: Pick<RecoveryDeps, 'audit' | 'iden
 export async function recheck(deps: Pick<RecoveryDeps, 'identity'>, scopes: readonly { caseId: CaseId; operation: CaseOperation }[]) {
   await deps.identity.checkRevocation();
   for (const s of scopes) await deps.identity.authorize(s);
+  // Grant lookups are awaited too; a session revoked during them must not survive this boundary.
+  await deps.identity.checkRevocation();
 }
 export { codeOf };

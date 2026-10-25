@@ -60,7 +60,14 @@ export function world(over: Partial<{ clientId: ClientId; published: boolean; us
   const audit = { async append(e: AuditEvent) { if (k.auditDown) throw new Error('down'); calls.audit.push(e); return { eventId: e.eventId }; } };
   let n = 0;
   const objects = new MemObjects();
-  const deps: RecoveryDeps = { profile: 'hosted-gate', now: () => new Date('2026-10-25T00:00:00Z'), newId: () => `ev-${++n}`, identity, store: store as never, assets: assets as never, previews: previewCatalog, userWork, audit, objects };
+  const visibility: NonNullable<RecoveryDeps['visibility']> = {
+    kind: 'test-standin',
+    async isVisible({ identity: caller, caseId, resultsVersion }) {
+      const current = await store.getCase();
+      return caller.clientId === clientId && caseId === CASE && current.publication.kind === 'published' && current.publication.resultsVersion === resultsVersion;
+    },
+  };
+  const deps: RecoveryDeps = { visibility, profile: 'hosted-gate', now: () => new Date('2026-10-25T00:00:00Z'), newId: () => `ev-${++n}`, identity, store: store as never, assets: assets as never, previews: previewCatalog, userWork, audit, objects };
   return { k, calls, deps, objects, originals, previews, files, userExport, version, identity };
 }
 

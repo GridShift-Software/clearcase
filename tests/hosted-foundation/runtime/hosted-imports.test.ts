@@ -61,6 +61,54 @@ describe('resolved hosted import boundary', () => {
       expect(checkHostedGraph({ root, profile }).errors).toEqual([]);
     });
   });
+  describe.each(['production', 'hosted-gate'] as const)('provisioning-only boundary in %s', (profile) => {
+    const modules = {
+      'src/lib/tenancy/index.ts': "export * from './management'; export { d1GrantRepository } from './d1-grants';",
+      'src/lib/tenancy/management.ts': 'export const createGrantManagement = () => ({});',
+      'src/lib/tenancy/d1-grants.ts': 'export const d1GrantRepository = () => ({});',
+      'src/lib/tenancy/provisioning.ts': "export const createManagerBootstrap = () => ({ grantManager: async () => ({}) });",
+      'src/lib/audit/provisioning.ts': "export const provisioningAuditPort = () => ({ append: async () => ({}) });",
+      'src/lib/audit/index.ts': "export { requestAuditSink } from './facades';",
+      'src/lib/audit/facades.ts': 'export const requestAuditSink = () => ({ append: async () => ({}) });',
+    };
+    const make = (hooks: string, files: Record<string, string> = {}) => project(hooks, { ...modules, 'src/hosted/gate.server.ts': hooks, ...files });
+    it.each(['$lib/tenancy/provisioning', '$lib/audit/provisioning'])('rejects a deep import from a route: %s', async (specifier) => {
+      const root = await make('export {};', { 'src/hosted/routes/boot/+server.ts': `import '${specifier}';` });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('provisioning-only module is unreachable from the hosted request graph');
+    });
+    it('rejects the bootstrap behind a re-export and a literal dynamic import', async () => {
+      const root = await make("import '$bridge';", {
+        'src/bridge.ts': "export * from './next';",
+        'src/next.ts': "export const forge = () => import('$lib/tenancy/provisioning');",
+      });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('provisioning-only module is unreachable from the hosted request graph');
+    });
+    it('rejects it even from the trusted service composer, and when another edge already visited it', async () => {
+      const root = await make("import '$lib/server/runtime/hosted/services';", {
+        'src/lib/server/runtime/hosted/services.ts': "export { createManagerBootstrap } from '$lib/tenancy/provisioning'; export { provisioningAuditPort } from '$lib/audit/provisioning';",
+        'src/hosted/routes/boot/+server.ts': "export { createManagerBootstrap } from '$lib/tenancy/provisioning';",
+      });
+      const errors = checkHostedGraph({ root, profile }).errors.join('\n');
+      expect(errors).toContain('services.ts -> src/lib/tenancy/provisioning.ts: provisioning-only module is unreachable from the hosted request graph');
+      expect(errors).toContain('services.ts -> src/lib/audit/provisioning.ts: provisioning-only module is unreachable from the hosted request graph');
+      expect(errors).toContain('routes/boot/+server.ts -> src/lib/tenancy/provisioning.ts: provisioning-only module is unreachable from the hosted request graph');
+    });
+    it('keeps the audit core, which holds the system-actor core, out of reach of the trusted composer by name', async () => {
+      const root = await make("import '$lib/server/runtime/hosted/services';", {
+        'src/lib/audit/d1-log.ts': 'export const provisioningCore = () => ({});',
+        'src/lib/server/runtime/hosted/services.ts': "export { provisioningCore } from '$lib/audit/d1-log';",
+      });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('services.ts -> src/lib/audit/d1-log.ts: audit core (with the system-actor provisioning core) is internal to src/lib/audit');
+    });
+    it('does not let the public tenancy and audit barrels reach it', async () => {
+      const root = await make("import '$lib/tenancy'; import '$lib/audit';");
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).not.toContain('provisioning-only');
+    });
+    it('erases a type-only import of the provisioning module', async () => {
+      const root = await make('export {};', { 'src/hosted/routes/boot/+server.ts': "import type { createManagerBootstrap } from '$lib/tenancy/provisioning'; export const GET = () => new Response();" });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).not.toContain('provisioning-only');
+    });
+  });
   it('accepts the actual selected hosted graph and excludes host-only tooling', () => {
     const result = checkHostedGraph({ root: process.cwd() });
     expect(result.errors).toEqual([]);

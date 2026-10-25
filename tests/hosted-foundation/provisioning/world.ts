@@ -3,13 +3,14 @@
 // fail, and a case directory. None of this is real Clerk, D1 or provisioning evidence.
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import type { AuditEvent, AuditSink, CaseId, Principal, SessionId } from '../../../src/lib/server/runtime/contracts.ts';
+import type { AuditEvent, CaseId, Principal, SessionId, SystemAuditEvent } from '../../../src/lib/server/runtime/contracts.ts';
 import type { D1, D1Statement } from '../../../src/lib/server/runtime/hosted/bindings.ts';
 import { id } from '../../../src/lib/server/runtime/ids.ts';
 import { createCaseAuthorizer } from '../../../src/lib/tenancy/authorizer.ts';
 import { d1GrantRepository } from '../../../src/lib/tenancy/d1-grants.ts';
 import type { GrantRole } from '../../../src/lib/tenancy/grants.ts';
-import { createGrantManagement, createManagerBootstrap } from '../../../src/lib/tenancy/management.ts';
+import { createGrantManagement } from '../../../src/lib/tenancy/management.ts';
+import { createManagerBootstrap } from '../../../src/lib/tenancy/provisioning.ts';
 import { resolveExactDeployment, validateClientManifest } from '../../../src/lib/tenancy/manifest.ts';
 
 export const MIGRATIONS = ['0001_tenant_case_grants.sql', '0002_tenant_grant_operations.sql'].map((f) => readFileSync(new URL(`../../../src/lib/tenancy/migrations/${f}`, import.meta.url), 'utf8'));
@@ -49,13 +50,13 @@ export function world(o: { cases?: CaseId[] } = {}) {
   const db = new DatabaseSync(':memory:');
   db.exec(MIGRATION);
   let clock = new Date('2026-10-24T12:00:00.000Z');
-  const events: AuditEvent[] = [];
+  const events: (AuditEvent | SystemAuditEvent)[] = [];
   const state = { auditFails: false, casesFail: false, grantsFail: false, lostAck: false, findFails: false, batchFails: false, appends: 0 };
   // The audit stand-in follows the gate's contract: event_id is a primary key, so a repeated append is refused. It can
   // fail before persisting (auditFails), persist and then lose the acknowledgement (lostAck), and answer a lookup by
   // event id (findFails makes that lookup unavailable).
   const unavailable = () => Object.assign(new Error('audit-unavailable'), { code: 'audit-unavailable', retryable: true });
-  const audit: AuditSink & { find(eventId: string): Promise<AuditEvent | null> } = {
+  const audit: { append(e: AuditEvent | SystemAuditEvent): Promise<{ eventId: string }>; find(eventId: string): Promise<AuditEvent | SystemAuditEvent | null> } = {
     async append(e) {
       state.appends++;
       if (state.auditFails) throw unavailable();

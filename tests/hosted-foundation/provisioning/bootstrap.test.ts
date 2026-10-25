@@ -2,7 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { id } from '../../../src/lib/server/runtime/ids.ts';
 import { createCaseAuthorizer } from '../../../src/lib/tenancy/authorizer.ts';
-import { createGrantManagement, createManagerBootstrap } from '../../../src/lib/tenancy/management.ts';
+import { createGrantManagement } from '../../../src/lib/tenancy/management.ts';
+import { createManagerBootstrap } from '../../../src/lib/tenancy/provisioning.ts';
 import { CASE_1, ISSUER_A, ISSUER_C, SESSION, SESSION_2, client, staff, world } from './world.ts';
 
 const root = { operator: 'provisioning-run-1' }, admin = client('user_admin'), alice = client('user_alice'), ga = staff('staff_ga');
@@ -14,7 +15,7 @@ describe('trusted manager bootstrap', () => {
     const w = world();
     expect(await boot(w, 'boot-1')).toMatchObject({ kind: 'applied', repeated: false, grant: { role: 'grant-admin', state: 'active', scope: { kind: 'client' }, createdBy: { issuer: 'control-plane:client-a', subject: 'provisioning-run-1' } } });
     expect(await boot(w, 'boot-1')).toMatchObject({ kind: 'applied', repeated: true });
-    expect(w.events.filter((e) => e.action === 'grant.bootstrap')).toMatchObject([{ eventId: 'grant-op:boot-1', outcome: 'succeeded', object: { kind: 'case-grant', caseId: null }, actor: { principal: { issuer: 'control-plane:client-a', subject: 'provisioning-run-1' } } }]);
+    expect(w.events.filter((e) => e.action === 'grant.bootstrap')).toMatchObject([{ eventId: 'grant-op:boot-1', outcome: 'succeeded', object: { kind: 'case-grant', caseId: null }, actor: { kind: 'system', component: 'provisioning', operator: 'provisioning-run-1' } }]);
     expect(await w.manage.create({ actor: w.actor(admin), operationId: 'op-1', target: alice, role: 'viewer', caseId: CASE_1, expiresAt: null })).toMatchObject({ kind: 'applied' });
     await expect(w.manage.create({ actor: w.actor(admin), operationId: 'op-2', target: ga, role: 'grant-admin', caseId: null, expiresAt: null })).rejects.toMatchObject({ code: 'forbidden' });
     expect(await boot(w, 'boot-2', ga)).toMatchObject({ kind: 'applied' }); // a further manager is again the control plane's decision

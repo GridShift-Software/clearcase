@@ -1,6 +1,6 @@
 # Client instances, case grants and authorization (GRS-114)
 
-Status: PREPARED/UNVERIFIED (security fix round 1 applied over the HOLD review of 3ff8f923). Source factories, ports and unit tests over synthetic doubles only. Nothing is composed into the hosted runtime; no Clerk, D1, R2, Worker or provisioning run has happened. Production keeps refusing protected requests (503) until the coordinator composes real adapters.
+Status: PREPARED/UNVERIFIED (security fix round 1 applied over the HOLD review of 3ff8f923; system-actor supplemental correction applied at f8d2b7b3 plus descendant commits). Source factories, ports and unit tests over synthetic doubles only. Nothing is composed into the hosted runtime; no Clerk, D1, R2, Worker or provisioning run has happened. Production keeps refusing protected requests (503) until the coordinator composes real adapters.
 
 Decisions: [ADR-0007](../adr/0007-hosted-client-isolation-and-identity.md), [ADR-0008](../adr/0008-workers-runtime-and-cloudflare-first-stack.md).
 
@@ -10,8 +10,9 @@ Decisions: [ADR-0007](../adr/0007-hosted-client-isolation-and-identity.md), [ADR
 - `grants.ts`: grant types, the `GrantRepository` port and the `CaseDirectory` port (`exists({ clientId, caseId })`, owned by storage, GRS-115).
 - `d1-grants.ts`: `d1GrantRepository(db)` over the `tenant_case_grants` table (`migrations/0001_tenant_case_grants.sql`). The table has no foreign key to any case table.
 - `authorizer.ts`: `createCaseAuthorizer({ deployment, grants, cases, audit, now })` returns `{ authorizeCase, authorizeCapability }`.
-- `management.ts`: `createGrantManagement({ deployment, grants, cases, audit, now })` returns `{ create, update, revoke }`. `createManagerBootstrap({ deployment, grants, audit, now })` returns `{ grantManager }`, the separate trusted authority for management authority (below).
-- `audit.ts`: the `GrantAuditPort` (`AuditSink` plus `find(eventId)`), canonical JSON and the SHA-256 digest used to compare events.
+- `management.ts`: `createGrantManagement({ deployment, grants, cases, audit, now })` returns `{ create, update, revoke }`. The bootstrap, `createManagerBootstrap({ deployment, grants, audit, now })` returning `{ grantManager }`, lives in `provisioning.ts`: provisioning only, not exported from the tenancy index, and no hosted module may import it (below).
+- `audit.ts`: the `GrantAuditPort` (`AuditSink` plus `find(eventId)`), the `ProvisioningAuditPort` (a system-event `append` plus `find`, for the bootstrap only), canonical JSON and the SHA-256 digest used to compare events.
+- `operations.ts`: internal. The operation ledger and settle step that `management.ts` and `provisioning.ts` share. Not exported from the index; it confers no authority.
 - `migrations/0002_tenant_grant_operations.sql`: the operation ledger, additive. `tenant_case_grants`, its grant ids and constraints are untouched.
 
 ## The frozen callback for GRS-113
@@ -44,7 +45,7 @@ Identity can implement `Identity.authorize({ caseId, operation })` as `authorize
 - Management requires an active `grant-admin` grant. Nobody can grant to themselves or change their own grants.
   - Management authority is not bestowable by a manager. `create` and `update` refuse any `grant-admin` grant (new, or a role change into it) and any change of an existing one, each with a denial event. Revoking a grant, including a grant-admin one, stays allowed.
   - Explicit case grants by independently authorised managers are legitimate. This code cannot tell whether two humans collude, and does not claim to; there is no two-person rule.
-  - The first and every further `grant-admin` comes from `createManagerBootstrap`. It is a trusted control-plane factory: provisioning composes it from deployment configuration in a provisioning job, and request-serving code must not import it. Its actor is the label `control-plane:<clientId>` plus the caller's `operator` string (not a verified identity, and it authorizes nothing). It grants only `grant-admin`, client-wide, with the same pending, audit, idempotency and binding rules.
+  - The first and every further `grant-admin` comes from `createManagerBootstrap`. It is a trusted control-plane factory: provisioning composes it from deployment configuration in a provisioning job, and request-serving code must not import it. Its ledger actor is the label `control-plane:<clientId>` plus the caller's `operator` string (not a verified identity, and it authorizes nothing). Its audit actor is the system actor `{ kind: 'system', component: 'provisioning', operator }`: no principal, session, issuer or verified claim, so no reader that filters verified staff can mistake it for a person (GRS-114 supplemental correction, 25 October 2026). It is not an `IdentityState` and confers no capability; request identities stay `anonymous | verified`. The bootstrap needs a `ProvisioningAuditPort` (`audit/provisioning.ts`), which is the only port that can record a system actor. Request ports (`requestAuditSink`, the grant port, the log) refuse it as `invalid-event`. It grants only `grant-admin`, client-wide, with the same pending, audit, idempotency and binding rules.
   - Every change is compare-and-set on `version` and keyed by `operationId`. An operation id is bound to the client, the actor principal (issuer, subject, kind), the operation type and the canonical request that first used it. Another actor, type or request gets `conflict/operation-reused` and nothing of the original. The same principal on a new session resumes, with the original event.
   - A live grant in the same slot returns `conflict/slot-taken`. Viewer and editor share one slot; operator, publisher and grant-admin each have their own.
 - Audit and retries. The operation ledger (`tenant_grant_operations`) is written in the same D1 batch as the change. It fixes the event (actor, session, instant, canonical JSON and digest) before any append, and a retry uses that row, never a rebuilt event.
@@ -59,7 +60,7 @@ Identity can implement `Identity.authorize({ caseId, operation })` as `authorize
   - Apply `src/lib/tenancy/migrations/0001_tenant_case_grants.sql` and `0002_tenant_grant_operations.sql`, in that order, in each client D1.
   - Compose `resolveExactDeployment` from trusted deployment configuration, then the authorizer, then the GRS-113 provider in `hosted/services.ts`.
   - Provide the reviewed per-client route contract for any management UI. No routes are added here.
-  - Call `createManagerBootstrap(...).grantManager` from provisioning only, for each client's first `grant-admin`. Tests seed it directly. Who may run it, and under what review, is the coordinator's policy decision; nothing here proves it.
+  - Call `createManagerBootstrap(...).grantManager` (from `src/lib/tenancy/provisioning.ts`, with `provisioningAuditPort` from `src/lib/audit/provisioning.ts`) from provisioning only, for each client's first `grant-admin`. Tests seed it directly. Who may run it, and under what review, is the coordinator's policy decision; nothing here proves it.
 - **GRS-113**: inject `authorizeCase` and supply the verified `Principal` and `SessionId` only.
 - **GRS-115**: implement `CaseDirectory.exists` over its own case schema.
 - **GRS-116**: the event shapes are `case.<operation>` and `grant.create|update|revoke|bootstrap`, with object kinds `case` and `case-grant`. Management event ids are `grant-op:<operationId>`. Provide the D1 adapter for `GrantAuditPort`: `append` over the unchanged global sink, and `find(eventId)` reading back the stored event over the same table. `event_id` must stay a primary key; the exactly-once guarantee rests on that uniqueness plus `find`. Management and the bootstrap throw at construction without `find`: a plain append-only sink cannot prove whether a lost acknowledgement persisted, so there is no recovery without it. The global `AuditSink` is not changed.
@@ -73,3 +74,15 @@ scripts/agent-tools/receipt --base b6e4ef39ee52aef8be14c2cc1141d438a9673a56 --na
 ```
 
 These are unit tests over node:sqlite and in-memory doubles. They are not D1, Clerk or provisioning evidence. The two-client staging proof, direct-request role tests and the full gate remain UNRUN.
+
+## Disclosure addendum: three post-RED test corrections in security-fix.test.ts (GRS-114)
+
+Source: the fix-round-1 recheck (`native-grs114-fix-recheck-r1`) and a byte-for-byte rerun of the RED file from 5dca8304 against current source. After RED, three tests were corrected and the change was not disclosed at the time. This records it. The original RED commit, its receipts and this history are preserved, and nothing is retrospectively called an adverse-first result.
+
+| Test | Why the RED version was defective | Actual failure of the unmodified RED test on the fixed source |
+|---|---|---|
+| H1 `denied` filter | Its denied-event list was unfiltered, but the base already audited a `case.write-user-work` denial. The filter gained the same `grant.` prefix (`e.action.startsWith('grant.')`). | `expected [Array(4)] to deeply equal [Array(3)]` |
+| M1 `createdBy: admin` | The stored `createdBy` is `{ issuer, subject }` and has no `kind`, so `toMatchObject(admin)` could never match. It now names `{ issuer, subject }`. | `expected { kind: 'applied', … } to match object { kind: 'applied', … }` |
+| M1 revoke leg | It revoked a grant that the preceding update had already superseded. That gave `stale`, and `toBeDefined()` masked it. It was split into separate update and revoke tests that assert `audit-pending`, the other manager's `operation-reused`, and the original actor's resume. | `expected { kind: 'stale' } to deeply equal { kind: 'conflict', … }` |
+
+The recheck ruled each edit a correction of a RED-test defect that does not loosen the protected contract. It also ruled the separate edit to `management.test.ts:58` a PASS. Probe: the unmodified RED file gives 3 failed and 13 passed at the fixed source.

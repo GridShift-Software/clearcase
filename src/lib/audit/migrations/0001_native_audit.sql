@@ -52,7 +52,9 @@ CREATE TABLE native_audit_events (
   case_id TEXT,
   version TEXT,
   outcome TEXT NOT NULL CHECK (outcome IN ('succeeded', 'denied', 'failed', 'refused')),
-  actor_kind TEXT NOT NULL CHECK (actor_kind IN ('anonymous', 'verified')),
+  -- 'system' is automated provisioning (the grant-admin bootstrap): not an identity, written only by the trusted
+  -- provisioning port, and refused by every request port in code.
+  actor_kind TEXT NOT NULL CHECK (actor_kind IN ('anonymous', 'verified', 'system')),
   at TEXT NOT NULL,
   canonical TEXT NOT NULL,
   sha256 TEXT NOT NULL CHECK (length(sha256) = 64),

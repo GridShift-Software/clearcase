@@ -23,7 +23,7 @@ export interface Script {
 }
 
 export const listRow = (ref: string, ord: number, over: Partial<C.DocumentRow['list']> = {}): C.DocumentRow['list'] => ({
-  ref, ord, date: `2024-01-0${ord}`, dateType: null, dateSource: null, docType: 'letter', bundle: 'B1', subject: `Subject ${ref}`, filename: `${ref}.pdf`, sender: 'Sender', to: 'To', excerpt: '', amount: '', alsoIn: [], url: '', textStatus: 'extracted', parentRef: null, file: 'present', preview: 'inline', attachments: 0, ...over,
+  ref, ord, date: `2024-01-0${ord}`, dateType: null, dateSource: null, docType: 'letter', bundle: 'B1', subject: `Subject ${ref}`, filename: `${ref}.pdf`, sender: 'Sender', to: 'To', excerpt: '', amount: '', alsoIn: [], url: '', textStatus: 'extracted', parentRef: null, file: 'present', preview: 'inline-isolated', attachments: 0, ...over,
 });
 
 export const ROWS = [

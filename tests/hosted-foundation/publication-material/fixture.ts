@@ -46,7 +46,7 @@ export class PrimaryD1 extends SqliteD1 {
   sessions: string[] = [];
   withSession(constraint: 'first-primary') { this.sessions.push(constraint); return this; }
 }
-export async function world(o: { fold?: boolean; textStatus?: 'none' | 'extracted'; section?: boolean; page?: number; missing?: boolean; alias?: boolean; mediaType?: string; settled?: boolean } = {}) {
+export async function world(o: { fold?: boolean; textStatus?: 'none' | 'extracted'; section?: boolean; page?: number; missing?: boolean; alias?: boolean; mediaType?: string; settled?: boolean; excerpt?: string; refs?: string[] } = {}) {
   const db = new PrimaryD1(), bucket = new MemoryR2();
   for (const p of ['tenancy/migrations/0001_tenant_case_grants.sql', 'tenancy/migrations/0002_tenant_grant_operations.sql',
     'results-review/native/migrations/0001_native_candidate_import.sql', 'publication/hosted/migrations/0001_publication_ledger.sql',
@@ -76,8 +76,8 @@ export async function world(o: { fold?: boolean; textStatus?: 'none' | 'extracte
     datasets: [{ key: 'chronology', kind: 'generated', schema: 'v5.chronology@1', required: true,
       provenance: { source: 'synthetic', sourcePath: 'DATA.chronology', adapter: 'test@1' },
       data: refs.map((ref) => ({ ref, n: '1', seq: '1', date: '2001-01-01', filename: 'Letter.pdf', subject: 'Invented <script> content',
-        sender: '', to: '', cc: '', excerpt: o.page !== undefined ? `See [[OD-001#p${o.page}]]` : '', doc_type: 'other', bundle: '', amount: '', also_in: [],
-        text_status: textStatus, url: '', refs: [], invoice_no: '', size: bytes.byteLength, attachments: [] })),
+        sender: '', to: '', cc: '', excerpt: o.excerpt ?? (o.page !== undefined ? `See [[OD-001#p${o.page}]]` : ''), doc_type: 'other', bundle: '', amount: '', also_in: [],
+        text_status: textStatus, url: '', refs: o.refs ?? [], invoice_no: '', size: bytes.byteLength, attachments: [] })),
     }, ...(o.section ? [{ key: 'risk-matrix', kind: 'authored' as const, schema: 'v5.risk-matrix@1', required: true,
       provenance: { source: 'synthetic', sourcePath: 'DATA.riskMatrix', adapter: 'test@1' }, data: [] }] : [])],
     assets: Object.fromEntries([...refs.map((ref) => [ref, { kind: 'file' as const, path: indexedPath, sha256: hash, size: bytes.byteLength, mediaType, textStatus }]),

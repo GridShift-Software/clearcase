@@ -245,7 +245,7 @@ async function postRevoke(a: { config: ClerkIdentityConfig; instance: ClerkInsta
 		res = await (a.fetcher ?? fetch)(`${a.config.apiUrl ?? CLERK_API}/v1/sessions/${encodeURIComponent(a.sessionId)}/revoke`, {
 			method: 'POST',
 			headers: { authorization: `Bearer ${a.instance.secretKey}`, 'content-type': 'application/json' },
-			redirect: 'error',
+			redirect: 'manual', // workerd has no 'error' mode; a 3xx comes back unfollowed and is not ok
 		});
 	} catch {
 		throw contractError('identity-unavailable', true);
@@ -270,7 +270,7 @@ export async function revokeOwnedSession(a: { config: ClerkIdentityConfig; evide
 		res = await (a.fetcher ?? fetch)(`${config.apiUrl ?? CLERK_API}/v1/sessions/${encodeURIComponent(evidence.sessionId)}`, {
 			method: 'GET',
 			headers: { authorization: `Bearer ${evidence.instance.secretKey}` },
-			redirect: 'error',
+			redirect: 'manual', // workerd has no 'error' mode; a 3xx comes back unfollowed and is not ok
 		});
 	} catch {
 		throw contractError('identity-unavailable', true);

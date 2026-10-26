@@ -12,9 +12,9 @@ export interface RouteEvent { request: Request; url: URL; params: Record<string,
 
 export function compose(ports: unknown): void { setIntakeComposition(ports ? () => ports as IntakePorts : null); }
 export function repositoryFor(db: unknown) { return d1SubmissionRepository(db as IntakeD1); }
+const methodNotAllowed = async (): Promise<Response> => new Response(null, { status: 405 });
 export async function dispatch(route: Route, method: 'GET' | 'POST' | 'PUT', event: RouteEvent): Promise<Response> {
   const handlers: Record<string, ((e: never) => Promise<Response>) | undefined> = route === 'submissions' ? { GET: list.GET, POST: list.POST } : { GET: one.GET, PUT: one.PUT };
-  const h = handlers[method];
-  if (!h) return new Response(null, { status: 405 });
+  const h = handlers[method] ?? methodNotAllowed;
   return h({ ...event, platform: undefined } as never);
 }

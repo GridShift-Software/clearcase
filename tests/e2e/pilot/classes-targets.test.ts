@@ -281,25 +281,349 @@ test('keeps the real app inventory at the base 19 pages and one server without r
 });
 
 // The hosted route tree (deploy/client/routes, GRS-112) is not src/routes, so the class suite does not map its forms. Each
-// hosted page with a form is declared with a reason (declared.mjs HOSTED_FORMS), and the reason is checked: the route is
-// one discovery finds, and the hosted smoke run (tests/hosted-foundation/runtime/smoke.ts) names it.
+// hosted page with a form is declared with a reason (declared.mjs HOSTED_FORMS), and the reason is checked against evidence
+// of a declared kind (HOSTED_FORM_EVIDENCE): the three test-identity routes are named by the hosted smoke run; the others
+// are driven by tracked unit or component tests that import and call the real route modules over doubles. The unit and
+// component kinds are never browser or workerd proof, and a harness file or a comment is not evidence.
 // @ts-expect-error plain .mjs
 import { hostedForms } from '../classes/targets.mjs';
-import { readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import ts from 'typescript';
+
+type Evidence = { kind: string; test: string; module?: string; via?: { file: string; export: string } };
+const SMOKE = 'tests/hosted-foundation/runtime/smoke.ts';
+// The original three smoke-bound routes, pinned here and not read from declared.mjs, so one cannot be relabelled to evade the smoke check.
+const SMOKE_ROUTES = ['/cases', '/sign-in', '/sign-out'];
+
+const parseTs = (root: string, rel: string) => ts.createSourceFile(rel, readFileSync(join(root, rel), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+const visit = (node: ts.Node, fn: (n: ts.Node) => void) => { fn(node); ts.forEachChild(node, (c) => visit(c, fn)); };
+const gitTracked = (root: string, rel: string) => spawnSync('git', ['ls-files', '--error-unmatch', '--', rel], { cwd: root, stdio: 'ignore' }).status === 0;
+
+// Driving code is a call on a reachable path from an enabled vitest test callback, over a small supported subset: straight-line
+// statements, try and finally blocks, and `if` conditions. A call behind a condition, a short circuit, an optional chain, a
+// loop or a switch does not count, and nothing after a statement that may end the function does: a return, throw or break
+// behind any non-literal condition, a local function that may throw or holds a loop, switch or label, a loop or another unsupported statement. A call reaches local helpers, callbacks a helper runs through its parameter, and const aliases, object
+// tables and conditional or `??`/`||` choices of values, minus an arm its test proves is never selected. This is source evidence that the test executes the code, not that it passes.
+type Param = { fn: ts.SignatureDeclaration; index: number };
+type Value = ts.Node | Param | 'target';
+const isNode = (v: Value): v is ts.Node => typeof v === 'object' && 'kind' in v;
+const isFn = (v: Value): v is ts.FunctionLikeDeclaration => isNode(v) && ts.isFunctionLike(v) && 'body' in v && v.body !== undefined;
+const strip = (e: ts.Expression): ts.Expression => {
+ while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e) || ts.isNonNullExpression(e) || ts.isTypeAssertionExpression(e)) e = e.expression;
+ return e;
+};
+/** A literal condition's truth, undefined when it is opaque. */
+function literal(e: ts.Expression): boolean | undefined {
+ e = strip(e);
+ if (e.kind === ts.SyntaxKind.TrueKeyword) return true;
+ if (e.kind === ts.SyntaxKind.FalseKeyword || e.kind === ts.SyntaxKind.NullKeyword) return false;
+ if (ts.isNumericLiteral(e)) return Number(e.text) !== 0;
+ if (ts.isStringLiteralLike(e)) return e.text !== '';
+ if (ts.isPrefixUnaryExpression(e) && e.operator === ts.SyntaxKind.ExclamationToken) { const k = literal(e.operand); return k === undefined ? undefined : !k; }
+ return undefined;
+}
+const FALLS_THROUGH = new Set([ts.SyntaxKind.ExpressionStatement, ts.SyntaxKind.VariableStatement, ts.SyntaxKind.EmptyStatement, ts.SyntaxKind.FunctionDeclaration, ts.SyntaxKind.ClassDeclaration, ts.SyntaxKind.InterfaceDeclaration, ts.SyntaxKind.TypeAliasDeclaration, ts.SyntaxKind.ImportDeclaration]);
+const NO_TARGETS = new Set<string>();
+/** Control flow the walk does not model: a loop, a switch or a label can keep a function from ever completing. */
+const UNMODELLED = (n: ts.Node) => ts.isIterationStatement(n, false) || ts.isSwitchStatement(n) || ts.isLabeledStatement(n) || ts.isWithStatement(n);
+const isAsync = (v: ts.Node) => ts.canHaveModifiers(v) && !!ts.getModifiers(v)?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword);
+/** Whether `v`, or a local function it calls or is handed, is async: a throw there is a rejection, not a synchronous throw. */
+function reachesAsync(v: Value, seen = new Set<ts.Node>()): boolean {
+ if (!isFn(v) || seen.has(v)) return false;
+ seen.add(v);
+ if (isAsync(v)) return true;
+ let hit = false;
+ const walk = (m: ts.Node): void => {
+  if (hit || (m !== v.body && ts.isFunctionLike(m))) return;
+  if (ts.isCallExpression(m)) for (const e of [m.expression, ...m.arguments]) if (values(e, NO_TARGETS).some((c) => reachesAsync(c, seen))) hit = true;
+  ts.forEachChild(m, walk);
+ };
+ walk(v.body!);
+ return hit;
+}
+/** Whether a local function runs its parameter `index` only by calling it inside the try block of a try with a catch clause,
+ * and that call catches what the callback throws: it awaits the call, or `sync` says nothing the callback reaches is async
+ * (an unawaited call cannot catch a rejection, so an uncertain async completion is not caught).
+ * Any other use of the parameter (passed on, called in a catch, a finally, or a nested function) is not a structurally caught path. */
+function catchesCallback(fn: ts.FunctionLikeDeclaration, index: number, sync: boolean): boolean {
+ const param = fn.parameters[index];
+ if (!param) return !fn.parameters.some((q) => q.dotDotDotToken);
+ if (!ts.isIdentifier(param.name) || param.dotDotDotToken) return false;
+ let caught = true;
+ const awaited = (call: ts.Node) => { let p = call.parent; while (ts.isParenthesizedExpression(p)) p = p.parent; return ts.isAwaitExpression(p); };
+ const walk = (m: ts.Node, inTry: boolean): void => {
+  if (ts.isIdentifier(m) && m.text === (param.name as ts.Identifier).text && !(ts.isPropertyAccessExpression(m.parent) && m.parent.name === m) && !(ts.isPropertyAssignment(m.parent) && m.parent.name === m)
+   && !(inTry && ts.isCallExpression(m.parent) && m.parent.expression === m && (sync || awaited(m.parent)))) caught = false;
+  if (ts.isTryStatement(m)) { walk(m.tryBlock, inTry || !!m.catchClause); if (m.catchClause) walk(m.catchClause, inTry); if (m.finallyBlock) walk(m.finallyBlock, inTry); return; }
+  ts.forEachChild(m, (c) => walk(c, ts.isFunctionLike(c) ? false : inTry));
+ };
+ if (fn.body) walk(fn.body, false);
+ return caught;
+}
+/** Whether `n` may not complete: it throws, or holds a loop, switch or label, in its own statements or in a local function it
+ * calls (an IIFE or a helper, however deeply nested). A local function it passes as an argument to a local function is a callback
+ * that helper may run: its loops count, and so do its throws unless the helper runs it only on a structurally caught path
+ * (`outcome`'s try with a catch). `seen` holds whether each function was entered with throws counted. */
+function mayNotComplete(n: ts.Node, seen = new Map<ts.Node, boolean>(), throws = true): boolean {
+ let hit = false;
+ const enter = (v: Value, counts: boolean) => {
+  if (!isFn(v)) return;
+  const was = seen.get(v);
+  if (was === true || (was === false && !counts)) return;
+  seen.set(v, counts);
+  if (mayNotComplete(v.body!, seen, counts)) hit = true;
+ };
+ const walk = (m: ts.Node): void => {
+  if (hit || (m !== n && ts.isFunctionLike(m))) return;
+  if ((throws && ts.isThrowStatement(m)) || UNMODELLED(m)) hit = true;
+  else if (ts.isCallExpression(m)) {
+   const callees = values(m.expression, NO_TARGETS);
+   for (const v of callees) enter(v, throws);
+   for (const callee of callees) if (isFn(callee)) m.arguments.forEach((a, i) => { const vs = values(a, NO_TARGETS); for (const v of vs) enter(v, throws && !catchesCallback(callee, i, !vs.some((c) => reachesAsync(c)))); });
+  }
+  ts.forEachChild(m, walk);
+ };
+ walk(n);
+ return hit;
+}
+/** Whether what follows `s` in its block may not run: a statement that may end the function is not proved to fall through,
+ * whatever its condition (only a literal is folded), and an unsupported statement counts as ending it. */
+function ends(s: ts.Statement): boolean {
+ if (ts.isReturnStatement(s) || ts.isThrowStatement(s) || ts.isBreakOrContinueStatement(s)) return true;
+ if (ts.isBlock(s)) return s.statements.some(ends);
+ if (ts.isIfStatement(s)) {
+  const k = literal(s.expression), other = s.elseStatement !== undefined && ends(s.elseStatement);
+  return mayNotComplete(s.expression) || (k === true ? ends(s.thenStatement) : k === false ? other : other || ends(s.thenStatement));
+ }
+ if (ts.isTryStatement(s)) return ends(s.tryBlock) || (!!s.finallyBlock && ends(s.finallyBlock));
+ if (ts.isExpressionStatement(s) || ts.isVariableStatement(s)) return mayNotComplete(s);
+ return !FALLS_THROUGH.has(s.kind);
+}
+const SHORT_CIRCUIT = new Set([ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.AmpersandAmpersandEqualsToken, ts.SyntaxKind.BarBarEqualsToken, ts.SyntaxKind.QuestionQuestionEqualsToken]);
+const liveMemo = new WeakMap<ts.Node, ts.CallExpression[]>();
+/** The calls a function body makes on every run that reaches them, in the supported subset. */
+function liveCalls(fn: ts.FunctionLikeDeclaration): ts.CallExpression[] {
+ const memo = liveMemo.get(fn);
+ if (memo) return memo;
+ const out: ts.CallExpression[] = [];
+ const expr = (e: ts.Node | undefined): void => {
+  if (!e || ts.isFunctionLike(e) || ts.isClassLike(e) || ts.isOptionalChain(e)) return;
+  if (ts.isConditionalExpression(e)) return expr(e.condition);
+  if (ts.isBinaryExpression(e) && SHORT_CIRCUIT.has(e.operatorToken.kind)) return expr(e.left);
+  if (ts.isCallExpression(e)) out.push(e);
+  ts.forEachChild(e, expr);
+ };
+ const block = (ss: readonly ts.Statement[]) => { for (const s of ss) { statement(s); if (ends(s)) return; } };
+ const statement = (s: ts.Statement) => {
+  if (ts.isExpressionStatement(s) || ts.isReturnStatement(s) || ts.isThrowStatement(s)) expr(s.expression);
+  else if (ts.isVariableStatement(s)) for (const d of s.declarationList.declarations) expr(d.initializer);
+  else if (ts.isIfStatement(s)) expr(s.expression);
+  else if (ts.isBlock(s)) block(s.statements);
+  else if (ts.isTryStatement(s)) { block(s.tryBlock.statements); if (s.finallyBlock) block(s.finallyBlock.statements); }
+ };
+ if (fn.body && ts.isBlock(fn.body)) block(fn.body.statements); else expr(fn.body);
+ liveMemo.set(fn, out);
+ return out;
+}
+const bindsName = (b: ts.BindingName, name: string): boolean => ts.isIdentifier(b) ? b.text === name : b.elements.some((e) => ts.isBindingElement(e) && bindsName(e.name, name));
+type Binding = { param: Param } | { fn: ts.FunctionDeclaration } | { init: ts.Expression } | 'target' | 'opaque' | undefined;
+/** What binds an identifier at `at`: the nearest parameter, function or const in scope; a top-level `targets` name is the target; 'opaque' for a binding it does not follow (a let, a pattern); undefined when nothing binds it. */
+function binding(name: string, at: ts.Node, targets: Set<string>): Binding {
+ for (let p = at.parent; p; p = p.parent) {
+  if (ts.isFunctionLike(p)) { const index = p.parameters.findIndex((q) => bindsName(q.name, name)); if (index >= 0) return ts.isIdentifier(p.parameters[index]!.name) ? { param: { fn: p, index } } : 'opaque'; }
+  if (ts.isSourceFile(p) && targets.has(name)) return 'target';
+  if (!ts.isBlock(p) && !ts.isSourceFile(p)) continue;
+  for (const s of p.statements) {
+   if (ts.isFunctionDeclaration(s) && s.name?.text === name) return { fn: s };
+   if (ts.isVariableStatement(s)) for (const d of s.declarationList.declarations) if (bindsName(d.name, name))
+    return s.declarationList.flags & ts.NodeFlags.Const && ts.isIdentifier(d.name) && d.initializer ? { init: d.initializer } : 'opaque';
+  }
+ }
+ return undefined;
+}
+function lookup(name: string, at: ts.Node, targets: Set<string>, depth: number): Value[] {
+ const b = binding(name, at, targets);
+ if (b === 'target') return ['target'];
+ if (!b || b === 'opaque') return [];
+ if ('param' in b) return [b.param];
+ return 'fn' in b ? [b.fn] : values(b.init, targets, depth + 1);
+}
+/** What a choice's test provably says of an expression: a function or object is truthy and never nullish, a literal has its own
+ * truth and a const alias is followed. Undefined when opaque: that choice keeps both of its values. */
+function proof(e: ts.Expression, targets: Set<string>, depth = 0): { truthy: boolean; nullish: boolean } | undefined {
+ if (depth > 16) return undefined;
+ e = strip(e);
+ if (e.kind === ts.SyntaxKind.NullKeyword) return { truthy: false, nullish: true };
+ if (ts.isArrowFunction(e) || ts.isFunctionExpression(e) || ts.isObjectLiteralExpression(e)) return { truthy: true, nullish: false };
+ if (ts.isIdentifier(e)) {
+  // a lexical binding of the spelling wins over the builtin `undefined`
+  const b = binding(e.text, e, targets);
+  if (b === undefined && e.text === 'undefined') return { truthy: false, nullish: true };
+  return b && typeof b === 'object' ? 'fn' in b ? { truthy: true, nullish: false } : 'init' in b ? proof(b.init, targets, depth + 1) : undefined : undefined;
+ }
+ const k = literal(e);
+ return k === undefined ? undefined : { truthy: k, nullish: false };
+}
+/** What an expression can evaluate to: functions, object tables, a parameter, or the target; anything else is opaque ([]). A
+ * choice drops a value only when its test proves that value unselectable; an opaque test keeps both. */
+function values(e: ts.Expression, targets: Set<string>, depth = 0): Value[] {
+ if (depth > 16) return [];
+ e = strip(e);
+ if (ts.isIdentifier(e)) return lookup(e.text, e, targets, depth);
+ if (ts.isArrowFunction(e) || ts.isFunctionExpression(e) || ts.isObjectLiteralExpression(e)) return [e];
+ if (ts.isConditionalExpression(e)) {
+  const k = proof(e.condition, targets)?.truthy;
+  return [...(k === false ? [] : values(e.whenTrue, targets, depth + 1)), ...(k === true ? [] : values(e.whenFalse, targets, depth + 1))];
+ }
+ if (ts.isBinaryExpression(e) && (e.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken || e.operatorToken.kind === ts.SyntaxKind.BarBarToken)) {
+  const p = proof(e.left, targets), left = e.operatorToken.kind === ts.SyntaxKind.BarBarToken ? p?.truthy : p && !p.nullish;
+  return [...values(e.left, targets, depth + 1), ...(left ? [] : values(e.right, targets, depth + 1))];
+ }
+ if (!ts.isPropertyAccessExpression(e) && !ts.isElementAccessExpression(e)) return [];
+ const key = ts.isPropertyAccessExpression(e) ? e.name.text : ts.isStringLiteralLike(e.argumentExpression) ? e.argumentExpression.text : undefined;
+ return values(e.expression, targets, depth + 1).flatMap((v): Value[] => {
+  // a member every function or object has (`bind`, `toString`, …) is not the route's code, so calling it drives nothing
+  if (v === 'target') return key !== undefined && (key in Function.prototype || key in Object.prototype) ? [] : ['target'];
+  if (!isNode(v) || !ts.isObjectLiteralExpression(v)) return [];
+  return v.properties.flatMap((m): Value[] => {
+   const named = m.name && (ts.isIdentifier(m.name) || ts.isStringLiteralLike(m.name)) ? m.name.text : undefined;
+   if (key !== undefined && named !== key) return [];
+   if (ts.isPropertyAssignment(m)) return values(m.initializer, targets, depth + 1);
+   if (ts.isShorthandPropertyAssignment(m)) return values(m.name, targets, depth + 1);
+   return ts.isMethodDeclaration(m) ? [m] : [];
+  });
+ });
+}
+/** Whether a call reachable from `roots` invokes a `targets` binding (or a member of one). */
+function reaches(roots: ts.FunctionLikeDeclaration[], targets: Set<string>): boolean {
+ const reached = new Set<ts.Node>(roots), runs = new Map<ts.Node, Set<number>>();
+ for (let grew = true; grew;) {
+  grew = false;
+  const reach = (v: Value) => { if (isFn(v) && !reached.has(v)) { reached.add(v); grew = true; } };
+  for (const fn of [...reached] as ts.FunctionLikeDeclaration[]) for (const call of liveCalls(fn)) for (const v of values(call.expression, targets)) {
+   if (v === 'target') return true;
+   if (!isNode(v)) { const s = runs.get(v.fn) ?? new Set(); if (!s.has(v.index)) { runs.set(v.fn, s.add(v.index)); grew = true; } continue; }
+   reach(v);
+   for (const i of runs.get(v) ?? []) if (call.arguments[i]) values(call.arguments[i]!, targets).forEach(reach);
+  }
+ }
+ return false;
+}
+const chain = (e: ts.Expression): string[] | undefined => ts.isIdentifier(e) ? [e.text] : ts.isPropertyAccessExpression(e) ? chain(e.expression)?.concat(e.name.text) : undefined;
+/** The callbacks of the vitest tests that run: registered at the top level or in a describe, with no modifier but concurrent or
+ * sequential, a name, a parameterless callback and at most a numeric timeout. A file with an `only` registration gives none. */
+function enabledTests(sf: ts.SourceFile): ts.FunctionLikeDeclaration[] {
+ const vitest = new Map<string, string>();
+ for (const s of sf.statements) if (ts.isImportDeclaration(s) && ts.isStringLiteral(s.moduleSpecifier) && s.moduleSpecifier.text === 'vitest' && s.importClause?.namedBindings && ts.isNamedImports(s.importClause.namedBindings))
+  for (const e of s.importClause.namedBindings.elements) vitest.set(e.name.text, (e.propertyName ?? e.name).text);
+ const kind = (names?: string[]) => names && ['it', 'test', 'describe'].includes(vitest.get(names[0]!) ?? '') ? vitest.get(names[0]!) : undefined;
+ let only = false;
+ visit(sf, (n) => { if (ts.isCallExpression(n)) { const names = chain(n.expression); if (kind(names) && names!.includes('only')) only = true; } });
+ const tests: ts.FunctionLikeDeclaration[] = [];
+ const walk = (ss: readonly ts.Statement[]) => {
+  for (const s of ss) {
+   const c = ts.isExpressionStatement(s) && ts.isCallExpression(s.expression) ? s.expression : undefined, names = c && chain(c.expression), k = kind(names);
+   const [, fn, ...rest] = c?.arguments ?? [];
+   if (c && k && names!.slice(1).every((m) => m === 'concurrent' || m === 'sequential') && fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) && !fn.parameters.length && rest.length <= 1 && rest.every(ts.isNumericLiteral)) {
+    if (k !== 'describe') tests.push(fn);
+    else if (ts.isBlock(fn.body)) walk(fn.body.statements);
+   }
+   if (ends(s)) return;
+  }
+ };
+ walk(sf.statements);
+ return only ? [] : tests;
+}
+/** The local names a source binds at its top level to the module at `target`: a static import or a const `await import('…')` of a relative path; `only` narrows to one named export. */
+function bindingsOf(root: string, rel: string, sf: ts.SourceFile, target: string, only?: string): Set<string> {
+ const names = new Set<string>();
+ const hits = (spec?: string) => spec !== undefined && spec.startsWith('.') && resolve(root, rel, '..', spec) === join(root, target);
+ const addPattern = (name: ts.BindingName) => { if (ts.isIdentifier(name)) names.add(name.text); else for (const e of name.elements) if (ts.isBindingElement(e)) addPattern(e.name); };
+ for (const s of sf.statements) {
+  if (ts.isImportDeclaration(s) && ts.isStringLiteral(s.moduleSpecifier) && hits(s.moduleSpecifier.text)) {
+   const c = s.importClause;
+   if (!c || c.isTypeOnly) continue;
+   if (only === undefined && c.name) names.add(c.name.text);
+   const nb = c.namedBindings;
+   if (nb && ts.isNamespaceImport(nb) && only === undefined) names.add(nb.name.text);
+   if (nb && ts.isNamedImports(nb)) for (const e of nb.elements) if (!e.isTypeOnly && (only === undefined || (e.propertyName ?? e.name).text === only)) names.add(e.name.text);
+  }
+  if (only === undefined && ts.isVariableStatement(s) && s.declarationList.flags & ts.NodeFlags.Const) for (const d of s.declarationList.declarations) {
+   let e = d.initializer;
+   while (e && (ts.isAwaitExpression(e) || ts.isParenthesizedExpression(e))) e = e.expression;
+   if (e && ts.isCallExpression(e) && e.expression.kind === ts.SyntaxKind.ImportKeyword && e.arguments[0] && ts.isStringLiteralLike(e.arguments[0]) && hits(e.arguments[0].text)) addPattern(d.name);
+  }
+ }
+ return names;
+}
+
+/** Why a route's evidence does not show it driven, empty when it does. `tracked` is injectable for a synthetic tree. */
+function evidenceProblems(root: string, route: string, ev: Evidence, tracked: (rel: string) => boolean = (rel) => gitTracked(root, rel)): string[] {
+ const bad = (why: string) => [`${route}: ${why}`];
+ if (!tracked(ev.test) || !existsSync(join(root, ev.test))) return bad(`${ev.test} is not a tracked file`);
+ const sf = parseTs(root, ev.test);
+ if (ev.kind === 'smoke') {
+  if (ev.test !== SMOKE) return bad(`smoke evidence must be ${SMOKE}`);
+  let named = false;
+  visit(sf, (n) => { if (ts.isStringLiteralLike(n) && n.text === route) named = true; });
+  return named ? [] : bad(`${ev.test} holds no string literal ${route} outside comments`);
+ }
+ if (ev.kind !== 'unit' && ev.kind !== 'component') return bad(`unknown evidence kind ${ev.kind}`);
+ if (!ev.test.endsWith('.test.ts')) return bad(`${ev.test} is not a test file`);
+ if (!ev.module || !existsSync(join(root, ev.module))) return bad(`module ${ev.module} does not exist`);
+ if (!ev.module.startsWith(`deploy/client/routes${route}/`)) return bad(`${ev.module} is not under the route`);
+ let drivers: Set<string>;
+ if (ev.via) {
+  if (!tracked(ev.via.file) || !existsSync(join(root, ev.via.file))) return bad(`${ev.via.file} is not a tracked file`);
+  const harness = parseTs(root, ev.via.file);
+  const mod = bindingsOf(root, ev.via.file, harness, ev.module);
+  const entry: ts.FunctionLikeDeclaration[] = [];
+  for (const s of harness.statements) {
+   if (!(ts.canHaveModifiers(s) ? ts.getModifiers(s) : undefined)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) continue;
+   if (ts.isFunctionDeclaration(s) && s.name?.text === ev.via.export) entry.push(s);
+   if (ts.isVariableStatement(s) && s.declarationList.flags & ts.NodeFlags.Const) for (const d of s.declarationList.declarations) if (ts.isIdentifier(d.name) && d.name.text === ev.via.export && d.initializer) entry.push(...values(d.initializer, mod).filter(isFn));
+  }
+  if (!reaches(entry, mod)) return bad(`${ev.via.file} does not import ${ev.module} and use it in its exported ${ev.via.export}: no reachable call there invokes a handler of it`);
+  drivers = bindingsOf(root, ev.test, sf, ev.via.file, ev.via.export);
+ } else drivers = bindingsOf(root, ev.test, sf, ev.module);
+ if (!drivers.size) return bad(`${ev.test} does not import ${ev.via ? `${ev.via.export} from ${ev.via.file}` : ev.module}`);
+ return reaches(enabledTests(sf), drivers) ? [] : bad(`no enabled test in ${ev.test} reaches a call of ${[...drivers].join(', ')}`);
+}
+
 describe('hosted forms are declared, with a reason the suite checks', () => {
  const app = join(import.meta.dirname, '..', '..', '..');
  const found: string[] = hostedForms(app);
  const declaredRoutes = Object.keys(declared.HOSTED_FORMS ?? {});
  test('discovery finds the hosted sign-in, sign-out and case-list forms', () => {
-  expect(found).toEqual(['/cases', '/sign-in', '/sign-out']);
+  expect(found).toEqual(expect.arrayContaining(SMOKE_ROUTES));
+ });
+ test('discovery finds exactly the hosted sign-in, operator sign-in, sign-out, case-list, notes, chronology filter and intake forms', () => {
+  expect(found).toEqual(['/cases', '/cases/[caseId]/notes', '/cases/[caseId]/views/[resultsVersion]/chronology', '/client/intake/[caseId]', '/sign-in', '/sign-in/operator', '/sign-out']);
  });
  test('every hosted form is declared and every declaration names a form discovery finds', () => {
   expect(declaredRoutes.sort()).toEqual(found);
+  expect(Object.keys(declared.HOSTED_FORM_EVIDENCE).sort()).toEqual(found);
   for (const route of declaredRoutes) expect(declared.HOSTED_FORMS[route].length).toBeGreaterThan(20);
  });
  test('the hosted smoke run drives each declared route', () => {
-  const smoke = readFileSync(join(app, 'tests', 'hosted-foundation', 'runtime', 'smoke.ts'), 'utf8');
-  for (const route of declaredRoutes) expect(smoke).toContain(`'${route}'`);
+  for (const route of SMOKE_ROUTES) {
+   expect(declared.HOSTED_FORMS[route], `${route} is declared`).toBeTruthy();
+   expect(declared.HOSTED_FORM_EVIDENCE[route], `${route} stays smoke-bound, not relabelled`).toEqual({ kind: 'smoke', test: SMOKE });
+   expect(evidenceProblems(app, route, declared.HOSTED_FORM_EVIDENCE[route])).toEqual([]);
+  }
+ });
+ test('the other declared routes are driven by tracked unit or component tests, labelled as that and never as browser or workerd proof', () => {
+  const others = declaredRoutes.filter((r) => !SMOKE_ROUTES.includes(r));
+  expect(others).toHaveLength(4);
+  for (const route of others) {
+   const ev: Evidence = declared.HOSTED_FORM_EVIDENCE[route];
+   expect(['unit', 'component'], `${route} is labelled ${ev.kind}`).toContain(ev.kind);
+   expect(declared.HOSTED_FORMS[route], `${route}: the reason names its ${ev.kind} evidence`).toMatch(new RegExp(`\\b${ev.kind}\\b`));
+   expect(declared.HOSTED_FORMS[route], `${route}: a unit or component reason does not cite test:hosted or workerd as its proof`).not.toMatch(/test:hosted|on workerd/);
+   expect(evidenceProblems(app, route, ev)).toEqual([]);
+  }
  });
  test('discovery reads a form from a page and from exported actions, and ignores a page with neither', () => {
   const dir = mkdtempSync(join(tmpdir(), 'cc-hosted-'));
@@ -311,5 +635,159 @@ describe('hosted forms are declared, with a reason the suite checks', () => {
   put2('c/+server.ts', 'export const GET = () => new Response();');
   put2('d/[id]/+page.svelte', '<form action="/x"></form>');
   try { expect(hostedForms(dir)).toEqual(['/a', '/b', '/d/[id]']); } finally { rmSync(dir, { recursive: true, force: true }); }
+ });
+});
+
+describe('hosted form evidence is refused when its driving setup is gone', () => {
+ const app = join(import.meta.dirname, '..', '..', '..');
+ const real = (route: string): Evidence => declared.HOSTED_FORM_EVIDENCE[route];
+ const UNIT_AND_COMPONENT = Object.keys(declared.HOSTED_FORM_EVIDENCE ?? {}).filter((r) => !SMOKE_ROUTES.includes(r)).sort();
+ const always = () => true;
+ // a copy of the files one real entry cites, so a mutation never touches the checkout
+ const copyOf = (route: string) => {
+  const ev = real(route), dir = mkdtempSync(join(root, 'evidence-'));
+  for (const rel of [ev.test, ev.via?.file, ev.module]) if (rel) { mkdirSync(dirname(join(dir, rel)), { recursive: true }); copyFileSync(join(app, rel), join(dir, rel)); }
+  return { ev, dir, set: (rel: string, text: string) => writeFileSync(join(dir, rel), text), read: (rel: string) => readFileSync(join(dir, rel), 'utf8') };
+ };
+ test('the git check sees a tracked file and refuses an untracked path', () => {
+  expect(gitTracked(app, 'tests/hosted-smoke/intake/harness.ts')).toBe(true);
+  expect(gitTracked(app, 'tests/hosted-smoke/intake/not-a-file.test.ts')).toBe(false);
+ });
+ test.each(UNIT_AND_COMPONENT)('%s: a copy of the real evidence passes, and loses it when the file that drives it is reduced to a comment naming the route', (route) => {
+  const { ev, dir, set } = copyOf(route);
+  expect(evidenceProblems(dir, route, ev, always)).toEqual([]);
+  set(ev.via?.file ?? ev.test, `// ${ev.module}\n// ${route}\n`);
+  expect(evidenceProblems(dir, route, ev, always)).not.toEqual([]);
+ });
+ test.each(UNIT_AND_COMPONENT)('%s: the cited evidence is refused once its import of the route module is gone', (route) => {
+  const { ev, dir, set, read } = copyOf(route);
+  const file = ev.via?.file ?? ev.test, cut = ev.module!.split('/').slice(-1)[0];
+  set(file, read(file).replaceAll(cut, 'other.ts'));
+  expect(evidenceProblems(dir, route, ev, always)).not.toEqual([]);
+ });
+ test.each(UNIT_AND_COMPONENT)('%s: the cited evidence is refused once every test returns before its body', (route) => {
+  const { ev, dir, set, read } = copyOf(route);
+  const registration = /\bit\('(?:[^'\\]|\\.)*', async \(\) => \{/g;
+  expect(read(ev.test).match(registration)?.length, `${ev.test} registers its tests as it('…', async () => {`).toBeGreaterThan(0);
+  set(ev.test, read(ev.test).replace(registration, '$& return;'));
+  expect(evidenceProblems(dir, route, ev, always)).not.toEqual([]);
+ });
+ test('the intake harness is refused when its dispatch keeps the route imports but calls no handler', () => {
+  const route = '/client/intake/[caseId]', { ev, dir, set, read } = copyOf(route), file = ev.via!.file;
+  const cut = read(file).replace(/export async function dispatch[\s\S]*$/, 'export async function dispatch(): Promise<Response> { void list; void one; return new Response(null, { status: 405 }); }\n');
+  expect(cut).toContain('void list');
+  set(file, cut);
+  expect(evidenceProblems(dir, route, ev, always).join('\n')).toMatch(/does not import .*submissions\/\+server\.ts and use it in its exported dispatch/);
+ });
+ test('the intake harness reduced to only the route comment is refused, whatever the test around it still does', () => {
+  const route = '/client/intake/[caseId]', { ev, dir, set } = copyOf(route);
+  set(ev.via!.file, '// deploy/client/routes/client/intake\n');
+  expect(evidenceProblems(dir, route, ev, always).join('\n')).toMatch(/does not import .*submissions\/\+server\.ts and use it in its exported dispatch/);
+ });
+
+ // synthetic trees for the shapes a real file cannot be mutated into without breaking its own tests
+ const ROUTE = '/r', MODULE = 'deploy/client/routes/r/+page.server.ts', T = 'tests/r.test.ts', H = 'tests/harness.ts';
+ const put3 = (files: Record<string, string>) => { const dir = mkdtempSync(join(root, 'synthetic-')); for (const [rel, text] of Object.entries(files)) { mkdirSync(dirname(join(dir, rel)), { recursive: true }); writeFileSync(join(dir, rel), text); } return dir; };
+ const MOD = { [MODULE]: 'export const load = () => 1;' };
+ const DIRECT: Evidence = { kind: 'unit', test: T, module: MODULE };
+ const VIA: Evidence = { kind: 'component', test: T, module: MODULE, via: { file: H, export: 'dispatch' } };
+ const HARNESS = "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport const compose = () => 0;\nexport async function dispatch() { return r.load(); }\n";
+ const TABLE_HARNESS = (guard: string, tail: string) => `import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport async function dispatch(method: string) {\n const handlers: Record<string, (() => unknown) | undefined> = method === 'GET' ? { GET: r.load } : { PUT: r.load };\n const h = handlers[method];\n ${guard}\n ${tail}\n}\n`;
+ const viaTest = (body: string) => `import { describe, it } from 'vitest';\nimport { compose, dispatch } from './harness.ts';\n${body}`;
+ const directTest = (body: string, head = "import { it } from 'vitest';\nimport { load } from '../deploy/client/routes/r/+page.server.ts';\n") => head + body;
+ const cases: [string, Evidence, Record<string, string>, boolean][] = [
+  ['a static import called inside a test', DIRECT, { ...MOD, [T]: directTest("it('x', () => load());") }, true],
+  ['an awaited dynamic import called through its namespace', DIRECT, { ...MOD, [T]: "import { it } from 'vitest';\nconst r = await import('../deploy/client/routes/r/+page.server.ts');\nit('x', () => r.load!());" }, true],
+  ['a call reached through a top-level helper', DIRECT, { ...MOD, [T]: directTest("const go = () => load();\nit('x', () => { go(); });") }, true],
+  ['a harness export that uses the route, called from a test', VIA, { ...MOD, [H]: HARNESS, [T]: viaTest("it('x', async () => { await dispatch(); });") }, true],
+  ['a test file reduced to a comment naming the module', DIRECT, { ...MOD, [T]: `// ${MODULE}\n// load()\n` }, false],
+  ['the call only in a comment', DIRECT, { ...MOD, [T]: directTest("// load();\nit('x', () => 1);") }, false],
+  ['the import removed while the call remains', DIRECT, { ...MOD, [T]: "import { it } from 'vitest';\nit('x', () => load());" }, false],
+  ['an import of another module', DIRECT, { ...MOD, [T]: "import { it } from 'vitest';\nimport { load } from '../deploy/client/routes/other/+page.server.ts';\nit('x', () => load());" }, false],
+  ['the import never called', DIRECT, { ...MOD, [T]: directTest("it('x', () => 1);") }, false],
+  ['a call outside every test', DIRECT, { ...MOD, [T]: directTest('load();') }, false],
+  ['a call in a skipped test', DIRECT, { ...MOD, [T]: directTest("it.skip('x', () => load());") }, false],
+  ['a call in a todo test', DIRECT, { ...MOD, [T]: directTest("test.todo('x', () => load());", "import { test } from 'vitest';\nimport { load } from '../deploy/client/routes/r/+page.server.ts';\n") }, false],
+  ['a call under a skipped describe', DIRECT, { ...MOD, [T]: directTest("describe.skip('d', () => { it('x', () => load()); });", "import { describe, it } from 'vitest';\nimport { load } from '../deploy/client/routes/r/+page.server.ts';\n") }, false],
+  ['a helper that is never called from a test', DIRECT, { ...MOD, [T]: directTest("const go = () => load();\nit('x', () => 1);") }, false],
+  ['a harness reduced to a comment', VIA, { ...MOD, [H]: `// ${MODULE}\n`, [T]: viaTest("it('x', async () => { await dispatch(); });") }, false],
+  ['a harness that imports the route but whose dispatch does not use it', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport const keep = r;\nexport async function dispatch() { return 1; }\n", [T]: viaTest("it('x', async () => { await dispatch(); });") }, false],
+  ['a harness with no dispatch export', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport const compose = () => r.load();\n", [T]: viaTest("it('x', () => 1);") }, false],
+  ['a test that calls only another harness export', VIA, { ...MOD, [H]: HARNESS, [T]: viaTest("it('x', () => { compose(); });") }, false],
+  ['a test that never calls the harness dispatch', VIA, { ...MOD, [H]: HARNESS, [T]: viaTest("it('x', () => 1);") }, false],
+  // only a call on a reachable path from an enabled vitest test callback counts: a call behind any condition does not, nor
+  // does one after a statement that may end the function (an opaque or named condition, a loop, a local function that may
+  // throw), and an unsupported shape is refused
+  ['a call through a helper that runs its callback', DIRECT, { ...MOD, [T]: directTest("const outcome = async (f: () => unknown) => { try { return { value: await f() }; } catch (e) { return { thrown: e }; } };\nit('x', async () => { await outcome(() => load()); });") }, true],
+  ['a call after an early return behind an opaque condition', DIRECT, { ...MOD, [T]: directTest("it('x', () => { if (Date.now() < 0) return; load(); });") }, false],
+  ['a call after a return behind a named constant', DIRECT, { ...MOD, [T]: directTest("const off = true;\nit('x', () => { if (off) return; load(); });") }, false],
+  ['a call after a throw behind a named constant', DIRECT, { ...MOD, [T]: directTest("const off = true;\nit('x', () => { if (off) throw new Error('off'); load(); });") }, false],
+  ['a call after a try block that may return', DIRECT, { ...MOD, [T]: directTest("const off = true;\nit('x', () => { try { if (off) return; } finally { void 0; } load(); });") }, false],
+  ['a call after a literal infinite loop', DIRECT, { ...MOD, [T]: directTest("it('x', () => { while (true) { void 0; } load(); });") }, false],
+  ['a call after a short circuit into a throwing function', DIRECT, { ...MOD, [T]: directTest("const off = true;\nit('x', () => { off && (() => { throw new Error('off'); })(); load(); });") }, false],
+  ['a call after a local helper that may throw', DIRECT, { ...MOD, [T]: directTest("const stop = () => { throw new Error('stop'); };\nit('x', () => { stop(); load(); });") }, false],
+  ['a call after a local helper whose body is an infinite loop', DIRECT, { ...MOD, [T]: directTest("const stop = () => { while (true) {} };\nit('x', () => { stop(); load(); });") }, false],
+  ['a call chosen only by a dead nullish operand: the first value is never nullish', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const noop = () => 1; const h = noop ?? load; h(); });") }, false],
+  ['a call chosen only by the dead arm of a literal conditional', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const h = true ? () => 1 : load; h(); });") }, false],
+  ['a call after a helper chain that ends in an infinite loop', DIRECT, { ...MOD, [T]: directTest("const spin = () => { for (;;) {} };\nconst stop = () => { spin(); };\nit('x', () => { stop(); load(); });") }, false],
+  ['a call after a helper that runs a looping callback', DIRECT, { ...MOD, [T]: directTest("const run = (f: () => unknown) => f();\nit('x', () => { run(() => { while (true) {} }); load(); });") }, false],
+  ['a call after a helper that runs a throwing callback with no catch', DIRECT, { ...MOD, [T]: directTest("const run = (f: () => unknown) => f();\nit('x', () => { run(() => { throw new Error('stop'); }); load(); });") }, false],
+  ['a call after a helper that runs a callback calling a throwing helper', DIRECT, { ...MOD, [T]: directTest("const boom = () => { throw new Error('stop'); };\nconst run = (f: () => unknown) => f();\nit('x', () => { run(() => boom()); load(); });") }, false],
+  ['a call after a helper that hands its callback to another helper that throws it', DIRECT, { ...MOD, [T]: directTest("const inner = (g: () => unknown) => g();\nconst run = (f: () => unknown) => inner(f);\nit('x', () => { run(() => { throw new Error('stop'); }); load(); });") }, false],
+  ['a call after a helper that runs a throwing callback in a try with only a finally', DIRECT, { ...MOD, [T]: directTest("const run = (f: () => unknown) => { try { return f(); } finally { void 0; } };\nit('x', () => { run(() => { throw new Error('stop'); }); load(); });") }, false],
+  ['a call after a helper that runs a throwing callback in its catch clause', DIRECT, { ...MOD, [T]: directTest("const run = (f: () => unknown) => { try { return 1; } catch { return f(); } };\nit('x', () => { run(() => { throw new Error('stop'); }); load(); });") }, false],
+  ['a call after a helper that catches the throwing callback it runs', DIRECT, { ...MOD, [T]: directTest("const outcome = async (f: () => unknown) => { try { return { value: await f() }; } catch (e) { return { thrown: e }; } };\nit('x', async () => { await outcome(() => { throw new Error('caught'); }); load(); });") }, true],
+  ['a call after an async helper that returns its async callback unawaited inside a try', DIRECT, { ...MOD, [T]: directTest("const run = async (f: () => unknown) => { try { return f(); } catch { return 0; } };\nit('x', async () => { await run(async () => { throw new Error('stop'); }); load(); });") }, false],
+  ['a call after a synchronous helper that returns its async callback unawaited inside a try', DIRECT, { ...MOD, [T]: directTest("const run = (f: () => unknown) => { try { return f(); } catch { return 0; } };\nit('x', async () => { await run(async () => { throw new Error('stop'); }); load(); });") }, false],
+  ['a call chosen only by a shadowed undefined that is a function', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const undefined = () => 1; const h = undefined ?? load; h(); });") }, false],
+  ['a call after a helper that awaits its async callback inside a try with a catch', DIRECT, { ...MOD, [T]: directTest("const run = async (f: () => unknown) => { try { return await f(); } catch { return 0; } };\nit('x', async () => { await run(async () => { throw new Error('caught'); }); load(); });") }, true],
+  ['a call after a synchronous helper that catches a synchronously throwing callback', DIRECT, { ...MOD, [T]: directTest("const run = (f: () => unknown) => { try { return f(); } catch { return 0; } };\nit('x', () => { run(() => { throw new Error('caught'); }); load(); });") }, true],
+  ['a call after a synchronous helper whose sync callback reaches an async function that throws', DIRECT, { ...MOD, [T]: directTest("const boom = async () => { throw new Error('stop'); };\nconst run = (f: () => unknown) => { try { return f(); } catch { return 0; } };\nit('x', async () => { await run(() => boom()); load(); });") }, false],
+  ['a call chosen by the live right operand of the builtin undefined', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const h = undefined ?? load; h(); });") }, true],
+  ['a call chosen by the fallback of an opaque parameter spelled undefined: a possible branch, not a dead one', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const go = (undefined: () => unknown) => (undefined ?? load)(); go(() => 1); });") }, true],
+  ['a call after a helper chain that completes', DIRECT, { ...MOD, [T]: directTest("const inner = () => 1;\nconst outer = () => inner();\nit('x', () => { outer(); load(); });") }, true],
+  ['a call chosen only by the dead right operand of ||', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const keep = () => 1; const h = keep || load; h(); });") }, false],
+  ['a call chosen only by the dead arm of a conditional on a named constant', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const on = true; const h = on ? () => 1 : load; h(); });") }, false],
+  ['a call chosen by the live right operand of a nullish literal', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const h = null ?? load; h(); });") }, true],
+  ['a call chosen by the live arm of a literal conditional', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const h = false ? () => 1 : load; h(); });") }, true],
+  ['a call after an unconditional return', DIRECT, { ...MOD, [T]: directTest("it('x', () => { return; load(); });") }, false],
+  ['a call after a return behind a literal true condition', DIRECT, { ...MOD, [T]: directTest("it('x', () => { if (true) return; load(); });") }, false],
+  ['a call only in a nested function the test never calls', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const later = () => load(); });") }, false],
+  ['a call only in a callback a helper never runs', DIRECT, { ...MOD, [T]: directTest("const keep = (f: () => unknown) => f;\nit('x', () => { keep(() => load()); });") }, false],
+  ['a called helper that only registers a skipped test', DIRECT, { ...MOD, [T]: directTest("const go = () => { it.skip('y', () => load()); };\nit('x', () => { go(); });") }, false],
+  ['a call in a test disabled by runIf(false)', DIRECT, { ...MOD, [T]: directTest("it.runIf(false)('x', () => load());") }, false],
+  ['a call in a test skipped by its options', DIRECT, { ...MOD, [T]: directTest("it('x', { skip: true }, () => load());") }, false],
+  ['a call in a test that takes its context, which can skip it', DIRECT, { ...MOD, [T]: directTest("it('x', (ctx) => { ctx.skip(); load(); });") }, false],
+  ['a call behind a condition', DIRECT, { ...MOD, [T]: directTest("it('x', () => { if (Date.now() < 0) load(); });") }, false],
+  ['a call in a test while another test in the file is only', DIRECT, { ...MOD, [T]: directTest("it('x', () => load());\nit.only('y', () => 1);") }, false],
+  ['a call only of a member every function has', DIRECT, { ...MOD, [T]: directTest("it('x', () => { load.bind(null); load.toString(); });") }, false],
+  ['a call in a test registered by a local it, not vitest', DIRECT, { ...MOD, [T]: "import { load } from '../deploy/client/routes/r/+page.server.ts';\nconst it = (_n: string, _f: () => unknown) => {};\nit('x', () => load());" }, false],
+  ['a harness dispatch that calls its route handler through a handler table', VIA, { ...MOD, [H]: TABLE_HARNESS('', 'return h!();'), [T]: viaTest("it('x', async () => { await dispatch('GET'); });") }, true],
+  ['a harness dispatch that calls its table handler or a pure fallback, unconditionally', VIA, { ...MOD, [H]: TABLE_HARNESS("const methodNotAllowed = async () => new Response(null, { status: 405 });", 'return (h ?? methodNotAllowed)();'), [T]: viaTest("it('x', async () => { await dispatch('GET'); });") }, true],
+  ['a harness dispatch that calls only the fallback of an opaque choice', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nconst methodNotAllowed = async () => new Response(null, { status: 405 });\nexport async function dispatch(h?: () => unknown) { void r; return (h ?? methodNotAllowed)(); }\n", [T]: viaTest("it('x', async () => { await dispatch(); });") }, false],
+  ['a harness dispatch whose handler call follows an opaque early return', VIA, { ...MOD, [H]: TABLE_HARNESS('if (!h) return new Response(null, { status: 405 });', 'return h();'), [T]: viaTest("it('x', async () => { await dispatch('GET'); });") }, false],
+  ['a harness dispatch that only mentions the route and answers 405', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport async function dispatch() { void r; return new Response(null, { status: 405 }); }\n", [T]: viaTest("it('x', async () => { await dispatch(); });") }, false],
+  ['a harness dispatch that builds the handler table but never calls a handler', VIA, { ...MOD, [H]: TABLE_HARNESS('', 'return new Response(null, { status: h ? 200 : 405 });'), [T]: viaTest("it('x', async () => { await dispatch('GET'); });") }, false],
+  ['a harness dispatch that calls the route only after its return', VIA, { ...MOD, [H]: "import * as r from '../deploy/client/routes/r/+page.server.ts';\nexport async function dispatch() { return new Response(null, { status: 405 }); r.load(); }\n", [T]: viaTest("it('x', async () => { await dispatch(); });") }, false],
+ ];
+ test.each(cases)('%s', (_name, ev, files, ok) => {
+  const problems = evidenceProblems(put3(files), ROUTE, ev, always);
+  if (ok) expect(problems).toEqual([]); else expect(problems).not.toEqual([]);
+ });
+ test('a harness is not a test: citing it as the test is refused even when it drives the route', () => {
+  const dir = put3({ ...MOD, [H]: HARNESS });
+  expect(evidenceProblems(dir, ROUTE, { kind: 'unit', test: H, module: MODULE }, always).join()).toMatch(/is not a test file/);
+ });
+ test('an untracked file is refused, and so is a module outside the route', () => {
+  const dir = put3({ ...MOD, [T]: directTest("it('x', () => load());") });
+  expect(evidenceProblems(dir, ROUTE, DIRECT, () => false).join()).toMatch(/not a tracked file/);
+  expect(evidenceProblems(dir, '/elsewhere', DIRECT, always).join()).toMatch(/not under the route/);
+ });
+ test('smoke evidence names the route in code, not in a comment, and only in the pinned smoke run', () => {
+  const smoke = { kind: 'smoke', test: SMOKE };
+  expect(evidenceProblems(put3({ [SMOKE]: "check(await form('/sign-in', {}));" }), '/sign-in', smoke, always)).toEqual([]);
+  expect(evidenceProblems(put3({ [SMOKE]: "// '/sign-in'\n" }), '/sign-in', smoke, always)).not.toEqual([]);
+  expect(evidenceProblems(put3({ [SMOKE]: "check(await form('/sign-out', {}));" }), '/sign-in', smoke, always)).not.toEqual([]);
+  expect(evidenceProblems(put3({ 'tests/other.ts': "form('/sign-in');" }), '/sign-in', { kind: 'smoke', test: 'tests/other.ts' }, always).join()).toMatch(/must be/);
  });
 });

@@ -83,6 +83,20 @@ describe('the lease the planner charges is the lease the real code reserves', ()
 		expect(sql).toContain('client_limit BETWEEN 1 AND 4');
 		expect(NATIVE_PDF_RENDER_CEILINGS.maxRunsPerClientPerDay).toBe(4);
 	});
+	it('the case-limit migration bounds the same per-case ceiling (3) the renderer and planner admit', () => {
+		const sql = readFileSync('src/lib/viewer/hosted/migrations/0002_preview_render_case_limit.sql', 'utf8');
+		expect(sql).toContain('case_limit INTEGER NOT NULL CHECK (case_limit BETWEEN 1 AND 3)');
+		expect(sql).toContain('runs INTEGER NOT NULL CHECK (runs BETWEEN 1 AND 3)');
+		expect(sql).toContain('client_limit BETWEEN 1 AND 4 AND case_limit <= client_limit');
+		expect(NATIVE_PDF_RENDER_CEILINGS.maxRunsPerCasePerDay).toBe(3);
+		const planned = (maxRunsPerCasePerDay: number) => {
+			const i = exampleInput(); i.clients[0]!.policy.nativeRenderBudget = { ...RENDER, maxRunsPerCasePerDay, maxRunsPerClientPerDay: 4 };
+			i.browserAllocation = { maxConcurrentBrowsers: 1, maxReservedBrowserMsPerDay: Number.MAX_SAFE_INTEGER };
+			return () => planNativeRuntimeConfig(i);
+		};
+		expect(planned(3)).not.toThrow();
+		expect(planned(4)).toThrow(/maxRunsPerCasePerDay/);
+	});
 });
 
 describe('one client holds at most one browser at a time (the reservation SQL serializes launches)', () => {
@@ -106,7 +120,7 @@ describe('the planner\'s render-budget rule agrees with the real checker constru
 	const cases: [string, Partial<typeof RENDER>][] = [
 		['the example', {}], ['every ceiling exactly', { ...NATIVE_PDF_RENDER_CEILINGS }], ['all ones', { maxFileBytes: 1, maxPages: 1, maxCanvasPixels: 1, maxRunMs: 1, maxRunsPerCasePerDay: 1, maxRunsPerClientPerDay: 1 }],
 		['file bytes over', { maxFileBytes: 4_000_001 }], ['pages over', { maxPages: 9 }], ['pixels over', { maxCanvasPixels: 4_000_001 }], ['run over', { maxRunMs: 20_001 }],
-		['case runs over', { maxRunsPerCasePerDay: 3 }], ['client runs over', { maxRunsPerClientPerDay: 5 }], ['case above client', { maxRunsPerCasePerDay: 2, maxRunsPerClientPerDay: 1 }],
+		['case runs at the ceiling', { maxRunsPerCasePerDay: 3, maxRunsPerClientPerDay: 4 }], ['case runs over', { maxRunsPerCasePerDay: 4, maxRunsPerClientPerDay: 4 }], ['client runs over', { maxRunsPerClientPerDay: 5 }], ['case above client', { maxRunsPerCasePerDay: 2, maxRunsPerClientPerDay: 1 }],
 		['zero', { maxPages: 0 }], ['negative', { maxRunMs: -1 }], ['fractional', { maxPages: 1.5 }], ['NaN', { maxPages: NaN }], ['Infinity', { maxRunMs: Infinity }],
 	];
 	it.each(cases)('%s', async (_name, change) => {

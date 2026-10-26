@@ -349,7 +349,8 @@ async function inspect(a: {
      staticBytes += pin.bytes;
      if (staticBytes > MAX_STATIC_BYTES) refuse('request-budget');
      pending = (async () => {
-      const response = await a.assets.fetch(new Request(a.origin + url.pathname, { method: 'GET', redirect: 'error', signal: abort.signal }));
+      // workerd cannot build a Request with redirect 'error'. 'manual' hands back any 3xx unfollowed, and the status check below refuses it.
+      const response = await a.assets.fetch(new Request(a.origin + url.pathname, { method: 'GET', redirect: 'manual', signal: abort.signal }));
       if (response.status !== 200 || response.redirected) refuse('static-response');
       const data = await readExact(response, pin.bytes, abort.signal);
       if ('sha256:' + await sha(data) !== pin.sha256) refuse('static-integrity');

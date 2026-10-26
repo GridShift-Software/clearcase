@@ -151,7 +151,7 @@ describe('native PDF SDK boundary orchestration (NOT renderer acceptance)', () =
   expect(fetched.map(request => new URL(request.url).pathname).sort()).toEqual(['/pdfjs/pdf.min.mjs', '/pdfjs/pdf.worker.min.mjs']);
   for (const request of fetched) expect([request.method, request.redirect, new URL(request.url).origin]).toEqual(['GET', 'manual', 'https://app.example']);
   for (const path of ['/pdfjs/pdf.min.mjs', '/pdfjs/pdf.worker.min.mjs']) {
-   const pin = pins.files.find(f => f.path === path)!;
+   const pin = pins.files.find(f => '/' + f.path === path)!;
    const served = Buffer.from(boundary.served.get(path)!.body as Uint8Array);
    expect(served.equals(readFileSync(join(root, path)))).toBe(true);
    expect([served.length, 'sha256:' + createHash('sha256').update(served).digest('hex')]).toEqual([pin.bytes, pin.sha256]);

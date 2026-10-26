@@ -51,7 +51,17 @@ const handshake = (env = workers.env) => {
 /** The jar after the browser's GET of `path` came back from an instance's Frontend API with a handshake signed by `signer`. */
 const handedBack = async (jar: Jar, path: string, signer: typeof B, dvb: string, env = workers.env) =>
 	apply(jar, await handshake(env).handle(new Request(`${ORIGIN}${path}${path.includes('?') ? '&' : '?'}__clerk_handshake=${signer.sign({ handshake: directives(dvb) })}`, { headers: { ...doc, ...(jar.size ? { cookie: header(jar) } : {}) } })));
-const staffJar = () => handedBack(new Map(), '/sign-in/operator?returnTo=%2Fcases%2Fcase-1', B, STAFF_DVB);
+/**
+ * The jar after the browser's own staff handshake: its GET of `path` is sent to the staff Frontend API, which sends it
+ * back to the handshake's redirect_url with a token signed by `signer`.
+ */
+const started = async (path: string, signer: typeof B, dvb: string, env = workers.env) => {
+	const o = await handshake(env).handle(new Request(`${ORIGIN}${path}`, { headers: doc }));
+	const jar = apply(new Map(), o), back = new URL(new URL((o as { location: string }).location).searchParams.get('redirect_url')!);
+	back.searchParams.set('__clerk_handshake', signer.sign({ handshake: directives(dvb) }));
+	return apply(jar, await handshake(env).handle(new Request(back, { headers: { ...doc, cookie: header(jar) } })));
+};
+const staffJar = () => started('/sign-in/operator?returnTo=%2Fcases%2Fcase-1', B, STAFF_DVB);
 
 const anonymous = { kind: 'anonymous', principal: null, sessionId: null };
 const locals = { runtime: { testIdentity: null }, identity: anonymous } as unknown as App.Locals;
@@ -117,7 +127,7 @@ describe('the operator sign-in forwards nothing it cannot tie to the staff insta
 		expect(await forwarded(header(switched))).toBe(plainStaff);
 	});
 	it('sends no dev browser that another staff instance\'s handshake set', async () => {
-		const other = await handedBack(new Map(), '/sign-in/operator', C, STAFF_DVB, withStaff(C));
+		const other = await started('/sign-in/operator', C, STAFF_DVB, withStaff(C));
 		expect(await forwarded(header(other))).toBe(plainStaff);
 	});
 	it('sets no staff tie for a client-signed handshake brought to the operator route', async () => {
@@ -127,7 +137,7 @@ describe('the operator sign-in forwards nothing it cannot tie to the staff insta
 	});
 	it('sends no dev browser for a repeated, malformed or mismatched cookie beside the staff tie', async () => {
 		const jar = await staffJar();
-		const tie = [...jar].filter(([n]) => n !== '__clerk_db_jwt' && n !== '__client_uat');
+		const tie = [...jar].filter(([n]) => !n.startsWith('__clerk_') && n !== '__client_uat');
 		expect(tie).toHaveLength(1);
 		const [tieName, tieValue] = tie[0]!;
 		for (const cookie of [

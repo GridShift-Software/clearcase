@@ -49,13 +49,14 @@ it('coherently matches the whole observation in one primary SQL statement, witho
   expect(f.h.events.map(e => e.action)).toEqual(['publication.readiness.intent', 'publication.readiness.release-intent']);
 });
 
-it.each(Object.keys(mutations) as (keyof typeof mutations)[])('refuses %s changed during the final candidate await', async name => {
+// The material is read once; the last storage await before the release fence is the final sign-off read.
+it.each(Object.keys(mutations) as (keyof typeof mutations)[])('refuses %s changed during the final sign-off await', async name => {
   const f = await fixture(); let reads = 0;
-  const read = f.ports.candidates!.read;
-  f.ports.candidates = { read: async a => {
-    const snapshot = await read(a);
+  const read = f.ports.ledger!.signoff;
+  f.ports.ledger = { ...f.ports.ledger!, signoff: async a => {
+    const signed = await read(a);
     if (++reads === 2) mutations[name](f);
-    return snapshot;
+    return signed;
   } };
   const response = await createPublicationReadiness(f.ports).read(f.request);
   expect(response.status).toBe(statusOf(name));
@@ -65,14 +66,15 @@ it.each(Object.keys(mutations) as (keyof typeof mutations)[])('refuses %s change
   expect(f.h.pointer()).toBeNull(); expect(f.h.receiptCount()).toBe(0);
 });
 
-it.each(['release audit', 'fourth authority', 'last signoff', 'SQL submission'])('fences mutations after %s', async point => {
-  const f = await fixture(); let previews = 0, ledgerReads = 0;
+it.each(['release audit', 'last session check', 'last signoff', 'SQL submission'])('fences mutations after %s', async point => {
+  const f = await fixture(); let sessions = 0, ledgerReads = 0;
   const mutate = () => mutations['ledger-only invalidation'](f);
   if (point === 'release audit') {
     const append = f.ports.audit!.append;
     f.ports.audit = { append: async e => { const r = await append(e); if (e.action === 'publication.readiness.release-intent') mutate(); return r; } };
   }
-  if (point === 'fourth authority') f.request.identity.authorize = async () => { if (++previews === 4) mutate(); };
+  // Admission, after the intent audit, then after the release audit: the last live session check before the fence.
+  if (point === 'last session check') f.request.identity.checkRevocation = async () => { if (++sessions === 3) mutate(); };
   if (point === 'last signoff') {
     const read = f.ports.ledger!.signoff;
     f.ports.ledger = { ...f.ports.ledger!, signoff: async a => { const s = await read(a); if (++ledgerReads === 2) mutate(); return s; } };

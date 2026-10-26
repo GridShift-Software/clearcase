@@ -2,8 +2,7 @@
 import type { AuditSink, CaseId, ClientId, Identity, ResultsVersion } from '../contracts.ts';
 import { contractError, isDenial } from '../errors.ts';
 import { freeze } from '../data.ts';
-import { canonicalJson, canonicalText } from '../../../case-package/canonical.ts';
-import { sha256Hex } from '../../../case-package/hash.ts';
+import { canonicalJson } from '../../../case-package/canonical.ts';
 import { LIMITS, type Limits } from '../../../case-package/limits.ts';
 import { validateHostedPackage } from '../../../case-package/hosted-validation.ts';
 import { CITATION_TOKEN, parseCitationToken } from '../../../case-package/refs.ts';
@@ -14,7 +13,9 @@ import type { CandidateReader, CandidateSnapshot, RequiredPreviewState } from '.
 import { d1NativeCandidateRepository } from '../../../results-review/native/repository.ts';
 import { inspectPackage } from '../../../results-review/native/package.ts';
 import { buildCoverage } from '../../../results-review/native/coverage.ts';
-import { d1SubmissionRepository } from '../../../submissions/repository.ts';
+import { submissionSnapshotReader } from '../../../results-review/native/submission-reader.ts';
+import { GRANT_ROLES, permits } from '../../../tenancy/grants.ts';
+import { LAYOUT } from '../../../storage/cloud/gate.ts';
 import { preparePackage } from '../../../results/hosted/project.ts';
 import { loadVerifiedModel } from '../../../results/hosted/model.ts';
 import { projectionDifferences } from '../../../results/hosted/read-model.ts';
@@ -54,11 +55,12 @@ function fingerprints(value: unknown): string[] {
   return [...value].sort();
 }
 type Primary = ReturnType<PublicationD1Database['withSession']>;
+const PREVIEWERS = GRANT_ROLES.filter((r) => permits(r, 'read-preview'));
 type FileRow = { path: string; sha256: string; size: number; object_key: string };
 type StoredVersion = {
   version_id: ResultsVersion; case_id: CaseId; state: string; manifest_sha256: string; input_revision_id: string;
   verdict: string; validator_version: string; diagnostics_sha256: string; warning_fingerprints: string;
-  expected_documents: number; expected_assets: number; expected_seeds: number; expected_files: number; package_bytes: number;
+  expected_documents: number; expected_assets: number; expected_seeds: number; expected_files: number; package_bytes: number; overview: string;
 };
 
 /** Null means configuration is unavailable. Authority is checked on every read, not at construction. */
@@ -78,6 +80,21 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
     await identity.checkRevocation();
     // Read-preview is intentionally NOT operate: a separately granted publisher/reviewer can read this candidate.
     await identity.authorize({ caseId, operation: 'read-preview' });
+  }
+  /** Read-preview as it stands now, unaudited: the live session, then the grant rows the admitted decision read, as one
+   * statement on the primary (tenancy/operate-observation.ts's condition for this operation). authority() stays the audited
+   * decision, made once when a read is admitted; the principal it admitted is immutable, its grant is not. */
+  async function observe(primary: Primary, caseId: CaseId) {
+    if (identity.kind !== 'verified') throw contractError('unauthenticated');
+    await identity.checkRevocation();
+    const { issuer, subject, kind } = identity.principal;
+    const row = await primary.prepare(`SELECT (EXISTS (SELECT 1 FROM rs_storage_identity i JOIN rs_case c ON c.case_id = ? WHERE i.singleton = 1 AND i.client_id = ? AND i.layout = ?)
+      AND EXISTS (SELECT 1 FROM tenant_case_grants g WHERE g.client_id = ? AND g.scope = 'case' AND g.case_id = ? AND g.issuer = ? AND g.subject = ?
+        AND g.principal_kind = ? AND g.state = 'active' AND g.revoked_at IS NULL AND g.role IN (${PREVIEWERS.map(() => '?').join(', ')})
+        AND (g.expires_at IS NULL OR julianday(g.expires_at) > julianday(?)))) AS ok`)
+      .bind(caseId, clientId, LAYOUT, clientId, caseId, issuer, subject, kind, ...PREVIEWERS, now().toISOString())
+      .first<{ ok: number }>().catch(() => { throw contractError('identity-unavailable', true); });
+    if (row?.ok !== 1) throw contractError('forbidden');
   }
   async function record(caseId: CaseId, candidateId: string, version: ResultsVersion | null, outcome: 'succeeded' | 'failed' | 'denied' | 'refused') {
     const event = {
@@ -102,18 +119,11 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
 
   /** A single exact finalized revision, not an unbounded list of the case's submissions. */
   async function submission(primary: Primary, caseId: CaseId, revisionId: string): Promise<FinalizedSubmissionSnapshot> {
-    const row = await primary.prepare(`SELECT r.operation_id FROM submissions_revision r JOIN submissions_upload u
-      ON u.client_id = r.client_id AND u.case_id = r.case_id AND u.operation_id = r.operation_id
-      WHERE r.client_id = ? AND r.case_id = ? AND r.revision_id = ? AND u.state = 'finalized'`)
-      .bind(clientId, caseId, revisionId).first<{ operation_id: string }>();
-    if (!row) return integrity();
-    const n = await primary.prepare('SELECT COUNT(*) AS n FROM submissions_file WHERE client_id = ? AND case_id = ? AND revision_id = ?')
-      .bind(clientId, caseId, revisionId).first<{ n: number }>();
-    if (!n || !count(n.n, limits.assets)) return unavailable();
-    const manifest = await d1SubmissionRepository(primary).revision({ clientId, caseId, operationId: row.operation_id });
-    if (!manifest || manifest.clientId !== clientId || manifest.caseId !== caseId || manifest.revisionId !== revisionId) return integrity();
-    const bytes = new TextEncoder().encode(canonicalText(manifest));
-    return { state: 'finalized', manifest, storedManifestSha256: sha256Hex(bytes) as FinalizedSubmissionSnapshot['storedManifestSha256'], storedManifestBytes: bytes.byteLength };
+    // One statement, as the importer reads it. Its rows are this case's files, already counted against maxVerifyObjects.
+    const s = await submissionSnapshotReader(primary).finalized({ clientId, caseId, revisionId });
+    if (s.state !== 'finalized' || s.manifest.clientId !== clientId || s.manifest.caseId !== caseId || s.manifest.revisionId !== revisionId
+      || !count(s.manifest.files.length, limits.assets)) return integrity();
+    return s;
   }
 
   /** A baseline is accepted CURRENT publication evidence, never package data or a missing-port fallback. */
@@ -171,7 +181,6 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
         const open = storageAccess({ bindings: { db: primary, bucket }, clientId, budgets: b }, 'storage-unavailable');
         const candidates = d1NativeCandidateRepository(primary);
         const storage = await open();
-        if (!await primary.prepare('SELECT 1 AS x FROM rs_case WHERE case_id = ?').bind(scope.caseId).first()) return integrity();
         const linked = await candidates.candidate(scope);
         if (!linked || !linked.current || linked.supersededBy !== null) return integrity();
         const link = linked.link, pin = link.candidate;
@@ -185,14 +194,14 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
           || !count(version.expected_seeds, limits.jsonValues) || !count(version.expected_files, b.maxPackageFiles)
           || !count(version.package_bytes, b.maxPackageBytes)) return unavailable();
         // Bound the existing model/folder helpers before they buffer rows. Actual row counts, not claimed expectations.
-        for (const [table, max] of [['rs_document', b.maxDocuments], ['rs_asset', limits.assets], ['rs_seed', limits.jsonValues]] as const) {
-          const n = await primary.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE version_id = ?`).bind(rv).first<{ n: number }>();
-          if (!n || !count(n.n, max)) return unavailable();
-        }
-        for (const table of ['rs_case_original', 'submissions_file']) {
-          const n = await primary.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE case_id = ?`).bind(scope.caseId).first<{ n: number }>();
-          if (!n || !count(n.n, b.maxVerifyObjects)) return unavailable();
-        }
+        const n = await primary.prepare(`SELECT EXISTS (SELECT 1 FROM rs_case WHERE case_id = ?) AS known,
+          (SELECT COUNT(*) FROM rs_document WHERE version_id = ?) AS documents, (SELECT COUNT(*) FROM rs_asset WHERE version_id = ?) AS assets,
+          (SELECT COUNT(*) FROM rs_seed WHERE version_id = ?) AS seeds, (SELECT COUNT(*) FROM rs_case_original WHERE case_id = ?) AS originals,
+          (SELECT COUNT(*) FROM submissions_file WHERE case_id = ?) AS submitted`).bind(scope.caseId, rv, rv, rv, scope.caseId, scope.caseId)
+          .first<{ known: number; documents: number; assets: number; seeds: number; originals: number; submitted: number }>();
+        if (!n || n.known !== 1) return integrity();
+        if (!count(n.documents, b.maxDocuments) || !count(n.assets, limits.assets) || !count(n.seeds, limits.jsonValues)
+          || !count(n.originals, b.maxVerifyObjects) || !count(n.submitted, b.maxVerifyObjects)) return unavailable();
         const files = await primary.prepare('SELECT path, sha256, size, object_key FROM rs_package_file WHERE version_id = ? ORDER BY path LIMIT ?')
           .bind(rv, b.maxPackageFiles + 1).all<FileRow>();
         if (files.results.length !== version.expected_files || files.results.length > b.maxPackageFiles) return integrity();
@@ -249,9 +258,8 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
         const projected = prepared.project(originals.facts);
         if (!projected.ok) return integrity();
         const model = await loadVerifiedModel(primary, rv);
-        const stored = await primary.prepare('SELECT overview FROM rs_results_version WHERE version_id = ? AND case_id = ?').bind(rv, scope.caseId).first<{ overview: string }>();
-        if (!stored || projectionDifferences({ documents: model.docs, assets: model.assets, seeds: model.seeds,
-          chronologyJson: JSON.stringify(model.docs.map((d) => JSON.parse(d.list_json))), overview: stored.overview, expect: projected.projection.expect }, projected.projection).length) return integrity();
+        if (projectionDifferences({ documents: model.docs, assets: model.assets, seeds: model.seeds,
+          chronologyJson: JSON.stringify(model.docs.map((d) => JSON.parse(d.list_json))), overview: version.overview, expect: projected.projection.expect }, projected.projection).length) return integrity();
         const requiredSections = [...await renderRequiredSections({ candidate: result.candidate, projection: projected.projection,
           originals: new Map(mapped.flatMap((m) => m.packageRefs.map((ref) => [ref, m.submissionAssetId] as const))) })];
         const requiredPreviews: { assetId: string; state: RequiredPreviewState }[] = [];
@@ -270,7 +278,7 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
           const fact = originals.facts.get(ref);
           if (asset.kind === 'file' && asset.mediaType === 'application/pdf' && fact && !fact.downloadOnly && renderChecker) {
             // Same original bytes and pagination, not an unproved conversion. All source/asset refs remain unchanged.
-            await authority(scope.caseId);
+            await observe(primary, scope.caseId);
             const data = await readBytes({ object_key: originalKey(asset.sha256), size: asset.size, sha256: asset.sha256 }, b.maxBufferedObjectBytes);
             const checked = await renderChecker.verify({ ...scope, resultsVersion: rv, assetId: ref, bytes: data, sha256: asset.sha256, mediaType: asset.mediaType });
             state = checked.state === 'failed' ? 'failed' : 'pending';
@@ -283,13 +291,12 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
         }
         if (await d1PublicationSnapshotRevision(db, scope) !== revision) return integrity();
         await record(scope.caseId, scope.candidateId, rv, 'succeeded');
-        await authority(scope.caseId);
         if ((await baseline(primary, scope.caseId)).token !== oldBaseline.token) return integrity();
         // ALL awaited package/fact/model/render/audit work is inside these real D1 revision observations.
         if (await d1PublicationSnapshotRevision(db, scope) !== revision) return integrity();
-        // Post-await release authority is a distinct observation, not a Clerk/D1 lock. The parent owns the final
-        // coherent sign-off fence if a D1 material writer races this last external-authority check.
-        await authority(scope.caseId);
+        // Post-await release authority is a distinct observation after every other await, not a Clerk/D1 lock. The parent
+        // owns the final coherent sign-off fence if a D1 material writer races this last external-authority check.
+        await observe(primary, scope.caseId);
         return freeze({ link: { linkId: link.linkId, clientId, caseId: scope.caseId, submissionRevisionId: link.submissionRevisionId,
           submissionManifestSha256: link.submissionManifestSha256, candidate: pin }, preparedBy: { issuer: link.operator.issuer, subject: link.operator.subject },
           snapshotRevision: revision, validation: { verdict: result.verdict, validatorVersion: result.validatorVersion, diagnosticsSha256: result.diagnosticsSha256,

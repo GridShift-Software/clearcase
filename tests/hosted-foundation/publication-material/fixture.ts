@@ -110,7 +110,14 @@ export async function world(o: { fold?: boolean; textStatus?: 'none' | 'extracte
   await repository.record({ ...scope, operationId: 'import-one', origin: 'import', parentCandidateId: null, link, correction: null,
     auditEvent: await candidateAuditEvent({ origin: 'import', candidateId: scope.candidateId, link }, id('session', 'prepare-session')) });
   if (o.settled !== false) await repository.settleAudit(await repository.auditIntent(scope));
-  const state = { session: true, grant: true, audit: true, authorityHook: null as (() => void) | null, auditHook: null as ((e: AuditEvent) => void) | null };
+  // The reviewer's read-preview grant is one real row: the identity double's audited decision and the reader's unaudited
+  // observation both follow it, as Clerk's case authorizer and the observation read one grant table in production.
+  db.exec(`INSERT INTO tenant_case_grants (grant_id, client_id, scope, case_id, issuer, subject, principal_kind, role, slot, state, version, created_operation_id, request, created_by_issuer, created_by_subject, created_at)
+    VALUES ('g-reviewer', ?, 'case', ?, 'synthetic', 'distinct-reviewer', 'staff', 'viewer', 'content', 'active', 1, 'op-reviewer', '{}', 'synthetic', 'provisioner', ?)`, CLIENT, CASE, NOW);
+  let granted = true;
+  const state = { session: true, audit: true, authorityHook: null as (() => void) | null, auditHook: null as ((e: AuditEvent) => void) | null,
+    get grant() { return granted; },
+    set grant(v: boolean) { granted = v; db.exec("UPDATE tenant_case_grants SET state = ?, revoked_at = ? WHERE grant_id = 'g-reviewer'", v ? 'active' : 'revoked', v ? null : NOW); } };
   const events: AuditEvent[] = [], calls: CaseOperation[] = [], checkerCalls: Parameters<NativePreviewRenderChecker['verify']>[0][] = [];
   const identity: Identity = { clientId: CLIENT, kind: 'verified', principal: { issuer: 'synthetic', subject: 'distinct-reviewer', kind: 'staff' }, sessionId: id('session', 'review-session'),
     async checkRevocation() { if (!state.session) throw contractError('invalid-session'); },

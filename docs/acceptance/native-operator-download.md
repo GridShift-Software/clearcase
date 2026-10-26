@@ -12,7 +12,7 @@ Status: PREPARED, UNVERIFIED. The module, routes and component tests exist. Noth
 | --- | --- | --- |
 | `/operator/submissions/[caseId]` | GET (page) | The case's finalized submissions, each with its manifest and download links |
 | `…/finalized` | GET | `{submissions: OperatorSubmissionView[], pendingCount}`, finalized only, by sequence |
-| `…/finalized/[operationId]` | GET | One view: the manifest, `manifestSha256`, `manifestHref`, `downloadHref` and the file's path, size and SHA-256 |
+| `…/finalized/[operationId]` | GET | One view: the manifest, `manifestSha256` (digest of the served manifest bytes), `finalizedSnapshotSha256` (the finalized snapshot identity a candidate link and readiness pin, the same `finalizedSnapshotIdentity` the native snapshot reader uses; it is not the download digest), `manifestHref`, `downloadHref` and the file's path, size and SHA-256 |
 | `…/finalized/[operationId]/manifest` | GET | The exact manifest bytes (fixed key order) as an attachment; `X-ClearCase-Manifest-Sha256` equals `manifestSha256` |
 | `…/finalized/[operationId]/download` | GET, HEAD | The complete PDF (200), or one range (206/416), as an attachment |
 

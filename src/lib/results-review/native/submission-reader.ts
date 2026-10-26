@@ -1,11 +1,10 @@
-import { canonicalText } from '../../case-package/canonical.ts';
 import { contractError } from '../../server/runtime/errors.ts';
 import type { FinalizedSubmissionSnapshot } from '../../server/runtime/hosted/alpha-contracts.ts';
 import type { CaseId, ClientId } from '../../server/runtime/contracts.ts';
 import { sha256 as brandSha } from '../../server/runtime/ids.ts';
 import { revisionIdOf } from '../../submissions/repository.ts';
+import { finalizedSnapshotIdentity } from '../../submissions/snapshot-identity.ts';
 import type { SubmissionManifest } from '../../submissions/ports.ts';
-import { sha256Bytes } from './digest.ts';
 import type { FinalizedSubmissionReader, NativeD1 } from './ports.ts';
 
 const PREFIX = revisionIdOf('');
@@ -19,8 +18,9 @@ type Row = { state: string; revision_id: string | null; sequence: number; operat
  *
  * The intake persists the manifest as immutable rows, not as one byte string. The "persisted bytes" hashed here are the
  * library's canonical text (`canonicalText`) of that manifest exactly as `SubmissionRepository.revision` builds it,
- * `finalizedAt` included and unchanged (it records reserve time; see alpha-contracts.ts). A future intake that stores
- * manifest bytes replaces this adapter.
+ * `finalizedAt` included and unchanged (it records reserve time; see alpha-contracts.ts). `finalizedSnapshotIdentity`
+ * is the one definition, shared with the operator submission view. A future intake that stores manifest bytes replaces
+ * this adapter.
  */
 export function submissionSnapshotReader(db: NativeD1): FinalizedSubmissionReader {
   return {
@@ -44,8 +44,8 @@ export function submissionSnapshotReader(db: NativeD1): FinalizedSubmissionReade
         files: Object.freeze(rows.map((f) => Object.freeze({ path: f.path!, filename: f.filename, mediaType: f.media_type, size: f.size, sha256: f.sha256, assetId: f.asset_id }))),
       });
       if (m.revisionId !== a.revisionId) return { state: 'absent' };
-      const bytes = new TextEncoder().encode(canonicalText(m));
-      const snapshot: FinalizedSubmissionSnapshot = { state: 'finalized', manifest: m, storedManifestSha256: brandSha(await sha256Bytes(bytes)), storedManifestBytes: bytes.byteLength };
+      const identity = await finalizedSnapshotIdentity(m);
+      const snapshot: FinalizedSubmissionSnapshot = { state: 'finalized', manifest: m, storedManifestSha256: brandSha(identity.sha256), storedManifestBytes: identity.bytes };
       return snapshot;
     },
   };

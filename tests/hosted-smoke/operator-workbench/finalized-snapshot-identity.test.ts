@@ -9,11 +9,13 @@ import { submissionSnapshotReader, type NativeD1 } from '../../../src/lib/result
 import type { OperatorSubmissionView } from '../../../src/lib/submissions/download/controller.ts';
 import { createPublicationReadiness, type ReadinessView } from '../../../src/lib/publication/hosted/readiness.ts';
 import { sha256 } from '../../../src/lib/server/runtime/ids.ts';
+import { candidateIdOf, linkIdOf, sha256Text } from '../../../src/lib/results-review/native/digest.ts';
 import { identity, seed, sha, world as downloads } from '../operator-download/doubles.ts';
 import { compose, dispatch } from '../operator-download/harness.ts';
 import { CASE, candidate, snapshot, world as readinessWorld } from './fixtures.ts';
 
 const assertReadiness: (v: ReadinessView, caseId: string, c: LinkedCandidate, s: OperatorSubmissionView) => void = Reflect.get(WorkbenchExports, 'assertReadiness');
+const assertOperationSuccess: (r: unknown, status: number, value: unknown) => Promise<void> = Reflect.get(WorkbenchExports, 'assertOperationSuccess');
 const importExpectation: (s: OperatorSubmissionView, caseId: string, packageManifestText: string) => Promise<Record<string, string>> = Reflect.get(WorkbenchExports, 'importExpectation');
 
 /** One finalized submission served by the real operator controller, plus the native reader's own digest of the same row. */
@@ -72,5 +74,20 @@ describe('finalized snapshot identity versus downloaded manifest digest', () => 
     expect(e.submissionManifestSha256).not.toBe(view.manifestSha256);
     expect(e.submissionRevisionId).toBe(view.revisionId);
     expect(e.clientId).toBe(view.clientId);
+  });
+  it('confirms the linked import response against the finalized snapshot pin and refuses a response carrying the download digest', async () => {
+    const { view, snapshotSha } = await served();
+    const text = JSON.stringify({ resultsVersion: `sha256:${'a'.repeat(64)}`, inputRevision: { id: `sha256:${'b'.repeat(64)}` } });
+    const expected = await importExpectation(view, CASE, text);
+    const respond = async (linkedSha: string) => {
+      const c = candidate(), pin = { ...c.link.candidate, clientId: expected.clientId as never, resultsVersion: expected.resultsVersion, manifestSha256: await sha256Text(text), packageInputRevisionId: expected.packageInputRevisionId };
+      const candidateId = await candidateIdOf(pin), linkedPin = { ...pin, candidateId };
+      const link = { ...c.link, clientId: expected.clientId as never, candidate: linkedPin, submissionRevisionId: view.revisionId, submissionManifestSha256: linkedSha,
+        linkId: await linkIdOf({ candidateId, submissionRevisionId: view.revisionId, submissionManifestSha256: linkedSha }) };
+      return { kind: 'linked', repeated: false, candidate: { ...c, candidateId, link } };
+    };
+    const request = { kind: 'import', path: '/imports', expected, body: { operationId: 'synthetic-operation0000', submissionRevisionId: view.revisionId, files: {} } };
+    await expect(assertOperationSuccess(request, 201, await respond(snapshotSha))).resolves.toBeUndefined();
+    await expect(assertOperationSuccess(request, 201, await respond(view.manifestSha256))).rejects.toThrow();
   });
 });

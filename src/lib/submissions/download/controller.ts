@@ -2,6 +2,7 @@ import type { AssetRef, AuditEvent, CaseId, Identity, IdentityState, Principal, 
 import { codeOf } from '../../server/runtime/errors.ts';
 import { id } from '../../server/runtime/ids.ts';
 import { revisionIdOf } from '../repository.ts';
+import { finalizedSnapshotIdentity } from '../snapshot-identity.ts';
 import type { SubmissionFile, SubmissionManifest, UploadRecord } from '../ports.ts';
 import { digest } from '../../server/runtime/data.ts';
 import type { OperatorDownloadPorts } from './ports.ts';
@@ -16,8 +17,11 @@ export interface OperatorRequest { request: Request; url: URL; params: Partial<R
 export interface OperatorSubmissionView {
   operationId: string; revisionId: string; sequence: number; caseId: string; clientId: string;
   manifest: SubmissionManifest;
-  /** SHA-256 of the exact bytes the manifest route serves. */
-  manifestSha256: string; manifestHref: string; downloadHref: string;
+  /** SHA-256 of the exact bytes the manifest route serves. It authenticates the download, and is NOT the finalized snapshot identity. */
+  manifestSha256: string;
+  /** SHA-256 of the finalized snapshot (canonical manifest text), the identity a candidate link and readiness pin as `submissionManifestSha256`. */
+  finalizedSnapshotSha256: string;
+  manifestHref: string; downloadHref: string;
   files: { path: string; filename: string; mediaType: string; size: number; sha256: string; downloadHref: string }[];
 }
 
@@ -204,7 +208,7 @@ export function createOperatorDownloadController(ports: OperatorDownloadPorts | 
     const href = hrefOf(a.caseId, manifest.operationId, '/download');
     return {
       operationId: manifest.operationId, revisionId: manifest.revisionId, sequence: manifest.sequence, caseId: manifest.caseId, clientId: manifest.clientId, manifest,
-      manifestSha256: await digest(manifestBytes(manifest)), manifestHref: hrefOf(a.caseId, manifest.operationId, '/manifest'), downloadHref: href,
+      manifestSha256: await digest(manifestBytes(manifest)), finalizedSnapshotSha256: (await finalizedSnapshotIdentity(manifest)).sha256, manifestHref: hrefOf(a.caseId, manifest.operationId, '/manifest'), downloadHref: href,
       files: [{ path: file.path, filename: file.filename, mediaType: file.mediaType, size: file.size, sha256: file.sha256, downloadHref: href }],
     };
   }

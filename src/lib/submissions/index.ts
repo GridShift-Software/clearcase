@@ -6,3 +6,4 @@ export { d1SubmissionRepository, revisionIdOf, type IntakeD1, type IntakeD1State
 export { intakeControllerFor, setIntakeComposition, type IntakeComposition } from './composition.ts';
 export { intakeBudget } from './budget.ts';
 export { safePath, type SafePath } from './path.ts';
+export { finalizedSnapshotIdentity } from './snapshot-identity.ts';

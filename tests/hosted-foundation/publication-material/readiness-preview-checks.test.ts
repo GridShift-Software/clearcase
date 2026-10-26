@@ -131,3 +131,62 @@ describe('safe render outcome codes in readiness (synthetic component evidence, 
     }
   });
 });
+
+describe('navigation observations in readiness (synthetic component evidence, NOT native renderer acceptance)', () => {
+  const GOOD = { goto: 'resolved', documentAcknowledged: true, firstViolation: 'favicon-path' };
+  const withNavigation = (navigation: unknown): NativePreviewRenderChecker =>
+    ({ async verify() { calls.n++; return { state: 'failed', rendererVersion: 'UNIT-DOUBLE-NOT-ACCEPTANCE', pages: null, reason: 'render-failed', stage: 'navigation', navigation } as never; } });
+
+  it('forwards a valid observation as pinned, beside the unchanged code and stage', async () => {
+    const r = await readiness({ section: true }, withNavigation(GOOD));
+    expect(r.body.previewChecks).toEqual([{ assetId: 'OD-001', state: 'failed', reasonCode: 'render-failed', stage: 'navigation', navigation: GOOD }]);
+    const rejected = { goto: 'rejected', documentAcknowledged: false, gotoError: 'blocked-by-administrator' };
+    expect((await readiness({ section: true }, withNavigation(rejected))).body.previewChecks[0].navigation).toEqual(rejected);
+  });
+
+  it('rebuilds the observation from allowlisted fields: private values, extra keys and wrong shapes never pass', async () => {
+    const bad = [{ ...GOOD, firstViolation: RAW }, { ...GOOD, firstViolation: 'Favicon-Path' }, { ...GOOD, firstViolation: 'constructor' }, { ...GOOD, extra: RAW },
+      { ...GOOD, url: 'https://client-a.example/' }, { ...GOOD, goto: 'redirected' }, { ...GOOD, documentAcknowledged: 'yes' }, { goto: 'resolved' },
+      { goto: 'rejected', documentAcknowledged: false, gotoError: RAW }, { goto: 'resolved', documentAcknowledged: true, gotoError: 'aborted' },
+      { goto: 'rejected', documentAcknowledged: false, gotoError: 'net::ERR_FAILED' }, RAW, null, [GOOD], 7, Object.assign(Object.create({ firstViolation: 'pageerror' }), GOOD)];
+    for (const navigation of bad) {
+      const r = await readiness({ section: true }, withNavigation(navigation));
+      expect(r.body.previewChecks).toEqual([{ assetId: 'OD-001', state: 'failed', reasonCode: 'render-failed', stage: 'navigation' }]);
+      for (const leak of ['TypeError', 'https://', '__session', 'token=', 'cookie', 'eyJhbGciOi', 'sess_', 'blob:', 'client-a', 'net::']) expect(r.text).not.toContain(leak);
+    }
+  });
+
+  it('never carries an observation for a rendered preview', async () => {
+    const clean = await readiness({}, { async verify() { calls.n++; return { state: 'rendered', rendererVersion: 'UNIT-DOUBLE-NOT-ACCEPTANCE', pages: 1, reason: null, navigation: GOOD } as never; } });
+    expect(clean.body.previewChecks).toEqual([{ assetId: 'OD-001', state: 'rendered' }]);
+  });
+
+  it('changes no checker call, audit action or blocker, and the material digest pins the observation', async () => {
+    const seen = await readiness({ section: true }, withNavigation(GOOD));
+    const other = await readiness({ section: true }, withNavigation({ ...GOOD, firstViolation: 'pageerror' }));
+    const none = await readiness({ section: true }, checker('failed', 'render-failed', 'navigation'));
+    expect(calls.n).toBe(3);
+    expect(seen.w.events.map((e) => e.action)).toEqual(none.w.events.map((e) => e.action));
+    expect(seen.body.blocker).toEqual(none.body.blocker);
+    expect(new Set([seen.body.materialSha256, other.body.materialSha256, none.body.materialSha256]).size).toBe(3);
+  });
+
+  it('checkSnapshot accepts an omitted or allowlisted observation only, with no extra key or enum value', async () => {
+    const w = await world({ section: true }); worlds.push(w);
+    w.options.renderChecker = withNavigation(GOOD);
+    const base = await w.read() as unknown as { requiredPreviews: Record<string, unknown>[] };
+    const withPreview = (p: Record<string, unknown>) => ({ ...base, requiredPreviews: [p] });
+    const failed = { assetId: 'OD-001', state: 'failed', reasonCode: 'render-failed', stage: 'navigation' };
+    expect(base.requiredPreviews).toEqual([{ ...failed, navigation: GOOD }]);
+    expect(checkSnapshot(withPreview(failed))).not.toBeNull();
+    expect(checkSnapshot(withPreview({ ...failed, navigation: GOOD }))).not.toBeNull();
+    expect(checkSnapshot(withPreview({ ...failed, navigation: { goto: 'rejected', documentAcknowledged: false, gotoError: 'generic' } }))).not.toBeNull();
+    expect(checkSnapshot(withPreview({ ...failed, navigation: { goto: 'pending', documentAcknowledged: false } }))).not.toBeNull();
+    for (const navigation of [{}, { ...GOOD, extra: 1 }, { ...GOOD, firstViolation: 'boot' }, { ...GOOD, firstViolation: undefined }, { ...GOOD, goto: 'x' },
+      { ...GOOD, documentAcknowledged: 1 }, { goto: 'resolved', documentAcknowledged: true, gotoError: 'aborted' }, { goto: 'rejected', documentAcknowledged: false, gotoError: 'net::ERR_FAILED' },
+      { goto: 'rejected', documentAcknowledged: false, gotoError: null }, null, 'x', [GOOD], undefined]) {
+      expect(checkSnapshot(withPreview({ ...failed, navigation }))).toBeNull();
+    }
+    expect(checkSnapshot(withPreview({ assetId: 'OD-001', state: 'rendered', navigation: GOOD }))).toBeNull();
+  });
+});

@@ -1,6 +1,7 @@
 // SDK BOUNDARY DOUBLES ONLY. No browser, provider, workerd or PDF rendering is run by this file.
 // An artificial transcript exercises orchestration/negative gates; it is NEVER renderer acceptance.
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,6 +12,7 @@ import { id, resultsVersion } from '../../../src/lib/server/runtime/ids.ts';
 import { prepareHostedPdfAssets } from '../../../scripts/hosted-pdf-assets.ts';
 import { NATIVE_SDK_BUILD_SCHEMA, NATIVE_SDK_INPUT_PINS, NATIVE_SDK_WORKER_OUTPUTS } from '../../../scripts/native-render-sdk-build.ts';
 import { NATIVE_SDK_BUFFER_SOURCE, NATIVE_SDK_DEBUG_SOURCE, NATIVE_SDK_HOST_SYMBOLS } from '../../../src/lib/viewer/hosted/sdk-build-contract.ts';
+import { installWorkerdRedirectContract } from '../workerd-redirect-contract.ts';
 import { createNativePreviewRenderChecker, NATIVE_PDF_RENDER_CEILINGS, type NativePreviewRenderOptions } from '../../../src/lib/viewer/hosted/native-render-check.ts';
 
 const sdk = vi.hoisted(() => ({ launch: vi.fn() }));
@@ -26,6 +28,10 @@ const day = 20_000 * 86_400_000;
 let clock = day + 10_000;
 const databases: DatabaseSync[] = [];
 afterAll(() => databases.forEach(db => db.close()));
+// The pinned asset fetch builds a Request, and workerd refuses redirect 'error' there. Bun does not, so model that one rule for the whole file.
+let restoreRequest: (() => void) | undefined;
+beforeAll(() => { restoreRequest = installWorkerdRedirectContract(); });
+afterAll(() => restoreRequest?.());
 
 /** Actual SQLite migration/trigger logic, with a deliberately labelled in-process D1 API boundary double. */
 function rawDatabase() {
@@ -136,6 +142,20 @@ describe('native PDF SDK boundary orchestration (NOT renderer acceptance)', () =
   for (const required of ['new Worker(', 'await rendering.promise', 'getImageData(', 'worker?.terminate()', 'isEvalSupported: false', 'enableScripting: false', 'enableXfa: false', 'stopAtErrors: true']) expect(source).toContain(required);
   expect(source).not.toContain('innerHTML'); expect(source).not.toContain(sha256); expect(source).not.toContain('candidate-a1');
   expect(boundary.served.get('/__clearcase_native_pdf__/inspect')!.headers!['content-security-policy']).not.toContain('unsafe-eval');
+ });
+
+ it('fetches each pinned static file as a manual-redirect GET and serves exactly its pinned bytes', async () => {
+  const boundary = sdkBoundary(), o = options(); sdk.launch.mockResolvedValue(boundary.browser);
+  expect(await (await createNativePreviewRenderChecker(o))!.verify(input())).toMatchObject({ state: 'rendered', pages: 2 });
+  const fetched = vi.mocked(o.assets!.fetch).mock.calls.map(([request]) => request);
+  expect(fetched.map(request => new URL(request.url).pathname).sort()).toEqual(['/pdfjs/pdf.min.mjs', '/pdfjs/pdf.worker.min.mjs']);
+  for (const request of fetched) expect([request.method, request.redirect, new URL(request.url).origin]).toEqual(['GET', 'manual', 'https://app.example']);
+  for (const path of ['/pdfjs/pdf.min.mjs', '/pdfjs/pdf.worker.min.mjs']) {
+   const pin = pins.files.find(f => f.path === path)!;
+   const served = Buffer.from(boundary.served.get(path)!.body as Uint8Array);
+   expect(served.equals(readFileSync(join(root, path)))).toBe(true);
+   expect([served.length, 'sha256:' + createHash('sha256').update(served).digest('hex')]).toEqual([pin.bytes, pin.sha256]);
+  }
  });
 
  it.each(['db', 'browser', 'assets', 'pins', 'budget'] as const)('is unavailable without %s', async key => {
@@ -528,6 +548,34 @@ describe('native PDF navigation observations (SDK boundary doubles with a script
   const { outcome } = await run(afterDocument(async b => { await script(b); }), tune);
   expect(outcome).toMatchObject(symptom);
   expect(outcome).toHaveProperty('navigation.firstViolation', kind);
+ });
+
+ it.each([301, 302, 303, 307, 308])('does not follow a %i from the asset binding: the pinned path is fetched once, as manual, and refused', async status => {
+  const fetched: { path: string; redirect: string }[] = [];
+  const { outcome, boundary } = await run(afterDocument(b => b.request(OWN + '/pdfjs/pdf.min.mjs', 'script').then(() => {})), o => {
+   const real = o.assets!.fetch;
+   o.assets!.fetch = async (r: Request) => {
+    const path = new URL(r.url).pathname; fetched.push({ path, redirect: r.redirect });
+    return path === '/pdfjs/pdf.min.mjs' ? new Response(null, { status, headers: { location: '/pdfjs/pdf.worker.min.mjs' } }) : real(r);
+   };
+  });
+  expect(outcome).toMatchObject(symptom);
+  expect(outcome).toHaveProperty('navigation.firstViolation', 'static-response');
+  expect(fetched).toEqual([{ path: '/pdfjs/pdf.min.mjs', redirect: 'manual' }]); // the Location target is never requested
+  expect(boundary.served.has('/pdfjs/pdf.min.mjs')).toBe(false); expect(boundary.served.has('/pdfjs/pdf.worker.min.mjs')).toBe(false);
+ });
+ it.each(['206 partial', '200 that followed a redirect'])('refuses an asset response that is not a first-hand 200: %s', async kind => {
+  const { outcome, boundary } = await run(afterDocument(b => b.request(OWN + '/pdfjs/pdf.min.mjs', 'script').then(() => {})), o => {
+   const real = o.assets!.fetch;
+   o.assets!.fetch = async (r: Request) => {
+    const good = await real(r);
+    if (kind.startsWith('206')) return new Response(good.body, { status: 206 });
+    return Object.defineProperty(new Response(good.body, { status: 200 }), 'redirected', { value: true });
+   };
+  });
+  expect(outcome).toMatchObject(symptom);
+  expect(outcome).toHaveProperty('navigation.firstViolation', 'static-response');
+  expect(boundary.served.has('/pdfjs/pdf.min.mjs')).toBe(false);
  });
 
  it('reports the document unacknowledged when its respond fails, and still names the violation', async () => {

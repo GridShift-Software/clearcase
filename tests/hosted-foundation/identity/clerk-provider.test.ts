@@ -6,17 +6,22 @@ import { clerkIdentityProviderFromEnv, createClerkIdentityProvider, presentedTok
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
 import { id } from '../../../src/lib/server/runtime/ids.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
+import { installWorkerdRedirectContract } from '../workerd-redirect-contract.ts';
+import { revokeClerkSession, revokeOwnedSession } from '../../../src/lib/auth/clerk/flow.ts';
 
 const ORIGIN = 'https://client-a.clearcase.test';
 const A = craftedInstance('client-a.clerk.test'), C = craftedInstance('client-c.clerk.test'), B = craftedInstance('staff-b.clerk.test');
 let status: Awaited<ReturnType<typeof statusDouble>>;
+// Both revoke calls run in a Worker, where workerd refuses fetch with redirect 'error'. Bun does not, so model that rule for the whole file.
+let restoreRedirectRule: (() => void) | undefined;
 beforeAll(async () => {
+	restoreRedirectRule = installWorkerdRedirectContract();
 	status = await statusDouble();
 	status.set('sess_a1', 'user_a1');
 	status.set('sess_b1', 'user_b1');
 	status.set('sess_c1', 'user_c1');
 });
-afterAll(() => status.close());
+afterAll(async () => { restoreRedirectRule?.(); await status.close(); });
 
 const env = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
 	CLEARCASE_CLIENT_ID: 'client-a', CLEARCASE_APP_ORIGIN: ORIGIN,
@@ -152,6 +157,29 @@ describe('sign-out', () => {
 		expect(status.calls.some((c) => c.startsWith('POST /v1/sessions/sess_out/revoke auth'))).toBe(true);
 		await expect((await p.authenticate({ request: request() })).checkRevocation()).rejects.toMatchObject({ code: 'invalid-session' });
 		await expect(p.signOut({ principal: { ...identity.principal, issuer: C.iss }, sessionId: identity.sessionId })).rejects.toMatchObject({ code: 'invalid-session' });
+	});
+});
+
+describe('sign-out and revoke-only calls under the workerd redirect rule', () => {
+	const config = () => { const r = readClerkIdentityConfig(env()); if (!r.ok) throw new Error(r.reason); return r.config; };
+	const answers = (status: number) => { const seen: { url: string; method: string | undefined; redirect: RequestRedirect | undefined }[] = [];
+		const fetcher: typeof fetch = async (url, init) => { seen.push({ url: String(url), method: init?.method, redirect: init?.redirect }); return new Response(null, { status, headers: { location: 'https://attacker.example/' } }); };
+		return { seen, fetcher }; };
+	it.each([301, 302, 303, 307, 308])('asks for manual redirects and treats a %i answer as unavailable, never as a revoke', async code => {
+		const c = config(), { seen, fetcher } = answers(code);
+		const principal = { issuer: A.iss, subject: 'user_a1', kind: 'client' as const };
+		await expect(revokeClerkSession({ config: c, principal, sessionId: 'sess_a1' as never, fetcher })).rejects.toMatchObject({ code: 'identity-unavailable' });
+		expect(seen).toEqual([{ url: `${status.url}/v1/sessions/sess_a1/revoke`, method: 'POST', redirect: 'manual' }]);
+		const evidence = { sessionId: 'sess_a1' as never, subject: 'user_a1', instance: c.client };
+		const owned = answers(code);
+		await expect(revokeOwnedSession({ config: c, evidence: evidence as never, fetcher: owned.fetcher })).rejects.toMatchObject({ code: 'identity-unavailable' });
+		expect(owned.seen).toEqual([{ url: `${status.url}/v1/sessions/sess_a1`, method: 'GET', redirect: 'manual' }]);
+	});
+	it('revokes through the real global fetch, which the rule double would refuse for redirect error', async () => {
+		status.set('sess_rule', 'user_a1');
+		const c = config();
+		await revokeClerkSession({ config: c, principal: { issuer: A.iss, subject: 'user_a1', kind: 'client' }, sessionId: 'sess_rule' as never });
+		expect(status.statusOf('sess_rule')).toBe('revoked');
 	});
 });
 

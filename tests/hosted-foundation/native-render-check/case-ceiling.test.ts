@@ -88,7 +88,8 @@ describe('admission at the new boundary, on actual SQLite triggers', () => {
   const other = schema(true);
   reserve(other, 'b1', { case: 'case-1', at: at(0), caseLimit: 2, clientLimit: 2 });
   reserve(other, 'b2', { case: 'case-1', at: at(1), caseLimit: 2, clientLimit: 2 });
-  expect(() => reserve(other, 'b3', { case: 'case-1', at: at(2), caseLimit: 3, clientLimit: 2 })).toThrow(/CHECK constraint failed/);
+  // BEFORE INSERT admission runs ahead of the row CHECKs, so the full client day refuses first.
+  expect(() => reserve(other, 'b3', { case: 'case-1', at: at(2), caseLimit: 3, clientLimit: 2 })).toThrow(/client admission refused/);
   expect(() => reserve(other, 'b3', { case: 'case-2', at: at(2), caseLimit: 2, clientLimit: 2 })).toThrow(/client admission refused/);
  });
  it('after 0002: two historical case-limit-2 runs leave room for exactly one case-limit-3 run that day', () => {

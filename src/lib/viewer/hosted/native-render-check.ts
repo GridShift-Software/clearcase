@@ -15,8 +15,9 @@ export const NATIVE_PDF_RENDERER_ALGORITHM = 'clearcase.native-pdf/2';
 const SDK_INTEGRITY = 'sha512-39lo96Y7ErOJFmu/KIJU1VLaOibhynx/BauKCZOW5+RVH/mG0jZrAEGJlqCdx5ZxLHyWppm78YX3jLNPCBB+fA==';
 export const NATIVE_PDF_RENDER_CEILINGS: Readonly<NativePreviewRenderBudget> = Object.freeze({
  maxFileBytes: 4_000_000, maxPages: 8, maxCanvasPixels: 4_000_000, maxRunMs: 20_000,
- maxRunsPerCasePerDay: 2, maxRunsPerClientPerDay: 4,
+ maxRunsPerCasePerDay: 3, maxRunsPerClientPerDay: 4,
 });
+// A case limit of 3 needs migrations/0002_preview_render_case_limit.sql; the 0001 schema refuses it at admission.
 // No keepalive extension, browser pooling/reuse, automatic retry or account API. Immutable success receipts ARE reused.
 // Charge the default idle tail even on success.
 const IDLE_TAIL_MS = 60_000, CLEANUP_MS = 2_000, DAY_MS = 86_400_000;

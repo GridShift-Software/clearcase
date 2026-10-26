@@ -64,7 +64,7 @@ export function candidate(): LinkedCandidate {
 export function submission(): OperatorSubmissionView {
   return { operationId: 'op-synthetic00000000', revisionId: 'subrev-synthetic', sequence: 1, clientId: CLIENT, caseId: CASE,
     manifest: { format: 'clearcase.submission-manifest/1', clientId: CLIENT, caseId: CASE, operationId: 'op-synthetic00000000', revisionId: 'subrev-synthetic', sequence: 1, finalizedAt: '2026-10-25T10:00:00.000Z', files: [] },
-    manifestSha256: SHA, manifestHref: '/synthetic-manifest', downloadHref: '/synthetic-download', files: [] };
+    manifestSha256: 'd'.repeat(64), finalizedSnapshotSha256: SHA, manifestHref: '/synthetic-manifest', downloadHref: '/synthetic-download', files: [] };
 }
 export function signoff(): SignoffRecord {
   const s = snapshot();

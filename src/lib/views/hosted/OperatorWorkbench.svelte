@@ -10,6 +10,12 @@
   type CorrectionBody = { operationId: string; reason: string; replacements: { key: string; data: unknown }[] };
   type ImportExpectation = { clientId: string; caseId: string; submissionRevisionId: string; submissionManifestSha256: string;
     resultsVersion: string; manifestSha256: string; packageInputRevisionId: string };
+  /** The exact import pin. The finalized snapshot digest is what the link records; the downloaded manifest digest is not an identity input. */
+  export async function importExpectation(s: OperatorSubmissionView, caseId: string, packageManifestText: string): Promise<ImportExpectation> {
+    const manifest = JSON.parse(packageManifestText);
+    return { clientId: s.clientId, caseId, submissionRevisionId: s.revisionId, submissionManifestSha256: s.finalizedSnapshotSha256,
+      resultsVersion: manifest.resultsVersion, manifestSha256: await sha256Text(packageManifestText), packageInputRevisionId: manifest.inputRevision?.id };
+  }
   export type Pending = { path: string } & (
     | { kind: 'import'; body: ImportBody; expected: ImportExpectation }
     | { kind: 'correction'; body: CorrectionBody; expected: LinkedCandidate }
@@ -139,7 +145,7 @@
       || c.link.caseId !== caseId || pin.caseId !== caseId || s.caseId !== caseId
       || i.linkId !== c.link.linkId || i.resultsVersion !== pin.resultsVersion || i.manifestSha256 !== pin.manifestSha256
       || i.packageInputRevisionId !== pin.packageInputRevisionId || i.submissionRevisionId !== s.revisionId
-      || i.submissionRevisionId !== c.link.submissionRevisionId || i.submissionManifestSha256 !== s.manifestSha256
+      || i.submissionRevisionId !== c.link.submissionRevisionId || !SHA.test(s.finalizedSnapshotSha256) || i.submissionManifestSha256 !== s.finalizedSnapshotSha256
       || i.submissionManifestSha256 !== c.link.submissionManifestSha256 || !/^[0-9a-f]{64}$/.test(v.materialSha256)
       || !i.snapshotRevision || !i.validatorVersion || !/^(?:sha256:)?[0-9a-f]{64}$/.test(i.diagnosticsSha256)
       || !Array.isArray(v.requiredAcknowledgements) || v.requiredAcknowledgements.length > 200
@@ -293,10 +299,7 @@
     await run(async () => {
       if (!chosenSubmission || !packageFiles) throw new Error('Select a finalized submission and an already-processed results package.');
       const s = chosenSubmission, files = packageFiles;
-      const manifest = JSON.parse(files['manifest.json']);
-      const expected: ImportExpectation = { clientId: s.clientId, caseId: data.caseId, submissionRevisionId: s.revisionId,
-        submissionManifestSha256: s.manifestSha256, resultsVersion: manifest.resultsVersion,
-        manifestSha256: await sha256Text(files['manifest.json']), packageInputRevisionId: manifest.inputRevision?.id };
+      const expected = await importExpectation(s, data.caseId, files['manifest.json']);
       pending = { path: `${casePath}/imports`, kind: 'import', expected,
         body: { operationId: importOperation, submissionRevisionId: s.revisionId, files: { ...files } } };
       await performPending();
@@ -368,7 +371,8 @@
         </select>
       </label>
       {#if chosenSubmission}
-        <p>Manifest SHA-256: <code>{chosenSubmission.manifestSha256}</code></p>
+        <p>Finalized snapshot SHA-256 (the identity a candidate and its sign-off are pinned to): <code>{chosenSubmission.finalizedSnapshotSha256}</code></p>
+        <p>Downloaded manifest SHA-256 (the exact bytes of the manifest download below): <code>{chosenSubmission.manifestSha256}</code></p>
         <a href={chosenSubmission.manifestHref} download>Download exact manifest</a> · <a href={chosenSubmission.downloadHref} download>Download submitted PDF</a>
       {/if}
       <label>Already-processed results-package folder <input type="file" multiple webkitdirectory onchange={chooseFolder} /></label>

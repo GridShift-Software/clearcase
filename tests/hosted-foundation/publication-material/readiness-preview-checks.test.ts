@@ -8,7 +8,7 @@ import { d1PublicationLedger } from '../../../src/lib/publication/hosted/ledger.
 import { d1PublicationPublisher } from '../../../src/lib/publication/hosted/d1-publisher.ts';
 import { d1ReadinessFence } from '../../../src/lib/publication/hosted/readiness-fence.ts';
 import { checkSnapshot } from '../../../src/lib/publication/hosted/rules.ts';
-import { safePreviewNavigation } from '../../../src/lib/publication/hosted/preview-outcome.ts';
+import { detachedData, safePreviewNavigation } from '../../../src/lib/publication/hosted/preview-outcome.ts';
 import type { NativePreviewRenderChecker } from '../../../src/lib/viewer/hosted/render-check-contract.ts';
 
 const worlds: Awaited<ReturnType<typeof world>>[] = [];
@@ -289,5 +289,58 @@ describe('navigation observations are single-read: an accessor or proxy cannot c
     expect(checked.requiredPreviews[0]).not.toBe(base.requiredPreviews[0]);
     expect(checked.requiredPreviews[0].navigation).not.toBe(base.requiredPreviews[0].navigation);
     expect(checkSnapshot(Object.assign(Object.create({ ready: true }), base))).toBeNull();
+  });
+});
+
+describe('arrays keep their source length: a hole anywhere refuses the value, never shortens it (synthetic port input)', () => {
+  const trailing = () => { const a = ['valid']; a.length = 2; return a; };
+  const SPARSE: [string, () => unknown[]][] = [['all holes', () => new Array(1)], ['several holes only', () => new Array(3)],
+    ['trailing hole', trailing], ['leading hole', () => [, 'valid']], ['middle hole', () => ['valid', , 'valid']]];
+  /** A proxy over a dense array whose descriptor trap reports another `length`; counts each `length` read. */
+  const lying = (target: unknown[], length: unknown, reads = { n: 0 }) => new Proxy(target, {
+    getOwnPropertyDescriptor: (t, k) => k === 'length' ? (reads.n++, { value: length, writable: true, enumerable: false, configurable: false }) : Reflect.getOwnPropertyDescriptor(t, k) });
+
+  it.each(SPARSE)('detachedData refuses a sparse array: %s', (_name, make) => {
+    expect(detachedData(make())).toBeUndefined();
+    expect(detachedData({ list: make() })).toBeUndefined();
+  });
+
+  it.each([['longer', 2], ['shorter', 0], ['the largest array length', 2 ** 32 - 1], ['fractional', 1.5], ['a string', '1']] as [string, unknown][])(
+    'detachedData refuses a proxy whose length descriptor disagrees with its indexes: %s', (_name, length) => {
+      const reads = { n: 0 };
+      expect(detachedData(lying(['valid'], length, reads))).toBeUndefined();
+      expect(reads.n).toBe(1);
+    });
+
+  it('detachedData reads a proxy length once and keeps a truthful proxy array, an empty array and a dense array', () => {
+    const reads = { n: 0 };
+    expect(detachedData(lying(['a', 'b'], 2, reads))).toEqual(['a', 'b']);
+    expect(reads.n).toBe(1);
+    expect(detachedData([])).toEqual([]);
+    expect(detachedData(['a', ['b', { c: [1, null, true] }]])).toEqual(['a', ['b', { c: [1, null, true] }]]);
+  });
+
+  const FACTS = ['trustedBaseline', 'errorFingerprints', 'warningFingerprints', 'requiredPreviews', 'requiredSections'] as const;
+  async function facts() {
+    const w = await world({ section: true }); worlds.push(w);
+    w.options.renderChecker = checker('failed', 'render-failed', 'navigation');
+    const base = structuredClone((await w.read())!);
+    const snapshot = { ...base, validation: { ...base.validation, errorFingerprints: ['a'.repeat(32)], warningFingerprints: ['b'.repeat(32)] }, trustedBaseline: ['c'.repeat(32)] };
+    const list = (s: typeof snapshot, key: (typeof FACTS)[number]): unknown[] => key === 'errorFingerprints' || key === 'warningFingerprints' ? s.validation[key] : s[key];
+    return { snapshot, list };
+  }
+
+  it('checkSnapshot keeps every non-empty fact array of an ordinary snapshot at its length', async () => {
+    const { snapshot, list } = await facts();
+    const checked = checkSnapshot(snapshot)!;
+    for (const key of FACTS) { expect(list(snapshot, key).length, key).toBeGreaterThan(0); expect(list(checked as never, key), key).toEqual(list(snapshot, key)); }
+  });
+
+  it.each(FACTS.flatMap((key) => [[key, 'a trailing hole'], [key, 'only holes']] as const))('checkSnapshot rejects %s with %s rather than shortening it', async (key, shape) => {
+    const { snapshot, list } = await facts();
+    const array = list(snapshot, key);
+    if (shape === 'only holes') array.length = 0;
+    array.length += 1;
+    expect(checkSnapshot(snapshot)).toBeNull();
   });
 });

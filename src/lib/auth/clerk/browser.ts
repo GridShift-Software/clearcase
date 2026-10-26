@@ -24,11 +24,12 @@
 // is refused (planSignIn). Staff reach this origin only through the operator route (OPERATOR_PATH), never a third host.
 import { createClerkClient } from '@clerk/backend';
 import { readClerkIdentityConfig, rsaJwkOf, type ClerkIdentityConfig, type InstanceKind } from './config.ts';
-import { OPERATOR_PATH, cookiePairs, sdkCookieHeader, type ClerkBrowserHandshake, type HandshakeOutcome } from './flow.ts';
+import { OPERATOR_PATH, STAFF_DEV_BROWSER_TIE, cookiePairs, sdkCookieHeader, staffDevBrowserTie, type ClerkBrowserHandshake, type HandshakeOutcome } from './flow.ts';
 import { CLERK_COOKIE_NAME, REFRESH_COOKIE_NAME, SESSION_COOKIE_NAME, inspectToken, presentedToken } from './session.ts';
 
 const HANDSHAKE_PARAMS = ['__clerk_handshake', '__clerk_handshake_nonce', '__clerk_help', '__clerk_db_jwt'];
 const TOKEN = /^[A-Za-z0-9._-]{16,8192}$/;
+const DEV_BROWSER = /^[A-Za-z0-9._-]{16,4096}$/;
 const RS256 = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
 const fromB64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
 
@@ -179,6 +180,11 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				const clean = new URL(url);
 				for (const p of HANDSHAKE_PARAMS) clean.searchParams.delete(p);
 				if (state.status !== 'signed-in' && setCookies.some(setsSession)) return refuse(502, 'handshake-cookie-refused');
+				// a dev browser that a token only the staff key verifies set is tied to the staff instance (flow.ts staffDevBrowserOf)
+				const devBrowser = setCookies.findLast((c) => c.startsWith('__clerk_db_jwt='));
+				const value = devBrowser === undefined ? '' : devBrowser.slice('__clerk_db_jwt='.length).split(';')[0]!;
+				if (kind === 'staff' && DEV_BROWSER.test(value) && (await signerOf(url.searchParams.get('__clerk_handshake')!)) === 'staff')
+					setCookies.push(devBrowser!.replace(/^__clerk_db_jwt=[^;]*/, `${STAFF_DEV_BROWSER_TIE}=${await staffDevBrowserTie(config.staff, value)}`));
 				return { kind: 'redirect', location: clean.href, setCookies };
 			}
 			return { kind: 'continue' };

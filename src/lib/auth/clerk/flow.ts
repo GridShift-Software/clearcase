@@ -5,7 +5,7 @@
 // against a real Clerk instance or browser.
 import type { Identity, Principal, SessionId } from '../../server/runtime/contracts.ts';
 import { contractError } from '../../server/runtime/errors.ts';
-import { readClerkIdentityConfig, type ClerkIdentityConfig, type ClerkInstanceConfig, type InstanceKind } from './config.ts';
+import { readClerkIdentityConfig, type ClerkIdentityConfig, type ClerkInstanceConfig, type InstanceKind, type StaffDevBrowser } from './config.ts';
 import { revocationEvidenceOf, type RevocationEvidence } from './revocation.ts';
 import { CLEARABLE_COOKIE_NAME, REFRESH_COOKIE_NAME, cookiePairs, inspectToken, presentedToken } from './session.ts';
 
@@ -39,6 +39,35 @@ export function sdkCookieHeader(request: Request): string {
 export function devBrowserOf(request: Request): string | null {
 	const values = cookiePairs(request).filter((c) => c.name === '__clerk_db_jwt').map((c) => c.value);
 	return values.length === 1 ? values[0]! : null;
+}
+
+/**
+ * The host-only cookie that ties the browser's `__clerk_db_jwt` to the staff instance. Both instances set that one plain
+ * name on a client origin, so the handshake sets this beside it only when a token the staff key alone verifies set it.
+ */
+export const STAFF_DEV_BROWSER_TIE = '__clearcase_staff_dvb';
+const TIE_LABEL = 'clearcase staff dev browser v1';
+const tieKey = (staff: ClerkInstanceConfig) => crypto.subtle.importKey('raw', new TextEncoder().encode(staff.secretKey), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+const tieData = (staff: ClerkInstanceConfig, devBrowser: string) => new TextEncoder().encode(`${TIE_LABEL}\0${staff.issuer}\0${devBrowser}`);
+const B64URL = /^[A-Za-z0-9_-]{43}$/;
+
+/** The tie's value for a staff dev browser: base64url HMAC-SHA-256 under the staff secret key, so a planted cookie cannot forge one. */
+export async function staffDevBrowserTie(staff: ClerkInstanceConfig, devBrowser: string): Promise<string> {
+	const mac = new Uint8Array(await crypto.subtle.sign('HMAC', await tieKey(staff), tieData(staff, devBrowser)));
+	return btoa(String.fromCharCode(...mac)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/**
+ * The browser's one `__clerk_db_jwt` as a StaffDevBrowser when its one tie verifies for this deployment's staff instance,
+ * else null (no tie, a repeated cookie, another value or another staff instance). Transport only, never authority.
+ */
+export async function staffDevBrowserOf(request: Request, env: Readonly<Record<string, unknown>>): Promise<StaffDevBrowser | null> {
+	const value = devBrowserOf(request), ties = cookiePairs(request).filter((c) => c.name === STAFF_DEV_BROWSER_TIE);
+	const read = readClerkIdentityConfig(env, { keys: 'optional' });
+	if (value === null || ties.length !== 1 || !B64URL.test(ties[0]!.value) || !read.ok) return null;
+	const mac = Uint8Array.from(atob(ties[0]!.value.replace(/-/g, '+').replace(/_/g, '/') + '='), (c) => c.charCodeAt(0));
+	const staff = read.config.staff;
+	return (await crypto.subtle.verify('HMAC', await tieKey(staff), mac, tieData(staff, value))) ? { instance: 'staff', value } : null;
 }
 
 /** The cookie directives that delete exactly the Clerk session cookies a request carries (host-only, as they were set). */

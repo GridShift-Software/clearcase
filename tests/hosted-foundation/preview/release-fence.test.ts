@@ -171,3 +171,64 @@ describe('genuine repeat, retry and audit-failure semantics', () => {
     expect(await repo.settleAudit(intent)).toMatchObject({ candidateId: p.candidate.candidateId, current: true });
   });
 });
+
+// A read or list refused at its final fence has already written its succeeded event (the data must not leave before it).
+// The refusal is then recorded beside it, best effort, so the log never shows only a success for data that was withheld.
+describe('a read or list refused at its final fence also leaves a denied event', () => {
+  const rows = (p: PreviewWorld) => p.w.db.sqlite.prepare("SELECT outcome, object_kind, object_id, case_id, version, actor_kind, canonical FROM native_audit_events WHERE action = 'results.read-candidate' ORDER BY seq").all() as
+    { outcome: string; object_kind: string; object_id: string; case_id: string; version: string | null; actor_kind: string; canonical: string }[];
+  const reads = { 'a candidate read': read, 'a candidate list': list } as const;
+  const objectOf = (name: keyof typeof reads, p: PreviewWorld) => name === 'a candidate read' ? { kind: 'candidate', id: p.candidate.candidateId } : { kind: 'case', id: caseId };
+
+  describe.each(Object.keys(reads) as (keyof typeof reads)[])('%s', (name) => {
+    it.each(KINDS)('records one scoped denied event after its succeeded event when the %s is lost while the event is written', async (kind) => {
+      const p = await setup(), t = trace(p.w.db);
+      t.when([audited('results.read-candidate')], () => lose(p, kind));
+      await expect(reads[name](p)).rejects.toMatchObject({ code: LOSS[kind] });
+      const e = rows(p), o = objectOf(name, p);
+      expect(e.map((x) => x.outcome)).toEqual(['succeeded', 'denied']);
+      expect(e[1]).toMatchObject({ object_kind: o.kind, object_id: o.id, case_id: caseId, version: null, actor_kind: 'verified' });
+      expect(e[1]!.canonical).toContain('synthetic-operator');
+      expect(e[1]!.canonical).not.toContain(p.candidate.link.candidate.resultsVersion);
+    });
+    it.each(KINDS)('keeps the %s refusal when the denied event cannot be written, and leaks nothing of the fault', async (kind) => {
+      const p = await setup(), t = trace(p.w.db), prepare = p.w.db.prepare.bind(p.w.db);
+      p.w.db.prepare = (sql) => {
+        const s = prepare(sql);
+        if (!/^\s*INSERT INTO native_audit_events/.test(sql)) return s;
+        return { ...s, bind: (...v: unknown[]) => { const b = s.bind(...(v as never[])); return v.some((x) => typeof x === 'string' && x.includes('"outcome":"denied"')) ? { ...b, run: async () => { throw new Error('synthetic audit fault secret'); }, first: async () => { throw new Error('synthetic audit fault secret'); } } : b; } } as typeof s;
+      };
+      t.when([audited('results.read-candidate')], () => lose(p, kind));
+      const failure = await reads[name](p).then(() => null, (e: unknown) => e as { code: string; message: string });
+      expect(failure).toMatchObject({ code: LOSS[kind] });
+      expect(failure!.message).not.toContain('secret');
+      expect(rows(p).map((x) => x.outcome)).toEqual(['succeeded']);
+    });
+    it.each(KINDS)('adds no denied event of its own when the %s is already lost at admission', async (kind) => {
+      const denied = (q: PreviewWorld) => q.count("SELECT COUNT(*) AS n FROM native_audit_events WHERE outcome = 'denied'");
+      const a = await setup();
+      lose(a, kind);
+      await expect(admit(a, 'read')).rejects.toMatchObject({ code: LOSS[kind] });
+      const b = await setup();
+      lose(b, kind);
+      await expect(reads[name](b)).rejects.toMatchObject({ code: LOSS[kind] });
+      expect(denied(b)).toBe(denied(a));
+      expect(rows(b)).toEqual([]);
+    });
+    it('records no denied event for the answer it releases', async () => {
+      const p = await setup();
+      expect(await reads[name](p)).toBeTruthy();
+      expect(rows(p).map((x) => x.outcome)).toEqual(['succeeded']);
+    });
+  });
+
+  it.each(KINDS)('leaves a repeated import\'s committed success event as it is when the %s is lost at its final fence', async (kind) => {
+    const p = await setup(), t = trace(p.w.db);
+    const outcomes = () => (p.w.db.sqlite.prepare("SELECT outcome FROM native_audit_events WHERE action = 'results.import-candidate'").all() as { outcome: string }[]).map((x) => x.outcome);
+    const before = outcomes();
+    t.when([d1(SETTLE), digest], () => lose(p, kind));
+    await expect(repeatImport(p)).rejects.toMatchObject({ code: LOSS[kind] });
+    expect(outcomes()).toEqual(before);
+    expect(before).toEqual(['succeeded']);
+  });
+});

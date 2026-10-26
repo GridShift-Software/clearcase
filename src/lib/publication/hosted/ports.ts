@@ -4,8 +4,12 @@ import type { ImportLinkSignoffBinding } from '../../server/runtime/hosted/alpha
 // Native exact-version sign-off and publication (ADR-0010). Ports only: the parent composition supplies each one from
 // trusted configuration. A missing port answers 503; nothing here supplies a default, a double, an allow or a role.
 
-/** One required analysis section of a candidate, as the candidate reader found it after validation and display. */
-export type RequiredSectionState = 'valid' | 'invalid' | 'unsupported' | 'missing';
+/**
+ * One required analysis section of a candidate, as the candidate reader found it after validation and display. `valid`
+ * means its view rendered. `integrity-verified` means a registered integrity dataset (META, source-layout) passed its own
+ * contract check; it is never a display claim (ADR 0012).
+ */
+export type RequiredSectionState = 'valid' | 'integrity-verified' | 'invalid' | 'unsupported' | 'missing';
 /** One required file preview of a candidate (ADR-0011): only `rendered` counts; a failed or pending preview holds the update. */
 export type RequiredPreviewState = 'rendered' | 'failed' | 'pending';
 

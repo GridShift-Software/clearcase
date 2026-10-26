@@ -1,4 +1,5 @@
 import type { CandidateSnapshot } from './ports.ts';
+import { isIntegrityKey } from '../../case-package/registry.ts';
 
 // Pure sign-off rules over a candidate snapshot (ADR-0010, ADR-0011, results-package acknowledgement contract). There
 // is no readiness boolean anywhere: each rule reads the facts, and the snapshot shape is checked key by key.
@@ -11,7 +12,7 @@ const DIAGNOSTICS_SHA = /^(?:sha256:)?[0-9a-f]{64}$/;
 const RV = /^sha256:[0-9a-f]{64}$/;
 const FP = /^[0-9a-f]{32}$/;
 const fingerprints = (v: unknown): v is string[] => Array.isArray(v) && v.every((f) => typeof f === 'string' && FP.test(f)) && new Set(v).size === v.length;
-const SECTION_STATES = new Set(['valid', 'invalid', 'unsupported', 'missing']);
+const SECTION_STATES = new Set(['valid', 'integrity-verified', 'invalid', 'unsupported', 'missing']);
 const PREVIEW_STATES = new Set(['rendered', 'failed', 'pending']);
 
 /**
@@ -45,7 +46,9 @@ export type Blocker =
 /** The first rule that blocks sign-off, or null. Errors are never waivable; a required section or preview holds the update. */
 export function signoffBlocker(s: CandidateSnapshot): Blocker | null {
   if (s.validation.verdict === 'reject' || s.validation.errorFingerprints.length > 0) return { code: 'validation-failed', detail: [...s.validation.errorFingerprints] };
-  const sections = s.requiredSections.filter((x) => x.state !== 'valid').map((x) => `${x.key}:${x.state}`);
+  // integrity-verified clears only a registered integrity key; it never stands in for a rendered view (ADR 0012).
+  const sections = s.requiredSections.filter((x) => x.state !== 'valid' && !(x.state === 'integrity-verified' && isIntegrityKey(x.key)))
+    .map((x) => `${x.key}:${x.state}`);
   if (sections.length) return { code: 'required-section', detail: sections };
   const previews = s.requiredPreviews.filter((x) => x.state !== 'rendered').map((x) => `${x.assetId}:${x.state}`);
   if (previews.length) return { code: 'preview-not-ready', detail: previews };

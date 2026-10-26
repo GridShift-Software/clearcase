@@ -15,6 +15,7 @@ These ADRs record the product decisions the user confirmed from 11 to 17 October
 | [0009](0009-manual-queue-and-candidate-import-contract.md) | Shared FIFO processing jobs, fixed submissions with linked requested supplements, one results-import contract and hosted Rescan & Update | Accepted, 14–17 Oct; SLA metric open | GRS-87, GRS-28 to GRS-30, GRS-134 to GRS-137 |
 | [0010](0010-exact-version-signoff-and-publication.md) | Exact-version sign-off and audited candidate editing; independent case user work remains accessible without a publication | Accepted, 15–17 Oct; review topology proof UNRUN | GRS-88, GRS-30, GRS-31, GRS-114, GRS-117, GRS-130, GRS-136 |
 | [0011](0011-originals-and-complete-in-app-file-viewing.md) | Unchanged originals, complete published-file in-app viewing, explicit temporary pending-preview retrieval, verified citations, complete exports and durable PDF bundle versions | Accepted, 15–17 Oct; viewer selection and proofs UNRUN | GRS-90, GRS-97, GRS-120 to GRS-123, GRS-118, GRS-128, GRS-136 |
+| [0012](0012-integrity-metadata-is-not-a-view.md) | `meta` and `source-layout` are integrity metadata: the hosted sign-off gate checks META's counts and the layout's round trip instead of rendering them | Proposed, 26 Oct; awaiting wave review | native alpha sign-off gate |
 
 ## Superseded for the hosted app
 

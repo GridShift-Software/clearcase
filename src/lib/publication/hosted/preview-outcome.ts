@@ -51,11 +51,12 @@ function detach(v: unknown, depth: number): unknown {
   const array = Array.isArray(v);
   if (Object.getPrototypeOf(v) !== (array ? Array.prototype : Object.prototype)) return NOT_DATA;
   const out: Record<string, unknown> | unknown[] = array ? [] : {};
-  let indexes = 0;
+  // The source `length` is read from the one descriptor captured below, never from `v.length`.
+  let indexes = 0, length: unknown;
   for (const key of Reflect.ownKeys(v)) {
     const d = Object.getOwnPropertyDescriptor(v, key);
     if (typeof key !== 'string' || !d || !('value' in d) || (!d.enumerable && !(array && key === 'length'))) return NOT_DATA;
-    if (array && key === 'length') continue;
+    if (array && key === 'length') { length = d.value; continue; }
     if (array && !INDEX.test(key)) return NOT_DATA;
     const value = detach(d.value, depth - 1);
     if (value === NOT_DATA) return NOT_DATA;
@@ -63,12 +64,14 @@ function detach(v: unknown, depth: number): unknown {
     Object.defineProperty(out, key, { value, enumerable: true, writable: true, configurable: true });
     indexes++;
   }
-  return array && (out as unknown[]).length !== indexes ? NOT_DATA : out;
+  // Distinct index keys whose count equals both lengths are exactly 0..length-1: a hole anywhere, even trailing, refuses.
+  return array && (length !== indexes || (out as unknown[]).length !== indexes) ? NOT_DATA : out;
 }
 /**
- * A deep copy of JSON-shaped data, read once, or undefined. Only plain objects, dense arrays, strings, numbers, booleans and null
- * survive. An accessor (own or on a proxy's descriptor), a non-enumerable or symbol key, a custom prototype or anything else makes
- * the whole value undefined, so a value validated from the copy is exactly the value the copy returns: no later read can change it.
+ * A deep copy of JSON-shaped data, read once, or undefined. Only plain objects, arrays with no hole below their own `length`, strings,
+ * numbers, booleans and null survive. An accessor (own or on a proxy's descriptor), a non-enumerable or symbol key, a custom prototype
+ * or anything else makes the whole value undefined, so a value validated from the copy is exactly the value the copy returns: no later
+ * read can change it.
  */
 export function detachedData(v: unknown): unknown {
   try { const out = detach(v, MAX_DEPTH); return out === NOT_DATA ? undefined : out; } catch { return undefined; }

@@ -326,7 +326,7 @@ describe('arrays keep their source length: a hole anywhere refuses the value, ne
     w.options.renderChecker = checker('failed', 'render-failed', 'navigation');
     const base = structuredClone((await w.read())!);
     const snapshot = { ...base, validation: { ...base.validation, errorFingerprints: ['a'.repeat(32)], warningFingerprints: ['b'.repeat(32)] }, trustedBaseline: ['c'.repeat(32)] };
-    const list = (s: typeof snapshot, key: (typeof FACTS)[number]): unknown[] => key === 'errorFingerprints' || key === 'warningFingerprints' ? s.validation[key] : s[key];
+    const list = (s: typeof snapshot, key: (typeof FACTS)[number]) => (key === 'errorFingerprints' || key === 'warningFingerprints' ? s.validation[key] : s[key]) as unknown[];
     return { snapshot, list };
   }
 

@@ -230,7 +230,7 @@ export const NON_CSV_PAGES = {
  * drives the local pilot (src/routes) over its work store, so it drives none of these. Checked (classes-targets.test.ts):
  * discovery finds exactly these routes, and each is bound to evidence of the kind HOSTED_FORM_EVIDENCE declares, so a
  * reason cannot outlive the evidence it cites. The three test-identity routes are driven by the hosted smoke run
- * (test:hosted, on workerd); the other four only by unit or component tests, over doubles, which are not browser or workerd proof.
+ * (test:hosted, on workerd); the others only by unit or component tests, over doubles, which are not browser or workerd proof.
  */
 export const HOSTED_FORMS = {
 	'/sign-in': 'the test-identity sign-in form saves no user work and has no typed field (one select); test:hosted posts it on workerd (origin check, unknown identity, redirect, cookie)',
@@ -239,6 +239,7 @@ export const HOSTED_FORMS = {
 	'/sign-in/operator': 'the ClearCase staff sign-in is one submit button that redirects to the staff Clerk instance; it has no typed field and saves no user work, and the identity operator-route unit tests call its load and action',
 	'/cases/[caseId]/notes': 'the hosted case notes route (add and delete note forms) is not the local pilot work store and the suite does not drive it; the case-overview unit tests call its load and actions over doubles, with no browser or workerd run',
 	'/cases/[caseId]/views/[resultsVersion]/chronology': 'the only form is a GET filter (search, bundle, type, text status); it saves no user work, and the case-overview unit tests call its load over doubles, with no browser or workerd run',
+	'/operator/cases/[caseId]/preview/[candidateId]': 'the private candidate page has only a GET chronology filter and saves no user work; the preview route unit tests call its exact-request load over doubles, with no browser or workerd run',
 	'/client/intake/[caseId]': 'the intake form picks one PDF and uploads it through the submissions API (no <form> POST, no typed field); the intake component tests dispatch the real submissions route handlers over doubles for the upload and its adverse cases, and the page itself is not driven',
 };
 
@@ -259,6 +260,7 @@ export const HOSTED_FORM_EVIDENCE = {
 	'/sign-in/operator': { kind: 'unit', test: 'tests/hosted-foundation/identity/operator-route.test.ts', module: 'deploy/client/routes/sign-in/operator/+page.server.ts' },
 	'/cases/[caseId]/notes': { kind: 'unit', test: 'tests/hosted-smoke/case-overview/views-notes.test.ts', module: 'deploy/client/routes/cases/[caseId]/notes/+page.server.ts' },
 	'/cases/[caseId]/views/[resultsVersion]/chronology': { kind: 'unit', test: 'tests/hosted-smoke/case-overview/views-notes.test.ts', module: 'deploy/client/routes/cases/[caseId]/views/[resultsVersion]/chronology/+page.server.ts' },
+	'/operator/cases/[caseId]/preview/[candidateId]': { kind: 'unit', test: 'tests/hosted-foundation/preview/route.test.ts', module: 'deploy/client/routes/operator/cases/[caseId]/preview/[candidateId]/+page.server.ts' },
 	'/client/intake/[caseId]': {
 		kind: 'component',
 		test: 'tests/hosted-smoke/intake/adverse.test.ts',

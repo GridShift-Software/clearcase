@@ -600,7 +600,7 @@ describe('hosted forms are declared, with a reason the suite checks', () => {
   expect(found).toEqual(expect.arrayContaining(SMOKE_ROUTES));
  });
  test('discovery finds exactly the hosted sign-in, operator sign-in, sign-out, case-list, notes, chronology filter and intake forms', () => {
-  expect(found).toEqual(['/cases', '/cases/[caseId]/notes', '/cases/[caseId]/views/[resultsVersion]/chronology', '/client/intake/[caseId]', '/sign-in', '/sign-in/operator', '/sign-out']);
+  expect(found).toEqual(['/cases', '/cases/[caseId]/notes', '/cases/[caseId]/views/[resultsVersion]/chronology', '/client/intake/[caseId]', '/operator/cases/[caseId]/preview/[candidateId]', '/sign-in', '/sign-in/operator', '/sign-out']);
  });
  test('every hosted form is declared and every declaration names a form discovery finds', () => {
   expect(declaredRoutes.sort()).toEqual(found);
@@ -616,7 +616,7 @@ describe('hosted forms are declared, with a reason the suite checks', () => {
  });
  test('the other declared routes are driven by tracked unit or component tests, labelled as that and never as browser or workerd proof', () => {
   const others = declaredRoutes.filter((r) => !SMOKE_ROUTES.includes(r));
-  expect(others).toHaveLength(4);
+  expect(others).toHaveLength(5);
   for (const route of others) {
    const ev: Evidence = declared.HOSTED_FORM_EVIDENCE[route];
    expect(['unit', 'component'], `${route} is labelled ${ev.kind}`).toContain(ev.kind);

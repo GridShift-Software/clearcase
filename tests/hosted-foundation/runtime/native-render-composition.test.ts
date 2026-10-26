@@ -250,7 +250,7 @@ describe('hostedServices native renderer wiring (unit-only composition: real con
   expect(wiring.verified).toHaveLength(1);
   expect(wiring.verified[0]).toMatchObject({ clientId: ids.clientA, caseId, candidateId, assetId: 'OD-001', mediaType: 'application/pdf' });
   expect(wiring.verified[0].bytes).toBeInstanceOf(Uint8Array);
-  expect(snapshot.requiredPreviews).toEqual([{ assetId: 'OD-001', state: 'pending' }]); // only the unit spy answered: not a render
+  expect(snapshot.requiredPreviews).toEqual([{ assetId: 'OD-001', state: 'pending', reasonCode: 'render-unavailable' }]); // only the unit spy answered: not a render
  });
 
  it('invokes the ASSETS adapter on the binding itself, directly and detached', async () => {
@@ -388,8 +388,8 @@ describe('hostedServices native renderer wiring (unit-only composition: real con
 
   // Overlapping imports through each resolved composition: own DB, own checker, own session in the audit trail.
   const [first, second] = await Promise.all([snapshotOf(s, p1, s.identity), snapshotOf(t, p2, sessionTwo)]);
-  expect(first.snapshot.requiredPreviews).toEqual([{ assetId: 'OD-001', state: 'pending' }]);
-  expect(second.snapshot.requiredPreviews).toEqual([{ assetId: 'OD-001', state: 'pending' }]);
+  expect(first.snapshot.requiredPreviews).toEqual([{ assetId: 'OD-001', state: 'pending', reasonCode: 'render-unavailable' }]);
+  expect(second.snapshot.requiredPreviews).toEqual([{ assetId: 'OD-001', state: 'pending', reasonCode: 'render-unavailable' }]);
   const verifiedBy = (b: typeof one) => wiring.verifiedBy.filter((v) => v.options.browser === b.browser);
   expect(wiring.verifiedBy).toHaveLength(2);
   expect(verifiedBy(one)).toHaveLength(1); expect(verifiedBy(two)).toHaveLength(1);

@@ -5,6 +5,7 @@ import { canonicalJson } from '../../case-package/canonical.ts';
 import { sha256Canonical } from '../../results-review/native/digest.ts';
 import type { PublicationRequest } from './controller.ts';
 import type { CandidateSnapshot, NativePublicationPorts, RequiredPreviewState, SignoffIdentity, SignoffRecord } from './ports.ts';
+import type { PreviewReasonCode, PreviewRenderStage } from './preview-outcome.ts';
 import { checkSnapshot, newWarnings, signoffBlocker, type Blocker } from './rules.ts';
 import type { ReadinessFence, ReadinessFenceResult } from './readiness-fence.ts';
 
@@ -17,8 +18,8 @@ export interface ReadinessView {
   identity: SignoffIdentity;
   materialSha256: string;
   blocker: Blocker | null;
-  /** Preview checks exactly as the pinned snapshot recorded them, even while an earlier blocker is first. Opaque id and state only. */
-  previewChecks: { assetId: string; state: RequiredPreviewState }[];
+  /** Preview checks exactly as the pinned snapshot recorded them, even while an earlier blocker is first. Opaque id, state and fixed codes only. */
+  previewChecks: { assetId: string; state: RequiredPreviewState; reasonCode?: PreviewReasonCode; stage?: PreviewRenderStage }[];
   requiredAcknowledgements: string[];
   selfApprovalRequired: boolean;
   signoff: null | {
@@ -148,7 +149,7 @@ export function createPublicationReadiness(ports: PublicationReadinessPorts | nu
       }
       const view: ReadinessView = {
         caseId, identity: identityOf(s), materialSha256, blocker,
-        previewChecks: s.requiredPreviews.map(({ assetId, state }) => ({ assetId, state })), requiredAcknowledgements,
+        previewChecks: s.requiredPreviews.map((p) => ({ ...p })), requiredAcknowledgements,
         selfApprovalRequired: principal.issuer === s.preparedBy.issuer && principal.subject === s.preparedBy.subject,
         signoff: so ? { signoffId: so.signoffId, identity: signedIdentity(so), state: so.state, invalidated: so.invalidatedAt !== null, blockers } : null,
       };

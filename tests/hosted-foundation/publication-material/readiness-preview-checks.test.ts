@@ -38,7 +38,7 @@ describe('readiness preview-check diagnostics (synthetic component evidence, NOT
     const r = await readiness({ section: true }, checker(state, RAW));
     expect(r.response.status).toBe(200);
     expect(r.body.blocker).toEqual({ code: 'required-section', detail: ['risk-matrix:unsupported'] });
-    expect(r.body.previewChecks).toEqual([{ assetId: 'OD-001', state }]);
+    expect(r.body.previewChecks).toEqual([{ assetId: 'OD-001', state, reasonCode: 'render-unavailable' }]);
   });
 
   it('shows a pending preview when no internal checker exists', async () => {
@@ -50,7 +50,8 @@ describe('readiness preview-check diagnostics (synthetic component evidence, NOT
   it('never releases a raw render reason, URL, session id, cookie or blob reference', async () => {
     const r = await readiness({ section: true }, checker('failed', RAW));
     for (const leak of ['TypeError', 'https://', '__session', 'token=', 'cookie', 'eyJhbGciOi', 'sess_', 'blob:', 'UNIT-DOUBLE']) expect(r.text).not.toContain(leak);
-    expect(Object.keys(r.body.previewChecks[0]).sort()).toEqual(['assetId', 'state']);
+    expect(Object.keys(r.body.previewChecks[0]).sort()).toEqual(['assetId', 'reasonCode', 'state']);
+    expect(r.body.previewChecks[0].reasonCode).toBe('render-unavailable');
   });
 
   it('adds no render, no event and no fence-order change, and never fabricates a rendered state', async () => {

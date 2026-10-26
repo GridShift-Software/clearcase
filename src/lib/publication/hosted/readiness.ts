@@ -1,5 +1,5 @@
 import type { AuditEvent, CaseId } from '../../server/runtime/contracts.ts';
-import { codeOf } from '../../server/runtime/errors.ts';
+import { codeOf, isDenial } from '../../server/runtime/errors.ts';
 import { id } from '../../server/runtime/ids.ts';
 import { canonicalJson } from '../../case-package/canonical.ts';
 import { sha256Canonical } from '../../results-review/native/digest.ts';
@@ -84,18 +84,25 @@ export function createPublicationReadiness(ports: PublicationReadinessPorts | nu
         try { await p.audit!.append({ eventId: crypto.randomUUID(), actor, action, object: { kind: 'publication-readiness', id: candidateId, caseId }, version: null, outcome, at: p.now().toISOString() }); }
         catch { return refuse(503, 'audit-unavailable', 'Readiness was not released because its required audit could not be recorded.'); }
       };
+      const denied = async (e: unknown): Promise<never> => {
+        await audit('denied', 'publication.readiness.denied', raw);
+        const code = codeOf(e);
+        if (code === 'unauthenticated' || code === 'invalid-session' || code === 'wrong-client') return refuse(401, 'unauthenticated', 'Sign in for this client.');
+        if (code === 'forbidden' || code === 'not-found') return refuse(403, 'forbidden', 'Explicit staff publication and preview access are required.');
+        return refuse(503, 'identity-unavailable', 'Current authority cannot be verified.');
+      };
+      // The audited decision for both capabilities, made once at admission.
       const authority = async () => {
         try {
           await who.checkRevocation();
           await p.authorize!({ principal, sessionId, caseId, capability: 'publish' });
           await who.authorize({ caseId, operation: 'read-preview' });
-        } catch (e) {
-          await audit('denied', 'publication.readiness.denied', raw);
-          const code = codeOf(e);
-          if (code === 'unauthenticated' || code === 'invalid-session' || code === 'wrong-client') return refuse(401, 'unauthenticated', 'Sign in for this client.');
-          if (code === 'forbidden' || code === 'not-found') return refuse(403, 'forbidden', 'Explicit staff publication and preview access are required.');
-          return refuse(503, 'identity-unavailable', 'Current authority cannot be verified.');
-        }
+        } catch (e) { return denied(e); }
+      };
+      // Later boundaries observe the live session only. Both grants are read again by the release fence, in the same
+      // primary statement that compares the material and sign-off observations, after every other await.
+      const session = async () => {
+        try { await who.checkRevocation(); } catch (e) { return denied(e); }
       };
       // Both capabilities precede ALL snapshot/ledger/storage metadata, not just response release.
       await authority();
@@ -103,9 +110,11 @@ export function createPublicationReadiness(ports: PublicationReadinessPorts | nu
       const signoffId = r.url.searchParams.get('signoffId');
       if (!candidateId || !PART.test(candidateId) || (signoffId !== null && !SIGNOFF.test(signoffId))) return refuse(422, 'invalid-request', 'Name one candidate and optionally one exact sign-off.');
       await audit('succeeded', 'publication.readiness.intent', candidateId);
-      await authority();
+      await session();
       const snapshot = async () => {
-        const rawSnapshot = await p.candidates!.read({ ...scope, candidateId });
+        let rawSnapshot: unknown;
+        // The reader audits its own failure. Its denial stands as one here; any other fault holds readiness unavailable.
+        try { rawSnapshot = await p.candidates!.read({ ...scope, candidateId }); } catch (e) { return isDenial(e) ? denied(e) : unavailable(); }
         if (rawSnapshot === null) return refuse(404, 'not-found', 'Not found.');
         // Fail unavailable rather than truncate any acknowledgement/blocker set. Bound before checkSnapshot clones it.
         if (JSON.stringify(rawSnapshot).length > 256 * 1024) return unavailable();
@@ -125,7 +134,7 @@ export function createPublicationReadiness(ports: PublicationReadinessPorts | nu
         return structuredClone(so);
       };
       const s = await snapshot(), so = await signoff();
-      const material = canonicalJson(s), signed = so ? canonicalJson(so) : null;
+      const signed = so ? canonicalJson(so) : null;
       const materialSha256 = await sha256Canonical(s);
       const blocker = signoffBlocker(s), requiredAcknowledgements = newWarnings(s);
       const blockers: NonNullable<ReadinessView['signoff']>['blockers'] = [];
@@ -142,17 +151,17 @@ export function createPublicationReadiness(ports: PublicationReadinessPorts | nu
       };
       // This records intent, NOT successful disclosure. A later refusal must never leave a release-success event.
       await audit('succeeded', 'publication.readiness.release-intent', candidateId);
-      await authority();
-      await authority();
-      // Retain early change detection, but these separate reads cannot establish a coherent release observation.
-      const latestSignoff = await signoff(), latest = await snapshot();
+      await session();
+      // Early sign-off change detection only. The material is read once: the fence below compares that observation's
+      // generation, link, version, validation and baseline coherently, which a second full read could not.
+      const latestSignoff = await signoff();
       const stale = async () => {
         await audit('refused', 'publication.readiness.refused', candidateId);
         return refuse(409, 'readiness-stale', 'The candidate or sign-off changed during the read. Refresh and review again.');
       };
-      if (canonicalJson(latest) !== material || (latestSignoff ? canonicalJson(latestSignoff) : null) !== signed) return await stale();
+      if ((latestSignoff ? canonicalJson(latestSignoff) : null) !== signed) return await stale();
       // ALL awaited audit/authority/storage/hash work precedes this shared D1 check. It compares the ORIGINAL
-      // observations, not copies refreshed independently. Clerk was last observed in authority(), not locked by D1.
+      // observations, not copies refreshed independently. Clerk was last observed in session(), not locked by D1.
       let fenced: ReadinessFenceResult;
       try {
         fenced = await p.readinessFence!.check({ ...scope, principal, sessionId, snapshot: s, signoff: so });

@@ -30,8 +30,9 @@ describe('publication readiness observations', () => {
     expect(body.materialSha256).toBe(await sha256Canonical(w.current));
     expect(body.identity.snapshotRevision).toBe('d1:1');
     expect(canonicalJson(body)).not.toMatch(/preparedBy|issuer|subject|coverage|ready|signed-off|published/);
-    expect(w.reads).toBe(2);
-    expect(w.grants).toBeGreaterThanOrEqual(4);
+    // One material read; both capabilities are decided (audited) once at admission, then fenced in SQL at release.
+    expect(w.reads).toBe(1);
+    expect(w.grants).toBe(1);
     expect(w.previews).toBe(w.grants);
     expect(w.events.map((e) => e.action)).toEqual(['publication.readiness.intent', 'publication.readiness.release-intent']);
   });

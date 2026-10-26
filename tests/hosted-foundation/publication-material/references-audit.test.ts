@@ -56,9 +56,10 @@ it('retains valid file-level references and real page counts without inventing p
 it.each(['session-open', 'revision-query', 'first-case-query'] as const)('audits the first metadata %s fault with no material release', async (fault) => {
   const w = await setup(), reader = createPublicationMaterialReader(w.options)!, before = w.bucket.gets;
   if (fault === 'session-open') w.db.withSession = () => { throw new Error('synthetic session-open fault'); };
-  else w.db.failNext = fault === 'revision-query' ? /SELECT 'd1:'/ : /SELECT 1 AS x FROM rs_case WHERE/;
+  else w.db.failNext = fault === 'revision-query' ? /SELECT 'd1:'/ : /SELECT EXISTS \(SELECT 1 FROM rs_case WHERE/;
   await expect(reader.read(w.scope)).rejects.toThrow();
-  expect(w.events.at(-1)).toMatchObject({ action: 'publication.material.read', outcome: 'failed', version: null,
+  // The case check shares one statement with the row bounds, after the candidate pins its version and before any package read.
+  expect(w.events.at(-1)).toMatchObject({ action: 'publication.material.read', outcome: 'failed', version: fault === 'first-case-query' ? w.rv : null,
     object: { kind: 'candidate', id: w.scope.candidateId, caseId: CASE }, actor: { kind: 'verified', principal: { kind: 'staff' } } });
   expect(w.events.some((e) => e.outcome === 'succeeded')).toBe(false);
   expect(w.bucket.gets - before).toBe(fault === 'first-case-query' ? 1 : 0); // identity object only

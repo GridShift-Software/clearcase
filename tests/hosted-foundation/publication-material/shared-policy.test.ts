@@ -54,11 +54,12 @@ async function setup(extensionChars: number, budgets: StorageBudgets) {
     } };
   const cfg = auditConfig({ clientId: ids.clientA, trustedIssuers: [identity.principal.issuer, 'https://client-issuer.test'], limits: auditLimits });
   await provisionAuditBinding({ db, config: cfg, now: () => new Date() });
-  for (const role of ['operator', 'publisher']) w.db.exec(`INSERT INTO tenant_case_grants
+  // The read-preview grant the identity double allows, as a row: the material reader observes it after admission.
+  for (const [role, slot] of [['operator', 'operator'], ['publisher', 'publisher'], ['viewer', 'content']]) w.db.exec(`INSERT INTO tenant_case_grants
     (grant_id, client_id, scope, case_id, issuer, subject, principal_kind, role, slot, state, expires_at, version,
     created_operation_id, request, created_by_issuer, created_by_subject, created_at)
     VALUES (?, ?, 'case', ?, ?, ?, 'staff', ?, ?, 'active', NULL, 1, ?, '{}', ?, ?, ?)`,
-    role, ids.clientA, caseId, identity.principal.issuer, identity.principal.subject, role, role, `grant-${role}`,
+    role, ids.clientA, caseId, identity.principal.issuer, identity.principal.subject, role, slot, `grant-${role}`,
     identity.principal.issuer, identity.principal.subject, new Date().toISOString());
   const revision = await w.upload();
   const manifest = JSON.parse(new TextDecoder().decode(w.pkg.files.get('manifest.json')));

@@ -4,7 +4,7 @@ import { NATIVE_RENDER_SDK_POLICY } from '../../../../scripts/native-render-sdk-
 import { NATIVE_SDK_POLICY_IDENTITY } from './sdk-build-contract.ts';
 import type { ClientId } from '../../server/runtime/contracts.ts';
 import type { CloudD1 } from '../../storage/cloud/bindings.ts';
-import type { PreviewRenderStage } from '../../publication/hosted/preview-outcome.ts';
+import type { PreviewFirstViolation, PreviewGotoError, PreviewGotoState, PreviewRenderStage } from '../../publication/hosted/preview-outcome.ts';
 import type { NativePreviewRenderBudget, NativePreviewRenderChecker } from './render-check-contract.ts';
 
 // Deliberately not an import of the build-time (node:fs) asset preparer. Parent supplies its reviewed inventory.
@@ -22,6 +22,24 @@ export const NATIVE_PDF_RENDER_CEILINGS: Readonly<NativePreviewRenderBudget> = O
 const IDLE_TAIL_MS = 60_000, CLEANUP_MS = 2_000, DAY_MS = 86_400_000;
 const ROOT = '/__clearcase_native_pdf__/', DOCUMENT = `${ROOT}inspect`, SCRIPT = `${ROOT}inspector.mjs`, PDF = `${ROOT}input.pdf`;
 const MAX_STATIC_BYTES = 8_000_000, MAX_REQUESTS = 220;
+/** A refusal that carries only its fixed class, so no message, URL or session text can ride along. */
+class Refused extends Error {
+ readonly kind: PreviewFirstViolation;
+ constructor(kind: PreviewFirstViolation) { super('refused'); this.kind = kind; }
+}
+function refuse(kind: PreviewFirstViolation): never { throw new Refused(kind); }
+const NET_ERRORS: ReadonlyMap<string, PreviewGotoError> = new Map([
+ ['ERR_BLOCKED_BY_CLIENT', 'blocked-by-client'], ['ERR_BLOCKED_BY_ADMINISTRATOR', 'blocked-by-administrator'], ['ERR_ACCESS_DENIED', 'access-denied'],
+ ['ERR_ABORTED', 'aborted'], ['ERR_FAILED', 'failed'], ['ERR_CONNECTION_REFUSED', 'connection-refused'], ['ERR_CONNECTION_CLOSED', 'connection-closed'],
+ ['ERR_CONNECTION_RESET', 'connection-reset'], ['ERR_NAME_NOT_RESOLVED', 'name-not-resolved'], ['ERR_TIMED_OUT', 'timed-out'],
+]);
+/** Only a token from the closed table leaves; the rejected value, its message and any URL in it are dropped. */
+function gotoErrorToken(error: unknown): PreviewGotoError {
+ try {
+  const code = error instanceof Error && typeof error.message === 'string' ? /\bnet::(ERR_[A-Z0-9_]{1,64})(?![A-Z0-9_])/.exec(error.message)?.[1] : undefined;
+  return (code && NET_ERRORS.get(code)) || 'generic';
+ } catch { return 'generic'; }
+}
 const hex = (b: ArrayBuffer) => [...new Uint8Array(b)].map(v => v.toString(16).padStart(2, '0')).join('');
 const sha = async (b: Uint8Array) => hex(await crypto.subtle.digest('SHA-256', new Uint8Array(b)));
 const encode = (v: unknown) => new TextEncoder().encode(JSON.stringify(v));
@@ -275,6 +293,9 @@ async function inspect(a: {
  const result = (state: RenderResult['state'], reason: string | null, pages: number | null = null, at = stage) => renderResult(a.rendererVersion, state, reason, pages, state === 'rendered' ? undefined : at);
  let accepted: RenderTranscript | null = null;
  let browser: Browser | undefined, page: Page | undefined, timedOut = false, violated = false;
+ // Facts for the failure diagnosis only. None of them reaches a verdict, a limit or a cleanup decision.
+ let firstViolation: PreviewFirstViolation | undefined, documentAcknowledged = false, gotoState: PreviewGotoState | undefined, gotoError: PreviewGotoError | undefined;
+ const violate = (kind: PreviewFirstViolation) => { violated = true; if (!timedOut) firstViolation ??= kind; };
  let requests = 0, staticBytes = 0;
  let transport: { close(): void } | undefined;
  const abort = new AbortController();
@@ -301,28 +322,29 @@ async function inspect(a: {
  const serve = async (request: HTTPRequest) => {
   try {
    check();
-   if (++requests > MAX_REQUESTS || request.method() !== 'GET') throw Error('network refused');
+   if (++requests > MAX_REQUESTS) refuse('request-budget');
+   if (request.method() !== 'GET') refuse('method');
    const url = new URL(request.url());
-   if (url.origin !== a.origin || url.search || url.hash || url.username || url.password) throw Error('network refused');
-   let body: string | Uint8Array, contentType: string;
+   if (url.origin !== a.origin || url.search || url.hash || url.username || url.password) refuse('origin');
+   let body: string | Uint8Array, contentType: string, isDocument = false;
    if (url.pathname === DOCUMENT && request.isNavigationRequest() && request.frame() === page?.mainFrame()) {
-    body = HTML; contentType = 'text/html; charset=utf-8';
+    body = HTML; contentType = 'text/html; charset=utf-8'; isDocument = true;
    } else if (url.pathname === SCRIPT && request.resourceType() === 'script') {
     body = INSPECTOR; contentType = 'text/javascript; charset=utf-8';
    } else if (url.pathname === PDF && request.resourceType() === 'fetch') {
     body = a.fixed.bytes; contentType = 'application/pdf';
    } else {
     const pin = a.files.get(url.pathname);
-    if (!pin || !['script', 'fetch', 'other'].includes(request.resourceType()) || /(?:LICENSE|pdf-reader\.mjs)$/.test(url.pathname)) throw Error('network refused');
+    if (!pin || !['script', 'fetch', 'other'].includes(request.resourceType()) || /(?:LICENSE|pdf-reader\.mjs)$/.test(url.pathname)) refuse(url.pathname === '/favicon.ico' ? 'favicon-path' : 'unowned-path');
     let pending = cached.get(url.pathname);
     if (!pending) {
      staticBytes += pin.bytes;
-     if (staticBytes > MAX_STATIC_BYTES) throw Error('static budget');
+     if (staticBytes > MAX_STATIC_BYTES) refuse('request-budget');
      pending = (async () => {
       const response = await a.assets.fetch(new Request(a.origin + url.pathname, { method: 'GET', redirect: 'error', signal: abort.signal }));
-      if (response.status !== 200 || response.redirected) throw Error('static refused');
+      if (response.status !== 200 || response.redirected) refuse('static-response');
       const data = await readExact(response, pin.bytes, abort.signal);
-      if ('sha256:' + await sha(data) !== pin.sha256) throw Error('static integrity');
+      if ('sha256:' + await sha(data) !== pin.sha256) refuse('static-integrity');
       return data;
      })();
      cached.set(url.pathname, pending);
@@ -334,8 +356,9 @@ async function inspect(a: {
     'content-security-policy': CSP, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer', 'cross-origin-resource-policy': 'same-origin',
    } });
-  } catch {
-   violated = true;
+   if (isDocument) documentAcknowledged = true;
+  } catch (error) {
+   violate(error instanceof Refused ? error.kind : 'other');
    // Never continue a request, including on handler failure. Never log its URL, exception or bytes.
    await request.abort('blockedbyclient').catch(() => {});
   }
@@ -359,12 +382,16 @@ async function inspect(a: {
   await page.setCacheEnabled(false);
   await page.setRequestInterception(true);
   page.on('request', request => { void serve(request); });
-  page.on('requestfailed', () => { violated = true; });
-  page.on('pageerror', () => { violated = true; });
-  page.on('dialog', dialog => { violated = true; void dialog.dismiss().catch(() => {}); });
-  page.on('popup', popup => { violated = true; if (popup) void popup.close().catch(() => {}); });
+  page.on('requestfailed', () => { violate('requestfailed'); });
+  page.on('pageerror', () => { violate('pageerror'); });
+  page.on('dialog', dialog => { violate('dialog'); void dialog.dismiss().catch(() => {}); });
+  page.on('popup', popup => { violate('popup'); if (popup) void popup.close().catch(() => {}); });
   stage = 'navigation';
-  await page.goto(a.origin + DOCUMENT, { waitUntil: 'networkidle0', timeout: Math.max(1, remaining()) });
+  gotoState = 'pending';
+  try {
+   await page.goto(a.origin + DOCUMENT, { waitUntil: 'networkidle0', timeout: Math.max(1, remaining()) });
+   gotoState = 'resolved';
+  } catch (error) { gotoState = 'rejected'; gotoError = gotoErrorToken(error); throw error; }
   check();
   stage = 'inspection';
   const worker = a.files.get('/pdfjs/pdf.worker.min.mjs')!;
@@ -424,6 +451,9 @@ async function inspect(a: {
   }
  }
  if (violated && outcome!.state === 'rendered') outcome = result('failed', 'render-failed');
+ if (gotoState && outcome!.state !== 'rendered') {
+  outcome = { ...outcome!, navigation: { goto: gotoState, documentAcknowledged, ...(firstViolation && { firstViolation }), ...(gotoState === 'rejected' && gotoError && { gotoError }) } };
+ }
  return { outcome: outcome!, transcript: outcome!.state === 'rendered' ? accepted : null };
 }
 
@@ -467,7 +497,7 @@ async function terminateOwnedBrowser(browser: Browser, deadline: number): Promis
 
 async function readExact(response: Response, size: number, signal: AbortSignal): Promise<Uint8Array> {
  const reader = response.body?.getReader();
- if (!reader) throw Error('missing static body');
+ if (!reader) refuse('static-response');
  const cancel = () => { void reader.cancel().catch(() => {}); };
  signal.addEventListener('abort', cancel, { once: true });
  if (signal.aborted) cancel();
@@ -477,10 +507,10 @@ async function readExact(response: Response, size: number, signal: AbortSignal):
   while (true) {
    const next = await reader.read();
    if (next.done) break;
-   if (offset + next.value.byteLength > size) throw Error('oversize static body');
+   if (offset + next.value.byteLength > size) refuse('static-response');
    bytes.set(next.value, offset); offset += next.value.byteLength;
   }
-  if (offset !== size) throw Error('truncated static body');
+  if (offset !== size) refuse('static-response');
   return bytes;
  } finally { signal.removeEventListener('abort', cancel); cancel(); reader.releaseLock(); }
 }

@@ -10,7 +10,7 @@ import { parseStrictJson } from '../../../case-package/strict-json.ts';
 import type { Candidate } from '../../../case-package/candidate.ts';
 import { d1PublicationSnapshotRevision, type PublicationD1Database } from '../../../publication/hosted/d1-publisher.ts';
 import type { CandidateReader, CandidateSnapshot, RequiredPreviewState } from '../../../publication/hosted/ports.ts';
-import { isPreviewRenderStage, safePreviewReason, type PreviewReasonCode, type PreviewRenderStage } from '../../../publication/hosted/preview-outcome.ts';
+import { isPreviewRenderStage, safePreviewNavigation, safePreviewReason, type PreviewNavigationObservation, type PreviewReasonCode, type PreviewRenderStage } from '../../../publication/hosted/preview-outcome.ts';
 import { d1NativeCandidateRepository } from '../../../results-review/native/repository.ts';
 import { inspectPackage } from '../../../results-review/native/package.ts';
 import { buildCoverage } from '../../../results-review/native/coverage.ts';
@@ -263,7 +263,7 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
           chronologyJson: JSON.stringify(model.docs.map((d) => JSON.parse(d.list_json))), overview: version.overview, expect: projected.projection.expect }, projected.projection).length) return integrity();
         const requiredSections = [...await renderRequiredSections({ candidate: result.candidate, projection: projected.projection, counts: result.counts,
           originals: new Map(mapped.flatMap((m) => m.packageRefs.map((ref) => [ref, m.submissionAssetId] as const))) })];
-        const requiredPreviews: { assetId: string; state: RequiredPreviewState; reasonCode?: PreviewReasonCode; stage?: PreviewRenderStage }[] = [];
+        const requiredPreviews: { assetId: string; state: RequiredPreviewState; reasonCode?: PreviewReasonCode; stage?: PreviewRenderStage; navigation?: PreviewNavigationObservation }[] = [];
         const pagesByRef = referencePages(result.candidate);
         // Canonical uncapped counts cover ALL structured citations (including schema-specific arrays), not only
         // the capped diagnostic list. Missing indexed assets also make supplied targets unopenable, even when the
@@ -276,7 +276,7 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
         }
         for (const [ref, asset] of Object.entries(result.candidate.assets).sort(([a], [b]) => a.localeCompare(b))) {
           let state: RequiredPreviewState = 'pending';
-          let reasonCode: PreviewReasonCode | undefined, stage: PreviewRenderStage | undefined;
+          let reasonCode: PreviewReasonCode | undefined, stage: PreviewRenderStage | undefined, navigation: PreviewNavigationObservation | undefined;
           const fact = originals.facts.get(ref);
           if (asset.kind === 'file' && asset.mediaType === 'application/pdf' && fact && !fact.downloadOnly && renderChecker) {
             // Same original bytes and pagination, not an unproved conversion. All source/asset refs remain unchanged.
@@ -292,9 +292,10 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
               // Only fixed source literals pass: a raw exception, URL, session or provider string becomes the generic code.
               reasonCode = safePreviewReason(checked.reason);
               if (isPreviewRenderStage(checked.stage)) stage = checked.stage;
+              navigation = safePreviewNavigation(checked.navigation);
             }
           }
-          requiredPreviews.push({ assetId: ref, state, ...(reasonCode && { reasonCode }), ...(stage && { stage }) });
+          requiredPreviews.push({ assetId: ref, state, ...(reasonCode && { reasonCode }), ...(stage && { stage }), ...(navigation && { navigation }) });
         }
         if (await d1PublicationSnapshotRevision(db, scope) !== revision) return integrity();
         await record(scope.caseId, scope.candidateId, rv, 'succeeded');

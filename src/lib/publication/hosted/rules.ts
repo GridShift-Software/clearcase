@@ -1,6 +1,6 @@
 import type { CandidateSnapshot } from './ports.ts';
 import { isIntegrityKey } from '../../case-package/registry.ts';
-import { isPreviewReasonCode, isPreviewRenderStage } from './preview-outcome.ts';
+import { isPreviewNavigationObservation, isPreviewReasonCode, isPreviewRenderStage } from './preview-outcome.ts';
 
 // Pure sign-off rules over a candidate snapshot (ADR-0010, ADR-0011, results-package acknowledgement contract). There
 // is no readiness boolean anywhere: each rule reads the facts, and the snapshot shape is checked key by key.
@@ -15,9 +15,9 @@ const FP = /^[0-9a-f]{32}$/;
 const fingerprints = (v: unknown): v is string[] => Array.isArray(v) && v.every((f) => typeof f === 'string' && FP.test(f)) && new Set(v).size === v.length;
 const SECTION_STATES = new Set(['valid', 'integrity-verified', 'invalid', 'unsupported', 'missing']);
 const PREVIEW_STATES = new Set(['rendered', 'failed', 'pending']);
-/** `reasonCode` and `stage` are optional, fixed-literal only and never on a rendered preview; any other key or value makes the snapshot unreadable. */
+/** `reasonCode`, `stage` and `navigation` are optional, fixed-literal only and never on a rendered preview; any other key or value makes the snapshot unreadable. */
 const previewCheck = (x: unknown): boolean => plain(x) && text(x.assetId) && PREVIEW_STATES.has(x.state as string) && (x.state !== 'rendered' || Object.keys(x).length === 2)
-  && Object.keys(x).every((k) => k === 'assetId' || k === 'state' || (k === 'reasonCode' && isPreviewReasonCode(x[k])) || (k === 'stage' && isPreviewRenderStage(x[k])));
+  && Object.keys(x).every((k) => k === 'assetId' || k === 'state' || (k === 'reasonCode' && isPreviewReasonCode(x[k])) || (k === 'stage' && isPreviewRenderStage(x[k])) || (k === 'navigation' && isPreviewNavigationObservation(x[k])));
 
 /**
  * The snapshot if it has exactly the documented shape, otherwise null (the caller answers 503, never trusts it). An

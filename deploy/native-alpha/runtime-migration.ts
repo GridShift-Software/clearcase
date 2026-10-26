@@ -1,7 +1,7 @@
 /// <reference types="node" />
 // Offline only: no credentials, environment, Git, subprocess or provider access.
 import { createHash } from 'node:crypto';
-import { constants, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { type Stats, constants, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 export const NATIVE_RUNTIME_MIGRATION_SOURCE = '79c0ee92a858e55a12c727760e258ce8e293a86b';
@@ -19,6 +19,16 @@ export const NATIVE_RUNTIME_MIGRATION_INPUTS = freeze([
 	{ path: 'src/lib/publication/hosted/migrations/0003_provenance_generation.sql', bytes: 8175, sha256: 'sha256:7d6fad7a0b9551693f59bfb2dd5090d5a90d55af141fc5657fb58ee9d6fb7be0' },
 ]);
 const SQL_FILE = 'migrations/0002_native_runtime.sql';
+export const NATIVE_RENDER_CASE_LIMIT_MIGRATION_MODE = 'render-case-limit-0004';
+export const NATIVE_RENDER_CASE_LIMIT_MIGRATION_SOURCE = '721384470b91264f01aaa765ab29bf8373216292';
+export const NATIVE_RENDER_CASE_LIMIT_MIGRATION_INPUTS = freeze([
+	{ path: 'src/lib/viewer/hosted/migrations/0002_preview_render_case_limit.sql', bytes: 7565, sha256: 'sha256:83152ce69cdd56201b98b04d504d6ba220d137090500c64bb831de16f981539c' },
+]);
+// The already applied increment this one runs after. It is a dependency record only: never emitted, rewritten or replayed.
+export const NATIVE_RENDER_CASE_LIMIT_APPLIED_RUNTIME = freeze({ path: SQL_FILE, bytes: 20618,
+	sha256: 'sha256:e854e9d1c6bca7a439dd5903ace1a3e7d01382dae3a7e79e624146f870cda97f', source: NATIVE_RUNTIME_MIGRATION_SOURCE });
+// 0003 is reserved for the separately reviewed audit-read increment; this one does not depend on it.
+const RENDER_CASE_LIMIT_SQL_FILE = 'migrations/0004_native_render_case_limit.sql';
 const CLIENTS = freeze([
 	{ slot: 'client-a', name: 'cc-sbx-a-20261023-db', id: 'cd257736-7bf3-49f6-8544-ac58c2207802' },
 	{ slot: 'client-b', name: 'cc-sbx-b-20261025-r1-db', id: '7c340891-9fcc-4398-8128-68abe726f130' },
@@ -69,30 +79,64 @@ function captureBytes(value: unknown, length: number): Uint8Array {
 	return captured;
 }
 
-/** Exact three pinned inputs only. Copies each byte buffer once before hashing and emitting that copy. */
-export function assembleNativeRuntimeMigration(inputs: readonly { path: string; bytes: Uint8Array }[]) {
-	const items = dense(inputs, NATIVE_RUNTIME_MIGRATION_INPUTS.length, 'inputs');
-	const chunks: string[] = [];
-	for (let i = 0; i < items.length; i++) {
-		const input = record(items[i], ['path', 'bytes'], `input ${i}`);
-		const pin = NATIVE_RUNTIME_MIGRATION_INPUTS[i]!;
-		if (input.path !== pin.path) throw new Error(`input order/path differs at ${i}`);
-		const bytes = captureBytes(input.bytes, pin.bytes);
-		if (sha(bytes) !== pin.sha256) throw new Error(`${pin.path}: bytes differ from source pin`);
-		chunks.push(`-- ${pin.path}\n${new TextDecoder('utf-8', { fatal: true }).decode(bytes)}\n`);
-	}
-	const sql = `-- ClearCase native runtime increment; source ${NATIVE_RUNTIME_MIGRATION_SOURCE}\n-- Requires unchanged 0001_native_alpha.sql; never replaces initial migration history.\n${chunks.join('\n')}`;
-	const targets = CLIENTS.map(db => {
+type Pin = { readonly path: string; readonly bytes: number; readonly sha256: string };
+type Output = { path: string; bytes: number; sha256: string };
+function buildTargets() {
+	return CLIENTS.map(db => {
 		const configFile = `${db.slot}.wrangler.json`;
 		const accountId = 'fb4c31b91c5d89b7a54afbdc34823170';
 		const configText = json({ account_id: accountId, send_metrics: false, d1_databases: [{ binding: 'DB', database_name: db.name, database_id: db.id, migrations_dir: 'migrations' }] });
 		return { slot: db.slot, accountId, databaseName: db.name, databaseId: db.id, configFile, configText,
 			argv: ['wrangler', 'd1', 'migrations', 'apply', db.name, '--remote', '--config', configFile] };
 	});
-	const manifest = { schema: 'clearcase.native-runtime-migration/1', source: NATIVE_RUNTIME_MIGRATION_SOURCE,
-		initialSchemaDependency: NATIVE_RUNTIME_INITIAL_SCHEMA, inputs: NATIVE_RUNTIME_MIGRATION_INPUTS,
-		output: { path: SQL_FILE, bytes: Buffer.byteLength(sql), sha256: sha(sql) }, targets, providerProof: false, provisioned: false };
+}
+type Target = ReturnType<typeof buildTargets>[number];
+/** A fixed packet shape. Only this module's constants are ever passed in, never caller data. */
+interface Packet<Manifest extends { readonly targets: readonly Target[] }> {
+	readonly tag: string | undefined;
+	readonly inputs: readonly Pin[];
+	readonly sqlFile: string;
+	readonly manifestFile: string;
+	readonly header: string;
+	readonly privateStage: boolean;
+	readonly manifest: (output: Output, targets: Target[]) => Manifest;
+}
+const RUNTIME_PACKET = {
+	tag: undefined, inputs: NATIVE_RUNTIME_MIGRATION_INPUTS, sqlFile: SQL_FILE, manifestFile: 'runtime-migration.json', privateStage: false,
+	header: `-- ClearCase native runtime increment; source ${NATIVE_RUNTIME_MIGRATION_SOURCE}\n-- Requires unchanged 0001_native_alpha.sql; never replaces initial migration history.\n`,
+	manifest: (output: Output, targets: Target[]) => ({ schema: 'clearcase.native-runtime-migration/1', source: NATIVE_RUNTIME_MIGRATION_SOURCE,
+		initialSchemaDependency: NATIVE_RUNTIME_INITIAL_SCHEMA, inputs: NATIVE_RUNTIME_MIGRATION_INPUTS, output, targets, providerProof: false, provisioned: false }),
+};
+const RENDER_CASE_LIMIT_PACKET = {
+	tag: NATIVE_RENDER_CASE_LIMIT_MIGRATION_MODE, inputs: NATIVE_RENDER_CASE_LIMIT_MIGRATION_INPUTS, sqlFile: RENDER_CASE_LIMIT_SQL_FILE, manifestFile: 'render-case-limit-migration.json', privateStage: true,
+	header: `-- ClearCase native render case-limit increment 0004; input source ${NATIVE_RENDER_CASE_LIMIT_MIGRATION_SOURCE}\n-- Requires unchanged 0001_native_alpha.sql and applied 0002_native_runtime.sql; never replaces either.\n`,
+	manifest: (output: Output, targets: Target[]) => ({ schema: 'clearcase.native-render-case-limit-migration/1', mode: NATIVE_RENDER_CASE_LIMIT_MIGRATION_MODE, source: NATIVE_RENDER_CASE_LIMIT_MIGRATION_SOURCE,
+		initialSchemaDependency: NATIVE_RUNTIME_INITIAL_SCHEMA, appliedRuntimeDependency: NATIVE_RENDER_CASE_LIMIT_APPLIED_RUNTIME, inputs: NATIVE_RENDER_CASE_LIMIT_MIGRATION_INPUTS, output, targets, providerProof: false, provisioned: false }),
+};
+
+function assemble<M extends { readonly targets: readonly Target[] }>(packet: Packet<M>, inputs: readonly { path: string; bytes: Uint8Array }[]) {
+	const items = dense(inputs, packet.inputs.length, 'inputs');
+	const chunks: string[] = [];
+	for (let i = 0; i < items.length; i++) {
+		const input = record(items[i], ['path', 'bytes'], `input ${i}`);
+		const pin = packet.inputs[i]!;
+		if (input.path !== pin.path) throw new Error(`input order/path differs at ${i}`);
+		const bytes = captureBytes(input.bytes, pin.bytes);
+		if (sha(bytes) !== pin.sha256) throw new Error(`${pin.path}: bytes differ from source pin`);
+		chunks.push(`-- ${pin.path}\n${new TextDecoder('utf-8', { fatal: true }).decode(bytes)}\n`);
+	}
+	const sql = `${packet.header}${chunks.join('\n')}`;
+	const manifest = packet.manifest({ path: packet.sqlFile, bytes: Buffer.byteLength(sql), sha256: sha(sql) }, buildTargets());
 	return freeze({ sql, manifest, manifestText: json(manifest) });
+}
+
+/** Exact three pinned inputs only. Copies each byte buffer once before hashing and emitting that copy. */
+export function assembleNativeRuntimeMigration(inputs: readonly { path: string; bytes: Uint8Array }[]) {
+	return assemble(RUNTIME_PACKET, inputs);
+}
+/** The single pinned viewer case-limit input only, under the same one-copy capture. Emits a separately named 0004. */
+export function assembleNativeRenderCaseLimitMigration(inputs: readonly { path: string; bytes: Uint8Array }[]) {
+	return assemble(RENDER_CASE_LIMIT_PACKET, inputs);
 }
 
 function realPath(file: string, directory: boolean) {
@@ -109,35 +153,53 @@ function location(value: unknown): string {
 	if (value.split(path.sep).some(part => part === '.' || part === '..')) throw new Error('path traversal is not permitted');
 	return path.resolve(value);
 }
-function readBytes(file: string, expectedSize: number) {
+// A private stage is owned by this user and closed to group and other, judged on the open descriptor.
+function requirePrivate(stat: Stats) {
+	if ((stat.mode & 0o077) !== 0 || stat.uid !== process.getuid?.()) throw new Error('stage entry is not private to this user');
+}
+function readBytes(file: string, expectedSize: number, privateStage: boolean) {
 	realPath(file, false);
 	const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
 	try {
 		const stat = fstatSync(fd);
 		if (!stat.isFile() || stat.nlink !== 1 || stat.size !== expectedSize) throw new Error('expected unlinked file with exact pinned size');
+		if (privateStage) requirePrivate(stat);
 		return readFileSync(fd);
 	} finally { closeSync(fd); }
 }
-function fromRoot(root: string) {
+function privateDirectory(dir: string) {
+	const named = lstatSync(dir);
+	const fd = openSync(dir, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+	try {
+		const stat = fstatSync(fd);
+		if (!stat.isDirectory() || stat.dev !== named.dev || stat.ino !== named.ino) throw new Error(`${dir}: expected real unlinked directory`);
+		requirePrivate(stat);
+		return stat;
+	} finally { closeSync(fd); }
+}
+function fromRoot<M extends { readonly targets: readonly Target[] }>(packet: Packet<M>, root: string) {
 	realPath(root, true);
-	return assembleNativeRuntimeMigration(NATIVE_RUNTIME_MIGRATION_INPUTS.map(pin => ({ path: pin.path, bytes: readBytes(path.join(root, pin.path), pin.bytes) })));
+	return assemble(packet, packet.inputs.map(pin => ({ path: pin.path, bytes: readBytes(path.join(root, pin.path), pin.bytes, false) })));
 }
-function files(plan: ReturnType<typeof assembleNativeRuntimeMigration>) {
-	return new Map([[SQL_FILE, plan.sql], ['runtime-migration.json', plan.manifestText], ...plan.manifest.targets.map(t => [t.configFile, t.configText] as [string, string])]);
+function files(packet: Packet<{ readonly targets: readonly Target[] }>, plan: { sql: string; manifestText: string; manifest: { targets: readonly Target[] } }) {
+	return new Map([[packet.sqlFile, plan.sql], [packet.manifestFile, plan.manifestText], ...plan.manifest.targets.map(t => [t.configFile, t.configText] as [string, string])]);
 }
+// The checked shape of a later packet names its mode; the runtime shape stays exactly as it was.
+const stamped = (packet: Packet<{ readonly targets: readonly Target[] }>) => packet.tag === undefined ? {} : { mode: packet.tag };
 
 /** Exclusive new directory only. A preexisting stage is never removed or changed. */
-export function prepareNativeRuntimeMigration(value: { root: string; out: string }) {
+function prepare<M extends { readonly targets: readonly Target[] }>(packet: Packet<M>, value: { root: string; out: string }) {
 	const v = record(value, ['root', 'out'], 'prepare');
 	const root = location(v.root), out = location(v.out);
-	const plan = fromRoot(root);
+	const plan = fromRoot(packet, root);
 	realPath(path.dirname(out), true);
-	mkdirSync(out); // Exclusive: throws for existing files, directories and dangling links.
+	const dirMode = packet.privateStage ? { mode: 0o700 } : undefined;
+	mkdirSync(out, dirMode); // Exclusive: throws for existing files, directories and dangling links.
 	const owned = lstatSync(out);
 	try {
-		mkdirSync(path.join(out, 'migrations'));
-		for (const [file, bytes] of files(plan)) writeFileSync(path.join(out, file), bytes, { flag: 'wx', mode: 0o644 });
-		return readNativeRuntimeMigration({ root, stage: out });
+		mkdirSync(path.join(out, 'migrations'), dirMode);
+		for (const [file, bytes] of files(packet, plan)) writeFileSync(path.join(out, file), bytes, { flag: 'wx', mode: packet.privateStage ? 0o600 : 0o644 });
+		return read(packet, { root, stage: out });
 	} catch (error) {
 		const current = lstatSync(out, { throwIfNoEntry: false });
 		if (current?.isDirectory() && current.ino === owned.ino && current.dev === owned.dev) rmSync(out, { recursive: true, force: true });
@@ -146,12 +208,14 @@ export function prepareNativeRuntimeMigration(value: { root: string; out: string
 }
 
 /** Re-read all pinned sources and exact stage entries before each parent-owned application. */
-export function readNativeRuntimeMigration(value: { root: string; stage: string }) {
+function read<M extends { readonly targets: readonly Target[] }>(packet: Packet<M>, value: { root: string; stage: string }) {
 	const v = record(value, ['root', 'stage'], 'read');
 	const root = location(v.root), stage = location(v.stage);
-	const plan = fromRoot(root);
+	const plan = fromRoot(packet, root);
 	realPath(stage, true);
-	const expected = files(plan);
+	const guard = packet.privateStage ? [stage, path.join(stage, 'migrations')] : [];
+	const opened = guard.map(privateDirectory);
+	const expected = files(packet, plan);
 	const entries: string[] = [];
 	for (const name of readdirSync(stage)) {
 		if (name === 'migrations') {
@@ -160,14 +224,19 @@ export function readNativeRuntimeMigration(value: { root: string; stage: string 
 		} else entries.push(name);
 	}
 	if (entries.length !== expected.size || entries.some(name => !expected.has(name))) throw new Error('unexpected or missing stage entries');
-	for (const [file, bytes] of expected) if (!readBytes(path.join(stage, file), Buffer.byteLength(bytes)).equals(Buffer.from(bytes))) throw new Error(`${file}: staged bytes differ`);
-	return freeze({ stage, ...plan });
+	for (const [file, bytes] of expected) if (!readBytes(path.join(stage, file), Buffer.byteLength(bytes), packet.privateStage).equals(Buffer.from(bytes))) throw new Error(`${file}: staged bytes differ`);
+	// Same directories, unchanged while they were listed and read.
+	guard.forEach((dir, i) => {
+		const again = privateDirectory(dir), first = opened[i]!;
+		if (again.dev !== first.dev || again.ino !== first.ino || again.mtimeMs !== first.mtimeMs || again.ctimeMs !== first.ctimeMs) throw new Error(`${dir}: stage changed while being read`);
+	});
+	return freeze({ stage, ...stamped(packet), ...plan });
 }
 
 /** Fixed invocation only; no execution. The initial-schema provider readback remains the parent's duty. */
-export function checkNativeRuntimeMigrationInvocation(value: { root: string; stage: string; cwd: string; slot: NativeRuntimeMigrationSlot; argv: readonly string[] }) {
+function checkInvocation<M extends { readonly targets: readonly Target[] }>(packet: Packet<M>, value: { root: string; stage: string; cwd: string; slot: NativeRuntimeMigrationSlot; argv: readonly string[] }) {
 	const v = record(value, ['root', 'stage', 'cwd', 'slot', 'argv'], 'invocation');
-	const checked = readNativeRuntimeMigration({ root: location(v.root), stage: location(v.stage) });
+	const checked = read(packet, { root: location(v.root), stage: location(v.stage) });
 	const target = checked.manifest.targets.find(t => t.slot === v.slot);
 	if (!target) throw new Error('not an approved target');
 	// The parent must execute this exact spelling, not a lexically equivalent path whose
@@ -178,3 +247,12 @@ export function checkNativeRuntimeMigrationInvocation(value: { root: string; sta
 	if (argv.some((arg, i) => arg !== target.argv[i])) throw new Error('invocation differs from exact plan');
 	return freeze({ ...checked, target });
 }
+
+export const prepareNativeRuntimeMigration = (value: { root: string; out: string }) => prepare(RUNTIME_PACKET, value);
+export const readNativeRuntimeMigration = (value: { root: string; stage: string }) => read(RUNTIME_PACKET, value);
+export const checkNativeRuntimeMigrationInvocation = (value: { root: string; stage: string; cwd: string; slot: NativeRuntimeMigrationSlot; argv: readonly string[] }) => checkInvocation(RUNTIME_PACKET, value);
+
+/** Render case-limit 0004 packet: a new, private, separately named stage. It can never be read or checked as the 0002 packet. */
+export const prepareNativeRenderCaseLimitMigration = (value: { root: string; out: string }) => prepare(RENDER_CASE_LIMIT_PACKET, value);
+export const readNativeRenderCaseLimitMigration = (value: { root: string; stage: string }) => read(RENDER_CASE_LIMIT_PACKET, value);
+export const checkNativeRenderCaseLimitMigrationInvocation = (value: { root: string; stage: string; cwd: string; slot: NativeRuntimeMigrationSlot; argv: readonly string[] }) => checkInvocation(RENDER_CASE_LIMIT_PACKET, value);

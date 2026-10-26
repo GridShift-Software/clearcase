@@ -19,7 +19,11 @@
 	{:else if data.originals.items.length}
 		<ul>
 			{#each data.originals.items as o (o.assetId)}
-				<li><a data-action="open-original" data-asset-id={o.assetId} href={o.href}>{displayFilename(o.filename)}</a> ({o.mediaType}, {o.size} bytes)</li>
+				<li>
+					<a data-action="open-original" data-asset-id={o.assetId} href={o.href}>{displayFilename(o.filename)}</a>
+					({o.mediaType}, {o.size} bytes)
+					{#if o.mediaType === 'application/pdf'} <a data-action="view-original" data-asset-id={o.assetId} href={`${o.href}/view`}>View PDF</a>{/if}
+				</li>
 			{/each}
 		</ul>
 	{:else}

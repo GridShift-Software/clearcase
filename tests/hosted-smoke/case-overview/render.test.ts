@@ -33,7 +33,22 @@ describe('hosted case pages escape case text', () => {
     expect(body).toContain('data-results-state="pending"');
     expect(body).not.toContain('data-overview-state');
     expect(body).toContain('data-action="open-original"');
+    expect(body).toContain('data-action="view-original"');
+    expect(body).toContain('href="/cases/case-a1/originals/DOC-001/view"');
+    expect(body).toContain('data-action="open-original" data-asset-id="DOC-001" href="/cases/case-a1/originals/DOC-001"');
     safe(body);
+  });
+
+  it('only offers a PDF reader link, preserving encoded server URLs and escaping filenames', () => {
+    const data = { caseId: 'case/a&b', label: 'Case', results: null, overview: null, originals: { state: 'available' as const, items: [
+      { assetId: 'asset/a&b', filename: '<img src=x onerror=alert(1)>.pdf', mediaType: 'application/pdf', size: 10, href: '/cases/case%2Fa%26b/originals/asset%2Fa%26b' },
+      { assetId: 'other', filename: 'scan.tiff', mediaType: 'image/tiff', size: 20, href: '/cases/case%2Fa%26b/originals/other' },
+    ] }, notes: { state: 'unavailable' as const, count: 0, href: '/cases/case%2Fa%26b/notes' } };
+    const body = html(CasePage, { data });
+    expect(body).toContain('href="/cases/case%2Fa%26b/originals/asset%2Fa%26b/view"');
+    expect(body).toContain('href="/cases/case%2Fa%26b/originals/asset%2Fa%26b">&lt;img src=x onerror=alert(1)>.pdf</a>');
+    expect(body).not.toContain('data-asset-id="other" href="/cases/case%2Fa%26b/originals/other/view"');
+    expect(body).toContain('data-action="open-original" data-asset-id="other" href="/cases/case%2Fa%26b/originals/other"');
   });
 
   it('the chronology', async () => {

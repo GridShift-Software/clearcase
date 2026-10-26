@@ -406,3 +406,51 @@ describe('host disposal symbol preflight (NOT workerd acceptance)', () => {
   expect(await createNativePreviewRenderChecker(options())).not.toBeNull();
  });
 });
+
+describe('native PDF diagnostic stage (SDK boundary doubles only; NOT renderer acceptance)', () => {
+ const SECRET = 'TypeError at https://client-a.example/__session?token=abc123 cookie=__session=eyJhbGciOi sess_2abcDEF blob:1f2e3d4c';
+ async function failed(arrange: (boundary: ReturnType<typeof sdkBoundary>) => void, tune?: (o: NativePreviewRenderOptions) => void) {
+  const boundary = sdkBoundary(), db = rawDatabase(), o = options(db); tune?.(o);
+  sdk.launch.mockResolvedValue(boundary.browser); arrange(boundary);
+  const outcome = await (await createNativePreviewRenderChecker(o))!.verify(input());
+  const rows = db.sqlite.prepare('SELECT COUNT(*) AS n FROM npr_reservations').get() as { n: number };
+  expect(JSON.stringify(outcome)).not.toMatch(/TypeError|https:|__session|token=|cookie|eyJhbGciOi|sess_|blob:/);
+  expect(rows.n).toBe(1); expect(sdk.launch).toHaveBeenCalledOnce();
+  return outcome;
+ }
+ it('names the launch phase and keeps the generic render-failed reason', async () => {
+  const boundary = sdkBoundary(), db = rawDatabase();
+  sdk.launch.mockRejectedValue(Error(SECRET));
+  const outcome = await (await createNativePreviewRenderChecker(options(db)))!.verify(input());
+  expect(outcome).toMatchObject({ state: 'failed', reason: 'render-failed', stage: 'launch' });
+  expect(JSON.stringify(outcome)).not.toMatch(/TypeError|https:|__session|sess_|blob:/);
+  expect(boundary.page.goto).not.toHaveBeenCalled();
+ });
+ it.each([
+  ['page-setup', 'render-failed', (b: ReturnType<typeof sdkBoundary>) => { b.browser.newPage.mockRejectedValueOnce(Error(SECRET)); }],
+  ['page-setup', 'render-failed', (b: ReturnType<typeof sdkBoundary>) => { b.page.setRequestInterception.mockRejectedValueOnce(Error(SECRET)); }],
+  ['navigation', 'render-failed', (b: ReturnType<typeof sdkBoundary>) => { b.page.goto.mockRejectedValueOnce(Error(SECRET)); }],
+  ['inspection', 'render-failed', (b: ReturnType<typeof sdkBoundary>) => { b.page.evaluate.mockRejectedValueOnce(Error(SECRET)); }],
+  ['inspection', 'incomplete-render-transcript', (b: ReturnType<typeof sdkBoundary>) => { b.page.evaluate.mockResolvedValueOnce({ not: 'a transcript' }); }],
+ ] as const)('names the %s phase and keeps reason %s', async (stage, reason, arrange) => {
+  expect(await failed(arrange)).toMatchObject({ state: 'failed', reason, stage });
+ });
+ it('names the cleanup phase when cleanup fails and keeps render-cleanup-failed', async () => {
+  expect(await failed(b => { b.page.close.mockImplementationOnce(() => new Promise(() => {})); }, o => { o.budget!.maxRunMs = 20; })).toMatchObject({ state: 'failed', reason: 'render-cleanup-failed', stage: 'cleanup' });
+ });
+ it('keeps render-timeout and names the phase that was waiting', async () => {
+  const o = options(); o.budget!.maxRunMs = 15;
+  sdk.launch.mockImplementationOnce(() => new Promise<Browser>(() => {}));
+  expect(await (await createNativePreviewRenderChecker(o))!.verify(input())).toMatchObject({ state: 'failed', reason: 'render-timeout', stage: 'launch' });
+ });
+ it('adds no stage to a rendered result or to a pre-run refusal, and no extra key', async () => {
+  const boundary = sdkBoundary();
+  sdk.launch.mockResolvedValue(boundary.browser);
+  const checker = (await createNativePreviewRenderChecker(options()))!;
+  const rendered = await checker.verify(input());
+  expect(Object.keys(rendered).sort()).toEqual(['pages', 'reason', 'rendererVersion', 'state']);
+  const refused = await checker.verify({ ...input(), mediaType: 'text/plain' });
+  expect(refused).toMatchObject({ state: 'failed', reason: 'unsupported-media-type' });
+  expect(refused).not.toHaveProperty('stage');
+ });
+});

@@ -127,3 +127,9 @@ provenance/baseline ABA during renderer and final audit awaits, immutable submis
 transaction rollback, migration invalidation, legitimate later intake and non-waivable canonical reference warnings.
 The separate canonical tagged-digest guard fix (`0ddb4dfa`, not merged here) remains parent-owned; no digest is stripped
 or normalized to satisfy the base guard. Native rendering, browser, full gates/build/suite and providers are UNRUN.
+
+A non-rendered `requiredPreviews` entry may carry an optional `reasonCode` and `stage`, both fixed literals from `preview-outcome.ts`: the
+renderer's own reason strings, `page-reference-out-of-range`, and the generic `render-unavailable` for anything else, plus the diagnostic
+phase (launch, page-setup, navigation, inspection, cleanup). `checkSnapshot` rejects any other key or value, and a rendered entry carries
+neither. Readiness forwards them as pinned. No raw exception, URL, session or provider text is copied. Code and stage are diagnostic only:
+they change no verdict and add no read, render or audit.

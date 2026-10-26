@@ -4,6 +4,7 @@ import { NATIVE_RENDER_SDK_POLICY } from '../../../../scripts/native-render-sdk-
 import { NATIVE_SDK_POLICY_IDENTITY } from './sdk-build-contract.ts';
 import type { ClientId } from '../../server/runtime/contracts.ts';
 import type { CloudD1 } from '../../storage/cloud/bindings.ts';
+import type { PreviewRenderStage } from '../../publication/hosted/preview-outcome.ts';
 import type { NativePreviewRenderBudget, NativePreviewRenderChecker } from './render-check-contract.ts';
 
 // Deliberately not an import of the build-time (node:fs) asset preparer. Parent supplies its reviewed inventory.
@@ -132,8 +133,8 @@ window.clearcaseNativePdfInspect = async function (a) {
 
 type RenderInput = Parameters<NativePreviewRenderChecker['verify']>[0];
 type RenderResult = Awaited<ReturnType<NativePreviewRenderChecker['verify']>>;
-function renderResult(rendererVersion: string, state: RenderResult['state'], reason: string | null, pages: number | null = null): RenderResult {
- return { state, rendererVersion, pages, reason };
+function renderResult(rendererVersion: string, state: RenderResult['state'], reason: string | null, pages: number | null = null, stage?: PreviewRenderStage): RenderResult {
+ return stage ? { state, rendererVersion, pages, reason, stage } : { state, rendererVersion, pages, reason };
 }
 interface PageProof { number: number; width: number; height: number; pixelBytes: number; pixelSha256: string }
 interface RenderTranscript { binding: string; sha256: string; size: number; pdfjsVersion: string; totalPages: number; pages: PageProof[] }
@@ -269,7 +270,9 @@ async function inspect(a: {
  files: Map<string, { path: string; bytes: number; sha256: string }>; origin: string;
  browserBinding: BrowserWorker; assets: NonNullable<NativePreviewRenderOptions['assets']>;
 }): Promise<{ outcome: RenderResult; transcript: RenderTranscript | null }> {
- const result = (state: RenderResult['state'], reason: string | null, pages: number | null = null) => renderResult(a.rendererVersion, state, reason, pages);
+ // Assigned BEFORE the phase's first await, so a throw or deadline names the phase that was waiting. Never a message.
+ let stage: PreviewRenderStage = 'launch';
+ const result = (state: RenderResult['state'], reason: string | null, pages: number | null = null, at = stage) => renderResult(a.rendererVersion, state, reason, pages, state === 'rendered' ? undefined : at);
  let accepted: RenderTranscript | null = null;
  let browser: Browser | undefined, page: Page | undefined, timedOut = false, violated = false;
  let requests = 0, staticBytes = 0;
@@ -332,6 +335,7 @@ async function inspect(a: {
  };
  const work = async (): Promise<RenderResult> => {
   check();
+  stage = 'launch';
   browser = await puppeteer.launch(boundedBinding, { keep_alive: IDLE_TAIL_MS, recording: false, guardrails: { allowedDomains: [] } });
   if (timedOut) {
    // Never call the SDK close callback: it swallows Browser.close failures into console.log.
@@ -339,6 +343,7 @@ async function inspect(a: {
    throw Error('late browser');
   }
   check();
+  stage = 'page-setup';
   page = await browser.newPage();
   if (timedOut) { if (performance.now() < a.stopAt + CLEANUP_MS) void page.close({ runBeforeUnload: false }).catch(() => {}); throw Error('late page'); }
   page.setDefaultTimeout(Math.max(1, remaining()));
@@ -351,8 +356,10 @@ async function inspect(a: {
   page.on('pageerror', () => { violated = true; });
   page.on('dialog', dialog => { violated = true; void dialog.dismiss().catch(() => {}); });
   page.on('popup', popup => { violated = true; if (popup) void popup.close().catch(() => {}); });
+  stage = 'navigation';
   await page.goto(a.origin + DOCUMENT, { waitUntil: 'networkidle0', timeout: Math.max(1, remaining()) });
   check();
+  stage = 'inspection';
   const worker = a.files.get('/pdfjs/pdf.worker.min.mjs')!;
   const transcript: unknown = await page.evaluate(async args => {
    const fn = (window as unknown as { clearcaseNativePdfInspect?: (v: typeof args) => Promise<unknown> }).clearcaseNativePdfInspect;
@@ -400,7 +407,7 @@ async function inspect(a: {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
    const closed = await Promise.race([cleanup(), new Promise<false>(resolve => { timer = setTimeout(() => resolve(false), Math.max(0, cleanupDeadline - performance.now())); })]);
-   if (!closed) outcome = result('failed', 'render-cleanup-failed');
+   if (!closed) outcome = result('failed', 'render-cleanup-failed', null, 'cleanup');
   } finally {
    if (timer) clearTimeout(timer);
    // Always release our transport even if cleanup exceeded its budget. This is NOT proof of peer termination.

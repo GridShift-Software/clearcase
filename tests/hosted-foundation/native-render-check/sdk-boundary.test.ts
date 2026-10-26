@@ -556,7 +556,8 @@ describe('native PDF navigation observations (SDK boundary doubles with a script
    const real = o.assets!.fetch;
    o.assets!.fetch = async (r: Request) => {
     const path = new URL(r.url).pathname; fetched.push({ path, redirect: r.redirect });
-    return path === '/pdfjs/pdf.min.mjs' ? new Response(null, { status, headers: { location: '/pdfjs/pdf.worker.min.mjs' } }) : real(r);
+    // The 3xx carries the exact pinned bytes, so only the status check can refuse it.
+    return path === '/pdfjs/pdf.min.mjs' ? new Response(await (await real(r)).arrayBuffer(), { status, headers: { location: '/pdfjs/pdf.worker.min.mjs' } }) : real(r);
    };
   });
   expect(outcome).toMatchObject(symptom);

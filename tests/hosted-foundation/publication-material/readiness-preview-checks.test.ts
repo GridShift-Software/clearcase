@@ -8,6 +8,7 @@ import { d1PublicationLedger } from '../../../src/lib/publication/hosted/ledger.
 import { d1PublicationPublisher } from '../../../src/lib/publication/hosted/d1-publisher.ts';
 import { d1ReadinessFence } from '../../../src/lib/publication/hosted/readiness-fence.ts';
 import { checkSnapshot } from '../../../src/lib/publication/hosted/rules.ts';
+import { safePreviewNavigation } from '../../../src/lib/publication/hosted/preview-outcome.ts';
 import type { NativePreviewRenderChecker } from '../../../src/lib/viewer/hosted/render-check-contract.ts';
 
 const worlds: Awaited<ReturnType<typeof world>>[] = [];
@@ -188,5 +189,105 @@ describe('navigation observations in readiness (synthetic component evidence, NO
       expect(checkSnapshot(withPreview({ ...failed, navigation }))).toBeNull();
     }
     expect(checkSnapshot(withPreview({ assetId: 'OD-001', state: 'rendered', navigation: GOOD }))).toBeNull();
+  });
+});
+
+describe('navigation observations are single-read: an accessor or proxy cannot change a value after it was validated (synthetic port input)', () => {
+  const GOOD = { goto: 'resolved', documentAcknowledged: true, firstViolation: 'favicon-path' };
+  const REJECTED = { goto: 'rejected', documentAcknowledged: false, gotoError: 'blocked-by-administrator' };
+  /** An enumerable getter that reads as the valid value once, then as private text. */
+  const flip = (base: Record<string, unknown>, key: string) => {
+    let reads = 0;
+    return Object.defineProperty({ ...base }, key, { enumerable: true, get: () => ++reads === 1 ? base[key] : RAW });
+  };
+  /** An enumerable getter that always reads as the valid value. Still accessor-backed, so still refused. */
+  const steady = (base: Record<string, unknown>, key: string) => Object.defineProperty({ ...base }, key, { enumerable: true, get: () => base[key] });
+  const ACCESSORS: [string, () => unknown][] = [
+    ...(['goto', 'documentAcknowledged', 'firstViolation'] as const).flatMap((k) => [[`${k} flips`, () => flip(GOOD, k)], [`${k} steady`, () => steady(GOOD, k)]] as [string, () => unknown][]),
+    ['gotoError flips', () => flip(REJECTED, 'gotoError')], ['gotoError steady', () => steady(REJECTED, 'gotoError')],
+    ['inherited getter', () => Object.assign(Object.create({ get firstViolation() { return RAW; } }), { goto: 'resolved', documentAcknowledged: true })],
+    ['non-enumerable getter beside the data', () => Object.defineProperty({ ...GOOD }, 'gotoError', { enumerable: false, get: () => RAW })],
+  ];
+  const proxies: [string, () => unknown][] = [
+    ['get trap flips', () => { let n = 0; return new Proxy({ ...GOOD }, { get: (t, k, r) => k === 'firstViolation' && ++n > 1 ? RAW : Reflect.get(t, k, r) }); }],
+    ['descriptor trap reports an accessor', () => new Proxy({ ...GOOD }, { getOwnPropertyDescriptor: (t, k) => k === 'firstViolation' ? { enumerable: true, configurable: true, get: () => RAW } : Reflect.getOwnPropertyDescriptor(t, k) })],
+    ['prototype trap lies', () => new Proxy({ ...GOOD }, { getPrototypeOf: () => Object.prototype, get: (t, k, r) => k === 'goto' ? RAW : Reflect.get(t, k, r) })],
+    ['ownKeys trap throws', () => new Proxy({ ...GOOD }, { ownKeys: () => { throw Error(RAW); } })],
+  ];
+
+  it.each(ACCESSORS)('safePreviewNavigation refuses an accessor-backed observation: %s', (_name, make) => {
+    expect(safePreviewNavigation(make())).toBeUndefined();
+  });
+
+  it.each(proxies)('safePreviewNavigation never returns a value it did not validate from a proxy: %s', (_name, make) => {
+    const out = safePreviewNavigation(make());
+    expect(JSON.stringify(out) ?? '').not.toContain(RAW);
+    if (out !== undefined) expect([GOOD, { ...GOOD, firstViolation: undefined }]).toContainEqual(expect.objectContaining(out));
+  });
+
+  it('safePreviewNavigation still rebuilds an ordinary observation as a fresh plain copy', () => {
+    for (const ok of [GOOD, REJECTED, { goto: 'pending', documentAcknowledged: false }]) {
+      const out = safePreviewNavigation(ok);
+      expect(out).toEqual(ok); expect(out).not.toBe(ok);
+      expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+    }
+  });
+
+  it('readiness drops an accessor-backed observation from the checker and leaks no private text', async () => {
+    for (const [, make] of [...ACCESSORS, ...proxies]) {
+      const r = await readiness({ section: true }, { async verify() { calls.n++; return { state: 'failed', rendererVersion: 'UNIT-DOUBLE-NOT-ACCEPTANCE', pages: null, reason: 'render-failed', stage: 'navigation', navigation: make() } as never; } });
+      expect(r.text).not.toContain('TypeError'); expect(r.text).not.toContain('__session'); expect(r.text).not.toContain('sess_');
+      const [entry] = r.body.previewChecks as Record<string, unknown>[];
+      expect(entry).toMatchObject({ assetId: 'OD-001', state: 'failed', reasonCode: 'render-failed', stage: 'navigation' });
+    }
+  });
+
+  it('checkSnapshot rejects an accessor-backed observation and never clones a re-read value', async () => {
+    const w = await world({ section: true }); worlds.push(w);
+    w.options.renderChecker = checker('failed', 'render-failed', 'navigation');
+    const base = await w.read() as unknown as Record<string, unknown>;
+    const failed = { assetId: 'OD-001', state: 'failed', reasonCode: 'render-failed', stage: 'navigation' };
+    const withPreview = (p: unknown) => ({ ...base, requiredPreviews: [p] });
+    for (const [name, make] of ACCESSORS) {
+      const checked = checkSnapshot(withPreview({ ...failed, navigation: make() }));
+      expect(JSON.stringify(checked) ?? '', name).not.toContain(RAW);
+      expect(checked, name).toBeNull();
+    }
+    for (const [name, make] of proxies) {
+      expect(JSON.stringify(checkSnapshot(withPreview({ ...failed, navigation: make() })) ?? ''), name).not.toContain(RAW);
+    }
+  });
+
+  it('checkSnapshot refuses accessors anywhere in the snapshot, not only in the observation', async () => {
+    const w = await world({ section: true }); worlds.push(w);
+    w.options.renderChecker = checker('failed', 'render-failed', 'navigation');
+    const base = await w.read() as unknown as { link: Record<string, unknown>; requiredPreviews: Record<string, unknown>[]; requiredSections: unknown[]; trustedBaseline: unknown[] };
+    const once = (value: unknown, then: unknown = RAW) => { let n = 0; return { enumerable: true, get: () => ++n === 1 ? value : then }; };
+    const entry = base.requiredPreviews[0];
+    const variants: Record<string, unknown>[] = [
+      { ...base, link: Object.defineProperty({ ...base.link }, 'clientId', once(base.link.clientId)) },
+      { ...base, requiredPreviews: [Object.defineProperty({ ...entry }, 'reasonCode', once('render-failed'))] },
+      { ...base, requiredPreviews: [Object.defineProperty({ ...entry }, 'stage', once('navigation'))] },
+      { ...base, requiredPreviews: [Object.defineProperty({ ...entry }, 'assetId', once('OD-001'))] },
+      { ...base, requiredPreviews: Object.defineProperty([entry], 0, once(entry, { assetId: RAW, state: 'rendered' })) },
+      { ...base, trustedBaseline: Object.defineProperty([], 0, once('a'.repeat(32), RAW)) },
+      Object.defineProperty({ ...base }, 'snapshotRevision', once('rev-1')),
+    ];
+    for (const [i, snapshot] of variants.entries()) {
+      const checked = checkSnapshot(snapshot);
+      expect(JSON.stringify(checked) ?? '', String(i)).not.toContain(RAW);
+      expect(checked, String(i)).toBeNull();
+    }
+  });
+
+  it('checkSnapshot still returns an independent deep copy of an ordinary snapshot', async () => {
+    const w = await world({ section: true }); worlds.push(w);
+    w.options.renderChecker = { async verify() { calls.n++; return { state: 'failed', rendererVersion: 'UNIT-DOUBLE-NOT-ACCEPTANCE', pages: null, reason: 'render-failed', stage: 'navigation', navigation: GOOD } as never; } };
+    const base = await w.read();
+    const checked = checkSnapshot(base)!;
+    expect(checked).toEqual(base); expect(checked).not.toBe(base);
+    expect(checked.requiredPreviews[0]).not.toBe(base.requiredPreviews[0]);
+    expect(checked.requiredPreviews[0].navigation).not.toBe(base.requiredPreviews[0].navigation);
+    expect(checkSnapshot(Object.assign(Object.create({ ready: true }), base))).toBeNull();
   });
 });

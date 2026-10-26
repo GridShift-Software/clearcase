@@ -585,4 +585,67 @@ describe('native PDF navigation observations (SDK boundary doubles with a script
   expect(boundary.page.goto).toHaveBeenCalledOnce();
   expect(sdk.launch).toHaveBeenCalledWith(expect.anything(), { keep_alive: 60_000, recording: false, guardrails: { allowedDomains: [] } });
  });
+
+ describe('facts are frozen at the end of the main run, before abort and cleanup', () => {
+  /** goto stays unsettled until cleanup closes the page; `late` then settles it, and may do more. */
+  async function deadline(arrange: (b: Boundary, settle: { resolve(): void; reject(e: Error): void }) => void, closeFails = false) {
+   const boundary = sdkBoundary(), o = options(); o.budget!.maxRunMs = 30;
+   let settle!: { resolve(): void; reject(e: Error): void };
+   boundary.page.goto.mockImplementationOnce(() => new Promise<void>((resolve, reject) => { settle = { resolve: () => resolve(), reject }; }));
+   sdk.launch.mockResolvedValue(boundary.browser);
+   boundary.page.close.mockImplementationOnce(async () => { arrange(boundary, settle); if (closeFails) throw Error(SECRET); });
+   const outcome = await (await createNativePreviewRenderChecker(o))!.verify(input());
+   expect(JSON.stringify(outcome)).not.toMatch(LEAK);
+   expect(boundary.page.close).toHaveBeenCalledOnce();
+   expect(boundary.browser.disconnect).toHaveBeenCalledOnce();
+   return { outcome, boundary };
+  }
+  const pending = { goto: 'pending', documentAcknowledged: false };
+
+  it.each([
+   ['rejects goto', (_b: Boundary, s: { resolve(): void; reject(e: Error): void }) => s.reject(Error('net::ERR_ABORTED from cleanup'))],
+   ['resolves goto', (_b: Boundary, s: { resolve(): void; reject(e: Error): void }) => s.resolve()],
+  ])('keeps goto pending at the operation deadline when the acknowledged page close %s', async (_name, late) => {
+   const { outcome } = await deadline(late);
+   expect(outcome).toMatchObject({ state: 'failed', reason: 'render-timeout', stage: 'navigation' });
+   expect(outcome).toHaveProperty('navigation', pending);
+  });
+
+  it('keeps the actual cleanup reason and stage while the navigation facts stay frozen', async () => {
+   const { outcome } = await deadline((_b, s) => s.reject(Error('net::ERR_ABORTED from cleanup')), true);
+   expect(outcome).toMatchObject({ state: 'failed', reason: 'render-cleanup-failed', stage: 'cleanup' });
+   expect(outcome).toHaveProperty('navigation', pending);
+  });
+
+  it('does not let a document acknowledgement that arrives during cleanup become documentAcknowledged', async () => {
+   const boundary = sdkBoundary(), o = options(); o.budget!.maxRunMs = 30;
+   let release!: () => void, rejectGoto!: (e: Error) => void;
+   const respond = vi.fn(() => new Promise<void>(resolve => { release = resolve; }));
+   boundary.page.goto.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => {
+    rejectGoto = reject;
+    boundary.emit('request', { url: () => DOC, method: () => 'GET', resourceType: () => 'document', isNavigationRequest: () => true,
+     frame: () => boundary.page.mainFrame(), respond, abort: vi.fn(async () => {}) });
+   }));
+   boundary.page.close.mockImplementationOnce(async () => { release(); await Promise.resolve(); rejectGoto(Error('net::ERR_ABORTED from cleanup')); });
+   sdk.launch.mockResolvedValue(boundary.browser);
+   const outcome = await (await createNativePreviewRenderChecker(o))!.verify(input());
+   expect(respond).toHaveBeenCalledOnce();
+   expect(outcome).toMatchObject({ state: 'failed', reason: 'render-timeout', stage: 'navigation' });
+   expect(outcome).toHaveProperty('navigation', pending);
+  });
+
+  it('keeps the first violation seen before the deadline and ignores violations that arrive during cleanup', async () => {
+   const boundary = sdkBoundary(), o = options(); o.budget!.maxRunMs = 40;
+   let rejectGoto!: (e: Error) => void;
+   boundary.page.goto.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectGoto = reject; boundary.emit('requestfailed'); }));
+   boundary.page.close.mockImplementationOnce(async () => {
+    boundary.emit('pageerror', Error(SECRET)); boundary.emit('dialog', { dismiss: async () => {} }); rejectGoto(Error('net::ERR_ABORTED from cleanup'));
+   });
+   sdk.launch.mockResolvedValue(boundary.browser);
+   const outcome = await (await createNativePreviewRenderChecker(o))!.verify(input());
+   expect(outcome).toHaveProperty('navigation', { ...pending, firstViolation: 'requestfailed' });
+   const quiet = await deadline((b, s) => { b.emit('pageerror', Error(SECRET)); s.reject(Error('net::ERR_ABORTED from cleanup')); });
+   expect(quiet.outcome).toHaveProperty('navigation', pending);
+  });
+ });
 });

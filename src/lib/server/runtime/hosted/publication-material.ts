@@ -291,7 +291,8 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
             } else {
               // Only fixed source literals pass: a raw exception, URL, session or provider string becomes the generic code.
               reasonCode = safePreviewReason(checked.reason);
-              if (isPreviewRenderStage(checked.stage)) stage = checked.stage;
+              const checkedStage: unknown = checked.stage;
+              if (isPreviewRenderStage(checkedStage)) stage = checkedStage;
               navigation = safePreviewNavigation(checked.navigation);
             }
           }

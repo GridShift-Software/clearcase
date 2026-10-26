@@ -4,7 +4,7 @@ import { NATIVE_RENDER_SDK_POLICY } from '../../../../scripts/native-render-sdk-
 import { NATIVE_SDK_POLICY_IDENTITY } from './sdk-build-contract.ts';
 import type { ClientId } from '../../server/runtime/contracts.ts';
 import type { CloudD1 } from '../../storage/cloud/bindings.ts';
-import type { PreviewFirstViolation, PreviewGotoError, PreviewGotoState, PreviewRenderStage } from '../../publication/hosted/preview-outcome.ts';
+import type { PreviewFirstViolation, PreviewGotoError, PreviewGotoState, PreviewNavigationObservation, PreviewRenderStage } from '../../publication/hosted/preview-outcome.ts';
 import type { NativePreviewRenderBudget, NativePreviewRenderChecker } from './render-check-contract.ts';
 
 // Deliberately not an import of the build-time (node:fs) asset preparer. Parent supplies its reviewed inventory.
@@ -296,6 +296,14 @@ async function inspect(a: {
  // Facts for the failure diagnosis only. None of them reaches a verdict, a limit or a cleanup decision.
  let firstViolation: PreviewFirstViolation | undefined, documentAcknowledged = false, gotoState: PreviewGotoState | undefined, gotoError: PreviewGotoError | undefined;
  const violate = (kind: PreviewFirstViolation) => { violated = true; if (!timedOut) firstViolation ??= kind; };
+ // Read once, when the main run ends (deadline or settle) and BEFORE abort and cleanup. A goto, a document acknowledgement or a
+ // violation that cleanup itself causes afterwards is not a fact about the run, so it never reaches the result.
+ let navigation: PreviewNavigationObservation | undefined, frozen = false;
+ const freeze = () => {
+  if (frozen) return;
+  frozen = true;
+  if (gotoState) navigation = { goto: gotoState, documentAcknowledged, ...(firstViolation && { firstViolation }), ...(gotoState === 'rejected' && gotoError && { gotoError }) };
+ };
  let requests = 0, staticBytes = 0;
  let transport: { close(): void } | undefined;
  const abort = new AbortController();
@@ -408,11 +416,12 @@ async function inspect(a: {
  let outcome: RenderResult;
  try {
   outcome = await Promise.race([work(), new Promise<RenderResult>(resolve => {
-   timeout = setTimeout(() => { timedOut = true; abort.abort(); resolve(result('failed', 'render-timeout')); }, remaining());
+   timeout = setTimeout(() => { freeze(); timedOut = true; abort.abort(); resolve(result('failed', 'render-timeout')); }, remaining());
   })]);
  } catch { outcome = result('failed', timedOut || remaining() <= 0 ? 'render-timeout' : 'render-failed'); }
  finally {
   if (timeout) clearTimeout(timeout);
+  freeze();
   timedOut = true; abort.abort();
   // Work may complete after a launch timeout. The binding wrapper rejects late upgrades and closes their socket;
   // the SDK cannot issue further HTTP requests. This abort does not reach an established upgrade; disconnect the live
@@ -451,9 +460,7 @@ async function inspect(a: {
   }
  }
  if (violated && outcome!.state === 'rendered') outcome = result('failed', 'render-failed');
- if (gotoState && outcome!.state !== 'rendered') {
-  outcome = { ...outcome!, navigation: { goto: gotoState, documentAcknowledged, ...(firstViolation && { firstViolation }), ...(gotoState === 'rejected' && gotoError && { gotoError }) } };
- }
+ if (navigation && outcome!.state !== 'rendered') outcome = { ...outcome!, navigation };
  return { outcome: outcome!, transcript: outcome!.state === 'rendered' ? accepted : null };
 }
 

@@ -42,19 +42,53 @@ const GOTO_STATES: ReadonlySet<unknown> = new Set(PREVIEW_GOTO_STATES);
 const VIOLATIONS: ReadonlySet<unknown> = new Set(PREVIEW_FIRST_VIOLATIONS);
 const GOTO_ERRORS: ReadonlySet<unknown> = new Set(PREVIEW_GOTO_ERRORS);
 const NAVIGATION_KEYS: ReadonlySet<string> = new Set(['goto', 'documentAcknowledged', 'firstViolation', 'gotoError']);
-/** Exactly the documented shape: a plain object, only the four keys, each a fixed literal, `gotoError` only after a rejection. */
-export function isPreviewNavigationObservation(v: unknown): v is PreviewNavigationObservation {
-  if (typeof v !== 'object' || v === null || Array.isArray(v) || Object.getPrototypeOf(v) !== Object.prototype) return false;
-  const o = v as Record<string, unknown>, keys = Object.keys(o);
-  return keys.every((k) => NAVIGATION_KEYS.has(k)) && GOTO_STATES.has(o.goto) && typeof o.documentAcknowledged === 'boolean'
-    && (!keys.includes('firstViolation') || VIOLATIONS.has(o.firstViolation))
-    && (!keys.includes('gotoError') || (o.goto === 'rejected' && GOTO_ERRORS.has(o.gotoError)));
+
+const NOT_DATA = Symbol('not-data');
+const MAX_DEPTH = 8, INDEX = /^(?:0|[1-9][0-9]{0,8})$/;
+function detach(v: unknown, depth: number): unknown {
+  if (v === null || typeof v === 'string' || typeof v === 'boolean' || typeof v === 'number') return v;
+  if (typeof v !== 'object' || depth <= 0) return NOT_DATA;
+  const array = Array.isArray(v);
+  if (Object.getPrototypeOf(v) !== (array ? Array.prototype : Object.prototype)) return NOT_DATA;
+  const out: Record<string, unknown> | unknown[] = array ? [] : {};
+  let indexes = 0;
+  for (const key of Reflect.ownKeys(v)) {
+    const d = Object.getOwnPropertyDescriptor(v, key);
+    if (typeof key !== 'string' || !d || !('value' in d) || (!d.enumerable && !(array && key === 'length'))) return NOT_DATA;
+    if (array && key === 'length') continue;
+    if (array && !INDEX.test(key)) return NOT_DATA;
+    const value = detach(d.value, depth - 1);
+    if (value === NOT_DATA) return NOT_DATA;
+    // defineProperty, never assignment: an own `__proto__` key must stay an ordinary own key.
+    Object.defineProperty(out, key, { value, enumerable: true, writable: true, configurable: true });
+    indexes++;
+  }
+  return array && (out as unknown[]).length !== indexes ? NOT_DATA : out;
 }
-/** A fresh copy built from the fixed literals, or undefined. Nothing else the input carries survives. */
+/**
+ * A deep copy of JSON-shaped data, read once, or undefined. Only plain objects, dense arrays, strings, numbers, booleans and null
+ * survive. An accessor (own or on a proxy's descriptor), a non-enumerable or symbol key, a custom prototype or anything else makes
+ * the whole value undefined, so a value validated from the copy is exactly the value the copy returns: no later read can change it.
+ */
+export function detachedData(v: unknown): unknown {
+  try { const out = detach(v, MAX_DEPTH); return out === NOT_DATA ? undefined : out; } catch { return undefined; }
+}
+
+function validNavigation(o: unknown): o is PreviewNavigationObservation {
+  if (typeof o !== 'object' || o === null || Array.isArray(o) || Object.getPrototypeOf(o) !== Object.prototype) return false;
+  const r = o as Record<string, unknown>, keys = Object.keys(r);
+  return keys.every((k) => NAVIGATION_KEYS.has(k)) && GOTO_STATES.has(r.goto) && typeof r.documentAcknowledged === 'boolean'
+    && (!keys.includes('firstViolation') || VIOLATIONS.has(r.firstViolation))
+    && (!keys.includes('gotoError') || (r.goto === 'rejected' && GOTO_ERRORS.has(r.gotoError)));
+}
+/** Exactly the documented shape: a plain data object, only the four keys, each a fixed literal, `gotoError` only after a rejection. */
+export function isPreviewNavigationObservation(v: unknown): boolean {
+  return validNavigation(detachedData(v));
+}
+/** A fresh copy built from the fixed literals of one single read, or undefined. Nothing else the input carries survives. */
 export function safePreviewNavigation(v: unknown): PreviewNavigationObservation | undefined {
-  try {
-    if (!isPreviewNavigationObservation(v)) return undefined;
-    return { goto: v.goto, documentAcknowledged: v.documentAcknowledged,
-      ...(v.firstViolation !== undefined && { firstViolation: v.firstViolation }), ...(v.gotoError !== undefined && { gotoError: v.gotoError }) };
-  } catch { return undefined; }
+  const d = detachedData(v);
+  if (!validNavigation(d)) return undefined;
+  return { goto: d.goto, documentAcknowledged: d.documentAcknowledged,
+    ...(d.firstViolation !== undefined && { firstViolation: d.firstViolation }), ...(d.gotoError !== undefined && { gotoError: d.gotoError }) };
 }

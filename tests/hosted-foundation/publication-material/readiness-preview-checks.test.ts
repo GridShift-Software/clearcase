@@ -283,7 +283,7 @@ describe('navigation observations are single-read: an accessor or proxy cannot c
   it('checkSnapshot still returns an independent deep copy of an ordinary snapshot', async () => {
     const w = await world({ section: true }); worlds.push(w);
     w.options.renderChecker = { async verify() { calls.n++; return { state: 'failed', rendererVersion: 'UNIT-DOUBLE-NOT-ACCEPTANCE', pages: null, reason: 'render-failed', stage: 'navigation', navigation: GOOD } as never; } };
-    const base = await w.read();
+    const base = (await w.read())!;
     const checked = checkSnapshot(base)!;
     expect(checked).toEqual(base); expect(checked).not.toBe(base);
     expect(checked.requiredPreviews[0]).not.toBe(base.requiredPreviews[0]);

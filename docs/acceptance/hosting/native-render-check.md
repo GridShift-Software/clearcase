@@ -116,7 +116,8 @@ A failed or pending result that reached `page.goto` carries one `navigation` obs
 can be told apart: `goto` rejected or resolved, whether the source-owned document's `respond` was acknowledged, the class of the FIRST
 violation and, after a rejection, a token from a closed `net::ERR_*` table (`generic` otherwise, never the message or URL). It reads
 state the run already holds. It adds no launch, request, protected read, audit or cache, and it changes no limit, pin, guardrail,
-cleanup rule, reason or stage. A rendered result has none. The scripted-peer tests in `sdk-boundary.test.ts` show the four known causes
+cleanup rule, reason or stage. The facts are read once when the main run ends (deadline or settle), before abort and cleanup; a goto, document
+acknowledgement or violation that cleanup causes later never changes them, so a `goto` still pending at the deadline stays `pending`. A rendered result has none. The scripted-peer tests in `sdk-boundary.test.ts` show the four known causes
 (goto rejected before interception, favicon request, `data:` icon request, module page error) now report differently; they are not proof of
 what the native browser does. The Chrome major is not recorded: `browser.version()` is a new CDP round trip and failure dependency.
 

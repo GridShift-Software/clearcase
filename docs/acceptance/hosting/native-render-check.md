@@ -96,7 +96,9 @@ Each dimension is at most 4096. Static responses are exact-length streamed and
 hashed; unique pinned static bytes are capped at 8,000,000, and requests at 220.
 
 The whole-run deadline covers launch, navigation, resource loading and evaluation,
-not just an in-page flag. Launch/upgrade HTTP is aborted on expiry. Late sockets
+not just an in-page flag. Launch/upgrade HTTP is aborted on expiry. workerd ties an
+upgraded socket to its request's signal, so the expiry abort reaches an upgrade only
+while it is in flight; the live transport closes only after termination. Late sockets
 are closed; late browser/page results are never accepted. Finally attempts page
 close (without beforeunload, at most 500 ms), then source-owned root CDP termination.
 It obtains the browser target's CDP session and its pinned SDK root connection,

@@ -284,7 +284,14 @@ async function inspect(a: {
  const boundedBinding: BrowserWorker = { fetch: async (url, init) => {
   check();
   // The SDK's fetches only reach the BROWSER binding, never global fetch. Abort launch/upgrade HTTP on deadline.
-  const response = await a.browserBinding.fetch(url, { ...init, signal: abort.signal });
+  // workerd binds an upgraded socket to its request's signal (AbortableWebSocket), so the deadline reaches an upgrade
+  // only while it is in flight; the live transport is closed by release() after owned termination, not by abort.
+  const upgrade = new Headers(init?.headers).get('upgrade')?.toLowerCase() === 'websocket';
+  const upgrading = new AbortController(), forward = () => upgrading.abort();
+  if (upgrade) abort.signal.addEventListener('abort', forward, { once: true });
+  let response: Response;
+  try { response = await a.browserBinding.fetch(url, { ...init, signal: upgrade ? upgrading.signal : abort.signal }); }
+  finally { abort.signal.removeEventListener('abort', forward); }
   const ws = (response as Response & { webSocket?: { close(): void } }).webSocket;
   if (ws) transport = ws;
   if (timedOut || remaining() <= 0) { ws?.close(); throw Error('late launch'); }
@@ -381,7 +388,8 @@ async function inspect(a: {
   if (timeout) clearTimeout(timeout);
   timedOut = true; abort.abort();
   // Work may complete after a launch timeout. The binding wrapper rejects late upgrades and closes their socket;
-  // the SDK cannot issue further HTTP requests. Disconnect the live transport after bounded explicit cleanup.
+  // the SDK cannot issue further HTTP requests. This abort does not reach an established upgrade; disconnect the live
+  // transport after bounded explicit cleanup.
   const cleanupDeadline = Math.min(performance.now() + CLEANUP_MS, a.stopAt + CLEANUP_MS);
   let releasing: Promise<boolean> | undefined;
   const release = () => releasing ??= (async () => {

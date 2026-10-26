@@ -25,4 +25,4 @@ Sign-off clears `integrity-verified` only for those two keys. The state is part 
 - The check proves that the layout is consistent with the package's own datasets. Without the original HTML it cannot prove the order matches the source bytes. A permuted `DATA` key order that lists exactly the datasets present still round-trips.
 - A dataset whose source path lies outside the four v5 roots makes reassembly fail. One example is the newer export's unmapped analysis overlay (`mod_00_analysis.js:X`). Its layout is then `invalid`, so the check fails closed.
 
-Status is proposed: the native alpha coordinator decided this under its autonomous alpha authority on 26 October 2026. It awaits wave review. No human approval is recorded.
+Status is proposed. The native alpha coordinator decided this under its autonomous alpha authority on 26 October 2026, in these words: "meta and source-layout are integrity metadata, not artificial display pages." It awaits wave review. There is no user answer to quote, and no human approval is recorded.

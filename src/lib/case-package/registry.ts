@@ -14,6 +14,8 @@ export const V5_DATASETS: readonly DatasetDef[] = [
   g('people', 'DATA.people', R.V5People),
   g('entities', 'DATA.entities', R.V5Entities),
   a('matter', 'DATA.matter', R.V5Matter),
+  a('anchors', 'DATA.anchors', R.AnalysisAnchors),
+  a('organogram', 'DATA.organogram', R.Organogram),
   g('quantum', 'DATA.quantum', R.V5Quantum),
   a('risk-matrix', 'DATA.riskMatrix', R.V5RiskMatrix),
   a('defence-matrix', 'DATA.defenceMatrix', R.V5DefenceMatrix),

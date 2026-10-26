@@ -122,6 +122,28 @@
       "minimum": 0,
       "type": "integer"
     },
+    "source_checks": {
+      "items": {
+        "properties": {
+          "check": {
+            "type": "string"
+          },
+          "n": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "check",
+          "result"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
     "total": {
       "minimum": 0,
       "type": "integer"

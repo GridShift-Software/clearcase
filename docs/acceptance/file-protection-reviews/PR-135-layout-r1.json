@@ -1,0 +1,17 @@
+{
+  "schema": "clearcase-file-protection-review/1",
+  "unit": "PRFIX-135/implementation",
+  "fixBase": "88eb5dac8e6f41b42091a55f438afdd8f07e0105",
+  "reviewFindingsSha256": "278997bf823ef148635582b38afced143c868cc1c1a7935ad8ba0cda5af26d3c",
+  "reviewedHead": "98cf4f5c8389215b8b2681254c4f0803418d46a6",
+  "verdict": "PASS",
+  "fresh": true,
+  "reviewer": "Pi/openai-codex/gpt-6.1-sol independent reviewer; session 01a16a30-a8c1-7483-8fcc-67e7dc1fab76; scratch t3-26214d35",
+  "implementer": "Geometry: GPT-6 Luna, scratch t3-6c23b3c4; restoration: GPT-6.1 Sol, separate session/scratch t3-9ae5a09d",
+  "files": [
+    {
+      "file": "src/lib/views/analysis/relationship-layout-routing.test.ts",
+      "revision": "5609b7605ece4ed35ec75f94184a330c4c52d42f"
+    }
+  ]
+}

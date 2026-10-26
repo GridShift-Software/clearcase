@@ -65,6 +65,13 @@ const withNewer = (r) => {
 	r.DATA.inventedExtra = { a: 1 };
 };
 const withLongUrl = (r) => { for (const row of r.DATA.chronology) if (row.ref === 'OD-001' || row.ref === 'OD-002') row.excerpt = `Terms of ${row.ref} are at ${LONG_URL}${row.ref.slice(-1)} and nowhere else.`; };
+const withNarrowOrganogram = (r) => {
+	r.DATA.organogram = {
+		nodes: [{ id: 'narrow-a', label: 'Synthetic organisation' }, { id: 'narrow-b', label: 'Synthetic supplier' }],
+		edges: [{ from: 'narrow-a', to: 'narrow-b', label: 'Synthetic connection' }],
+	};
+};
+const withNarrowCaseData = (r) => { withLongUrl(r); withNarrowOrganogram(r); };
 const UNBROKEN = 'syn_unbroken_case_id_'.padEnd(64, '0123456789abcdefghijklmnopqrstuvwxyz');
 
 const results = [];
@@ -678,7 +685,7 @@ let ok = false;
 try {
 	A = appServer({ name: 'classes', root: ROOT, buildDir: BUILD, port: 43800, origPort: 43801, dir: tmp, env: { CLEARCASE_FIXED_NOW: CLOCK, TZ: 'UTC' } });
 	await A.start();
-	const main = await buildCase(join(tmp, 'case'), { caseId: 'e2e-classes', edit: withLongUrl });
+	const main = await buildCase(join(tmp, 'case'), { caseId: 'e2e-classes', edit: withNarrowCaseData });
 	const imp = await A.c.importPkg(main.caseDir, main.pkgDir);
 	await A.c.activate(imp.importId);
 	const rv = await A.c.activeVersion();
@@ -695,7 +702,7 @@ try {
 	// narrow at the ordinary id: every page, before a 64-character id is imported and listed (/import lists every import)
 	if (runs('narrow')) for (const t of pages.filter((x) => x.url && wanted(x.route))) await narrowAll(t, 'short');
 	// the narrow case: the main case's data under a 64-character id without break opportunity (a candidate)
-	const long = await buildCase(join(tmp, 'long'), { caseId: UNBROKEN, edit: withLongUrl });
+	const long = await buildCase(join(tmp, 'long'), { caseId: UNBROKEN, edit: withNarrowCaseData });
 	const limp = await A.c.importPkg(long.caseDir, long.pkgDir);
 	if (!limp.importId) throw new Error(`64-character id import failed: ${limp.status} ${limp.location}`);
 	// the newer-generation case: the page states that exist only when the data carries newer fields (declared.mjs DATA_STATES)

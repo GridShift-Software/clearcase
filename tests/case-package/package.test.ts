@@ -13,6 +13,7 @@ import { sha256Hex } from '../../src/lib/case-package/hash.ts';
 import { canonicalBytes } from '../../src/lib/case-package/canonical.ts';
 import { buildSynth, editManifestOnly, editPackage, resealFiles, type Built } from './fixtures/build.ts';
 import { malform } from './fixtures/malform.ts';
+import { withPresentation } from './fixtures/presentation';
 import { cleanup, synthHtml, synthRoots, tempDir } from './fixtures/synth.ts';
 import { storedZip } from './fixtures/zip.ts';
 
@@ -36,7 +37,7 @@ function expectReject(r: ImportResult, code: string): void {
 
 describe('a complete synthetic candidate', () => {
   it('converts every recognized dataset and validates with only the expected warnings', async () => {
-    const b = await built('complete');
+    const b = await built('complete', withPresentation);
     expect(b.result.ok).toBe(true);
     const r = await importCandidate(b.pkgDir, b.caseDir);
     expect(r.verdict).toBe('report');
@@ -208,7 +209,7 @@ describe('rejection returns diagnostics and no candidate', () => {
   describe('a malformed record in every recognized dataset is rejected', () => {
     for (const d of V5_DATASETS) {
       it(d.key, async () => {
-        const b = await built(`bad-${d.key}`);
+        const b = await built(`bad-${d.key}`, withPresentation);
         const file = `datasets/${d.key}.json`;
         const r = await importFiles(editPackage(b.files, file, (v) => { v.data = malform(d.data, v.data); v.count = Array.isArray(v.data) ? v.data.length : Object.keys(v.data).length; }), b.caseDir);
         expectReject(r, 'DS_SHAPE_INVALID');

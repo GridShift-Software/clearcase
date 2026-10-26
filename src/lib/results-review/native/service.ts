@@ -82,7 +82,7 @@ export function createNativeResultsImport(ports: NativeImportPorts | null): Nati
   /** The session and the operate grant as they stand now. */
   const observe = async (a: AdmittedOperator) => { await live(a); await observeOperate(intent(a)); };
   /**
-   * A write's or a readback's fence: the live session, then the grant as SQL that the statement itself holds, so it
+   * A write's or a release's fence: the live session, then the grant as SQL that the statement itself holds, so it
    * commits or answers only while the grant stands. Without the SQL form the grant is observed just before instead.
    */
   const fence = async (a: AdmittedOperator): Promise<SqlCondition | undefined> => {
@@ -94,12 +94,22 @@ export function createNativeResultsImport(ports: NativeImportPorts | null): Nati
   const fenced = async <T>(a: AdmittedOperator, f: () => Promise<T>): Promise<T> => {
     try { return await f(); } catch (e) { if (!isDenial(e)) await observe(a); throw e; }
   };
+  /**
+   * A read or list refused at its final fence has already written its succeeded event (the data must not leave before it).
+   * The refusal is recorded beside it, best effort and only on the denial path; the success event is not rewritten and the
+   * refusal is what the caller sees whether or not the companion persists.
+   */
+  async function refusedRead(a: AdmittedOperator, object: AuditEvent['object'], e: unknown): Promise<never> {
+    if (isDenial(e)) await note({ actor: actor(a), action: 'results.read-candidate', object, version: null, outcome: 'denied' }, 'read-denied');
+    throw e;
+  }
   /** Every answer but a link (whose readback is fenced) is given only after a fresh observation. */
   const answer = async (a: AdmittedOperator, out: ImportOutcome): Promise<ImportOutcome> => { await observe(a); return out; };
 
   /**
-   * Delivers the committed intent through the request sink, settles it, and answers the settled candidate. The settling
-   * readback is the answer's fence: it holds the grant in its WHERE clause, and nothing is awaited after it.
+   * Delivers the committed intent through the request sink, settles it, and answers the settled candidate. The repository
+   * verifies the candidate first, then asks for this fence (a fresh session check) and ends on one statement that holds the
+   * grant and the exact verified rows: nothing is hashed, parsed, read or awaited after it.
    */
   async function success(a: AdmittedOperator, committed: CommittedCandidateAudit) {
     // Only the verified original principal can deliver this via a request sink. Independent recovery uses the trusted port.
@@ -108,10 +118,7 @@ export function createNativeResultsImport(ports: NativeImportPorts | null): Nati
     await live(a);
     const ack = await audit.append(committed.event);
     if (ack.eventId !== committed.event.eventId) throw contractError('integrity');
-    const visible = await fence(a);
-    const settled = await fenced(a, () => repository.settleAudit(committed, visible));
-    if (!settled) { await observe(a); throw contractError('integrity'); }
-    return settled;
+    return fenced(a, () => repository.settleAudit(committed, () => fence(a)));
   }
   /** The attempt record, written only while the session and grant stand. */
   async function claim(a: AdmittedOperator, c: Omit<Parameters<typeof repository.claim>[0], 'guard'>) {
@@ -224,17 +231,19 @@ export function createNativeResultsImport(ports: NativeImportPorts | null): Nati
 
     async readCandidate(a, candidateId) {
       must(a, 'read');
-      const c = await repository.candidate({ ...scope(a.caseId), candidateId });
-      if (!c) return null;
-      await audit.append({ eventId: `native-read-${crypto.randomUUID()}`, actor: actor(a), action: 'results.read-candidate', object: { kind: 'candidate', id: c.candidateId, caseId: a.caseId }, version: c.link.candidate.resultsVersion as ResultsVersion, outcome: 'succeeded', at: ports!.now().toISOString() });
-      return c;
+      // The read event is written once the candidate is verified and before it is released; a fresh fence then ends the read.
+      return fenced(a, () => repository.candidate({ ...scope(a.caseId), candidateId }, async ([c]) => {
+        await audit.append({ eventId: `native-read-${crypto.randomUUID()}`, actor: actor(a), action: 'results.read-candidate', object: { kind: 'candidate', id: c!.candidateId, caseId: a.caseId }, version: c!.link.candidate.resultsVersion as ResultsVersion, outcome: 'succeeded', at: ports!.now().toISOString() });
+        return fence(a);
+      })).catch((e) => refusedRead(a, { kind: 'candidate', id: candidateId, caseId: a.caseId }, e));
     },
 
     async listCandidates(a) {
       must(a, 'read');
-      const rows = await repository.list(scope(a.caseId));
-      await audit.append({ eventId: `native-list-${crypto.randomUUID()}`, actor: actor(a), action: 'results.read-candidate', object: { kind: 'case', id: a.caseId, caseId: a.caseId }, version: null, outcome: 'succeeded', at: ports!.now().toISOString() });
-      return rows;
+      return fenced(a, () => repository.list(scope(a.caseId), async () => {
+        await audit.append({ eventId: `native-list-${crypto.randomUUID()}`, actor: actor(a), action: 'results.read-candidate', object: { kind: 'case', id: a.caseId, caseId: a.caseId }, version: null, outcome: 'succeeded', at: ports!.now().toISOString() });
+        return fence(a);
+      })).catch((e) => refusedRead(a, { kind: 'case', id: a.caseId, caseId: a.caseId }, e));
     },
   };
 }

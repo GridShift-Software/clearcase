@@ -7,6 +7,7 @@ import type {NativeImportPorts} from '../../../results-review/native/ports.ts';
 import {setPublicationComposition} from '../../../publication/hosted/composition.ts';
 import {setReadinessComposition,type PublicationReadinessPorts} from '../../../publication/hosted/readiness.ts';
 import {setRecoveryComposition,type NativeRecoveryBinding} from '../../../recovery/hosted/composition.ts';
+import {setPrivatePreviewComposition,type PrivatePreviewReader} from './private-preview.ts';
 
 export interface NativeRequestCompositions {
  readonly intake: IntakePorts | null;
@@ -15,6 +16,8 @@ export interface NativeRequestCompositions {
  readonly publication?:PublicationReadinessPorts|null;
  /** Trusted parent only: this request's own source options (the receiving target is `source.target`) plus its configured app origin. Absent means the recovery routes answer 503. */
  readonly recovery?:NativeRecoveryBinding|null;
+ /** The operator's private candidate preview of this request; absent means the preview route answers 503. */
+ readonly preview?:PrivatePreviewReader|null;
 }
 // Object identity, not path, cookie, session id or the last request. Unknown requests always fail closed.
 const requests=new WeakMap<Request,NativeRequestCompositions>();
@@ -37,6 +40,7 @@ export function installNativeCompositions():void {
  setPublicationComposition(({request})=>requests.get(request)?.publication??null);
  setReadinessComposition(({request})=>requests.get(request)?.publication??null);
  setRecoveryComposition(({request})=>requests.get(request)?.recovery??null);
+ setPrivatePreviewComposition(({request})=>requests.get(request)?.preview??null);
  setOperatorDownloadComposition(({request,platform})=>{
   const ports=requests.get(request)?.downloads;
   if(!ports)return null;

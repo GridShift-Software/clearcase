@@ -89,8 +89,8 @@ describe('exact native request composition',()=>{
   const ca=await nativeImportControllerFor({request:ra,platform:null}),cb=await nativeImportControllerFor({request:rb,platform:null});
   expect((await ca.list(input(ra,a.identity))).status).toBe(200);
   expect((await cb.list(input(rb,b.identity))).status).toBe(200);
-  expect(a.candidateList).toHaveBeenCalledWith({clientId:'client-a',caseId:'synthetic'});
-  expect(b.candidateList).toHaveBeenCalledWith({clientId:'client-b',caseId:'synthetic'});
+  expect(a.candidateList).toHaveBeenCalledWith({clientId:'client-a',caseId:'synthetic'},expect.any(Function));
+  expect(b.candidateList).toHaveBeenCalledWith({clientId:'client-b',caseId:'synthetic'},expect.any(Function));
   expect((await (await nativeImportControllerFor({request:clone,platform:null})).list(input(clone,a.identity))).status).toBe(503);
  });
  it('retains each publication authority binding and leaves a cloned request unconfigured',async()=>{

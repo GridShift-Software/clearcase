@@ -33,11 +33,13 @@ export interface ImportShape { readonly files: number; readonly originals: numbe
  * reads, the stager's storage gates, folder, admission and stored readback, its outcome audit, the link and its audit.
  * Each distinct original is read in four passes, each read under a fresh observation (one D1 call and one Clerk check).
  * Each guarded row batch after the version-row batch is one D1 call and one Clerk check. Fewer rows give a lower bound.
+ * The answer ends on the repository's release fence, one D1 call after the settling readback (the session check it needs
+ * is the one already counted for the answer), so the fixed part is 37 D1 calls.
  */
 export function nativeImportCost(s: ImportShape, rowsPerBatch: number): { d1: number; external: number } {
   const batches = (n: number) => Math.ceil(Math.max(0, n) / rowsPerBatch);
   const writes = batches(s.files - rowsPerBatch) + batches(s.rows);
-  return { d1: 36 + 4 * s.originals + writes, external: 11 + 4 * s.originals + writes };
+  return { d1: 37 + 4 * s.originals + writes, external: 11 + 4 * s.originals + writes };
 }
 /** The refusal detail for work over the budget, or null when it fits. */
 export function overRequestBudget(s: ImportShape, b: RequestBudget): string | null {

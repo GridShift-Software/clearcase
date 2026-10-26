@@ -1,6 +1,7 @@
 // The META integrity check of the hosted sign-off gate (ADR 0012). The canonical validator only warns about a count
 // disagreement and skips a count it has nothing to compare with, so this check never reads absence of a diagnostic as
 // verification: it derives every count itself from the records and compares it with the carried value.
+import type { TSchema } from 'typebox';
 import Value from 'typebox/value';
 import { INTEGRITY_DATASETS } from './registry.ts';
 import { V5Chronology, V5People } from './records.ts';
@@ -14,7 +15,7 @@ export const META_SOURCE_PATH = 'META';
 /** Whether a dataset is, or claims to be, the source's META root: under the integrity key, or at META's source path. */
 export const carriesMeta = (e: Env): boolean => e.key === INTEGRITY_DATASETS.meta.key || e.provenance.sourcePath === META_SOURCE_PATH;
 
-const only = (datasets: readonly Env[], key: string, sourcePath: string, schema: string, data: Parameters<typeof Value.Check>[0]): Env | null => {
+const only = (datasets: readonly Env[], key: string, sourcePath: string, schema: string, data: TSchema): Env | null => {
   const at = datasets.filter((e) => e.key === key || e.provenance.sourcePath === sourcePath);
   const e = at.length === 1 ? at[0]! : undefined;
   return e && e.key === key && e.provenance.sourcePath === sourcePath && e.schema === schema && Value.Check(data, e.data) ? e : null;

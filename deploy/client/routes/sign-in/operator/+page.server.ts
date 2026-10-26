@@ -1,8 +1,8 @@
 import { error, fail, redirect, type Actions, type RequestEvent } from '@sveltejs/kit';
 import { env } from 'cloudflare:workers';
 import { refuse } from '$lib/server/runtime/hosted/http';
-import { clerkSignInTarget, isSignInFlowPage } from '$lib/auth/clerk/config';
-import { DEFAULT_RETURN, prepareSignIn, safeReturnTo } from '$lib/auth/clerk/flow';
+import { clerkSignInTarget, isSignInFlowPage, type StaffDevBrowser } from '$lib/auth/clerk/config';
+import { DEFAULT_RETURN, prepareSignIn, safeReturnTo, staffDevBrowserOf } from '$lib/auth/clerk/flow';
 
 // The per-client operator sign-in (GRS-113): ClearCase staff reach this client's origin through the internal staff Clerk
 // instance, on the client's own Worker. There is no staff host and no third Worker. A staff session still reaches a case
@@ -13,7 +13,8 @@ const finalTarget = (url: URL) => {
 	const to = safeReturnTo(url.searchParams.get('returnTo'));
 	return isSignInFlowPage(new URL(to, url.origin).pathname) ? DEFAULT_RETURN : to;
 };
-const staff = (url: URL) => clerkSignInTarget(env, finalTarget(url), 'staff');
+// The page data never carries the dev browser; only the POST's redirect hands the staff one to the portal.
+const staff = (url: URL, devBrowser: StaffDevBrowser | null = null) => clerkSignInTarget(env, finalTarget(url), 'staff', devBrowser);
 
 export async function load({ locals, url }: RequestEvent) {
 	if (locals.runtime.testIdentity) error(404, { message: 'Not found.' });
@@ -26,7 +27,7 @@ export async function load({ locals, url }: RequestEvent) {
 export const actions: Actions = {
 	default: async ({ request, locals, cookies, url }: RequestEvent) => {
 		if (locals.runtime.testIdentity) error(404, { message: 'Not found.' });
-		const target = staff(url);
+		const target = staff(url, await staffDevBrowserOf(request, env));
 		if (!target) unconfigured();
 		const prepared = await prepareSignIn({ env, request, identity: locals.identity, target: 'staff' }).catch((e) => refuse(e));
 		for (const name of prepared.clear) cookies.delete(name, { path: '/', secure: url.protocol === 'https:' });

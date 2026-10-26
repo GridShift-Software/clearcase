@@ -2,7 +2,8 @@
 // contracts, never rendered; every view dataset and every unknown required schema stays unsupported.
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { buildSynth, editPackage, resealFiles } from '../../case-package/fixtures/build.ts';
-import { cleanup, type SynthRoots } from '../../case-package/fixtures/synth.ts';
+import { cleanup, synthHtml, synthRoots, tempDir, writeCaseFolder, type SynthRoots } from '../../case-package/fixtures/synth.ts';
+import { convertV5 } from '../../../src/lib/case-package/v5/adapter.ts';
 import { world } from './fixture.ts';
 import { Candidate } from '../../../src/lib/case-package/candidate.ts';
 import { canonicalBytes } from '../../../src/lib/case-package/canonical.ts';
@@ -143,6 +144,103 @@ describe('integrity metadata on actual converter-generated packages', () => {
     expect((await sectionsOf(files, withDataset(c, unknown)))['x-new']).toBe('unsupported');
     expect((await sectionsOf(files, withDataset(c, { ...meta, key: 'meta-copy' })))['meta-copy']).toBe('unsupported');
     expect((await sectionsOf(files, withDataset(c, { ...meta, schema: 'v5.meta@2' }))).meta).toBe('unsupported');
+  });
+});
+
+/** A genuinely converted chronology-only source: the optional view roots are omitted, META reconciles (people is 0). */
+async function chronologyOnly(tag: string, editMeta?: (meta: Record<string, unknown>) => void): Promise<Map<string, Uint8Array>> {
+  const r = synthRoots();
+  const rows = r.DATA.chronology as Record<string, string>[];
+  const by = (f: string) => { const c: Record<string, number> = {}; for (const x of rows) c[x[f]!] = (c[x[f]!] ?? 0) + 1; return c; };
+  const status = by('text_status'), types = by('doc_type');
+  r.DATA = { chronology: rows };
+  Object.assign(r.META, { docCount: rows.length, people: 0, textNone: status.none ?? 0, textPending: status.pending ?? 0,
+    emails: types.email ?? 0, invoices: types.invoice ?? 0, bundles: by('bundle'), docTypes: types });
+  editMeta?.(r.META);
+  const dir = await tempDir(tag);
+  roots.push(dir);
+  await writeCaseFolder(dir);
+  const html = new TextEncoder().encode(new TextDecoder().decode(synthHtml(r, [], { viewCode: false }))
+    .split('\n').filter((line) => !line.startsWith('window.__SCHED__ = ') && !line.startsWith('window.__CASELINES_IDX__ = ')).join('\n'));
+  const out = await convertV5({ html, htmlName: 'synthetic.html', caseFolder: dir, caseId: 'synthetic-integrity' });
+  if (!out.files) throw new Error('synthetic conversion failed: ' + out.diagnostics.map((d) => d.code).join(','));
+  return out.files;
+}
+
+describe('a verdict is never claimed from the absence of a count diagnostic', () => {
+  it('holds a META.people count that no people record can support, and passes the reconciled zero', async () => {
+    const zero = await chronologyOnly('integrity-people-zero');
+    expect(Object.keys(await sectionsOf(zero))).toEqual(['chronology', 'meta', 'source-layout']);
+    expect(await sectionsOf(zero)).toEqual({ chronology: 'valid', meta: 'integrity-verified', 'source-layout': 'integrity-verified' });
+    const files = await chronologyOnly('integrity-people-999', (m) => { m.people = 999; });
+    expect(accepted(files).result.counts.V5_META_COUNT_DISAGREEMENT).toBeUndefined();
+    const s = await sectionsOf(files);
+    expect(s.meta).toBe('invalid');
+    expect(s['source-layout']).toBe('integrity-verified');
+  });
+
+  it('holds a META.people count when the people records are carried in a form it cannot count', async () => {
+    const files = await converted('integrity-people-demoted', (r) => {
+      reconcileMeta(r);
+      r.DATA.people = [{ name: 7 }];
+      r.META.people = 1;
+    });
+    expect(accepted(files).candidate.dataset('people')).toBeNull();
+    expect((await sectionsOf(files)).meta).toBe('invalid');
+  });
+
+  it('reconciles every META count from the candidate itself, whatever the diagnostic counts say', async () => {
+    const edits: [string, (meta: any) => void][] = [
+      ['docCount', (m) => { m.docCount += 1; }], ['textNone', (m) => { m.textNone += 1; }], ['textPending', (m) => { m.textPending += 1; }],
+      ['emails', (m) => { m.emails += 1; }], ['invoices', (m) => { m.invoices += 1; }], ['people', (m) => { m.people += 1; }],
+      ['a bundle count', (m) => { m.bundles[Object.keys(m.bundles)[0]!] += 1; }], ['a document type count', (m) => { m.docTypes[Object.keys(m.docTypes)[0]!] += 1; }],
+      ['a bundle that holds no record', (m) => { m.bundles['Ghost bundle'] = 2; }], ['an omitted bundle', (m) => { delete m.bundles[Object.keys(m.bundles)[0]!]; }],
+      ['an omitted document type', (m) => { delete m.docTypes[Object.keys(m.docTypes)[0]!]; }],
+    ];
+    const good = await converted('integrity-meta-counts', reconcileMeta);
+    const a = accepted(good);
+    const ok = await renderRequiredSections({ candidate: a.candidate, projection: a.projection, originals: a.originals, counts: {} });
+    expect(ok.find((x) => x.key === 'meta')?.state).toBe('integrity-verified');
+    for (const [what, edit] of edits) {
+      const tampered = accepted(editPackage(good, 'datasets/meta.json', (env) => edit(env.data)));
+      const out = await renderRequiredSections({ candidate: tampered.candidate, projection: tampered.projection, originals: tampered.originals, counts: {} });
+      expect(out.find((x) => x.key === 'meta')?.state, what).toBe('invalid');
+    }
+  });
+});
+
+describe('a carried META root always receives its exact check or holds the section', () => {
+  it('holds malformed META that the converter demoted to an optional opaque dataset', async () => {
+    const files = await chronologyOnly('integrity-meta-demoted', (m) => { m.docCount = 'not-a-count'; });
+    const a = accepted(files);
+    expect(a.candidate.dataset('meta')).toBeNull();
+    expect(a.candidate.dataset('v5-residual-meta')?.provenance.sourcePath).toBe('META');
+    const s = await sectionsOf(files);
+    expect(s['v5-residual-meta']).toBe('unsupported');
+    expect(s.chronology).toBe('valid');
+    expect(s['source-layout']).toBe('integrity-verified');
+    expect(Object.entries(s).filter(([k, v]) => v !== 'valid' && !(v === 'integrity-verified' && (k === 'meta' || k === 'source-layout'))).length).toBeGreaterThan(0);
+  });
+
+  it('holds demoted META in a full package too, and in any roundtripping layout', async () => {
+    const files = await converted('integrity-meta-demoted-full', (r) => { reconcileMeta(r); r.META.docCount = 'not-a-count'; });
+    const s = await sectionsOf(files);
+    expect(s['v5-residual-meta']).toBe('unsupported');
+    expect(s['source-layout']).toBe('integrity-verified');
+    expect(s.meta).toBeUndefined();
+  });
+
+  it('checks a META carried by a dataset whose manifest entry is not required', async () => {
+    const files = await converted('integrity-meta-optional', reconcileMeta);
+    const c = accepted(files).candidate;
+    const meta = c.dataset('meta')!;
+    expect((await sectionsOf(files, withDataset(c, { ...meta, required: false }))).meta).toBe('integrity-verified');
+    expect((await sectionsOf(files, withDataset(c, { ...meta, key: 'meta-hidden', required: false })))['meta-hidden']).toBe('unsupported');
+  });
+
+  it('does not require optional roots the source genuinely omits', async () => {
+    const s = await sectionsOf(await chronologyOnly('integrity-omitted-roots'));
+    expect(Object.keys(s).sort()).toEqual(['chronology', 'meta', 'source-layout']);
   });
 });
 

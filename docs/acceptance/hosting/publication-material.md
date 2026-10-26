@@ -71,11 +71,13 @@ Svelte page is rendered through `svelte/server`, using the genuine validated pro
 and immutable original attribution. Its ready/table/row markers are checked. The overview is only a summary; it does not
 render required analysis. The registered integrity datasets, `meta` and `source-layout`, are not views
 ([ADR 0012](../../adr/0012-integrity-metadata-is-not-a-view.md)). Each is `integrity-verified` only under its exact key and
-schema and only when its own check passes: META's counts reconcile with the records (no `V5_META_COUNT_DISAGREEMENT`), and the
+schema and only when its own check passes: every META count is derived from the records and equals the carried value (an absent people dataset is zero people; the
+absence of `V5_META_COUNT_DISAGREEMENT` is never the proof), and the
 layout round-trips with the package's datasets. Otherwise it is `invalid`. Sign-off clears `integrity-verified` for those two keys
 only. All other required datasets are **unsupported**, even when schema-valid. Required sections are
 the manifest's real required-file flags plus the canonical `REQUIRED_DATASETS` policy (chronology), not invented feature
-keys, optional residuals or an empty list. No JSON dump substitutes for a supported view. Full v5 packages therefore still HOLD on
+keys, optional residuals or an empty list. A dataset that carries the META root is a required section even when optional, so a
+malformed META demoted to `v5-residual-meta` is **unsupported** and holds. No JSON dump substitutes for a supported view. Full v5 packages therefore still HOLD on
 their view datasets.
 
 Every file asset is required for preview readiness; missing and embedded assets remain explicit pending entries. Each

@@ -91,7 +91,9 @@ PDF fidelity, OCR, arbitrary format coverage, or a full PDF conformance validato
 
 All limits are mandatory, positive safe integers. Hard ceilings (the parent may
 only narrow them): 4,000,000 input bytes; 8 pages; 4,000,000 **aggregate** canvas
-pixels; 20,000 ms whole-run deadline; 2 launches/case/day; 4 launches/client/day.
+pixels; 20,000 ms whole-run deadline; 3 launches/case/day; 4 launches/client/day.
+A case limit of 3 needs the case-limit migration below; on the 0001 schema alone a
+third same-case reservation is refused at admission (`render-admission-refused`).
 Each dimension is at most 4096. Static responses are exact-length streamed and
 hashed; unique pinned static bytes are capped at 8,000,000, and requests at 220.
 
@@ -141,7 +143,12 @@ with transactional triggers. A missing migration or ambiguous D1 commit holds wo
 without launching. Receipt identities are immutable; there is no reset/refund API.
 
 Apply owned [`0001_preview_render_work.sql`](../../../src/lib/viewer/hosted/migrations/0001_preview_render_work.sql)
-through the parent schema assembler, never in a request. It creates npr_client_days,
+through the parent schema assembler, never in a request. Then apply
+[`0002_preview_render_case_limit.sql`](../../../src/lib/viewer/hosted/migrations/0002_preview_render_case_limit.sql)
+(native packet `0004`, see [native-runtime-migration.md](native-runtime-migration.md)). It rebuilds
+npr_reservations and npr_case_days with case CHECKs of 1..3, copying every reservation and
+counter back unchanged and recreating their indexes and triggers exactly; the client ceiling
+stays 4 and success receipts are not touched. It creates npr_client_days,
 npr_case_days, npr_reservations and npr_success_receipts. Counters retain one row/client
 and one row/case. Immutable reservations and successful transcript receipts each grow
 by at most four/client/day. Success insert guards require the exact launch reservation

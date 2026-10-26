@@ -132,7 +132,7 @@ describe('0002_preview_render_case_limit on a populated applied chain', () => {
 		unchanged(() => reserve(db, next({ at: start - DAY_MS })), /client admission refused/);
 		// The schema still caps limits: case 4, case above client, client 5.
 		unchanged(() => reserve(db, next({ caseLimit: 4, clientLimit: 4 })), /CHECK constraint failed/);
-		unchanged(() => reserve(db, next({ caseLimit: 3, clientLimit: 2 })), /CHECK constraint failed/);
+		unchanged(() => reserve(db, next({ client: 'client-c', caseId: 'case-c1', caseLimit: 3, clientLimit: 2 })), /CHECK constraint failed/);
 		unchanged(() => reserve(db, next({ clientLimit: 5 })), /CHECK constraint failed/);
 		// The old case limit 2 still refuses B's third same-case run.
 		unchanged(() => reserve(db, next({ caseLimit: 2 })), /case admission refused/);
@@ -151,9 +151,10 @@ describe('0002_preview_render_case_limit on a populated applied chain', () => {
 
 	it('is one atomic unit: a failure part-way, or a lost reservation at commit, leaves the old schema and every fact', () => {
 		const sql = assemble(sources()).sql;
-		expect(sql).toContain('PRAGMA defer_foreign_keys = on;');
-		expect(sql).not.toMatch(/defer_foreign_keys\s*=\s*(off|false|0)/i);
-		expect(sql).not.toMatch(/writable_schema|foreign_keys\s*=\s*(off|false|0)|ignore_check_constraints|ALTER TABLE|RENAME/i);
+		const statements = sql.split('\n').filter(line => !line.startsWith('--') && !line.trimStart().startsWith('-- ')).join('\n');
+		expect(statements.startsWith('PRAGMA defer_foreign_keys = on;\n')).toBe(true);
+		expect(statements).not.toMatch(/defer_foreign_keys\s*=\s*(off|false|0)/i);
+		expect(statements).not.toMatch(/writable_schema|foreign_keys\s*=\s*(off|false|0)|ignore_check_constraints|ALTER TABLE|RENAME/i);
 		const lastTrigger = sql.lastIndexOf('CREATE TRIGGER');
 		const lostRow = sql.replace(/(FROM npr_reservations_0002)(;)/, "$1 WHERE token <> 'syn-a-3'$2");
 		expect(lostRow).not.toBe(sql);

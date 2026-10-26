@@ -14,9 +14,9 @@ import { identity, seed, sha, world as downloads } from '../operator-download/do
 import { compose, dispatch } from '../operator-download/harness.ts';
 import { CASE, candidate, snapshot, world as readinessWorld } from './fixtures.ts';
 
-const assertReadiness: (v: ReadinessView, caseId: string, c: LinkedCandidate, s: OperatorSubmissionView) => void = Reflect.get(WorkbenchExports, 'assertReadiness');
-const assertOperationSuccess: (r: unknown, status: number, value: unknown) => Promise<void> = Reflect.get(WorkbenchExports, 'assertOperationSuccess');
-const importExpectation: (s: OperatorSubmissionView, caseId: string, packageManifestText: string) => Promise<Record<string, string>> = Reflect.get(WorkbenchExports, 'importExpectation');
+const assertReadiness = Reflect.get(WorkbenchExports, 'assertReadiness');
+const assertOperationSuccess = Reflect.get(WorkbenchExports, 'assertOperationSuccess');
+const importExpectation = Reflect.get(WorkbenchExports, 'importExpectation');
 
 /** One finalized submission served by the real operator controller, plus the native reader's own digest of the same row. */
 async function served() {
@@ -86,7 +86,7 @@ describe('finalized snapshot identity versus downloaded manifest digest', () => 
         linkId: await linkIdOf({ candidateId, submissionRevisionId: view.revisionId, submissionManifestSha256: linkedSha }) };
       return { kind: 'linked', repeated: false, candidate: { ...c, candidateId, link } };
     };
-    const request = { kind: 'import', path: '/imports', expected, body: { operationId: 'synthetic-operation0000', submissionRevisionId: view.revisionId, files: {} } };
+    const request: Parameters<typeof assertOperationSuccess>[0] = { kind: 'import', path: '/imports', expected, body: { operationId: 'synthetic-operation0000', submissionRevisionId: view.revisionId, files: {} } };
     await expect(assertOperationSuccess(request, 201, await respond(snapshotSha))).resolves.toBeUndefined();
     await expect(assertOperationSuccess(request, 201, await respond(view.manifestSha256))).rejects.toThrow();
   });

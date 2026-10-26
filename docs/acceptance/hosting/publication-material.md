@@ -135,3 +135,13 @@ renderer's own reason strings, `page-reference-out-of-range`, and the generic `r
 phase (launch, page-setup, navigation, inspection, cleanup). `checkSnapshot` rejects any other key or value, and a rendered entry carries
 neither. Readiness forwards them as pinned. No raw exception, URL, session or provider text is copied. Code and stage are diagnostic only:
 they change no verdict and add no read, render or audit.
+
+A non-rendered entry may also carry one optional `navigation` observation, only from a run that reached `page.goto`: `goto`
+(`resolved`, `rejected` or `pending`), `documentAcknowledged` (a boolean, true only after the source-owned document's `respond` was
+acknowledged), the class of the FIRST violation (`unowned-path`, `favicon-path`, `method`, `origin`, `request-budget`,
+`static-response`, `static-integrity`, `requestfailed`, `pageerror`, `dialog`, `popup`, `other`) and, after a rejection, a goto
+error token from a closed `net::ERR_*` table with `generic` for anything else. The material reader rebuilds it from those literals or
+drops it whole, `checkSnapshot` rejects any other key or value, and a rendered entry carries none. Both read their input once into a
+detached copy and return that copy: an accessor, proxy trap, symbol or non-enumerable key, custom prototype or non-JSON value refuses the
+observation (or the whole snapshot), so a getter cannot answer differently after validation. The observation lives in the
+snapshot, so the material digest pins it. It is diagnostic only.

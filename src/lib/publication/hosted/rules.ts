@@ -1,6 +1,6 @@
 import type { CandidateSnapshot } from './ports.ts';
 import { isIntegrityKey } from '../../case-package/registry.ts';
-import { isPreviewReasonCode, isPreviewRenderStage } from './preview-outcome.ts';
+import { detachedData, isPreviewNavigationObservation, isPreviewReasonCode, isPreviewRenderStage } from './preview-outcome.ts';
 
 // Pure sign-off rules over a candidate snapshot (ADR-0010, ADR-0011, results-package acknowledgement contract). There
 // is no readiness boolean anywhere: each rule reads the facts, and the snapshot shape is checked key by key.
@@ -15,15 +15,18 @@ const FP = /^[0-9a-f]{32}$/;
 const fingerprints = (v: unknown): v is string[] => Array.isArray(v) && v.every((f) => typeof f === 'string' && FP.test(f)) && new Set(v).size === v.length;
 const SECTION_STATES = new Set(['valid', 'integrity-verified', 'invalid', 'unsupported', 'missing']);
 const PREVIEW_STATES = new Set(['rendered', 'failed', 'pending']);
-/** `reasonCode` and `stage` are optional, fixed-literal only and never on a rendered preview; any other key or value makes the snapshot unreadable. */
+/** `reasonCode`, `stage` and `navigation` are optional, fixed-literal only and never on a rendered preview; any other key or value makes the snapshot unreadable. */
 const previewCheck = (x: unknown): boolean => plain(x) && text(x.assetId) && PREVIEW_STATES.has(x.state as string) && (x.state !== 'rendered' || Object.keys(x).length === 2)
-  && Object.keys(x).every((k) => k === 'assetId' || k === 'state' || (k === 'reasonCode' && isPreviewReasonCode(x[k])) || (k === 'stage' && isPreviewRenderStage(x[k])));
+  && Object.keys(x).every((k) => k === 'assetId' || k === 'state' || (k === 'reasonCode' && isPreviewReasonCode(x[k])) || (k === 'stage' && isPreviewRenderStage(x[k])) || (k === 'navigation' && isPreviewNavigationObservation(x[k])));
 
 /**
  * The snapshot if it has exactly the documented shape, otherwise null (the caller answers 503, never trusts it). An
- * extra key such as `ready` makes the whole snapshot unreadable: a verdict smuggled in beside the facts is not a fact.
+ * extra key such as `ready` makes the whole snapshot unreadable: a verdict smuggled in beside the facts is not a fact. The
+ * input is read once into a detached copy (an accessor, proxy trap or non-data value refuses it), then that copy is checked
+ * and returned, so nothing validated can change before it is handed back.
  */
-export function checkSnapshot(v: unknown): CandidateSnapshot | null {
+export function checkSnapshot(input: unknown): CandidateSnapshot | null {
+  const v = detachedData(input);
   if (!plain(v) || !keys(v, ['link', 'preparedBy', 'snapshotRevision', 'validation', 'trustedBaseline', 'requiredSections', 'requiredPreviews'])) return null;
   const { link, preparedBy, validation: val } = v;
   if (!plain(link) || !keys(link, ['linkId', 'clientId', 'caseId', 'submissionRevisionId', 'submissionManifestSha256', 'candidate'])) return null;
@@ -39,7 +42,7 @@ export function checkSnapshot(v: unknown): CandidateSnapshot | null {
   if (!fingerprints(val.errorFingerprints) || !fingerprints(val.warningFingerprints) || !fingerprints(v.trustedBaseline)) return null;
   if (!Array.isArray(v.requiredSections) || !v.requiredSections.every((x) => plain(x) && keys(x, ['key', 'state']) && text(x.key) && SECTION_STATES.has(x.state as string))) return null;
   if (!Array.isArray(v.requiredPreviews) || !v.requiredPreviews.every(previewCheck)) return null;
-  return structuredClone(v) as unknown as CandidateSnapshot;
+  return v as unknown as CandidateSnapshot;
 }
 
 export type Blocker =

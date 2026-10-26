@@ -110,6 +110,17 @@ is not proof of termination. Raw/coded failures cross this boundary only as fail
 booleans, not provider/session errors in results or logs. Cleanup/disconnect faults
 and unknown outcomes hold without a receipt; the consumed reservation is retained.
 
+### Navigation observations (diagnostic only)
+
+A failed or pending result that reached `page.goto` carries one `navigation` observation, so a `render-failed` at stage `navigation`
+can be told apart: `goto` rejected or resolved, whether the source-owned document's `respond` was acknowledged, the class of the FIRST
+violation and, after a rejection, a token from a closed `net::ERR_*` table (`generic` otherwise, never the message or URL). It reads
+state the run already holds. It adds no launch, request, protected read, audit or cache, and it changes no limit, pin, guardrail,
+cleanup rule, reason or stage. The facts are read once when the main run ends (deadline or settle), before abort and cleanup; a goto, document
+acknowledgement or violation that cleanup causes later never changes them, so a `goto` still pending at the deadline stays `pending`. A rendered result has none. The scripted-peer tests in `sdk-boundary.test.ts` show the four known causes
+(goto rejected before interception, favicon request, `data:` icon request, module page error) now report differently; they are not proof of
+what the native browser does. The Chrome major is not recorded: `browser.version()` is a new CDP round trip and failure dependency.
+
 The total cleanup budget is 2 s, including local transport/disconnect release.
 A stuck page close cannot prevent the root-CDP attempt. Late SDK results cannot
 issue cleanup commands beyond the original run deadline plus 2 s; they only release

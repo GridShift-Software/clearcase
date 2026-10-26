@@ -56,6 +56,7 @@ function rawDatabase() {
 function sdkBoundary() {
  const listeners = new Map<string, ((...args: unknown[]) => unknown)[]>();
  const served = new Map<string, { body?: string | Uint8Array; headers?: Record<string, string> }>();
+ const rejectRespond = new Set<string>();
  let pendingRequest: Promise<unknown> = Promise.resolve();
  const mainFrame = {};
  const request = async (url: string, type = 'script', method = 'GET') => {
@@ -64,7 +65,10 @@ function sdkBoundary() {
   const req = {
    url: () => url, method: () => method, resourceType: () => type,
    isNavigationRequest: () => type === 'document', frame: () => mainFrame,
-   respond: vi.fn(async (response: { body?: string | Uint8Array; headers?: Record<string, string> }) => { served.set(new URL(url).pathname, response); finish(); }),
+   respond: vi.fn(async (response: { body?: string | Uint8Array; headers?: Record<string, string> }) => {
+    if (rejectRespond.has(url)) { finish(); throw Error('scripted respond failure'); }
+    served.set(new URL(url).pathname, response); finish();
+   }),
    abort: vi.fn(async () => { finish(); }),
   };
   for (const f of listeners.get('request') ?? []) f(req as unknown as HTTPRequest);
@@ -101,7 +105,7 @@ function sdkBoundary() {
    send: async () => { await browser.close(); connected = false; for (const listener of closedListeners) listener(); return {}; },
   }) }) }),
  };
- return { page, browser, request, served, emit: (name: string, ...args: unknown[]) => { for (const fn of listeners.get(name) ?? []) fn(...args); } };
+ return { page, browser, request, served, rejectRespond, emit: (name: string, ...args: unknown[]) => { for (const fn of listeners.get(name) ?? []) fn(...args); } };
 }
 function options(db = rawDatabase()): NativePreviewRenderOptions {
  return {
@@ -452,5 +456,196 @@ describe('native PDF diagnostic stage (SDK boundary doubles only; NOT renderer a
   const refused = await checker.verify({ ...input(), mediaType: 'text/plain' });
   expect(refused).toMatchObject({ state: 'failed', reason: 'unsupported-media-type' });
   expect(refused).not.toHaveProperty('stage');
+ });
+});
+
+describe('native PDF navigation observations (SDK boundary doubles with a scripted peer; NOT native browser proof)', () => {
+ const SECRET = 'TypeError at https://client-a.example/__session?token=abc123 cookie=__session=eyJhbGciOi sess_2abcDEF blob:1f2e3d4c';
+ const LEAK = /TypeError|https:|__session|token=|cookie|eyJhbGciOi|sess_|blob:|client-a|abc123/;
+ type Boundary = ReturnType<typeof sdkBoundary>;
+ const DOC = 'https://app.example/__clearcase_native_pdf__/inspect';
+ const OWN = 'https://app.example';
+ async function run(arrange: (b: Boundary) => void, tune?: (o: NativePreviewRenderOptions) => void) {
+  const boundary = sdkBoundary(), db = rawDatabase(), o = options(db); tune?.(o);
+  sdk.launch.mockResolvedValue(boundary.browser); arrange(boundary);
+  const outcome = await (await createNativePreviewRenderChecker(o))!.verify(input());
+  expect(JSON.stringify(outcome)).not.toMatch(LEAK);
+  expect((db.sqlite.prepare('SELECT COUNT(*) AS n FROM npr_reservations').get() as { n: number }).n).toBe(1);
+  expect(sdk.launch).toHaveBeenCalledOnce();
+  return { outcome, boundary };
+ }
+ /** goto serves the source-owned document, then lets the script run before it resolves. */
+ const afterDocument = (script: (b: Boundary) => Promise<void> | void) => (b: Boundary) => {
+  b.page.goto.mockImplementationOnce(async (url: string) => { await b.request(url, 'document'); await script(b); });
+ };
+ const symptom = { state: 'failed', reason: 'render-failed', stage: 'navigation' };
+
+ it.each([
+  ['goto rejects before any interception', (b: Boundary) => { b.page.goto.mockRejectedValueOnce(Error('net::ERR_BLOCKED_BY_ADMINISTRATOR at ' + DOC)); },
+   { goto: 'rejected', documentAcknowledged: false, gotoError: 'blocked-by-administrator' }],
+  ['a favicon request is refused after the document', afterDocument(b => b.request(OWN + '/favicon.ico', 'other').then(() => {})),
+   { goto: 'resolved', documentAcknowledged: true, firstViolation: 'favicon-path' }],
+  ['a data: icon request is refused after the document', afterDocument(b => b.request('data:,', 'other').then(() => {})),
+   { goto: 'resolved', documentAcknowledged: true, firstViolation: 'origin' }],
+  ['the module page errors after the document', afterDocument(b => b.emit('pageerror', Error(SECRET))),
+   { goto: 'resolved', documentAcknowledged: true, firstViolation: 'pageerror' }],
+ ] as const)('tells apart: %s', async (_name, arrange, navigation) => {
+  const { outcome } = await run(arrange);
+  expect(outcome).toMatchObject(symptom);
+  expect(outcome).toHaveProperty('navigation', navigation);
+ });
+
+ it('keeps the first violation, not the last', async () => {
+  const forward = await run(afterDocument(async b => {
+   await b.request(OWN + '/favicon.ico', 'other'); b.emit('requestfailed'); b.emit('pageerror', Error(SECRET));
+   b.emit('dialog', { dismiss: async () => {} }); b.emit('popup', { close: async () => {} });
+  }));
+  expect(forward.outcome).toHaveProperty('navigation.firstViolation', 'favicon-path');
+  sdk.launch.mockReset();
+  const reverse = await run(afterDocument(async b => { b.emit('pageerror', Error(SECRET)); await b.request(OWN + '/favicon.ico', 'other'); b.emit('requestfailed'); }));
+  expect(reverse.outcome).toHaveProperty('navigation.firstViolation', 'pageerror');
+ });
+
+ it.each([
+  ['unowned-path', (b: Boundary) => b.request(OWN + '/nothing-here', 'script')],
+  ['favicon-path', (b: Boundary) => b.request(OWN + '/favicon.ico', 'image')],
+  ['method', (b: Boundary) => b.request(OWN + '/pdfjs/pdf.min.mjs', 'script', 'POST')],
+  ['origin', (b: Boundary) => b.request('https://elsewhere.example/pdfjs/pdf.min.mjs', 'script')],
+  ['origin', (b: Boundary) => b.request(OWN + '/pdfjs/pdf.min.mjs?x=1', 'script')],
+  ['static-response', (b: Boundary) => b.request(OWN + '/pdfjs/pdf.min.mjs', 'script')],
+  ['static-integrity', (b: Boundary) => b.request(OWN + '/pdfjs/pdf.min.mjs', 'script')],
+  ['request-budget', async (b: Boundary) => { for (let i = 0; i < 230; i++) await b.request(OWN + '/pdfjs/pdf.min.mjs', 'script'); }],
+  ['requestfailed', (b: Boundary) => b.emit('requestfailed')],
+  ['pageerror', (b: Boundary) => b.emit('pageerror', Error(SECRET))],
+  ['dialog', (b: Boundary) => b.emit('dialog', { dismiss: async () => {} })],
+  ['popup', (b: Boundary) => b.emit('popup', { close: async () => {} })],
+ ] as const)('names the %s violation from a fixed enum', async (kind, script) => {
+  const tune = (o: NativePreviewRenderOptions) => {
+   const real = o.assets!.fetch;
+   if (kind === 'static-response') o.assets!.fetch = async () => new Response('nope', { status: 404 });
+   if (kind === 'static-integrity') o.assets!.fetch = async (r: Request) => { const ok = new Uint8Array(await (await real(r)).arrayBuffer()); ok[0] ^= 1; return new Response(ok); };
+  };
+  const { outcome } = await run(afterDocument(async b => { await script(b); }), tune);
+  expect(outcome).toMatchObject(symptom);
+  expect(outcome).toHaveProperty('navigation.firstViolation', kind);
+ });
+
+ it('reports the document unacknowledged when its respond fails, and still names the violation', async () => {
+  const { outcome } = await run(b => {
+   b.rejectRespond.add(DOC);
+   b.page.goto.mockImplementationOnce(async (url: string) => { await b.request(url, 'document'); });
+  });
+  expect(outcome).toMatchObject(symptom);
+  expect(outcome).toHaveProperty('navigation', { goto: 'resolved', documentAcknowledged: false, firstViolation: 'other' });
+ });
+
+ it.each([
+  ['net::ERR_BLOCKED_BY_CLIENT', 'blocked-by-client'], ['net::ERR_ACCESS_DENIED', 'access-denied'], ['net::ERR_ABORTED', 'aborted'],
+  ['net::ERR_FAILED', 'failed'], ['net::ERR_CONNECTION_REFUSED', 'connection-refused'], ['net::ERR_NAME_NOT_RESOLVED', 'name-not-resolved'],
+ ])('maps the known goto code %s to the token %s', async (code, token) => {
+  const { outcome } = await run(b => { b.page.goto.mockRejectedValueOnce(Error(code + ' at ' + DOC)); });
+  expect(outcome).toHaveProperty('navigation', { goto: 'rejected', documentAcknowledged: false, gotoError: token });
+ });
+
+ it.each([
+  'net::ERR_NEW_UNKNOWN_CODE', 'net::ERR_' + 'X'.repeat(500), SECRET, 'Navigation timeout of 20000 ms exceeded', 'net::ERR_constructor', 'net::ERR___proto__', '',
+  'TypeError: ' + SECRET + ' net::ERR_BLOCKED_BY_CLIENT_' + SECRET,
+ ])('turns an unknown or private-looking goto error into the generic token', async message => {
+  const { outcome } = await run(b => { b.page.goto.mockRejectedValueOnce(Error(message)); });
+  expect(outcome).toHaveProperty('navigation', { goto: 'rejected', documentAcknowledged: false, gotoError: 'generic' });
+ });
+
+ it('survives a goto rejection that is not an Error or whose message throws', async () => {
+  for (const thrown of [SECRET, null, { get message(): string { throw Error(SECRET); } }, Object.create(null)]) {
+   sdk.launch.mockReset();
+   const { outcome } = await run(b => { b.page.goto.mockRejectedValueOnce(thrown); });
+   expect(outcome).toHaveProperty('navigation.gotoError', 'generic');
+  }
+ });
+
+ it('adds no navigation to a rendered result, a launch or page-setup failure, or a pre-run refusal', async () => {
+  const boundary = sdkBoundary();
+  sdk.launch.mockResolvedValue(boundary.browser);
+  const checker = (await createNativePreviewRenderChecker(options()))!;
+  expect(Object.keys(await checker.verify(input())).sort()).toEqual(['pages', 'reason', 'rendererVersion', 'state']);
+  expect(await checker.verify({ ...input(), mediaType: 'text/plain' })).not.toHaveProperty('navigation');
+  sdk.launch.mockReset();
+  expect((await run(b => { b.browser.newPage.mockRejectedValueOnce(Error(SECRET)); })).outcome).not.toHaveProperty('navigation');
+  sdk.launch.mockReset();
+  sdk.launch.mockRejectedValue(Error(SECRET));
+  expect(await (await createNativePreviewRenderChecker(options()))!.verify(input())).not.toHaveProperty('navigation');
+ });
+
+ it('keeps cleanup acknowledged, the reason and stage, and every budget unchanged while observing', async () => {
+  const { outcome, boundary } = await run(afterDocument(b => b.request(OWN + '/favicon.ico', 'other').then(() => {})));
+  expect(outcome).toMatchObject(symptom);
+  expect(outcome).not.toMatchObject({ reason: 'render-cleanup-failed' });
+  expect(boundary.browser.disconnect).toHaveBeenCalled();
+  expect(boundary.page.evaluate).not.toHaveBeenCalled();
+  expect(boundary.page.goto).toHaveBeenCalledOnce();
+  expect(sdk.launch).toHaveBeenCalledWith(expect.anything(), { keep_alive: 60_000, recording: false, guardrails: { allowedDomains: [] } });
+ });
+
+ describe('facts are frozen at the end of the main run, before abort and cleanup', () => {
+  /** goto stays unsettled until cleanup closes the page; `late` then settles it, and may do more. */
+  async function deadline(arrange: (b: Boundary, settle: { resolve(): void; reject(e: Error): void }) => void, closeFails = false) {
+   const boundary = sdkBoundary(), o = options(); o.budget!.maxRunMs = 30;
+   let settle!: { resolve(): void; reject(e: Error): void };
+   boundary.page.goto.mockImplementationOnce(() => new Promise<void>((resolve, reject) => { settle = { resolve: () => resolve(), reject }; }));
+   sdk.launch.mockResolvedValue(boundary.browser);
+   boundary.page.close.mockImplementationOnce(async () => { arrange(boundary, settle); if (closeFails) throw Error(SECRET); });
+   const outcome = await (await createNativePreviewRenderChecker(o))!.verify(input());
+   expect(JSON.stringify(outcome)).not.toMatch(LEAK);
+   expect(boundary.page.close).toHaveBeenCalledOnce();
+   expect(boundary.browser.disconnect).toHaveBeenCalledOnce();
+   return { outcome, boundary };
+  }
+  const pending = { goto: 'pending', documentAcknowledged: false };
+
+  it.each([
+   ['rejects goto', (_b: Boundary, s: { resolve(): void; reject(e: Error): void }) => s.reject(Error('net::ERR_ABORTED from cleanup'))],
+   ['resolves goto', (_b: Boundary, s: { resolve(): void; reject(e: Error): void }) => s.resolve()],
+  ])('keeps goto pending at the operation deadline when the acknowledged page close %s', async (_name, late) => {
+   const { outcome } = await deadline(late);
+   expect(outcome).toMatchObject({ state: 'failed', reason: 'render-timeout', stage: 'navigation' });
+   expect(outcome).toHaveProperty('navigation', pending);
+  });
+
+  it('keeps the actual cleanup reason and stage while the navigation facts stay frozen', async () => {
+   const { outcome } = await deadline((_b, s) => s.reject(Error('net::ERR_ABORTED from cleanup')), true);
+   expect(outcome).toMatchObject({ state: 'failed', reason: 'render-cleanup-failed', stage: 'cleanup' });
+   expect(outcome).toHaveProperty('navigation', pending);
+  });
+
+  it('does not let a document acknowledgement that arrives during cleanup become documentAcknowledged', async () => {
+   const boundary = sdkBoundary(), o = options(); o.budget!.maxRunMs = 30;
+   let release!: () => void, rejectGoto!: (e: Error) => void;
+   const respond = vi.fn(() => new Promise<void>(resolve => { release = resolve; }));
+   boundary.page.goto.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => {
+    rejectGoto = reject;
+    boundary.emit('request', { url: () => DOC, method: () => 'GET', resourceType: () => 'document', isNavigationRequest: () => true,
+     frame: () => boundary.page.mainFrame(), respond, abort: vi.fn(async () => {}) });
+   }));
+   boundary.page.close.mockImplementationOnce(async () => { release(); await Promise.resolve(); rejectGoto(Error('net::ERR_ABORTED from cleanup')); });
+   sdk.launch.mockResolvedValue(boundary.browser);
+   const outcome = await (await createNativePreviewRenderChecker(o))!.verify(input());
+   expect(respond).toHaveBeenCalledOnce();
+   expect(outcome).toMatchObject({ state: 'failed', reason: 'render-timeout', stage: 'navigation' });
+   expect(outcome).toHaveProperty('navigation', pending);
+  });
+
+  it('keeps the first violation seen before the deadline and ignores violations that arrive during cleanup', async () => {
+   const boundary = sdkBoundary(), o = options(); o.budget!.maxRunMs = 40;
+   let rejectGoto!: (e: Error) => void;
+   boundary.page.goto.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectGoto = reject; boundary.emit('requestfailed'); }));
+   boundary.page.close.mockImplementationOnce(async () => {
+    boundary.emit('pageerror', Error(SECRET)); boundary.emit('dialog', { dismiss: async () => {} }); rejectGoto(Error('net::ERR_ABORTED from cleanup'));
+   });
+   sdk.launch.mockResolvedValue(boundary.browser);
+   const outcome = await (await createNativePreviewRenderChecker(o))!.verify(input());
+   expect(outcome).toHaveProperty('navigation', { ...pending, firstViolation: 'requestfailed' });
+   const quiet = await deadline((b, s) => { b.emit('pageerror', Error(SECRET)); s.reject(Error('net::ERR_ABORTED from cleanup')); });
+   expect(quiet.outcome).toHaveProperty('navigation', pending);
+  });
  });
 });

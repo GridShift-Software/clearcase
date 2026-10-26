@@ -1,5 +1,5 @@
 import type { AuditEvent, AuditSink, CaseId, ClientId, Principal, ResultsVersion, SessionId } from '../../server/runtime/contracts.ts';
-import type { PreviewReasonCode, PreviewRenderStage } from './preview-outcome.ts';
+import type { PreviewNavigationObservation, PreviewReasonCode, PreviewRenderStage } from './preview-outcome.ts';
 import type { ImportLinkSignoffBinding } from '../../server/runtime/hosted/alpha-contracts.ts';
 
 // Native exact-version sign-off and publication (ADR-0010). Ports only: the parent composition supplies each one from
@@ -35,7 +35,7 @@ export interface CandidateSnapshot {
   /** Warning fingerprints already accepted for this case (the published version's accepted set). Never from a package. */
   readonly trustedBaseline: readonly string[];
   readonly requiredSections: readonly Readonly<{ key: string; state: RequiredSectionState }>[];
-  readonly requiredPreviews: readonly Readonly<{ assetId: string; state: RequiredPreviewState; reasonCode?: PreviewReasonCode; stage?: PreviewRenderStage }>[];
+  readonly requiredPreviews: readonly Readonly<{ assetId: string; state: RequiredPreviewState; reasonCode?: PreviewReasonCode; stage?: PreviewRenderStage; navigation?: PreviewNavigationObservation }>[];
 }
 
 /** Reads one private candidate of this deployment's client. Null: no such candidate. A fault rejects (503). */

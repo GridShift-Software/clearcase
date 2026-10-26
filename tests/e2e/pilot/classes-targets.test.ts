@@ -318,7 +318,7 @@ const strip = (e: ts.Expression): ts.Expression => {
 function literal(e: ts.Expression): boolean | undefined {
  e = strip(e);
  if (e.kind === ts.SyntaxKind.TrueKeyword) return true;
- if (e.kind === ts.SyntaxKind.FalseKeyword || e.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(e) && e.text === 'undefined')) return false;
+ if (e.kind === ts.SyntaxKind.FalseKeyword || e.kind === ts.SyntaxKind.NullKeyword) return false;
  if (ts.isNumericLiteral(e)) return Number(e.text) !== 0;
  if (ts.isStringLiteralLike(e)) return e.text !== '';
  if (ts.isPrefixUnaryExpression(e) && e.operator === ts.SyntaxKind.ExclamationToken) { const k = literal(e.operand); return k === undefined ? undefined : !k; }
@@ -328,16 +328,34 @@ const FALLS_THROUGH = new Set([ts.SyntaxKind.ExpressionStatement, ts.SyntaxKind.
 const NO_TARGETS = new Set<string>();
 /** Control flow the walk does not model: a loop, a switch or a label can keep a function from ever completing. */
 const UNMODELLED = (n: ts.Node) => ts.isIterationStatement(n, false) || ts.isSwitchStatement(n) || ts.isLabeledStatement(n) || ts.isWithStatement(n);
-/** Whether a local function runs its parameter `index` only by calling it inside the try block of a try with a catch clause.
+const isAsync = (v: ts.Node) => ts.canHaveModifiers(v) && !!ts.getModifiers(v)?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword);
+/** Whether `v`, or a local function it calls or is handed, is async: a throw there is a rejection, not a synchronous throw. */
+function reachesAsync(v: Value, seen = new Set<ts.Node>()): boolean {
+ if (!isFn(v) || seen.has(v)) return false;
+ seen.add(v);
+ if (isAsync(v)) return true;
+ let hit = false;
+ const walk = (m: ts.Node): void => {
+  if (hit || (m !== v.body && ts.isFunctionLike(m))) return;
+  if (ts.isCallExpression(m)) for (const e of [m.expression, ...m.arguments]) if (values(e, NO_TARGETS).some((c) => reachesAsync(c, seen))) hit = true;
+  ts.forEachChild(m, walk);
+ };
+ walk(v.body!);
+ return hit;
+}
+/** Whether a local function runs its parameter `index` only by calling it inside the try block of a try with a catch clause,
+ * and that call catches what the callback throws: it awaits the call, or `sync` says nothing the callback reaches is async
+ * (an unawaited call cannot catch a rejection, so an uncertain async completion is not caught).
  * Any other use of the parameter (passed on, called in a catch, a finally, or a nested function) is not a structurally caught path. */
-function catchesCallback(fn: ts.FunctionLikeDeclaration, index: number): boolean {
+function catchesCallback(fn: ts.FunctionLikeDeclaration, index: number, sync: boolean): boolean {
  const param = fn.parameters[index];
  if (!param) return !fn.parameters.some((q) => q.dotDotDotToken);
  if (!ts.isIdentifier(param.name) || param.dotDotDotToken) return false;
  let caught = true;
+ const awaited = (call: ts.Node) => { let p = call.parent; while (ts.isParenthesizedExpression(p)) p = p.parent; return ts.isAwaitExpression(p); };
  const walk = (m: ts.Node, inTry: boolean): void => {
   if (ts.isIdentifier(m) && m.text === (param.name as ts.Identifier).text && !(ts.isPropertyAccessExpression(m.parent) && m.parent.name === m) && !(ts.isPropertyAssignment(m.parent) && m.parent.name === m)
-   && !(inTry && ts.isCallExpression(m.parent) && m.parent.expression === m)) caught = false;
+   && !(inTry && ts.isCallExpression(m.parent) && m.parent.expression === m && (sync || awaited(m.parent)))) caught = false;
   if (ts.isTryStatement(m)) { walk(m.tryBlock, inTry || !!m.catchClause); if (m.catchClause) walk(m.catchClause, inTry); if (m.finallyBlock) walk(m.finallyBlock, inTry); return; }
   ts.forEachChild(m, (c) => walk(c, ts.isFunctionLike(c) ? false : inTry));
  };
@@ -363,7 +381,7 @@ function mayNotComplete(n: ts.Node, seen = new Map<ts.Node, boolean>(), throws =
   else if (ts.isCallExpression(m)) {
    const callees = values(m.expression, NO_TARGETS);
    for (const v of callees) enter(v, throws);
-   for (const callee of callees) if (isFn(callee)) m.arguments.forEach((a, i) => { for (const v of values(a, NO_TARGETS)) enter(v, throws && !catchesCallback(callee, i)); });
+   for (const callee of callees) if (isFn(callee)) m.arguments.forEach((a, i) => { const vs = values(a, NO_TARGETS); for (const v of vs) enter(v, throws && !catchesCallback(callee, i, !vs.some((c) => reachesAsync(c)))); });
   }
   ts.forEachChild(m, walk);
  };
@@ -410,17 +428,17 @@ function liveCalls(fn: ts.FunctionLikeDeclaration): ts.CallExpression[] {
  return out;
 }
 const bindsName = (b: ts.BindingName, name: string): boolean => ts.isIdentifier(b) ? b.text === name : b.elements.some((e) => ts.isBindingElement(e) && bindsName(e.name, name));
-type Binding = { param: Param } | { fn: ts.FunctionDeclaration } | { init: ts.Expression } | 'target' | undefined;
-/** What binds an identifier at `at`: the nearest parameter, function or const in scope; a top-level `targets` name is the target; undefined when opaque. */
+type Binding = { param: Param } | { fn: ts.FunctionDeclaration } | { init: ts.Expression } | 'target' | 'opaque' | undefined;
+/** What binds an identifier at `at`: the nearest parameter, function or const in scope; a top-level `targets` name is the target; 'opaque' for a binding it does not follow (a let, a pattern); undefined when nothing binds it. */
 function binding(name: string, at: ts.Node, targets: Set<string>): Binding {
  for (let p = at.parent; p; p = p.parent) {
-  if (ts.isFunctionLike(p)) { const index = p.parameters.findIndex((q) => bindsName(q.name, name)); if (index >= 0) return ts.isIdentifier(p.parameters[index]!.name) ? { param: { fn: p, index } } : undefined; }
+  if (ts.isFunctionLike(p)) { const index = p.parameters.findIndex((q) => bindsName(q.name, name)); if (index >= 0) return ts.isIdentifier(p.parameters[index]!.name) ? { param: { fn: p, index } } : 'opaque'; }
   if (ts.isSourceFile(p) && targets.has(name)) return 'target';
   if (!ts.isBlock(p) && !ts.isSourceFile(p)) continue;
   for (const s of p.statements) {
    if (ts.isFunctionDeclaration(s) && s.name?.text === name) return { fn: s };
    if (ts.isVariableStatement(s)) for (const d of s.declarationList.declarations) if (bindsName(d.name, name))
-    return s.declarationList.flags & ts.NodeFlags.Const && ts.isIdentifier(d.name) && d.initializer ? { init: d.initializer } : undefined;
+    return s.declarationList.flags & ts.NodeFlags.Const && ts.isIdentifier(d.name) && d.initializer ? { init: d.initializer } : 'opaque';
   }
  }
  return undefined;
@@ -428,7 +446,7 @@ function binding(name: string, at: ts.Node, targets: Set<string>): Binding {
 function lookup(name: string, at: ts.Node, targets: Set<string>, depth: number): Value[] {
  const b = binding(name, at, targets);
  if (b === 'target') return ['target'];
- if (!b) return [];
+ if (!b || b === 'opaque') return [];
  if ('param' in b) return [b.param];
  return 'fn' in b ? [b.fn] : values(b.init, targets, depth + 1);
 }
@@ -437,10 +455,12 @@ function lookup(name: string, at: ts.Node, targets: Set<string>, depth: number):
 function proof(e: ts.Expression, targets: Set<string>, depth = 0): { truthy: boolean; nullish: boolean } | undefined {
  if (depth > 16) return undefined;
  e = strip(e);
- if (e.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(e) && e.text === 'undefined')) return { truthy: false, nullish: true };
+ if (e.kind === ts.SyntaxKind.NullKeyword) return { truthy: false, nullish: true };
  if (ts.isArrowFunction(e) || ts.isFunctionExpression(e) || ts.isObjectLiteralExpression(e)) return { truthy: true, nullish: false };
  if (ts.isIdentifier(e)) {
+  // a lexical binding of the spelling wins over the builtin `undefined`
   const b = binding(e.text, e, targets);
+  if (b === undefined && e.text === 'undefined') return { truthy: false, nullish: true };
   return b && typeof b === 'object' ? 'fn' in b ? { truthy: true, nullish: false } : 'init' in b ? proof(b.init, targets, depth + 1) : undefined : undefined;
  }
  const k = literal(e);
@@ -720,6 +740,11 @@ describe('hosted form evidence is refused when its driving setup is gone', () =>
   ['a call after an async helper that returns its async callback unawaited inside a try', DIRECT, { ...MOD, [T]: directTest("const run = async (f: () => unknown) => { try { return f(); } catch { return 0; } };\nit('x', async () => { await run(async () => { throw new Error('stop'); }); load(); });") }, false],
   ['a call after a synchronous helper that returns its async callback unawaited inside a try', DIRECT, { ...MOD, [T]: directTest("const run = (f: () => unknown) => { try { return f(); } catch { return 0; } };\nit('x', async () => { await run(async () => { throw new Error('stop'); }); load(); });") }, false],
   ['a call chosen only by a shadowed undefined that is a function', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const undefined = () => 1; const h = undefined ?? load; h(); });") }, false],
+  ['a call after a helper that awaits its async callback inside a try with a catch', DIRECT, { ...MOD, [T]: directTest("const run = async (f: () => unknown) => { try { return await f(); } catch { return 0; } };\nit('x', async () => { await run(async () => { throw new Error('caught'); }); load(); });") }, true],
+  ['a call after a synchronous helper that catches a synchronously throwing callback', DIRECT, { ...MOD, [T]: directTest("const run = (f: () => unknown) => { try { return f(); } catch { return 0; } };\nit('x', () => { run(() => { throw new Error('caught'); }); load(); });") }, true],
+  ['a call after a synchronous helper whose sync callback reaches an async function that throws', DIRECT, { ...MOD, [T]: directTest("const boom = async () => { throw new Error('stop'); };\nconst run = (f: () => unknown) => { try { return f(); } catch { return 0; } };\nit('x', async () => { await run(() => boom()); load(); });") }, false],
+  ['a call chosen by the live right operand of the builtin undefined', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const h = undefined ?? load; h(); });") }, true],
+  ['a call chosen by the fallback of an opaque parameter spelled undefined: a possible branch, not a dead one', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const go = (undefined: () => unknown) => (undefined ?? load)(); go(() => 1); });") }, true],
   ['a call after a helper chain that completes', DIRECT, { ...MOD, [T]: directTest("const inner = () => 1;\nconst outer = () => inner();\nit('x', () => { outer(); load(); });") }, true],
   ['a call chosen only by the dead right operand of ||', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const keep = () => 1; const h = keep || load; h(); });") }, false],
   ['a call chosen only by the dead arm of a conditional on a named constant', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const on = true; const h = on ? () => 1 : load; h(); });") }, false],

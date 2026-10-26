@@ -78,7 +78,11 @@ describe('M3 queries never return a session id', () => {
     const seen: unknown[] = [];
     seen.push(await w.log(viewer, g).query(ask), await w.log(viewer, g).query(ask));
     seen.push(await w.log(admin, g).query({ scope: { kind: 'administration' }, cursor: null, limit: 20 }));
-    for (const denied of [w.log(viewer, g).query({ scope: { kind: 'administration' }, cursor: null, limit: 5 }), w.log(admin, g).query({ ...ask })]) seen.push(await denied.catch((e: unknown) => ({ code: (e as { code: string }).code, message: (e as Error).message, text: String(e) })));
+    // The first refusal settles a macrotask later than the second, so the second rejects while the first is still awaited.
+    const slowAdministration: typeof g = { ...g, administrationAudit: async (who) => { await new Promise((resolve) => setTimeout(resolve, 0)); return g.administrationAudit(who); } };
+    // Each promise gets its refusal handler where it is created, so neither is ever unowned while the other is awaited.
+    const refusal = (denied: Promise<unknown>) => denied.catch((e: unknown) => ({ code: (e as { code: string }).code, message: (e as Error).message, text: String(e) }));
+    seen.push(...await Promise.all([refusal(w.log(viewer, slowAdministration).query({ scope: { kind: 'administration' }, cursor: null, limit: 5 })), refusal(w.log(admin, slowAdministration).query({ ...ask }))]));
     const text = JSON.stringify(seen);
     expect(text).toContain('victim-case');
     expect(text).not.toMatch(/sess_|sessionId/);

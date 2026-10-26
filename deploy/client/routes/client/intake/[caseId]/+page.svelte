@@ -22,18 +22,21 @@
 		if (!file || busy) return;
 		busy = true;
 		status = 'Checking the file…';
+		// The picker stays live while the bytes are read: take the file, its name and its upload id before the first await,
+		// so the declaration, the bytes and a retry all describe this file. A later pick is a new send with a new upload id.
+		const chosen = file, { name } = chosen;
 		try {
-			if (pending?.file !== file) pending = { file, operationId: crypto.randomUUID() };
-			const { operationId } = pending;
-			const bytes = await file.arrayBuffer();
-			const meta = { operationId, path: file.name, size: bytes.byteLength, sha256: await sha256(bytes), mediaType: 'application/pdf' };
+			if (pending?.file !== chosen) pending = { file: chosen, operationId: crypto.randomUUID() };
+			const attempt = pending, { operationId } = attempt;
+			const bytes = await chosen.arrayBuffer();
+			const meta = { operationId, path: name, size: bytes.byteLength, sha256: await sha256(bytes), mediaType: 'application/pdf' };
 			const d = await fetch(base(), { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(meta) });
 			if (!d.ok) { status = ((await d.json()) as { message?: string }).message ?? `Refused (${d.status}).`; return; }
 			status = 'Sending the file…';
 			const u = await fetch(`${base()}/${operationId}`, { method: 'PUT', credentials: 'same-origin', headers: { 'content-type': 'application/pdf' }, body: bytes });
 			const body = (await u.json()) as { message?: string; stage?: string };
 			if (!u.ok) { status = body.message ?? `Refused (${u.status}).`; return; }
-			pending = null;
+			if (pending === attempt) pending = null;
 			status = 'Finalized. No results yet.';
 			await invalidateAll();
 		} catch {

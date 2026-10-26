@@ -43,32 +43,73 @@ export function devBrowserOf(request: Request): string | null {
 
 /**
  * The host-only cookie that ties the browser's `__clerk_db_jwt` to the staff instance. Both instances set that one plain
- * name on a client origin, so the handshake sets this beside it only when a token the staff key alone verifies set it.
+ * name on a client origin, so the handshake sets this beside it only for a staff handshake this browser started here
+ * (staffHandshakeOf) from a dev browser it could vouch for, and only when a token the staff key alone verifies set it.
  */
 export const STAFF_DEV_BROWSER_TIE = '__clearcase_staff_dvb';
-const TIE_LABEL = 'clearcase staff dev browser v1';
-const tieKey = (staff: ClerkInstanceConfig) => crypto.subtle.importKey('raw', new TextEncoder().encode(staff.secretKey), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
-const tieData = (staff: ClerkInstanceConfig, devBrowser: string) => new TextEncoder().encode(`${TIE_LABEL}\0${staff.issuer}\0${devBrowser}`);
+/**
+ * The correlation of a staff handshake this browser started on this origin: the start sets this host-only cookie and
+ * puts the same random id in the handshake's redirect_url as this query parameter, and only a return carrying both counts.
+ */
+export const STAFF_HANDSHAKE_COOKIE = '__clearcase_staff_hs';
+export const STAFF_HANDSHAKE_PARAM = '__clearcase_staff_hs';
+/** How long a started staff handshake may take to come back, in seconds (its round trip is automatic redirects). */
+export const STAFF_HANDSHAKE_TTL = 600;
+const TIE_LABEL = 'clearcase staff dev browser v2', HANDSHAKE_LABEL = 'clearcase staff handshake v1';
 const B64URL = /^[A-Za-z0-9_-]{43}$/;
+const CORRELATION = /^([A-Za-z0-9_-]{43})\.(\d{1,12})\.([01])\.([A-Za-z0-9_-]{43})$/;
+const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const fromB64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='), (c) => c.charCodeAt(0));
+const macKey = (staff: ClerkInstanceConfig) => crypto.subtle.importKey('raw', new TextEncoder().encode(staff.secretKey), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+// Every MAC names what it is for and the receiving app, client and staff instance, so no value counts in another scope.
+const macData = (label: string, config: ClerkIdentityConfig, parts: readonly string[]) => new TextEncoder().encode([label, config.appOrigin, config.clientId, config.staff.issuer, ...parts].join('\0'));
+const macOf = async (label: string, config: ClerkIdentityConfig, parts: readonly string[]) => b64url(new Uint8Array(await crypto.subtle.sign('HMAC', await macKey(config.staff), macData(label, config, parts))));
+const macVerifies = async (label: string, config: ClerkIdentityConfig, parts: readonly string[], mac: string) => crypto.subtle.verify('HMAC', await macKey(config.staff), fromB64url(mac), macData(label, config, parts));
 
-/** The tie's value for a staff dev browser: base64url HMAC-SHA-256 under the staff secret key, so a planted cookie cannot forge one. */
-export async function staffDevBrowserTie(staff: ClerkInstanceConfig, devBrowser: string): Promise<string> {
-	const mac = new Uint8Array(await crypto.subtle.sign('HMAC', await tieKey(staff), tieData(staff, devBrowser)));
-	return btoa(String.fromCharCode(...mac)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+/** The tie's value for a staff dev browser: base64url HMAC-SHA-256 under the staff secret key, over this app's scope. */
+export function staffDevBrowserTie(config: ClerkIdentityConfig, devBrowser: string): Promise<string> {
+	return macOf(TIE_LABEL, config, [devBrowser]);
 }
 
 /**
- * The browser's one `__clerk_db_jwt` as a StaffDevBrowser when its one tie verifies for this deployment's staff instance,
- * else null (no tie, a repeated cookie, another value or another staff instance). Transport only, never authority.
+ * The browser's one `__clerk_db_jwt` as a StaffDevBrowser when its one tie verifies for this app, client and staff
+ * instance, else null (no tie, a repeated cookie, another value, app, client or staff instance). Transport only.
  */
-export async function staffDevBrowserOf(request: Request, env: Readonly<Record<string, unknown>>): Promise<StaffDevBrowser | null> {
+export async function tiedDevBrowser(request: Request, config: ClerkIdentityConfig): Promise<StaffDevBrowser | null> {
 	const value = devBrowserOf(request), ties = cookiePairs(request).filter((c) => c.name === STAFF_DEV_BROWSER_TIE);
-	const read = readClerkIdentityConfig(env, { keys: 'optional' });
-	if (value === null || ties.length !== 1 || !B64URL.test(ties[0]!.value) || !read.ok) return null;
-	const mac = Uint8Array.from(atob(ties[0]!.value.replace(/-/g, '+').replace(/_/g, '/') + '='), (c) => c.charCodeAt(0));
-	const staff = read.config.staff;
-	return (await crypto.subtle.verify('HMAC', await tieKey(staff), mac, tieData(staff, value))) ? { instance: 'staff', value } : null;
+	if (value === null || ties.length !== 1 || !B64URL.test(ties[0]!.value) || !(await macVerifies(TIE_LABEL, config, [value], ties[0]!.value))) return null;
+	return { instance: 'staff', value, appOrigin: config.appOrigin, clientId: config.clientId, issuer: config.staff.issuer } as StaffDevBrowser;
 }
+/** tiedDevBrowser for a route, with this deployment's config; null when it is not configured. */
+export async function staffDevBrowserOf(request: Request, env: Readonly<Record<string, unknown>>): Promise<StaffDevBrowser | null> {
+	const read = readClerkIdentityConfig(env, { keys: 'optional' });
+	return read.ok ? tiedDevBrowser(request, read.config) : null;
+}
+
+/**
+ * A new staff handshake correlation: a random 256-bit id for the redirect_url and the cookie that carries it, its issue
+ * time and whether the start could vouch for the dev browser it hands the Frontend API (`vouched`), under one MAC.
+ */
+export async function startStaffHandshake(config: ClerkIdentityConfig, vouched: boolean, secure: boolean): Promise<{ id: string; setCookie: string }> {
+	const id = b64url(crypto.getRandomValues(new Uint8Array(32))), parts = [id, String(Math.floor(Date.now() / 1000)), vouched ? '1' : '0'];
+	const value = `${parts.join('.')}.${await macOf(HANDSHAKE_LABEL, config, parts)}`;
+	return { id, setCookie: `${STAFF_HANDSHAKE_COOKIE}=${value}; Path=/; Max-Age=${STAFF_HANDSHAKE_TTL}; SameSite=Lax; HttpOnly${secure ? '; Secure' : ''}` };
+}
+/**
+ * The staff handshake correlation a returning request proves, or null: exactly one correlation cookie and one id in the
+ * URL, equal, issued for this app, client and staff instance within STAFF_HANDSHAKE_TTL, under a MAC that verifies.
+ * `vouched` says whether the start could vouch for the dev browser it handed the Frontend API.
+ */
+export async function staffHandshakeOf(request: Request, config: ClerkIdentityConfig): Promise<{ vouched: boolean } | null> {
+	const cookies = cookiePairs(request).filter((c) => c.name === STAFF_HANDSHAKE_COOKIE), ids = new URL(request.url).searchParams.getAll(STAFF_HANDSHAKE_PARAM);
+	const m = cookies.length === 1 && ids.length === 1 ? CORRELATION.exec(cookies[0]!.value) : null;
+	if (!m || m[1] !== ids[0]) return null;
+	const age = Math.floor(Date.now() / 1000) - Number(m[2]);
+	if (age < -60 || age > STAFF_HANDSHAKE_TTL) return null;
+	return (await macVerifies(HANDSHAKE_LABEL, config, [m[1]!, m[2]!, m[3]!], m[4]!)) ? { vouched: m[3] === '1' } : null;
+}
+/** The directive that deletes the staff handshake correlation (a returning handshake consumes it in this browser). */
+export const staffHandshakeClear = (secure: boolean) => `${STAFF_HANDSHAKE_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly${secure ? '; Secure' : ''}`;
 
 /** The cookie directives that delete exactly the Clerk session cookies a request carries (host-only, as they were set). */
 export function clerkCookieClears(request: Request, secure: boolean): string[] {

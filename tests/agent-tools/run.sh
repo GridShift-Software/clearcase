@@ -1404,6 +1404,8 @@ run "custom-file protection controls (GRS-193)" 0 python3 -I "$HERE/test_file_pr
 
 run "trusted setup arrival controls (GRS-196)" 0 python3 -I "$HERE/test_trusted_setup_arrivals.py"
 
+run "owned scratch helper, descriptor-anchored removal" 0 python3 -I "$HERE/test_safe_scratch.py"
+
 echo "# summary"
 echo "$passed passed, $failed failed"
 ((failed == 0))

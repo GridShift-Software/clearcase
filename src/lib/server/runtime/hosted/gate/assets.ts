@@ -41,11 +41,11 @@ export function fixtureAssets(a: { db: D1; bucket: R2; clientId: ClientId; ident
 		return { bytes, metadata: metadata(r) };
 	}
 	// Metadata and links release no bytes but are still protected reads: a refusal appends its scoped denial.
-	async function described<T>(asset: AssetRef, run: () => Promise<T>): Promise<T> {
+	async function described<T>(asset: AssetRef, run: () => Promise<T>, action = 'asset.describe'): Promise<T> {
 		try {
 			return await run();
 		} catch (e) {
-			if (isDenial(e)) await audit.record({ action: 'asset.describe', object: { kind: 'asset', id: asset.assetId, caseId: asset.caseId }, version: null, outcome: 'denied' }).catch(() => undefined);
+			if (isDenial(e)) await audit.record({ action, object: { kind: 'asset', id: asset.assetId, caseId: asset.caseId }, version: null, outcome: 'denied' }).catch(() => undefined);
 			throw e;
 		}
 	}
@@ -65,7 +65,7 @@ export function fixtureAssets(a: { db: D1; bucket: R2; clientId: ClientId; ident
 					throw e;
 				}
 			}),
-		metadata: ({ asset }) => described(asset, async () => metadata(await located(asset))),
+		metadata: ({ asset, for: intent }) => described(asset, async () => metadata(await located(asset)), intent === 'read' ? `asset.${asset.kind === 'original' ? 'read-original' : 'read-preview'}` : 'asset.describe'),
 		links: ({ asset }) =>
 			described(asset, async () => {
 				await located(asset);

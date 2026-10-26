@@ -1,0 +1,342 @@
+{
+	"schema": "clearcase-legacy-public-fixture/1",
+	"label": "LEGACY REGRESSION FIXTURE: a historical 4fa042bd build, pinned so the public-provenance tests run in a clean clone. Not current acceptance, module, deploy or provider proof.",
+	"source": {
+		"commit": "4fa042bd41e878a70aff08b085ad4b5b4cbccc4e",
+		"subject": "Native bundle closure via proven dynamic host imports; separated public assets (NATIVE24)",
+		"builtAt": "2026-10-25T07:04:05.533Z",
+		"note": "Copied unchanged from a complete read-only build checkout; adapter-cloudflare output, Kit output/client and the Wrangler dry-run bundle (including its source map, whose presence the closed bundle inventory requires)."
+	},
+	"archive": {
+		"file": "legacy-4fa-public-build.br",
+		"format": "brotli",
+		"bytes": 576335,
+		"sha256": "sha256:3709d187fbc1a3084e1c5c41d651e59cd88fb4c4f9ad9928a035c00f9bca3f97",
+		"unpackedBytes": 3780109
+	},
+	"goldens": {
+		"bundleWorker": "sha256:69aff7aa6017c43991e690773687e35be851537408ed0d5333ad06bf36558b2d",
+		"appEntry": {
+			"path": ".svelte-kit/cloudflare/_app/immutable/entry/app.Bmm0BDvz.js",
+			"sha256": "sha256:feb611bf8175ba0b302e27b980fbd643bc2d45f9db89e7dfc465610a6b946b4c"
+		},
+		"clientAssets": "sha256:e8c8972abb130fbfc1ff9397136bac240de7ef5058313ac1d891c5e2c22b20a2"
+	},
+	"files": [
+		{
+			"path": ".local/native-nodejs-compat-bundle/bundle/README.md",
+			"bytes": 130,
+			"sha256": "sha256:786b393c1892dc17e31eba5f12ba97d4b0e4b2693edd9c840e3571f6fcd8fe52"
+		},
+		{
+			"path": ".local/native-nodejs-compat-bundle/bundle/_worker.js",
+			"bytes": 1018531,
+			"sha256": "sha256:69aff7aa6017c43991e690773687e35be851537408ed0d5333ad06bf36558b2d"
+		},
+		{
+			"path": ".local/native-nodejs-compat-bundle/bundle/_worker.js.map",
+			"bytes": 2347021,
+			"sha256": "sha256:a7662e9412fc3610107817631ba2f61fed2e07ca860c7343aa31734352366318"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/.assetsignore",
+			"bytes": 44,
+			"sha256": "sha256:d6d003275aec5281ed84d3229ccd3342938f025965e2ed5f12a0239b36ea51ae"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/assets/0.Q31bYWDx.css",
+			"bytes": 138,
+			"sha256": "sha256:912d071a9ecaa6e5df68dc11d3293339792044eefb76ad79252b7171038a24bf"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/assets/4.5LHzQ_rQ.css",
+			"bytes": 187,
+			"sha256": "sha256:196763b0de4682730a04b68269b7fae27f896b766f435fa75c3a0273731a17ac"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/chunks/BKrUbraX.js",
+			"bytes": 52,
+			"sha256": "sha256:841c3eeb2a57969f3a251a0cd915a397678b349cb885ccbfc906ece983466e5a"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/chunks/Ba1vXv3i.js",
+			"bytes": 42974,
+			"sha256": "sha256:7224148a8aad2762222b3a96024dbde67d39303efe835968bab85e72ebbffcf2"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/chunks/Bjy-W4x2.js",
+			"bytes": 1365,
+			"sha256": "sha256:f07424758318dd6b5f32b0fe8de9d2ffb8d97a17c841758626d18ba0faa0456a"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/chunks/CFzTxnhx.js",
+			"bytes": 38,
+			"sha256": "sha256:22030ad5ec35ddf6c086c5ddeabce19cf4d70ed53ebe0117ccb6e6e4ad10f24b"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/chunks/DUEbWAFX.js",
+			"bytes": 4346,
+			"sha256": "sha256:22f949191c57fa6851aec8d8f30490439a1f281f4a3e767a0ae329b2bad25a6b"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/chunks/DsgQlYOE.js",
+			"bytes": 37748,
+			"sha256": "sha256:11db1fd8fa17c1dd6724120ea102bc246522bb8e42b154fb8bea7001bebbcebb"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/chunks/lcSWd0bi.js",
+			"bytes": 1536,
+			"sha256": "sha256:706163e602fd20dfbbe3d13a208c3a765782a1595964f9869655da1f98cf031e"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/entry/app.Bmm0BDvz.js",
+			"bytes": 2356,
+			"sha256": "sha256:feb611bf8175ba0b302e27b980fbd643bc2d45f9db89e7dfc465610a6b946b4c"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/entry/payload.DSmR2FwN.js",
+			"bytes": 65,
+			"sha256": "sha256:b7cba7b44b2397c7d28f7db4a34ec734a985e64ff27d74ddf8d9645cf814f09f"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/entry/start.CmWSr8A0.js",
+			"bytes": 548,
+			"sha256": "sha256:919759dcb825d0d07e682cd85e02aee06cbe9480b75671cc5c93aa1d488e66cd"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/nodes/0.Bl4uv1Lc.js",
+			"bytes": 343,
+			"sha256": "sha256:15a610708bbfe4a5b5e24e9612e6c9032e55d94dcb023b8f27d22a42361b99ce"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/nodes/1.eZaFRT0v.js",
+			"bytes": 775,
+			"sha256": "sha256:7397e572e896a6d56b00ee8bf0201cb9d86f1f77a1e8315340913f1c30898fcc"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/nodes/2.DU9WSxbp.js",
+			"bytes": 166,
+			"sha256": "sha256:40181c1d88081f1df10b23b45c72bf0e8e7bcefd4f8b302c9c9e4cb065cac4b1"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/nodes/3.CIJMJHu7.js",
+			"bytes": 938,
+			"sha256": "sha256:a1094cbe5fe0c3f5832ac1f7da6cb6635587be64c72dcef9e41fd05e1ffc64f7"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/nodes/4.-h-syyI5.js",
+			"bytes": 2868,
+			"sha256": "sha256:d187e557d22b18f6bbc4281cde1fcae1436389fd6b686da961c211ba807e3743"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/nodes/5.BEz3x7lw.js",
+			"bytes": 3021,
+			"sha256": "sha256:f813ff03f5ca9f53286834ebf7d4c2b385ff26d47333e8442f28dd5e2335e395"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/nodes/6.0z2xcXGu.js",
+			"bytes": 1368,
+			"sha256": "sha256:9259a82a1756e43538d6900d55d6f0c0e62a0f0561be83f639544affeafcd550"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/nodes/7.DQ8nYP9c.js",
+			"bytes": 661,
+			"sha256": "sha256:ef03adb83ea24173d5febb55f14995c08bc9d04403e090d1ea9389b6052311db"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/immutable/nodes/8.BAuUVOmg.js",
+			"bytes": 166,
+			"sha256": "sha256:f7a1f0bb73827b3e01061c17373e32f0182f6ed165412e8407ebe084914389f6"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_app/version.json",
+			"bytes": 54,
+			"sha256": "sha256:9632f45e2df50bcdce9efbe865ad0714b335af0ee5f086e62c89b9f59287f3a0"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_headers",
+			"bytes": 362,
+			"sha256": "sha256:a5fe785cfb4f2690cbe4d6ce9ef69e9a740aa1953917482cd4223ea9cf59abfe"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/_worker.js",
+			"bytes": 2742,
+			"sha256": "sha256:fd08d07d1b0303b535547a30635b2dbd067be7b1d68d22ac4cb4ca4663a3a866"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/favicon.svg",
+			"bytes": 302,
+			"sha256": "sha256:cb4a235a80fae2cc4f664b5bbde17ea2cd4eb32a7ef10b72b53e9a52e81ec1cb"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/fonts/LICENSE.txt",
+			"bytes": 452,
+			"sha256": "sha256:b2f7e1177de6551ce29c674c486fbe726cc29a6d397be0a846f74a6a69c1a22d"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/fonts/instrument-serif-latin-ext.woff2",
+			"bytes": 11604,
+			"sha256": "sha256:290e6267dd833bf5f899eba4c29ad0a9b09dbe53f6075b18af38057159e1ff20"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/fonts/instrument-serif-latin.woff2",
+			"bytes": 21032,
+			"sha256": "sha256:5eb09b5ac0e28b67c2f041c8ba6d244604ca0c0980d65912ab2d47fed84ddc31"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/fonts/schibsted-grotesk-latin-ext.woff2",
+			"bytes": 20924,
+			"sha256": "sha256:ee9eeb232cc1fe7979dad813a570f4b19f1eb4496daf56c94ec9de63abdb2936"
+		},
+		{
+			"path": ".svelte-kit/cloudflare/fonts/schibsted-grotesk-latin.woff2",
+			"bytes": 46752,
+			"sha256": "sha256:4c8b93f431d462c696e12b9d6a033feb3394d36e66e781357c496b95d8a75e05"
+		},
+		{
+			"path": ".svelte-kit/output/client/.vite/manifest.json",
+			"bytes": 5721,
+			"sha256": "sha256:2b183a24c65f3d675ad729ddc073df26d5e5a2ba3dc809cd40cebab0310d09d5"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/assets/0.Q31bYWDx.css",
+			"bytes": 138,
+			"sha256": "sha256:912d071a9ecaa6e5df68dc11d3293339792044eefb76ad79252b7171038a24bf"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/assets/4.5LHzQ_rQ.css",
+			"bytes": 187,
+			"sha256": "sha256:196763b0de4682730a04b68269b7fae27f896b766f435fa75c3a0273731a17ac"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/chunks/BKrUbraX.js",
+			"bytes": 52,
+			"sha256": "sha256:841c3eeb2a57969f3a251a0cd915a397678b349cb885ccbfc906ece983466e5a"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/chunks/Ba1vXv3i.js",
+			"bytes": 42974,
+			"sha256": "sha256:7224148a8aad2762222b3a96024dbde67d39303efe835968bab85e72ebbffcf2"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/chunks/Bjy-W4x2.js",
+			"bytes": 1365,
+			"sha256": "sha256:f07424758318dd6b5f32b0fe8de9d2ffb8d97a17c841758626d18ba0faa0456a"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/chunks/CFzTxnhx.js",
+			"bytes": 38,
+			"sha256": "sha256:22030ad5ec35ddf6c086c5ddeabce19cf4d70ed53ebe0117ccb6e6e4ad10f24b"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/chunks/DUEbWAFX.js",
+			"bytes": 4346,
+			"sha256": "sha256:22f949191c57fa6851aec8d8f30490439a1f281f4a3e767a0ae329b2bad25a6b"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/chunks/DsgQlYOE.js",
+			"bytes": 37748,
+			"sha256": "sha256:11db1fd8fa17c1dd6724120ea102bc246522bb8e42b154fb8bea7001bebbcebb"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/chunks/lcSWd0bi.js",
+			"bytes": 1536,
+			"sha256": "sha256:706163e602fd20dfbbe3d13a208c3a765782a1595964f9869655da1f98cf031e"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/entry/app.Bmm0BDvz.js",
+			"bytes": 2356,
+			"sha256": "sha256:feb611bf8175ba0b302e27b980fbd643bc2d45f9db89e7dfc465610a6b946b4c"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/entry/payload.DSmR2FwN.js",
+			"bytes": 65,
+			"sha256": "sha256:b7cba7b44b2397c7d28f7db4a34ec734a985e64ff27d74ddf8d9645cf814f09f"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/entry/start.CmWSr8A0.js",
+			"bytes": 548,
+			"sha256": "sha256:919759dcb825d0d07e682cd85e02aee06cbe9480b75671cc5c93aa1d488e66cd"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/nodes/0.Bl4uv1Lc.js",
+			"bytes": 343,
+			"sha256": "sha256:15a610708bbfe4a5b5e24e9612e6c9032e55d94dcb023b8f27d22a42361b99ce"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/nodes/1.eZaFRT0v.js",
+			"bytes": 775,
+			"sha256": "sha256:7397e572e896a6d56b00ee8bf0201cb9d86f1f77a1e8315340913f1c30898fcc"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/nodes/2.DU9WSxbp.js",
+			"bytes": 166,
+			"sha256": "sha256:40181c1d88081f1df10b23b45c72bf0e8e7bcefd4f8b302c9c9e4cb065cac4b1"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/nodes/3.CIJMJHu7.js",
+			"bytes": 938,
+			"sha256": "sha256:a1094cbe5fe0c3f5832ac1f7da6cb6635587be64c72dcef9e41fd05e1ffc64f7"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/nodes/4.-h-syyI5.js",
+			"bytes": 2868,
+			"sha256": "sha256:d187e557d22b18f6bbc4281cde1fcae1436389fd6b686da961c211ba807e3743"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/nodes/5.BEz3x7lw.js",
+			"bytes": 3021,
+			"sha256": "sha256:f813ff03f5ca9f53286834ebf7d4c2b385ff26d47333e8442f28dd5e2335e395"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/nodes/6.0z2xcXGu.js",
+			"bytes": 1368,
+			"sha256": "sha256:9259a82a1756e43538d6900d55d6f0c0e62a0f0561be83f639544affeafcd550"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/nodes/7.DQ8nYP9c.js",
+			"bytes": 661,
+			"sha256": "sha256:ef03adb83ea24173d5febb55f14995c08bc9d04403e090d1ea9389b6052311db"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/immutable/nodes/8.BAuUVOmg.js",
+			"bytes": 166,
+			"sha256": "sha256:f7a1f0bb73827b3e01061c17373e32f0182f6ed165412e8407ebe084914389f6"
+		},
+		{
+			"path": ".svelte-kit/output/client/_app/version.json",
+			"bytes": 54,
+			"sha256": "sha256:9632f45e2df50bcdce9efbe865ad0714b335af0ee5f086e62c89b9f59287f3a0"
+		},
+		{
+			"path": ".svelte-kit/output/client/favicon.svg",
+			"bytes": 302,
+			"sha256": "sha256:cb4a235a80fae2cc4f664b5bbde17ea2cd4eb32a7ef10b72b53e9a52e81ec1cb"
+		},
+		{
+			"path": ".svelte-kit/output/client/fonts/LICENSE.txt",
+			"bytes": 452,
+			"sha256": "sha256:b2f7e1177de6551ce29c674c486fbe726cc29a6d397be0a846f74a6a69c1a22d"
+		},
+		{
+			"path": ".svelte-kit/output/client/fonts/instrument-serif-latin-ext.woff2",
+			"bytes": 11604,
+			"sha256": "sha256:290e6267dd833bf5f899eba4c29ad0a9b09dbe53f6075b18af38057159e1ff20"
+		},
+		{
+			"path": ".svelte-kit/output/client/fonts/instrument-serif-latin.woff2",
+			"bytes": 21032,
+			"sha256": "sha256:5eb09b5ac0e28b67c2f041c8ba6d244604ca0c0980d65912ab2d47fed84ddc31"
+		},
+		{
+			"path": ".svelte-kit/output/client/fonts/schibsted-grotesk-latin-ext.woff2",
+			"bytes": 20924,
+			"sha256": "sha256:ee9eeb232cc1fe7979dad813a570f4b19f1eb4496daf56c94ec9de63abdb2936"
+		},
+		{
+			"path": ".svelte-kit/output/client/fonts/schibsted-grotesk-latin.woff2",
+			"bytes": 46752,
+			"sha256": "sha256:4c8b93f431d462c696e12b9d6a033feb3394d36e66e781357c496b95d8a75e05"
+		}
+	]
+}

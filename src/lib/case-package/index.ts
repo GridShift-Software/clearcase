@@ -9,7 +9,7 @@ export { canActivate, acknowledge, acceptedWarnings, newWarningFingerprints, typ
 export { inputRevisionId, resultsVersionOf, sha256Hex } from './hash.ts';
 export { buildPackage, writePackageDir, type PackageSpec, type DatasetSpec } from './writer.ts';
 export { convertV5, ADAPTER, type ConvertOptions, type ConvertResult } from './v5/adapter.ts';
-export { reassembleV5 } from './v5/reassemble.ts';
+export { reassembleV5 } from './source-layout.ts';
 export type { PackageSource } from './source.ts';
 export type { OriginalMapping, Progress } from './originals.ts';
 export type { Acknowledgement, Manifest, DatasetEnvelope, Asset, AssetIndex } from './schema.ts';

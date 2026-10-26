@@ -29,6 +29,8 @@
     "probe:hosted-imports": "bun tests/hosted-foundation/runtime/guard-mutations.ts"
   },
   "dependencies": {
+    "@clerk/backend": "3.26.0",
+    "@cloudflare/puppeteer": "1.4.0",
     "@kenjiuno/msgreader": "1.29.0",
     "buffer": "6.0.3",
     "dompurify": "3.4.17",
@@ -44,6 +46,7 @@
     "@sveltejs/kit": "3.1.0",
     "@sveltejs/vite-plugin-svelte": "7.3.1",
     "@types/node": "26.6.4",
+    "jsdom": "27.4.0",
     "pdfjs-dist": "6.4.299",
     "svelte": "5.57.2",
     "svelte-check": "4.7.6",

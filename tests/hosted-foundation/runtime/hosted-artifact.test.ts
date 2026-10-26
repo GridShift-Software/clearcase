@@ -15,7 +15,8 @@ async function artifact(server: string, worker = 'export default { fetch() {} };
 
 describe('emitted hosted artifact scan', () => {
   it('passes a clean production artifact and Kit\'s own guarded getBuiltinModule line', async () => {
-    const root = await artifact('var fs = globalThis.process?.getBuiltinModule?.("node:fs");\nexport const x = "bun: 1.4.2";');
+    // As the hosted build emits it (scripts/hosted-kit-diagnostics-build.ts): the probe is the undefined it reads in workerd.
+    const root = await artifact('const fs = undefined;\nexport const x = "bun: 1.4.2";');
     expect(scanArtifact({ root, profile: 'production' }).errors).toEqual([]);
   });
   it.each([
@@ -39,7 +40,7 @@ describe('emitted hosted artifact scan', () => {
     expect(scanArtifact({ root, profile: 'production' }).errors.join('\n')).toContain(`.svelte-kit/output/server/chunks/app.js: ${error}`);
   });
   it('allows the framework\'s guarded process probes and a property named process', async () => {
-    const root = await artifact('const c = globalThis.process?.cwd?.(); const w = typeof process==`object`&&process.versions?.node!==void 0; const o = { process: 1 }; o.process.x; const b = Bun_ok;');
+    const root = await artifact('const c = undefined; const w = typeof process==`object`&&process.versions?.node!==void 0; const o = { process: 1 }; o.process.x; const b = Bun_ok;');
     expect(scanArtifact({ root, profile: 'production' }).errors).toEqual([]);
   });
   it('refuses the memory doubles in every profile', async () => {

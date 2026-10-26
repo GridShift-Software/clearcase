@@ -1,0 +1,4 @@
+{
+  "extends": "../../../tsconfig.json",
+  "include": ["../../../src/lib/user-work/hosted/**/*.ts", "./**/*.ts", "../../../src/app.d.ts"]
+}

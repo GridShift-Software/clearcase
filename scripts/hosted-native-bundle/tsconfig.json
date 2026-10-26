@@ -1,0 +1,15 @@
+{
+  "//": "Standalone, so Vite's transform stops here instead of resolving the app's $app/tsconfig (GRS-107; the same reason as deploy/probes/tsconfig.json). The root tsconfig still type-checks these files.",
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  }
+}

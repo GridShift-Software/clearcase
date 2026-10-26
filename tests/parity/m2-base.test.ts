@@ -4,9 +4,9 @@
 // `test:e2e` runs tests/e2e/<category>/suite.mjs offline after the pilot suites; the root vitest config includes the
 // owners' test paths. Synthetic files in temp copies only: nothing here is written into the repository.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { REPO } from '../../scripts/parity/lib/register.mjs';
 
@@ -162,10 +162,23 @@ describe('vitest includes', () => {
 		for (const f of files) put(join(tree, f), "import { test } from 'vitest';\ntest('synthetic', () => {});\n");
 		const r = spawnSync(BUN, [join(REPO, 'node_modules', 'vitest', 'vitest.mjs'), 'list', '--filesOnly', '--root', tree, '--config', join(REPO, 'vitest.config.ts')], { encoding: 'utf8', timeout: 60_000 });
 		expect(r.status, r.stderr).toBe(0);
-		expect(r.stdout.trim().split('\n').sort()).toEqual(files.slice(0, 9).sort());
+		// vitest labels each file with its project; the viewer project's root is the repository, not --root
+		const listed = r.stdout.trim().split('\n').sort(), prefixed = (name: string) => listed.filter((l) => l.startsWith(`[${name}] `)).map((l) => l.slice(name.length + 3));
+		expect(prefixed('root').sort()).toEqual(files.slice(0, 9).sort());
+		const viewer = prefixed('native-viewer').map((f) => resolve(tree, f)).sort(), viewerDir = join(REPO, 'tests', 'hosted-smoke', 'native-viewer');
+		expect(viewer).toEqual(readdirSync(viewerDir).filter((f) => f.endsWith('.test.ts')).map((f) => join(viewerDir, f)).sort());
+		expect(viewer).toContain(join(viewerDir, 'intake-page.test.ts'));
+		expect(viewer).toHaveLength(7);
+		expect(listed).toHaveLength(16);
+		expect(prefixed('root').length + viewer.length).toBe(16);
 	});
 	test('the existing includes are kept', async () => {
 		const { default: config } = await import('../../vitest.config');
-		expect(config.test?.include).toEqual(expect.arrayContaining(['tests/case-package/**/*.test.ts', 'src/lib/local-case/**/*.test.ts', 'src/lib/components/**/*.test.ts', 'tests/parity/**/*.test.ts']));
+		const projects = (config.test?.projects ?? []) as { test?: { name?: string; include?: string[]; exclude?: string[] } }[];
+		const named = projects.filter((p) => p.test?.name === 'root');
+		expect(named, 'one project named root').toHaveLength(1);
+		expect(config.test?.include, 'no global include: it would collect the viewer files twice').toBeUndefined();
+		expect(named[0]!.test?.include).toEqual(expect.arrayContaining(['tests/case-package/**/*.test.ts', 'src/lib/local-case/**/*.test.ts', 'src/lib/components/**/*.test.ts', 'tests/parity/**/*.test.ts']));
+		expect(named[0]!.test?.exclude).toContain('tests/hosted-smoke/native-viewer/**');
 	});
 });

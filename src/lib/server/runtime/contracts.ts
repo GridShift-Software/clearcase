@@ -54,7 +54,9 @@ export interface OriginalEntry { assetId: string; filename: string; mediaType: s
 export interface AssetsAccess {
   /** The case's originals, a case-level input: listed through the case grant alone, with or without a publication. */
   originals(a: Scope): Promise<readonly OriginalEntry[]>;
-  availability(a: { asset: AssetRef }): Promise<AssetAvailability>; metadata(a: { asset: AssetRef }): Promise<AssetMetadata>;
+  availability(a: { asset: AssetRef }): Promise<AssetAvailability>;
+  /** `for: 'read'` marks a preflight for a byte read: a refusal is audited as the requested `asset.read-original`/`asset.read-preview`, not `asset.describe`. It still releases no bytes. */
+  metadata(a: { asset: AssetRef; for?: 'read' }): Promise<AssetMetadata>;
   links(a: { asset: AssetRef }): Promise<{ originalHref: string; downloadHref: string; viewerHref: string | null }>;
   get(a: { asset: AssetRef; request: ByteRequest }): Promise<Response>; // integrity-checked 200/206/416; HEAD has no body
 }
@@ -100,6 +102,15 @@ export interface AsyncUserWork {
 }
 
 export interface AuditEvent { eventId: string; actor: IdentityState; action: string; object: { kind: string; id: string; caseId: CaseId | null }; version: ResultsVersion | WorkVersion | null; outcome: 'succeeded' | 'denied' | 'failed' | 'refused'; at: string }
+/**
+ * The audit actor of automated, non-request provisioning (the grant-admin bootstrap). It is NOT an IdentityState: it has no
+ * principal, session, issuer or verified claim, authenticates nobody, and no request can present one. `operator` is the
+ * provisioning run's own label. Only the trusted provisioning audit port records it; the request AuditSink refuses it.
+ */
+export interface SystemAuditActor { readonly kind: 'system'; readonly component: 'provisioning'; readonly operator: string }
+export type AuditActor = IdentityState | SystemAuditActor;
+/** An event whose producer is the provisioning system, never a request. Not appendable through AuditSink. */
+export type SystemAuditEvent = Omit<AuditEvent, 'actor'> & { actor: SystemAuditActor };
 export interface AuditSink { append(a: AuditEvent): Promise<{ eventId: string }> }
 export type Profile = 'production' | 'hosted-gate';
 export interface BuildStamp<P extends Profile> { revision: string; dirty: boolean; exported: boolean; builtAt: string; bun: string; buildId: string; target: 'cloudflare'; profile: P }

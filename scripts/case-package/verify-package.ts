@@ -26,7 +26,7 @@ import { VIEW_CONTENT_MAP } from '../../src/lib/case-package/v5/view-content-map
 import { decodeLegacyLocator } from '../../src/lib/case-package/paths.ts';
 import { parseStrictJson } from '../../src/lib/case-package/strict-json.ts';
 import { ADAPTER, convertV5, type ConvertResult } from '../../src/lib/case-package/v5/adapter.ts';
-import { reassembleV5 } from '../../src/lib/case-package/v5/reassemble.ts';
+import { reassembleV5 } from '../../src/lib/case-package/source-layout.ts';
 import { writePackageDir } from '../../src/lib/case-package/writer.ts';
 import { editManifestOnly, editPackage } from '../../tests/case-package/fixtures/build.ts';
 

@@ -10,8 +10,9 @@ import { CONVERSION_REPORT, LAYOUT, OPAQUE_SCHEMA, REQUIRED_DATASETS, V5_DATASET
 import type { Asset, Manifest } from '../schema.ts';
 import { decodeUtf8Strict, isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
 import { buildPackage, type DatasetSpec } from '../writer.ts';
+import { sourceLayout, valueAt } from '../source-layout.ts';
 import { countOf, mergeAnalysis, OVERLAY_MODULE, OVERLAY_SOURCE_PATH, readAnalysisOverlay } from './analysis-overlay.ts';
-import { extractV5, V5_ROOTS, type V5Root, type V5Source } from './extract.ts';
+import { extractV5, type V5Source } from './extract.ts';
 import { mapNewerRoots, reportTextCap } from './newer-workspace.ts';
 import { extractViewContent, type FieldStatus, type ViewContentResult } from './view-content.ts';
 import { VIEW_CONTENT_AUDIT, VIEW_CONTENT_MAP, VIEW_CONTENT_OMISSIONS } from './view-content-map.ts';
@@ -44,19 +45,6 @@ export interface ConvertResult {
 }
 
 const kebab = (s: string) => s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'x';
-
-export function splitSourcePath(p: string): [V5Root, string[]] {
-  const root = V5_ROOTS.find((r) => p === r || p.startsWith(r + '.'));
-  if (!root) throw new Error(`unknown source root in ${p}`);
-  return [root, p === root ? [] : p.slice(root.length + 1).split('.')];
-}
-
-function getAt(roots: V5Source['roots'], p: string): JsonValue | undefined {
-  const [root, segs] = splitSourcePath(p);
-  let v: JsonValue | undefined = roots[root];
-  for (const s of segs) v = isObject(v) && Object.hasOwn(v, s) ? v[s] : undefined;
-  return v;
-}
 
 /** v5 text_status -> textStatus. v5 had no OCR stage, so "none" on image media means "no extractor". */
 export function mapTextStatus(src: unknown, mediaType: string): TextStatus {
@@ -120,7 +108,7 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   const mapped = new Set<string>();
   const demoted: { d: (typeof V5_DATASETS)[number]; v: JsonValue; miss: string }[] = [];
   for (const d of V5_DATASETS) {
-    const v = getAt(roots, d.sourcePath);
+    const v = valueAt(roots, d.sourcePath);
     if (v === undefined) continue;
     mapped.add(d.sourcePath);
     const miss = REQUIRED_DATASETS.includes(d.key) ? undefined : shapeMiss(d.data, v);
@@ -153,9 +141,7 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
       for (const sub of Object.keys(DATA[k] as JsonObject)) if (!mapped.has(`${sp}.${sub}`)) residual(`${sp}.${sub}`, (DATA[k] as JsonObject)[sub]!);
     } else residual(sp, DATA[k]!);
   }
-  const layout: Record<string, string[]> = { roots: V5_ROOTS.filter((r) => roots[r] !== undefined), DATA: Object.keys(DATA) };
-  for (const sp of V5_SPLIT_PARENTS) { const v = getAt(roots, sp); if (isObject(v)) layout[sp] = Object.keys(v); }
-  datasets.push({ key: LAYOUT.key, kind: LAYOUT.kind, schema: LAYOUT.schema, required: LAYOUT.required, provenance: prov(LAYOUT.sourcePath), data: layout });
+  datasets.push({ key: LAYOUT.key, kind: LAYOUT.kind, schema: LAYOUT.schema, required: LAYOUT.required, provenance: prov(LAYOUT.sourcePath), data: sourceLayout(roots) });
 
   // what the module's merges did not place into DATA stays whole, as one opaque dataset
   const rest = merged?.rest ?? {};

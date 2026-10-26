@@ -1,0 +1,704 @@
+// SDK BOUNDARY DOUBLES ONLY. No browser, provider, workerd or PDF rendering is run by this file.
+// An artificial transcript exercises orchestration/negative gates; it is NEVER renderer acceptance.
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import type { Browser, BrowserWorker, HTTPRequest, Page } from '@cloudflare/puppeteer';
+import type { CloudD1, CloudD1Statement } from '../../../src/lib/storage/cloud/bindings.ts';
+import { id, resultsVersion } from '../../../src/lib/server/runtime/ids.ts';
+import { prepareHostedPdfAssets } from '../../../scripts/hosted-pdf-assets.ts';
+import { NATIVE_SDK_BUILD_SCHEMA, NATIVE_SDK_INPUT_PINS, NATIVE_SDK_WORKER_OUTPUTS } from '../../../scripts/native-render-sdk-build.ts';
+import { NATIVE_SDK_BUFFER_SOURCE, NATIVE_SDK_DEBUG_SOURCE, NATIVE_SDK_HOST_SYMBOLS } from '../../../src/lib/viewer/hosted/sdk-build-contract.ts';
+import { installWorkerdRedirectContract } from '../workerd-redirect-contract.ts';
+import { createNativePreviewRenderChecker, NATIVE_PDF_RENDER_CEILINGS, type NativePreviewRenderOptions } from '../../../src/lib/viewer/hosted/native-render-check.ts';
+
+const sdk = vi.hoisted(() => ({ launch: vi.fn() }));
+vi.mock('@cloudflare/puppeteer', () => ({ default: { launch: sdk.launch } }));
+const root = mkdtempSync(join(tmpdir(), 'clearcase-native-pdf-unit-'));
+const pins = prepareHostedPdfAssets({ root: resolve('.'), publicRoot: root });
+afterAll(() => rmSync(root, { recursive: true, force: true }));
+const bytes = new TextEncoder().encode('%PDF-1.7\nSYNTHETIC SDK BOUNDARY INPUT; NOT A RENDERABLE PDF.');
+const sha256 = await crypto.subtle.digest('SHA-256', bytes).then(b => Buffer.from(b).toString('hex'));
+const clientId = id('client', 'client-a'), caseId = id('case', 'case-a1');
+const input = () => ({ clientId, caseId, candidateId: 'candidate-a1', resultsVersion: resultsVersion('sha256:' + 'a'.repeat(64)), assetId: 'preview-a1', mediaType: 'application/pdf', bytes: bytes.slice(), sha256 });
+const day = 20_000 * 86_400_000;
+let clock = day + 10_000;
+const databases: DatabaseSync[] = [];
+afterAll(() => databases.forEach(db => db.close()));
+// The pinned asset fetch builds a Request, and workerd refuses redirect 'error' there. Bun does not, so model that one rule for the whole file.
+let restoreRequest: (() => void) | undefined;
+beforeAll(() => { restoreRequest = installWorkerdRedirectContract(); });
+afterAll(() => restoreRequest?.());
+
+/** Actual SQLite migration/trigger logic, with a deliberately labelled in-process D1 API boundary double. */
+function rawDatabase() {
+ const sqlite = new DatabaseSync(':memory:'); databases.push(sqlite);
+ sqlite.exec(readFileSync('src/lib/viewer/hosted/migrations/0001_preview_render_work.sql', 'utf8'));
+ // The deployed chain: the case-limit migration admits the ceiling budget's case limit of 3.
+ sqlite.exec(`BEGIN;\n${readFileSync('src/lib/viewer/hosted/migrations/0002_preview_render_case_limit.sql', 'utf8')}\nCOMMIT;`);
+ type Statement = CloudD1Statement & { sql: string; values: (string | number | null)[] };
+ const primary: CloudD1 = {
+  prepare(sql) {
+   const s: Statement = {
+    sql, values: [], bind(...values) { s.values = values; return s; },
+    async all<T>() { return { results: sqlite.prepare(sql).all(...s.values) as T[] }; },
+    async first<T>() { return (sqlite.prepare(sql).get(...s.values) ?? null) as T | null; },
+    async run() { return sqlite.prepare(sql).run(...s.values); },
+   }; return s;
+  },
+  async batch(statements) {
+   sqlite.exec('BEGIN IMMEDIATE');
+   try {
+    const outputs = statements.map(s => { const { sql, values } = s as Statement; return { success: true, results: sqlite.prepare(sql).all(...values) }; });
+    sqlite.exec('COMMIT'); return outputs;
+   } catch (e) { sqlite.exec('ROLLBACK'); throw e; }
+  },
+ };
+ return { sqlite, primary, withSession: vi.fn((constraint: 'first-primary') => { expect(constraint).toBe('first-primary'); return primary; }) };
+}
+
+/** Inert SDK boundary. Captures routes and returns fabricated canvas metadata without executing page code. */
+function sdkBoundary() {
+ const listeners = new Map<string, ((...args: unknown[]) => unknown)[]>();
+ const served = new Map<string, { body?: string | Uint8Array; headers?: Record<string, string> }>();
+ const rejectRespond = new Set<string>();
+ let pendingRequest: Promise<unknown> = Promise.resolve();
+ const mainFrame = {};
+ const request = async (url: string, type = 'script', method = 'GET') => {
+  let finish!: () => void;
+  pendingRequest = new Promise<void>(resolve => { finish = resolve; });
+  const req = {
+   url: () => url, method: () => method, resourceType: () => type,
+   isNavigationRequest: () => type === 'document', frame: () => mainFrame,
+   respond: vi.fn(async (response: { body?: string | Uint8Array; headers?: Record<string, string> }) => {
+    if (rejectRespond.has(url)) { finish(); throw Error('scripted respond failure'); }
+    served.set(new URL(url).pathname, response); finish();
+   }),
+   abort: vi.fn(async () => { finish(); }),
+  };
+  for (const f of listeners.get('request') ?? []) f(req as unknown as HTTPRequest);
+  await pendingRequest;
+  return req;
+ };
+ const page = {
+  setDefaultTimeout: vi.fn(), setDefaultNavigationTimeout: vi.fn(),
+  setBypassServiceWorker: vi.fn(async () => {}), setCacheEnabled: vi.fn(async () => {}), setRequestInterception: vi.fn(async () => {}),
+  mainFrame: () => mainFrame,
+  on(name: string, f: (...args: unknown[]) => unknown) { listeners.set(name, [...listeners.get(name) ?? [], f]); return page; },
+  goto: vi.fn(async (url: string) => {
+   await request(url, 'document');
+   await request('https://app.example/__clearcase_native_pdf__/inspector.mjs');
+   await request('https://app.example/pdfjs/pdf.min.mjs');
+  }),
+  evaluate: vi.fn(async (_fn: unknown, args: { binding: string; sha256: string; size: number }): Promise<unknown> => {
+   await request('https://app.example/__clearcase_native_pdf__/input.pdf', 'fetch');
+   await request('https://app.example/pdfjs/pdf.worker.min.mjs', 'fetch');
+   return { ...args, pdfjsVersion: '6.4.299', totalPages: 2, pages: [1, 2].map(number => ({ number, width: 10, height: 10, pixelBytes: 400, pixelSha256: 'c'.repeat(64) })) };
+  }),
+  close: vi.fn(async () => {}),
+ };
+ // Preserve the original close spy/assertions as an inert root-CDP close-command observation.
+ // This double does NOT execute SDK Browser.close(); security-regressions tests that real faulty callback separately.
+ const closedListeners = new Set<() => void>();
+ let connected = true;
+ const browser = {
+  newPage: vi.fn(async () => page as unknown as Page), close: vi.fn(async () => {}), disconnect: vi.fn(async () => {}),
+  get connected() { return connected; },
+  on(_name: string, listener: () => void) { closedListeners.add(listener); },
+  off(_name: string, listener: () => void) { closedListeners.delete(listener); },
+  target: () => ({ createCDPSession: async () => ({ connection: () => ({
+   send: async () => { await browser.close(); connected = false; for (const listener of closedListeners) listener(); return {}; },
+  }) }) }),
+ };
+ return { page, browser, request, served, rejectRespond, emit: (name: string, ...args: unknown[]) => { for (const fn of listeners.get(name) ?? []) fn(...args); } };
+}
+// These case-cap probes keep today's deployed case limit of 2; the ceiling of 3 is probed in case-ceiling.test.ts.
+const CASE_LIMIT_TWO = { ...NATIVE_PDF_RENDER_CEILINGS, maxRunsPerCasePerDay: 2 };
+function options(db = rawDatabase(), budget: NativePreviewRenderOptions['budget'] = { ...NATIVE_PDF_RENDER_CEILINGS }): NativePreviewRenderOptions {
+ return {
+  db, clientId, browser: { fetch: vi.fn(async () => { throw Error('inert BROWSER double: no provider call'); }) } as BrowserWorker,
+  assets: { fetch: vi.fn(async (request: Request) => new Response(readFileSync(join(root, new URL(request.url).pathname)))) },
+  appOrigin: 'https://app.example', pins: structuredClone(pins), budget, now: () => new Date(clock),
+ };
+}
+beforeEach(() => { sdk.launch.mockReset(); clock = day + 10_000; });
+
+describe('native PDF SDK boundary orchestration (NOT renderer acceptance)', () => {
+ it('uses official launch only after committed primary reservation; pins static bytes and closes', async () => {
+  const db = rawDatabase(), boundary = sdkBoundary(), o = options(db);
+  sdk.launch.mockImplementation(async () => {
+   const row = db.sqlite.prepare('SELECT * FROM npr_reservations').get();
+   expect(row).toMatchObject({ client_id: clientId, case_id: caseId, input_sha256: sha256, input_size: bytes.length, results_version: 'sha256:' + 'a'.repeat(64) });
+   return boundary.browser;
+  });
+  const checker = (await createNativePreviewRenderChecker(o))!;
+  expect(await checker.verify(input())).toMatchObject({ state: 'rendered', pages: 2 }); // fabricated SDK transcript only
+  expect(sdk.launch).toHaveBeenCalledWith(expect.anything(), { keep_alive: 60_000, recording: false, guardrails: { allowedDomains: [] } });
+  expect(db.withSession).toHaveBeenCalledWith('first-primary');
+  expect(boundary.browser.close).toHaveBeenCalledOnce(); expect(boundary.page.close).toHaveBeenCalledWith({ runBeforeUnload: false });
+  expect(boundary.browser.disconnect).toHaveBeenCalledOnce();
+  expect(o.assets!.fetch).toHaveBeenCalledTimes(2);
+  expect(boundary.served.get('/__clearcase_native_pdf__/input.pdf')!.body).toEqual(bytes);
+  const source = String(boundary.served.get('/__clearcase_native_pdf__/inspector.mjs')!.body);
+  for (const required of ['new Worker(', 'await rendering.promise', 'getImageData(', 'worker?.terminate()', 'isEvalSupported: false', 'enableScripting: false', 'enableXfa: false', 'stopAtErrors: true']) expect(source).toContain(required);
+  expect(source).not.toContain('innerHTML'); expect(source).not.toContain(sha256); expect(source).not.toContain('candidate-a1');
+  expect(boundary.served.get('/__clearcase_native_pdf__/inspect')!.headers!['content-security-policy']).not.toContain('unsafe-eval');
+ });
+
+ it('fetches each pinned static file as a manual-redirect GET and serves exactly its pinned bytes', async () => {
+  const boundary = sdkBoundary(), o = options(); sdk.launch.mockResolvedValue(boundary.browser);
+  expect(await (await createNativePreviewRenderChecker(o))!.verify(input())).toMatchObject({ state: 'rendered', pages: 2 });
+  const fetched = vi.mocked(o.assets!.fetch).mock.calls.map(([request]) => request);
+  expect(fetched.map(request => new URL(request.url).pathname).sort()).toEqual(['/pdfjs/pdf.min.mjs', '/pdfjs/pdf.worker.min.mjs']);
+  for (const request of fetched) expect([request.method, request.redirect, new URL(request.url).origin]).toEqual(['GET', 'manual', 'https://app.example']);
+  for (const path of ['/pdfjs/pdf.min.mjs', '/pdfjs/pdf.worker.min.mjs']) {
+   const pin = pins.files.find(f => '/' + f.path === path)!;
+   const served = Buffer.from(boundary.served.get(path)!.body as Uint8Array);
+   expect(served.equals(readFileSync(join(root, path)))).toBe(true);
+   expect([served.length, 'sha256:' + createHash('sha256').update(served).digest('hex')]).toEqual([pin.bytes, pin.sha256]);
+  }
+ });
+
+ it.each(['db', 'browser', 'assets', 'pins', 'budget'] as const)('is unavailable without %s', async key => {
+  const o = options(); o[key] = null;
+  expect(await createNativePreviewRenderChecker(o)).toBeNull(); expect(sdk.launch).not.toHaveBeenCalled();
+ });
+ it('requires every explicit finite positive integer budget and enforces conservative ceilings', async () => {
+  for (const key of Object.keys(NATIVE_PDF_RENDER_CEILINGS) as (keyof typeof NATIVE_PDF_RENDER_CEILINGS)[]) {
+   for (const bad of [undefined, null, Infinity, NaN, 0, -1, 1.5, NATIVE_PDF_RENDER_CEILINGS[key] + 1]) {
+    const o = options(); Object.assign(o.budget!, { [key]: bad });
+    expect(await createNativePreviewRenderChecker(o)).toBeNull();
+   }
+  }
+ });
+ it('rejects noncanonical origins, bad pin manifest and mutable configuration substitution', async () => {
+  for (const appOrigin of ['http://app.example', 'https://app.example/', 'https://x:secret@app.example', 'https://app.example/?x=1']) expect(await createNativePreviewRenderChecker({ ...options(), appOrigin })).toBeNull();
+  const broken = options(); broken.pins!.files = broken.pins!.files.slice(1);
+  expect(await createNativePreviewRenderChecker(broken)).toBeNull();
+  const corrupt = options(); corrupt.pins!.files = corrupt.pins!.files.map((f, i) => i === 0 ? { ...f, bytes: f.bytes + 1 } : f);
+  expect(await createNativePreviewRenderChecker(corrupt)).toBeNull();
+  const o = options(), boundary = sdkBoundary(); sdk.launch.mockResolvedValue(boundary.browser);
+  const checker = (await createNativePreviewRenderChecker(o))!;
+  o.budget!.maxFileBytes = 1; o.clientId = id('client', 'client-b'); o.assets = { fetch: async () => { throw Error('replacement'); } };
+  expect(await checker.verify(input())).toMatchObject({ state: 'rendered' }); // original captured config, fake transcript
+ });
+ it('honestly refuses other media, hash mismatch, invalid PDF header, wrong client and oversize before admission', async () => {
+  const db = rawDatabase(), o = options(db), checker = (await createNativePreviewRenderChecker(o))!;
+  for (const changed of [ { mediaType: 'image/png' }, { sha256: 'b'.repeat(64) }, { clientId: id('client', 'client-b') }, { bytes: new Uint8Array(4_000_001) }, { assetId: 'https://attacker.example' } ]) {
+   expect(await checker.verify({ ...input(), ...changed })).toMatchObject({ state: 'failed' });
+  }
+  const invalid = new TextEncoder().encode('not pdf');
+  const digest = Buffer.from(await crypto.subtle.digest('SHA-256', invalid)).toString('hex');
+  expect(await checker.verify({ ...input(), bytes: invalid, sha256: digest })).toMatchObject({ state: 'failed' });
+  expect(db.sqlite.prepare('SELECT count(*) n FROM npr_reservations').get()!.n).toBe(0); expect(sdk.launch).not.toHaveBeenCalled();
+ });
+ it('copies input identities and bytes before the first await', async () => {
+  const boundary = sdkBoundary(); sdk.launch.mockResolvedValue(boundary.browser);
+  const checker = (await createNativePreviewRenderChecker(options()))!;
+  const value = input(), verification = checker.verify(value);
+  value.bytes.fill(0); value.caseId = id('case', 'case-a2'); value.assetId = 'replacement'; value.sha256 = 'd'.repeat(64);
+  expect(await verification).toMatchObject({ state: 'rendered' });
+  expect(boundary.served.get('/__clearcase_native_pdf__/input.pdf')!.body).toEqual(bytes);
+ });
+ it.each(['network', 'static', 'static-size', 'redirect', 'missing', 'sdk-error', 'pageerror', 'requestfailed', 'cleanup'])('fails closed on %s without logging errors or protected bytes', async mode => {
+  const db = rawDatabase(), boundary = sdkBoundary(), o = options(db);
+  const logs = [vi.spyOn(console, 'log').mockImplementation(() => {}), vi.spyOn(console, 'warn').mockImplementation(() => {}), vi.spyOn(console, 'error').mockImplementation(() => {})];
+  try {
+   sdk.launch.mockResolvedValue(boundary.browser);
+   if (mode === 'network') boundary.page.goto.mockImplementationOnce(async () => { expect((await boundary.request('https://attacker.example/secret', 'fetch')).abort).toHaveBeenCalledOnce(); });
+   if (mode === 'static') o.assets = { fetch: async () => new Response('corrupted') };
+   if (mode === 'static-size') o.assets = { fetch: async request => new Response(Buffer.concat([readFileSync(join(root, new URL(request.url).pathname)), Buffer.from('x')])) };
+   if (mode === 'redirect') o.assets = { fetch: async () => new Response(null, { status: 302, headers: { location: 'https://attacker.example' } }) };
+   if (mode === 'missing') o.assets = { fetch: async () => new Response(null, { status: 404 }) };
+   if (mode === 'sdk-error') sdk.launch.mockRejectedValue(Error('SYNTHETIC_SECRET_CANARY'));
+   if (['pageerror', 'requestfailed'].includes(mode)) boundary.page.goto.mockImplementationOnce(async () => { boundary.emit(mode, Error('SYNTHETIC_SECRET_CANARY')); });
+   if (mode === 'cleanup') boundary.page.close.mockRejectedValueOnce(Error('SYNTHETIC_SECRET_CANARY'));
+   const checker = (await createNativePreviewRenderChecker(o))!;
+   expect(await checker.verify(input())).toMatchObject({ state: 'failed' });
+   expect(db.sqlite.prepare('SELECT count(*) n FROM npr_success_receipts').get()!.n).toBe(0);
+   for (const log of logs) expect(log).not.toHaveBeenCalled();
+  } finally { logs.forEach(log => log.mockRestore()); }
+ });
+ it.each(['POST', 'query', 'same-origin-private', 'reader', 'other-origin', 'unknown'])('never continues a nonrequired request: %s', async mode => {
+  const boundary = sdkBoundary(); sdk.launch.mockResolvedValue(boundary.browser);
+  const urls: Record<string, string> = { POST: '/pdfjs/pdf.min.mjs', query: '/pdfjs/pdf.min.mjs?x=1', 'same-origin-private': '/api/private', reader: '/pdfjs/pdf-reader.mjs', 'other-origin': 'https://thirdparty.example/pdfjs/pdf.min.mjs', unknown: '/pdfjs/unknown.mjs' };
+  boundary.page.goto.mockImplementationOnce(async () => {
+   const r = await boundary.request(new URL(urls[mode]!, 'https://app.example').href, 'fetch', mode === 'POST' ? 'POST' : 'GET');
+   expect(r.abort).toHaveBeenCalledOnce(); expect(r.respond).not.toHaveBeenCalled();
+  });
+  const checker = (await createNativePreviewRenderChecker(options()))!;
+  expect(await checker.verify(input())).toMatchObject({ state: 'failed' }); expect(boundary.page.close).toHaveBeenCalledOnce();
+ });
+ it('checks total pages, every pixel readback, bound identities and renderer version rather than a rendered flag', async () => {
+  const good = { binding: '', sha256, size: bytes.length, pdfjsVersion: '6.4.299', totalPages: 2, pages: [1, 2].map(number => ({ number, width: 10, height: 10, pixelBytes: 400, pixelSha256: 'a'.repeat(64) })) };
+  const mutations = [
+   { state: 'rendered' }, { ...good, totalPages: 3 }, { ...good, totalPages: 0 }, { ...good, pages: [] },
+   { ...good, size: 0 }, { ...good, sha256: 'e'.repeat(64) }, { ...good, pdfjsVersion: 'other' },
+   { ...good, pages: [good.pages[1], good.pages[0]] }, { ...good, pages: [{ ...good.pages[0], pixelBytes: 0 }, good.pages[1]] },
+   { ...good, pages: [{ ...good.pages[0], pixelSha256: '' }, good.pages[1]] },
+   { ...good, pages: [{ ...good.pages[0], width: Infinity }, good.pages[1]] },
+   { ...good, pages: [1, 2].map(number => ({ number, width: 4096, height: 4096, pixelBytes: 4096 * 4096 * 4, pixelSha256: 'c'.repeat(64) })) },
+  ];
+  for (const mutated of mutations) {
+   const boundary = sdkBoundary(); sdk.launch.mockResolvedValue(boundary.browser);
+   boundary.page.evaluate.mockImplementationOnce(async (_fn, args) => ({ ...mutated, binding: args.binding }));
+   const checker = (await createNativePreviewRenderChecker(options()))!;
+   expect(await checker.verify(input())).toMatchObject({ state: 'failed' });
+  }
+  const boundary = sdkBoundary(); sdk.launch.mockResolvedValue(boundary.browser);
+  boundary.page.evaluate.mockResolvedValueOnce(good); // wrong exact-file binding
+  expect(await (await createNativePreviewRenderChecker(options()))!.verify(input())).toMatchObject({ state: 'failed' });
+ });
+ it('reuses only immutable exact-file success after fresh hashing, across readiness/signoff/publish and factories', async () => {
+  const db = rawDatabase(), boundary = sdkBoundary(), o = options(db); sdk.launch.mockResolvedValue(boundary.browser);
+  const checker = (await createNativePreviewRenderChecker(o))!;
+  const first = await checker.verify(input());
+  expect(first).toMatchObject({ state: 'rendered', pages: 2, rendererVersion: expect.stringMatching(/^clearcase\.native-pdf\/2;sha256:[a-f0-9]{64}$/) });
+  for (let i = 0; i < 8; i++) expect(await checker.verify(input())).toEqual(first);
+  const restarted = (await createNativePreviewRenderChecker(options(db)))!;
+  clock = day + 86_400_000 - 1; // cached immutable facts need no launch even when admission is closed
+  expect(await restarted.verify(input())).toEqual(first);
+  expect(sdk.launch).toHaveBeenCalledOnce();
+  expect(db.sqlite.prepare('SELECT count(*) n FROM npr_success_receipts').get()!.n).toBe(1);
+  expect(db.sqlite.prepare('SELECT count(*) n FROM npr_reservations').get()!.n).toBe(1);
+  const changed = input(); changed.bytes[10] ^= 1;
+  expect(await checker.verify(changed)).toMatchObject({ state: 'failed', reason: 'input-integrity-mismatch' });
+  for (const fields of [{ caseId: id('case', 'case-a2') }, { candidateId: 'candidate-a2' }, { assetId: 'asset-a2' }, { resultsVersion: resultsVersion('sha256:' + 'b'.repeat(64)) }]) {
+   expect(await checker.verify({ ...input(), ...fields })).toMatchObject({ state: 'pending' }); // NOT cached; near-midnight admission is closed
+  }
+  expect(await checker.verify({ ...input(), clientId: id('client', 'client-b') })).toMatchObject({ state: 'failed' });
+  expect(() => db.sqlite.exec('DELETE FROM npr_success_receipts')).toThrow(/immutable/);
+  expect(() => db.sqlite.exec('UPDATE npr_success_receipts SET pages=1')).toThrow(/immutable/);
+  expect(sdk.launch).toHaveBeenCalledOnce();
+ });
+ it('never creates a success receipt for failure, partial render, cleanup failure or timeout', async () => {
+  const db = rawDatabase(), boundary = sdkBoundary(); sdk.launch.mockResolvedValue(boundary.browser);
+  boundary.page.evaluate.mockResolvedValueOnce({ state: 'rendered' });
+  const checker = (await createNativePreviewRenderChecker(options(db)))!;
+  expect(await checker.verify(input())).toMatchObject({ state: 'failed' });
+  expect(db.sqlite.prepare('SELECT count(*) n FROM npr_success_receipts').get()!.n).toBe(0);
+  clock += 82_000;
+  boundary.page.close.mockRejectedValueOnce(Error('cleanup failure'));
+  expect(await checker.verify(input())).toMatchObject({ state: 'failed' });
+  expect(db.sqlite.prepare('SELECT count(*) n FROM npr_success_receipts').get()!.n).toBe(0);
+ });
+ it('holds on failed or ambiguous success persistence/readback; a genuine committed receipt can be read later', async () => {
+  for (const mode of ['reject', 'ambiguous', 'tamper', 'failed-ack'] as const) {
+   const db = rawDatabase(), boundary = sdkBoundary(); sdk.launch.mockResolvedValue(boundary.browser);
+   const batch = db.primary.batch.bind(db.primary);
+   db.primary.batch = async statements => {
+    const sql = (statements[0] as CloudD1Statement & { sql: string }).sql;
+    if (!sql.includes('npr_success_receipts')) return batch(statements);
+    if (mode === 'reject') throw Error('SYNTHETIC_SECRET_CANARY');
+    const outputs = await batch(statements);
+    if (mode === 'ambiguous') return [outputs[0], { success: true, results: [] }];
+    if (mode === 'failed-ack') return outputs.map(output => ({ ...output as object, success: false }));
+    return [outputs[0], { success: true, results: [{ ...(outputs[1] as { results: object[] }).results[0], asset_id: 'other-asset' }] }];
+   };
+   const checker = (await createNativePreviewRenderChecker(options(db)))!;
+   expect(await checker.verify(input())).toMatchObject({ state: 'pending', reason: 'render-receipt-unavailable' });
+   expect(db.sqlite.prepare('SELECT count(*) n FROM npr_success_receipts').get()!.n).toBe(mode === 'reject' ? 0 : 1);
+   if (mode !== 'reject') expect(await checker.verify(input())).toMatchObject({ state: 'rendered' }); // actual committed exact fake-boundary transcript
+  }
+ });
+ it('validates exact receipt identity, pixel bounds and transcript integrity on every reuse', async () => {
+  const db = rawDatabase(), boundary = sdkBoundary(); sdk.launch.mockResolvedValue(boundary.browser);
+  const checker = (await createNativePreviewRenderChecker(options(db)))!;
+  expect(await checker.verify(input())).toMatchObject({ state: 'rendered' });
+  const row = db.sqlite.prepare('SELECT * FROM npr_success_receipts').get()!;
+  for (const field of ['client_id', 'case_id', 'candidate_id', 'results_version', 'asset_id', 'input_sha256', 'input_size', 'renderer_version', 'binding_sha256', 'transcript_json', 'transcript_sha256', 'pages', 'canvas_pixels']) {
+   const primary = { ...db.primary, prepare: () => ({ first: async () => ({ ...row, [field]: 'corrupt' }), bind() { return this; } }) as CloudD1Statement };
+   const bad = (await createNativePreviewRenderChecker({ ...options(db), db: { withSession: () => primary } }))!;
+   expect(await bad.verify(input())).toMatchObject({ state: 'pending', reason: 'render-receipt-integrity' });
+  }
+  const strict = options(db); strict.budget!.maxCanvasPixels = 1;
+  expect(await (await createNativePreviewRenderChecker(strict))!.verify(input())).toMatchObject({ state: 'pending' });
+  expect(sdk.launch).toHaveBeenCalledOnce();
+ });
+ it('derives the renderer fingerprint from actual SDK pin, main/worker pins and source program', async () => {
+  const db = rawDatabase(), boundary = sdkBoundary(); sdk.launch.mockResolvedValue(boundary.browser);
+  const checker = (await createNativePreviewRenderChecker(options(db)))!;
+  const first = await checker.verify(input());
+  const program = String(boundary.served.get('/__clearcase_native_pdf__/inspector.mjs')!.body);
+  const html = String(boundary.served.get('/__clearcase_native_pdf__/inspect')!.body);
+  const csp = boundary.served.get('/__clearcase_native_pdf__/inspect')!.headers!['content-security-policy'];
+  const digest = async (v: unknown) => Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(v)))).toString('hex');
+  const expected = await digest({ algorithm: 'clearcase.native-pdf/2', sdkVersion: '1.4.0', sdkIntegrity: 'sha512-39lo96Y7ErOJFmu/KIJU1VLaOibhynx/BauKCZOW5+RVH/mG0jZrAEGJlqCdx5ZxLHyWppm78YX3jLNPCBB+fA==',
+   sdkWorkerPolicy: { schema: NATIVE_SDK_BUILD_SCHEMA, inputs: NATIVE_SDK_INPUT_PINS, transforms: NATIVE_SDK_WORKER_OUTPUTS, hostBuffer: NATIVE_SDK_BUFFER_SOURCE, deniedNodeDiagnostics: NATIVE_SDK_DEBUG_SOURCE, hostSymbols: ['Symbol.dispose', 'Symbol.asyncDispose'] }, pdfjsVersion: pins.pdfjsVersion,
+   packageDigest: pins.packageDigest, browser: pins.files.find(f => f.path === 'pdfjs/pdf.min.mjs'), worker: pins.files.find(f => f.path === 'pdfjs/pdf.worker.min.mjs'), program: await digest([html, csp, program]) });
+  expect(first.rendererVersion).toBe('clearcase.native-pdf/2;sha256:' + expected);
+  const altered = { ...db.sqlite.prepare('SELECT * FROM npr_success_receipts').get()!, renderer_version: 'clearcase.native-pdf/2;sha256:' + '0'.repeat(64) };
+  const primary = { ...db.primary, prepare: () => ({ first: async () => altered, bind() { return this; } }) as CloudD1Statement };
+  expect(await (await createNativePreviewRenderChecker({ ...options(db), db: { withSession: () => primary } }))!.verify(input())).toMatchObject({ state: 'pending' });
+ });
+ it('aborts SDK HTTP and closes its live/late transport using only the injected binding', async () => {
+  const boundary = sdkBoundary(), o = options(), close = vi.fn(), captured: AbortSignal[] = [];
+  o.browser = { fetch: vi.fn(async (_url, init) => { captured.push(init!.signal!); return Object.assign(new Response(), { webSocket: { close } }); }) };
+  sdk.launch.mockImplementationOnce(async (binding: BrowserWorker) => { await binding.fetch('https://fake.host/v1/devtools/browser', { method: 'POST' }); return boundary.browser; });
+  expect(await (await createNativePreviewRenderChecker(o))!.verify(input())).toMatchObject({ state: 'rendered' });
+  expect(close).toHaveBeenCalledOnce(); expect(captured[0]!.aborted).toBe(true);
+  const late = options(); late.budget!.maxRunMs = 15;
+  let release!: (response: Response) => void;
+  late.browser = { fetch: vi.fn(() => new Promise<Response>(resolve => { release = resolve; })) };
+  sdk.launch.mockImplementationOnce(async (binding: BrowserWorker) => { await binding.fetch('https://fake.host/v1/devtools/browser'); return boundary.browser; });
+  expect(await (await createNativePreviewRenderChecker(late))!.verify(input())).toMatchObject({ state: 'failed', reason: 'render-timeout' });
+  release(Object.assign(new Response(), { webSocket: { close } }));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(close).toHaveBeenCalledTimes(2); expect(boundary.browser.newPage).toHaveBeenCalledOnce();
+ });
+ it('bounds an SDK hang, consumes the reservation, and closes a late browser without a retry', async () => {
+  const boundary = sdkBoundary(), db = rawDatabase(), o = options(db); o.budget!.maxRunMs = 15;
+  let release!: (browser: Browser) => void;
+  sdk.launch.mockImplementationOnce(() => new Promise<Browser>(resolve => { release = resolve; }));
+  const checker = (await createNativePreviewRenderChecker(o))!;
+  expect(await checker.verify(input())).toMatchObject({ state: 'failed', reason: 'render-timeout' });
+  release(boundary.browser as unknown as Browser);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(boundary.browser.close).toHaveBeenCalledOnce(); expect(boundary.browser.disconnect).toHaveBeenCalledOnce();
+  expect(await checker.verify(input())).toMatchObject({ state: 'pending' }); expect(sdk.launch).toHaveBeenCalledOnce();
+ });
+ it('caps page and cleanup hangs, rejecting late success', async () => {
+  const boundary = sdkBoundary(), o = options(); o.budget!.maxRunMs = 20;
+  sdk.launch.mockResolvedValue(boundary.browser);
+  boundary.page.evaluate.mockImplementationOnce(() => new Promise(() => {}));
+  boundary.page.close.mockImplementationOnce(() => new Promise(() => {}));
+  const checker = (await createNativePreviewRenderChecker(o))!;
+  const start = performance.now();
+  expect(await checker.verify(input())).toMatchObject({ state: 'failed', reason: 'render-cleanup-failed' });
+  expect(performance.now() - start).toBeLessThan(3_000); expect(boundary.browser.close).toHaveBeenCalledOnce(); expect(boundary.browser.disconnect).toHaveBeenCalledOnce();
+ });
+});
+
+describe('actual migration trigger admission with SQLite D1 boundary double (NOT D1/provider acceptance)', () => {
+ it('serializes concurrent attempts across fresh checker factories and never refunds a failed launch', async () => {
+  const db = rawDatabase(); sdk.launch.mockRejectedValue(Error('deliberate SDK boundary failure'));
+  const a = (await createNativePreviewRenderChecker(options(db, CASE_LIMIT_TWO)))!, b = (await createNativePreviewRenderChecker(options(db, CASE_LIMIT_TWO)))!;
+  const results = await Promise.all([a.verify(input()), b.verify(input())]);
+  expect(results.map(r => r.state).sort()).toEqual(['failed', 'pending']); expect(sdk.launch).toHaveBeenCalledOnce();
+  expect(db.sqlite.prepare('SELECT runs FROM npr_client_days').get()!.runs).toBe(1);
+  clock += 82_000;
+  expect(await b.verify(input())).toMatchObject({ state: 'failed' });
+  clock += 82_000;
+  expect(await a.verify(input())).toMatchObject({ state: 'pending' }); expect(sdk.launch).toHaveBeenCalledTimes(2);
+  expect(db.sqlite.prepare('SELECT count(*) n FROM npr_reservations').get()!.n).toBe(2);
+ });
+ it('caps all cases in a client, allows only a monotonic UTC reset, and preserves immutable receipts', async () => {
+  const db = rawDatabase(); sdk.launch.mockRejectedValue(Error('deliberate failure'));
+  const checker = (await createNativePreviewRenderChecker(options(db)))!;
+  for (let i = 0; i < 4; i++) { expect(await checker.verify({ ...input(), caseId: id('case', `case-${i}`) })).toMatchObject({ state: 'failed' }); clock += 82_000; }
+  expect(await checker.verify({ ...input(), caseId: id('case', 'case-extra') })).toMatchObject({ state: 'pending' });
+  clock = day - 1_000;
+  expect(await checker.verify(input())).toMatchObject({ state: 'pending' });
+  clock = day + 86_400_000 + 1_000;
+  expect(await checker.verify(input())).toMatchObject({ state: 'failed' });
+  clock = day + 1_000;
+  expect(await checker.verify(input())).toMatchObject({ state: 'pending' });
+  expect(db.sqlite.prepare('SELECT runs,day FROM npr_client_days').get()).toMatchObject({ runs: 1, day: 20_001 });
+  expect(() => db.sqlite.exec('DELETE FROM npr_reservations')).toThrow(/immutable/);
+  expect(() => db.sqlite.exec('UPDATE npr_reservations SET input_size=1')).toThrow(/immutable/);
+ });
+ it('rejects a near-midnight launch rather than undercharging tomorrow', async () => {
+  const checker = (await createNativePreviewRenderChecker(options()))!;
+  clock = day + 86_400_000 - 82_000;
+  expect(await checker.verify(input())).toMatchObject({ state: 'pending' }); expect(sdk.launch).not.toHaveBeenCalled();
+ });
+ it('rejects missing migration, failed/ambiguous commit and stale/nonprimary DB shape before launch', async () => {
+  for (const which of ['missing', 'ambiguous', 'failed-ack'] as const) {
+   const db = rawDatabase(), o = options(db), batch = db.primary.batch.bind(db.primary);
+   if (which === 'missing') db.sqlite.exec('DROP TABLE npr_reservations');
+   else if (which === 'ambiguous') db.primary.batch = async () => [{ success: true, results: [] }];
+   else db.primary.batch = async statements => (await batch(statements)).map(output => ({ ...output as object, success: false }));
+   expect(await (await createNativePreviewRenderChecker(o))!.verify(input())).toMatchObject({ state: 'pending' });
+  }
+  expect(await createNativePreviewRenderChecker({ ...options(), db: {} as NativePreviewRenderOptions['db'] })).toBeNull();
+  expect(sdk.launch).not.toHaveBeenCalled();
+ });
+});
+
+describe('host disposal symbol preflight (NOT workerd acceptance)', () => {
+ it('names exactly the two host disposal symbols the transformed SDK reads', () => {
+  expect(NATIVE_SDK_HOST_SYMBOLS).toEqual(['Symbol.dispose', 'Symbol.asyncDispose']);
+  expect(Object.isFrozen(NATIVE_SDK_HOST_SYMBOLS)).toBe(true);
+ });
+ it.each(['dispose', 'asyncDispose'] as const)('is unavailable, never polyfilled, on a host without Symbol.%s', async missing => {
+  const host = Symbol, partial = Object.assign((description?: string) => host(description), { dispose: host.dispose, asyncDispose: host.asyncDispose, [missing]: undefined });
+  vi.stubGlobal('Symbol', partial);
+  try {
+   expect(await createNativePreviewRenderChecker(options())).toBeNull();
+   expect(partial[missing]).toBeUndefined();
+  } finally { vi.unstubAllGlobals(); }
+  expect(sdk.launch).not.toHaveBeenCalled();
+  expect(await createNativePreviewRenderChecker(options())).not.toBeNull();
+ });
+});
+
+describe('native PDF diagnostic stage (SDK boundary doubles only; NOT renderer acceptance)', () => {
+ const SECRET = 'TypeError at https://client-a.example/__session?token=abc123 cookie=__session=eyJhbGciOi sess_2abcDEF blob:1f2e3d4c';
+ async function failed(arrange: (boundary: ReturnType<typeof sdkBoundary>) => void, tune?: (o: NativePreviewRenderOptions) => void) {
+  const boundary = sdkBoundary(), db = rawDatabase(), o = options(db); tune?.(o);
+  sdk.launch.mockResolvedValue(boundary.browser); arrange(boundary);
+  const outcome = await (await createNativePreviewRenderChecker(o))!.verify(input());
+  const rows = db.sqlite.prepare('SELECT COUNT(*) AS n FROM npr_reservations').get() as { n: number };
+  expect(JSON.stringify(outcome)).not.toMatch(/TypeError|https:|__session|token=|cookie|eyJhbGciOi|sess_|blob:/);
+  expect(rows.n).toBe(1); expect(sdk.launch).toHaveBeenCalledOnce();
+  return outcome;
+ }
+ it('names the launch phase and keeps the generic render-failed reason', async () => {
+  const boundary = sdkBoundary(), db = rawDatabase();
+  sdk.launch.mockRejectedValue(Error(SECRET));
+  const outcome = await (await createNativePreviewRenderChecker(options(db)))!.verify(input());
+  expect(outcome).toMatchObject({ state: 'failed', reason: 'render-failed', stage: 'launch' });
+  expect(JSON.stringify(outcome)).not.toMatch(/TypeError|https:|__session|sess_|blob:/);
+  expect(boundary.page.goto).not.toHaveBeenCalled();
+ });
+ it.each([
+  ['page-setup', 'render-failed', (b: ReturnType<typeof sdkBoundary>) => { b.browser.newPage.mockRejectedValueOnce(Error(SECRET)); }],
+  ['page-setup', 'render-failed', (b: ReturnType<typeof sdkBoundary>) => { b.page.setRequestInterception.mockRejectedValueOnce(Error(SECRET)); }],
+  ['navigation', 'render-failed', (b: ReturnType<typeof sdkBoundary>) => { b.page.goto.mockRejectedValueOnce(Error(SECRET)); }],
+  ['inspection', 'render-failed', (b: ReturnType<typeof sdkBoundary>) => { b.page.evaluate.mockRejectedValueOnce(Error(SECRET)); }],
+  ['inspection', 'incomplete-render-transcript', (b: ReturnType<typeof sdkBoundary>) => { b.page.evaluate.mockResolvedValueOnce({ not: 'a transcript' }); }],
+ ] as const)('names the %s phase and keeps reason %s', async (stage, reason, arrange) => {
+  expect(await failed(arrange)).toMatchObject({ state: 'failed', reason, stage });
+ });
+ it('names the cleanup phase when cleanup fails and keeps render-cleanup-failed', async () => {
+  expect(await failed(b => { b.page.close.mockImplementationOnce(() => new Promise(() => {})); }, o => { o.budget!.maxRunMs = 20; })).toMatchObject({ state: 'failed', reason: 'render-cleanup-failed', stage: 'cleanup' });
+ });
+ it('keeps render-timeout and names the phase that was waiting', async () => {
+  const o = options(); o.budget!.maxRunMs = 15;
+  sdk.launch.mockImplementationOnce(() => new Promise<Browser>(() => {}));
+  expect(await (await createNativePreviewRenderChecker(o))!.verify(input())).toMatchObject({ state: 'failed', reason: 'render-timeout', stage: 'launch' });
+ });
+ it('adds no stage to a rendered result or to a pre-run refusal, and no extra key', async () => {
+  const boundary = sdkBoundary();
+  sdk.launch.mockResolvedValue(boundary.browser);
+  const checker = (await createNativePreviewRenderChecker(options()))!;
+  const rendered = await checker.verify(input());
+  expect(Object.keys(rendered).sort()).toEqual(['pages', 'reason', 'rendererVersion', 'state']);
+  const refused = await checker.verify({ ...input(), mediaType: 'text/plain' });
+  expect(refused).toMatchObject({ state: 'failed', reason: 'unsupported-media-type' });
+  expect(refused).not.toHaveProperty('stage');
+ });
+});
+
+describe('native PDF navigation observations (SDK boundary doubles with a scripted peer; NOT native browser proof)', () => {
+ const SECRET = 'TypeError at https://client-a.example/__session?token=abc123 cookie=__session=eyJhbGciOi sess_2abcDEF blob:1f2e3d4c';
+ const LEAK = /TypeError|https:|__session|token=|cookie|eyJhbGciOi|sess_|blob:|client-a|abc123/;
+ type Boundary = ReturnType<typeof sdkBoundary>;
+ const DOC = 'https://app.example/__clearcase_native_pdf__/inspect';
+ const OWN = 'https://app.example';
+ async function run(arrange: (b: Boundary) => void, tune?: (o: NativePreviewRenderOptions) => void) {
+  const boundary = sdkBoundary(), db = rawDatabase(), o = options(db); tune?.(o);
+  sdk.launch.mockResolvedValue(boundary.browser); arrange(boundary);
+  const outcome = await (await createNativePreviewRenderChecker(o))!.verify(input());
+  expect(JSON.stringify(outcome)).not.toMatch(LEAK);
+  expect((db.sqlite.prepare('SELECT COUNT(*) AS n FROM npr_reservations').get() as { n: number }).n).toBe(1);
+  expect(sdk.launch).toHaveBeenCalledOnce();
+  return { outcome, boundary };
+ }
+ /** goto serves the source-owned document, then lets the script run before it resolves. */
+ const afterDocument = (script: (b: Boundary) => Promise<void> | void) => (b: Boundary) => {
+  b.page.goto.mockImplementationOnce(async (url: string) => { await b.request(url, 'document'); await script(b); });
+ };
+ const symptom = { state: 'failed', reason: 'render-failed', stage: 'navigation' };
+
+ it.each([
+  ['goto rejects before any interception', (b: Boundary) => { b.page.goto.mockRejectedValueOnce(Error('net::ERR_BLOCKED_BY_ADMINISTRATOR at ' + DOC)); },
+   { goto: 'rejected', documentAcknowledged: false, gotoError: 'blocked-by-administrator' }],
+  ['a favicon request is refused after the document', afterDocument(b => b.request(OWN + '/favicon.ico', 'other').then(() => {})),
+   { goto: 'resolved', documentAcknowledged: true, firstViolation: 'favicon-path' }],
+  ['a data: icon request is refused after the document', afterDocument(b => b.request('data:,', 'other').then(() => {})),
+   { goto: 'resolved', documentAcknowledged: true, firstViolation: 'origin' }],
+  ['the module page errors after the document', afterDocument(b => b.emit('pageerror', Error(SECRET))),
+   { goto: 'resolved', documentAcknowledged: true, firstViolation: 'pageerror' }],
+ ] as const)('tells apart: %s', async (_name, arrange, navigation) => {
+  const { outcome } = await run(arrange);
+  expect(outcome).toMatchObject(symptom);
+  expect(outcome).toHaveProperty('navigation', navigation);
+ });
+
+ it('keeps the first violation, not the last', async () => {
+  const forward = await run(afterDocument(async b => {
+   await b.request(OWN + '/favicon.ico', 'other'); b.emit('requestfailed'); b.emit('pageerror', Error(SECRET));
+   b.emit('dialog', { dismiss: async () => {} }); b.emit('popup', { close: async () => {} });
+  }));
+  expect(forward.outcome).toHaveProperty('navigation.firstViolation', 'favicon-path');
+  sdk.launch.mockReset();
+  const reverse = await run(afterDocument(async b => { b.emit('pageerror', Error(SECRET)); await b.request(OWN + '/favicon.ico', 'other'); b.emit('requestfailed'); }));
+  expect(reverse.outcome).toHaveProperty('navigation.firstViolation', 'pageerror');
+ });
+
+ it.each([
+  ['unowned-path', (b: Boundary) => b.request(OWN + '/nothing-here', 'script')],
+  ['favicon-path', (b: Boundary) => b.request(OWN + '/favicon.ico', 'image')],
+  ['method', (b: Boundary) => b.request(OWN + '/pdfjs/pdf.min.mjs', 'script', 'POST')],
+  ['origin', (b: Boundary) => b.request('https://elsewhere.example/pdfjs/pdf.min.mjs', 'script')],
+  ['origin', (b: Boundary) => b.request(OWN + '/pdfjs/pdf.min.mjs?x=1', 'script')],
+  ['static-response', (b: Boundary) => b.request(OWN + '/pdfjs/pdf.min.mjs', 'script')],
+  ['static-integrity', (b: Boundary) => b.request(OWN + '/pdfjs/pdf.min.mjs', 'script')],
+  ['request-budget', async (b: Boundary) => { for (let i = 0; i < 230; i++) await b.request(OWN + '/pdfjs/pdf.min.mjs', 'script'); }],
+  ['requestfailed', (b: Boundary) => b.emit('requestfailed')],
+  ['pageerror', (b: Boundary) => b.emit('pageerror', Error(SECRET))],
+  ['dialog', (b: Boundary) => b.emit('dialog', { dismiss: async () => {} })],
+  ['popup', (b: Boundary) => b.emit('popup', { close: async () => {} })],
+ ] as const)('names the %s violation from a fixed enum', async (kind, script) => {
+  const tune = (o: NativePreviewRenderOptions) => {
+   const real = o.assets!.fetch;
+   if (kind === 'static-response') o.assets!.fetch = async () => new Response('nope', { status: 404 });
+   if (kind === 'static-integrity') o.assets!.fetch = async (r: Request) => { const ok = new Uint8Array(await (await real(r)).arrayBuffer()); ok[0] ^= 1; return new Response(ok); };
+  };
+  const { outcome } = await run(afterDocument(async b => { await script(b); }), tune);
+  expect(outcome).toMatchObject(symptom);
+  expect(outcome).toHaveProperty('navigation.firstViolation', kind);
+ });
+
+ it.each([301, 302, 303, 307, 308])('does not follow a %i from the asset binding: the pinned path is fetched once, as manual, and refused', async status => {
+  const fetched: { path: string; redirect: string }[] = [];
+  const { outcome, boundary } = await run(afterDocument(b => b.request(OWN + '/pdfjs/pdf.min.mjs', 'script').then(() => {})), o => {
+   const real = o.assets!.fetch;
+   o.assets!.fetch = async (r: Request) => {
+    const path = new URL(r.url).pathname; fetched.push({ path, redirect: r.redirect });
+    // The 3xx carries the exact pinned bytes, so only the status check can refuse it.
+    return path === '/pdfjs/pdf.min.mjs' ? new Response(await (await real(r)).arrayBuffer(), { status, headers: { location: '/pdfjs/pdf.worker.min.mjs' } }) : real(r);
+   };
+  });
+  expect(outcome).toMatchObject(symptom);
+  expect(outcome).toHaveProperty('navigation.firstViolation', 'static-response');
+  expect(fetched).toEqual([{ path: '/pdfjs/pdf.min.mjs', redirect: 'manual' }]); // the Location target is never requested
+  expect(boundary.served.has('/pdfjs/pdf.min.mjs')).toBe(false); expect(boundary.served.has('/pdfjs/pdf.worker.min.mjs')).toBe(false);
+ });
+ it.each(['206 partial', '200 that followed a redirect'])('refuses an asset response that is not a first-hand 200: %s', async kind => {
+  const { outcome, boundary } = await run(afterDocument(b => b.request(OWN + '/pdfjs/pdf.min.mjs', 'script').then(() => {})), o => {
+   const real = o.assets!.fetch;
+   o.assets!.fetch = async (r: Request) => {
+    const good = await real(r);
+    if (kind.startsWith('206')) return new Response(good.body, { status: 206 });
+    return Object.defineProperty(new Response(good.body, { status: 200 }), 'redirected', { value: true });
+   };
+  });
+  expect(outcome).toMatchObject(symptom);
+  expect(outcome).toHaveProperty('navigation.firstViolation', 'static-response');
+  expect(boundary.served.has('/pdfjs/pdf.min.mjs')).toBe(false);
+ });
+
+ it('reports the document unacknowledged when its respond fails, and still names the violation', async () => {
+  const { outcome } = await run(b => {
+   b.rejectRespond.add(DOC);
+   b.page.goto.mockImplementationOnce(async (url: string) => { await b.request(url, 'document'); });
+  });
+  expect(outcome).toMatchObject(symptom);
+  expect(outcome).toHaveProperty('navigation', { goto: 'resolved', documentAcknowledged: false, firstViolation: 'other' });
+ });
+
+ it.each([
+  ['net::ERR_BLOCKED_BY_CLIENT', 'blocked-by-client'], ['net::ERR_ACCESS_DENIED', 'access-denied'], ['net::ERR_ABORTED', 'aborted'],
+  ['net::ERR_FAILED', 'failed'], ['net::ERR_CONNECTION_REFUSED', 'connection-refused'], ['net::ERR_NAME_NOT_RESOLVED', 'name-not-resolved'],
+ ])('maps the known goto code %s to the token %s', async (code, token) => {
+  const { outcome } = await run(b => { b.page.goto.mockRejectedValueOnce(Error(code + ' at ' + DOC)); });
+  expect(outcome).toHaveProperty('navigation', { goto: 'rejected', documentAcknowledged: false, gotoError: token });
+ });
+
+ it.each([
+  'net::ERR_NEW_UNKNOWN_CODE', 'net::ERR_' + 'X'.repeat(500), SECRET, 'Navigation timeout of 20000 ms exceeded', 'net::ERR_constructor', 'net::ERR___proto__', '',
+  'TypeError: ' + SECRET + ' net::ERR_BLOCKED_BY_CLIENT_' + SECRET,
+ ])('turns an unknown or private-looking goto error into the generic token', async message => {
+  const { outcome } = await run(b => { b.page.goto.mockRejectedValueOnce(Error(message)); });
+  expect(outcome).toHaveProperty('navigation', { goto: 'rejected', documentAcknowledged: false, gotoError: 'generic' });
+ });
+
+ it('survives a goto rejection that is not an Error or whose message throws', async () => {
+  for (const thrown of [SECRET, null, { get message(): string { throw Error(SECRET); } }, Object.create(null)]) {
+   sdk.launch.mockReset();
+   const { outcome } = await run(b => { b.page.goto.mockRejectedValueOnce(thrown); });
+   expect(outcome).toHaveProperty('navigation.gotoError', 'generic');
+  }
+ });
+
+ it('adds no navigation to a rendered result, a launch or page-setup failure, or a pre-run refusal', async () => {
+  const boundary = sdkBoundary();
+  sdk.launch.mockResolvedValue(boundary.browser);
+  const checker = (await createNativePreviewRenderChecker(options()))!;
+  expect(Object.keys(await checker.verify(input())).sort()).toEqual(['pages', 'reason', 'rendererVersion', 'state']);
+  expect(await checker.verify({ ...input(), mediaType: 'text/plain' })).not.toHaveProperty('navigation');
+  sdk.launch.mockReset();
+  expect((await run(b => { b.browser.newPage.mockRejectedValueOnce(Error(SECRET)); })).outcome).not.toHaveProperty('navigation');
+  sdk.launch.mockReset();
+  sdk.launch.mockRejectedValue(Error(SECRET));
+  expect(await (await createNativePreviewRenderChecker(options()))!.verify(input())).not.toHaveProperty('navigation');
+ });
+
+ it('keeps cleanup acknowledged, the reason and stage, and every budget unchanged while observing', async () => {
+  const { outcome, boundary } = await run(afterDocument(b => b.request(OWN + '/favicon.ico', 'other').then(() => {})));
+  expect(outcome).toMatchObject(symptom);
+  expect(outcome).not.toMatchObject({ reason: 'render-cleanup-failed' });
+  expect(boundary.browser.disconnect).toHaveBeenCalled();
+  expect(boundary.page.evaluate).not.toHaveBeenCalled();
+  expect(boundary.page.goto).toHaveBeenCalledOnce();
+  expect(sdk.launch).toHaveBeenCalledWith(expect.anything(), { keep_alive: 60_000, recording: false, guardrails: { allowedDomains: [] } });
+ });
+
+ describe('facts are frozen at the end of the main run, before abort and cleanup', () => {
+  /** goto stays unsettled until cleanup closes the page; `late` then settles it, and may do more. */
+  async function deadline(arrange: (b: Boundary, settle: { resolve(): void; reject(e: Error): void }) => void, closeFails = false) {
+   const boundary = sdkBoundary(), o = options(); o.budget!.maxRunMs = 30;
+   let settle!: { resolve(): void; reject(e: Error): void };
+   boundary.page.goto.mockImplementationOnce(() => new Promise<void>((resolve, reject) => { settle = { resolve: () => resolve(), reject }; }));
+   sdk.launch.mockResolvedValue(boundary.browser);
+   boundary.page.close.mockImplementationOnce(async () => { arrange(boundary, settle); if (closeFails) throw Error(SECRET); });
+   const outcome = await (await createNativePreviewRenderChecker(o))!.verify(input());
+   expect(JSON.stringify(outcome)).not.toMatch(LEAK);
+   expect(boundary.page.close).toHaveBeenCalledOnce();
+   expect(boundary.browser.disconnect).toHaveBeenCalledOnce();
+   return { outcome, boundary };
+  }
+  const pending = { goto: 'pending', documentAcknowledged: false };
+
+  it.each([
+   ['rejects goto', (_b: Boundary, s: { resolve(): void; reject(e: Error): void }) => s.reject(Error('net::ERR_ABORTED from cleanup'))],
+   ['resolves goto', (_b: Boundary, s: { resolve(): void; reject(e: Error): void }) => s.resolve()],
+  ])('keeps goto pending at the operation deadline when the acknowledged page close %s', async (_name, late) => {
+   const { outcome } = await deadline(late);
+   expect(outcome).toMatchObject({ state: 'failed', reason: 'render-timeout', stage: 'navigation' });
+   expect(outcome).toHaveProperty('navigation', pending);
+  });
+
+  it('keeps the actual cleanup reason and stage while the navigation facts stay frozen', async () => {
+   const { outcome } = await deadline((_b, s) => s.reject(Error('net::ERR_ABORTED from cleanup')), true);
+   expect(outcome).toMatchObject({ state: 'failed', reason: 'render-cleanup-failed', stage: 'cleanup' });
+   expect(outcome).toHaveProperty('navigation', pending);
+  });
+
+  it('does not let a document acknowledgement that arrives during cleanup become documentAcknowledged', async () => {
+   const boundary = sdkBoundary(), o = options(); o.budget!.maxRunMs = 30;
+   let release!: () => void, rejectGoto!: (e: Error) => void;
+   const respond = vi.fn(() => new Promise<void>(resolve => { release = resolve; }));
+   boundary.page.goto.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => {
+    rejectGoto = reject;
+    boundary.emit('request', { url: () => DOC, method: () => 'GET', resourceType: () => 'document', isNavigationRequest: () => true,
+     frame: () => boundary.page.mainFrame(), respond, abort: vi.fn(async () => {}) });
+   }));
+   boundary.page.close.mockImplementationOnce(async () => { release(); await Promise.resolve(); rejectGoto(Error('net::ERR_ABORTED from cleanup')); });
+   sdk.launch.mockResolvedValue(boundary.browser);
+   const outcome = await (await createNativePreviewRenderChecker(o))!.verify(input());
+   expect(respond).toHaveBeenCalledOnce();
+   expect(outcome).toMatchObject({ state: 'failed', reason: 'render-timeout', stage: 'navigation' });
+   expect(outcome).toHaveProperty('navigation', pending);
+  });
+
+  it('keeps the first violation seen before the deadline and ignores violations that arrive during cleanup', async () => {
+   const boundary = sdkBoundary(), o = options(); o.budget!.maxRunMs = 40;
+   let rejectGoto!: (e: Error) => void;
+   boundary.page.goto.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectGoto = reject; boundary.emit('requestfailed'); }));
+   boundary.page.close.mockImplementationOnce(async () => {
+    boundary.emit('pageerror', Error(SECRET)); boundary.emit('dialog', { dismiss: async () => {} }); rejectGoto(Error('net::ERR_ABORTED from cleanup'));
+   });
+   sdk.launch.mockResolvedValue(boundary.browser);
+   const outcome = await (await createNativePreviewRenderChecker(o))!.verify(input());
+   expect(outcome).toHaveProperty('navigation', { ...pending, firstViolation: 'requestfailed' });
+   const quiet = await deadline((b, s) => { b.emit('pageerror', Error(SECRET)); s.reject(Error('net::ERR_ABORTED from cleanup')); });
+   expect(quiet.outcome).toHaveProperty('navigation', pending);
+  });
+ });
+});

@@ -18,6 +18,108 @@ async function project(hooks: string, files: Record<string, string> = {}, opts: 
   return root;
 }
 describe('resolved hosted import boundary', () => {
+  describe.each(['production', 'hosted-gate'] as const)('audit construction boundary in %s', (profile) => {
+    const auditModules = {
+      'src/lib/audit/index.ts': "export { requestAuditSink } from './facades';",
+      'src/lib/audit/facades.ts': "export const requestAuditSink = () => ({ append: async () => ({ ok: true }) });",
+      'src/lib/audit/trusted.ts': "export { createD1AuditLog } from './d1-log';",
+      'src/lib/audit/d1-log.ts': "export const createD1AuditLog = () => ({ find: async () => ({ secret: 'synthetic-session' }) });",
+    };
+    async function auditProject(hooks: string, files: Record<string, string> = {}) {
+      return project(hooks, { ...auditModules, 'src/hosted/gate.server.ts': hooks, ...files });
+    }
+    it.each(['$lib/audit', '$lib/audit/facades', '$lib/audit/trusted', '$lib/audit/d1-log'])('rejects direct audit construction from a route: %s', async (specifier) => {
+      const root = await auditProject('export {};', {
+        'src/hosted/routes/audit/+server.ts': `export * from '${specifier}';`,
+      });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('audit construction is restricted to trusted hosted service composition');
+    });
+    it('rejects audit construction behind a re-export and literal dynamic import', async () => {
+      const root = await auditProject("import '$bridge';", {
+        'src/bridge.ts': "export * from './next';",
+        'src/next.ts': "export const forge = () => import('$lib/audit/trusted');",
+      });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('audit construction is restricted to trusted hosted service composition');
+    });
+    it('checks an untrusted audit edge even after trusted composition visited that module', async () => {
+      const root = await auditProject("import '$lib/server/runtime/hosted/services';", {
+        'src/lib/server/runtime/hosted/services.ts': "export { requestAuditSink } from '$lib/audit';",
+        'src/hosted/routes/audit/+server.ts': "export { requestAuditSink } from '$lib/audit';",
+      });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('routes/audit/+server.ts -> src/lib/audit/index.ts: audit construction is restricted to trusted hosted service composition');
+    });
+    it('allows trusted service composition and internal audit edges', async () => {
+      const root = await auditProject("import '$lib/server/runtime/hosted/services';", {
+        'src/lib/server/runtime/hosted/services.ts': "export { requestAuditSink } from '$lib/audit'; export { createD1AuditLog } from '$lib/audit/trusted';",
+      });
+      expect(checkHostedGraph({ root, profile }).errors).toEqual([]);
+    });
+    it('erases audit DTO type imports without giving routes construction power', async () => {
+      const root = await auditProject('export {};', {
+        'src/hosted/routes/audit/+server.ts': "import type { PublicAuditEvent } from '$lib/audit'; export const GET = () => new Response();",
+      });
+      expect(checkHostedGraph({ root, profile }).errors).toEqual([]);
+    });
+  });
+  describe.each(['production', 'hosted-gate'] as const)('provisioning-only boundary in %s', (profile) => {
+    const modules = {
+      'src/lib/tenancy/index.ts': "export * from './management'; export { d1GrantRepository } from './d1-grants';",
+      'src/lib/tenancy/management.ts': 'export const createGrantManagement = () => ({});',
+      'src/lib/tenancy/d1-grants.ts': 'export const d1GrantRepository = () => ({});',
+      'src/lib/tenancy/provisioning.ts': "export const createManagerBootstrap = () => ({ grantManager: async () => ({}) });",
+      'src/lib/audit/provisioning.ts': "export const provisioningAuditPort = () => ({ append: async () => ({}) });",
+      'src/lib/tenancy/case-provisioning.ts': 'export const provision = () => ({});',
+      'src/lib/tenancy/case-grant-provisioning.ts': 'export const provision = () => ({});',
+      'src/lib/tenancy/upload-provisioning.ts': 'export const provision = () => ({});',
+      'src/lib/user-work/hosted/provision.ts': 'export const provision = () => ({});',
+      'src/lib/audit/index.ts': "export { requestAuditSink } from './facades';",
+      'src/lib/audit/facades.ts': 'export const requestAuditSink = () => ({ append: async () => ({}) });',
+    };
+    const make = (hooks: string, files: Record<string, string> = {}) => project(hooks, { ...modules, 'src/hosted/gate.server.ts': hooks, ...files });
+    it.each(['$lib/tenancy/provisioning', '$lib/audit/provisioning', '$lib/tenancy/case-provisioning', '$lib/tenancy/case-grant-provisioning', '$lib/tenancy/upload-provisioning', '$lib/user-work/hosted/provision'])('rejects a deep import from a route: %s', async (specifier) => {
+      const root = await make('export {};', { 'src/hosted/routes/boot/+server.ts': `import '${specifier}';` });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('provisioning-only module is unreachable from the hosted request graph');
+    });
+    it.each(['$lib/tenancy/case-provisioning', '$lib/tenancy/case-grant-provisioning', '$lib/tenancy/upload-provisioning', '$lib/user-work/hosted/provision'])('rejects the new provisioner behind trusted composition and a barrel: %s', async (specifier) => {
+      const root = await make("import '$lib/server/runtime/hosted/services';", {
+        'src/lib/server/runtime/hosted/services.ts': "export * from '$bridge';",
+        'src/bridge.ts': `export const invoke = () => import('${specifier}');`,
+      });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('provisioning-only module is unreachable from the hosted request graph');
+    });
+    it('rejects the bootstrap behind a re-export and a literal dynamic import', async () => {
+      const root = await make("import '$bridge';", {
+        'src/bridge.ts': "export * from './next';",
+        'src/next.ts': "export const forge = () => import('$lib/tenancy/provisioning');",
+      });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('provisioning-only module is unreachable from the hosted request graph');
+    });
+    it('rejects it even from the trusted service composer, and when another edge already visited it', async () => {
+      const root = await make("import '$lib/server/runtime/hosted/services';", {
+        'src/lib/server/runtime/hosted/services.ts': "export { createManagerBootstrap } from '$lib/tenancy/provisioning'; export { provisioningAuditPort } from '$lib/audit/provisioning';",
+        'src/hosted/routes/boot/+server.ts': "export { createManagerBootstrap } from '$lib/tenancy/provisioning';",
+      });
+      const errors = checkHostedGraph({ root, profile }).errors.join('\n');
+      expect(errors).toContain('services.ts -> src/lib/tenancy/provisioning.ts: provisioning-only module is unreachable from the hosted request graph');
+      expect(errors).toContain('services.ts -> src/lib/audit/provisioning.ts: provisioning-only module is unreachable from the hosted request graph');
+      expect(errors).toContain('routes/boot/+server.ts -> src/lib/tenancy/provisioning.ts: provisioning-only module is unreachable from the hosted request graph');
+    });
+    it('keeps the audit core, which holds the system-actor core, out of reach of the trusted composer by name', async () => {
+      const root = await make("import '$lib/server/runtime/hosted/services';", {
+        'src/lib/audit/d1-log.ts': 'export const provisioningCore = () => ({});',
+        'src/lib/server/runtime/hosted/services.ts': "export { provisioningCore } from '$lib/audit/d1-log';",
+      });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).toContain('services.ts -> src/lib/audit/d1-log.ts: audit core (with the system-actor provisioning core) is internal to src/lib/audit');
+    });
+    it('does not let the public tenancy and audit barrels reach it', async () => {
+      const root = await make("import '$lib/tenancy'; import '$lib/audit';");
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).not.toContain('provisioning-only');
+    });
+    it('erases a type-only import of the provisioning module', async () => {
+      const root = await make('export {};', { 'src/hosted/routes/boot/+server.ts': "import type { createManagerBootstrap } from '$lib/tenancy/provisioning'; export const GET = () => new Response();" });
+      expect(checkHostedGraph({ root, profile }).errors.join('\n')).not.toContain('provisioning-only');
+    });
+  });
   it('accepts the actual selected hosted graph and excludes host-only tooling', () => {
     const result = checkHostedGraph({ root: process.cwd() });
     expect(result.errors).toEqual([]);
@@ -71,6 +173,19 @@ describe('resolved hosted import boundary', () => {
     const errors = checkHostedGraph({ root }).errors.join('\n');
     expect(errors).toContain('src/bridge.ts: package outside the hosted allowlist fflate');
     expect(errors).not.toMatch(/@sveltejs\/kit|typebox/);
+  });
+  it('allows the Clerk SDK only inside its first-party identity implementation', async () => {
+    const root = await project("import '$lib/auth/clerk/provider';", {
+      'src/lib/auth/clerk/provider.ts': "export { createClerkClient } from '@clerk/backend';",
+    }, { packages: true });
+    expect(checkHostedGraph({ root }).errors).toEqual([]);
+  });
+  it('refuses a route constructing the Clerk SDK, even after a trusted identity import', async () => {
+    const root = await project("import '$lib/auth/clerk/provider';", {
+      'src/lib/auth/clerk/provider.ts': "export { createClerkClient } from '@clerk/backend';",
+      'src/hosted/routes/sdk/+server.ts': "export { createClerkClient } from '@clerk/backend';",
+    }, { packages: true });
+    expect(checkHostedGraph({ root }).errors.join('\n')).toContain('Clerk SDK construction is restricted to the first-party identity implementation');
   });
   it('names only the Kit app modules and the Workers env module, nothing else of their schemes', async () => {
     const ok = await project("import { env } from 'cloudflare:workers'; import { page } from '$app/state'; import { browser } from '$app/env'; export { env, page, browser };", {}, { packages: true });

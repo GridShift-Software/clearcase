@@ -1,0 +1,16 @@
+{
+  "//": "Private type check for the native pipeline tests and the files they exercise; not merged into any root list.",
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["*.ts", "../../../../deploy/probes/target.ts", "../../../../deploy/native-alpha/pipeline*.ts", "../../../../scripts/hosted-native-bundle/*.ts"]
+}

@@ -7,6 +7,8 @@ export interface DatasetDef { key: string; sourcePath: string; kind: DatasetKind
 const g = (key: string, sourcePath: string, data: TSchema): DatasetDef => ({ key, sourcePath, kind: 'generated', schema: `v5.${key}@1`, data, required: true });
 const a = (key: string, sourcePath: string, data: TSchema): DatasetDef => ({ key, sourcePath, kind: 'authored', schema: `v5.${key}@1`, data, required: true });
 
+const META = g('meta', 'META', R.V5Meta);
+
 export const V5_DATASETS: readonly DatasetDef[] = [
   g('chronology', 'DATA.chronology', R.V5Chronology),
   g('people', 'DATA.people', R.V5People),
@@ -37,7 +39,7 @@ export const V5_DATASETS: readonly DatasetDef[] = [
   a('lit-recon', 'DATA.lit.recon', R.V5LitRecon),
   a('lit-settlement', 'DATA.lit.settlement', R.V5LitSettlement),
   g('bundles', 'DATA.bundles', R.V5Bundles),
-  g('meta', 'META', R.V5Meta),
+  META,
   g('discovery-schedules', 'window.__SCHED__', R.V5DiscoverySchedules),
   g('caselines-index', 'window.__CASELINES_IDX__', R.V5CaselinesIndex),
 ];
@@ -47,6 +49,14 @@ export const LAYOUT: DatasetDef = { key: 'source-layout', sourcePath: '(layout)'
 export const CONVERSION_REPORT: DatasetDef = { key: 'conversion-report', sourcePath: '(adapter)', kind: 'generated', schema: 'v5.conversion-report@1', data: R.V5ConversionReport, required: false };
 export const VIEW_CONTENT: DatasetDef = { key: 'view-content', sourcePath: '(view-code)', kind: 'generated', schema: 'v5.view-content@1', data: R.V5ViewContent, required: false };
 export const OPAQUE_SCHEMA = 'opaque@1';
+
+/**
+ * Required datasets that are integrity metadata, not views (ADR 0012). The hosted sign-off gate checks each one, under
+ * exactly this key and schema, against its own contract and never renders it. Every other required dataset needs a view.
+ */
+export const INTEGRITY_DATASETS = { meta: META, 'source-layout': LAYOUT } as const;
+export type IntegrityKey = keyof typeof INTEGRITY_DATASETS;
+export const isIntegrityKey = (key: string): key is IntegrityKey => Object.hasOwn(INTEGRITY_DATASETS, key);
 
 export const KNOWN_SCHEMAS: ReadonlyMap<string, DatasetDef> = new Map([...V5_DATASETS, LAYOUT, CONVERSION_REPORT, VIEW_CONTENT].map((d) => [d.schema, d]));
 export const REQUIRED_DATASETS = ['chronology'];

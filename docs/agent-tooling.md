@@ -629,8 +629,15 @@ and handlers, with a component that does not parse or compile failing closed) re
   an alias imported or re-exported from a tracked module through named, default, namespace or bare-star exports
   (`export { k as j }` chains and `export default` included). There is no configured expression-depth cap. A computed
   pattern key or element-read key refuses as unresolved when its static resolution cannot finish: an alias cycle, an
-  unavailable import or export, an unresolved static key, or an inline array or object literal read in place
-  (`['constructor'][0]`, `({ k: 'constructor' }).k`). Any other expression the folder does not reduce is not refused;
+  unavailable import or export, an unresolved static key, or a fixed member of a literal object, array or enum. GRS-190
+  keeps literal-container origin through `const` aliases, imports/re-exports and literal destructuring, including
+  nested/default bindings and joined alternatives of multiple fixed containers. When a member cannot be resolved across
+  every fixed origin, the computed key is unresolved and refuses rather than becoming a runtime value. It refuses these
+  member keys conservatively, even a safe initial member: containers
+  can mutate or escape, so their initial members are not trusted. This includes inline reads
+  (`['constructor'][0]`, `({ k: 'constructor' }).k`) and plain or `const` enums. Scalar `??`, `||` and `&&` fold
+  literal operands with their actual nullishness and truthiness, including unshadowed `undefined`; a selected
+  unresolved operand refuses. Any other expression the folder does not reduce is not refused;
   see the reviewer-owned list below.
   Conditionals with fixed branches carry up to 256 possible strings through templates and `+`: a special possibility
   refuses, safe possibilities pass, and more than 256 possibilities fail closed. A `const`
@@ -641,7 +648,9 @@ and handlers, with a component that does not parse or compile failing closed) re
   The global object may appear only as the object of a property read with a literal, non-framework name
   (`globalThis.performance`, `window['x']`, `Symbol.for('app.cache')` as the key), in `typeof`, `in` or an equality
   test, as a literal-named destructuring, or as a `const` initialiser. `Symbol.for` may only be called directly with a
-  literal name that contains no `jest`, `vitest` or `chai`. The other capabilities may only be called, constructed,
+  literal name that contains no `jest`, `vitest` or `chai`. Registry symbols retain symbol identity: a symbol named
+  `Object` or `constructor` does not name the corresponding string property. Framework symbol names still refuse;
+  symbol coercion in templates or `+` refuses as unresolved. The other capabilities may only be called, constructed,
   extended, compared, read by name, or (a converter: `String`, `Number`, `Boolean`, `BigInt`) passed to a call. Each
   use of a `const` that holds one is checked the same way, where it appears. Moving one anywhere else refuses: an
   export under any name (`export { g as h }`, `export default`, a named or default re-export, `export * as ns`, a
@@ -679,8 +688,8 @@ Bun builtin module, a constructor or prototype) through the shapes listed above,
 destructuring, `await`, conditionals, a literal `require`/`import()` and import bindings across modules. It also refuses:
 
 - a `constructor` or dunder key in any object binding or assignment pattern, from any source, with keys folded
-  through literals, templates, `+`, `const` aliases and imported constants as above; a static key that cannot be
-  resolved (a cycle, an unavailable import, an inline array or object member) refuses;
+  through literals, templates, `+`, scalar logical operands, `const` aliases and imported constants as above; a static
+  key that cannot be resolved (a cycle, an unavailable import, a literal-container member or destructured value) refuses;
 - a bare `export *`, or an `export * as N`, whose local target exports a capability, directly or under an `export *`
   chain;
 - any reference to an unbound `module` or `exports` (an assignment, `Object.assign(module.exports, ...)`,
@@ -693,16 +702,11 @@ best-effort net, not a sandbox. The cases below remain reviewer-owned; GRS-150 d
   `let`, call result or `const` initialized by a call; `['constr', 'uctor'].join('')` and
   `String.fromCharCode(...)` also stay reviewer-owned. Look for a computed key beside a member write. A call result
   such as `Reflect.get(o, 'constructor')` stays under the function-return review rule below.
-- a fixed `constructor` or `__proto__` key that the folder does not reduce, which passes today and which GRS-190
-  tracks closing:
-  - a member of a `const` object, array or enum: `K.k` or `T[0]` with `const K = { k: 'constructor' }` or
-    `const T = ['constructor']`;
-  - a binding destructured from a literal: `const { k } = { k: 'constructor' }` and then `{ [k]: C }`;
-  - `??`, `||` and `&&` with a runtime or `undefined` operand, such as `'constructor' || x` or `undefined ?? 'constructor'`;
-  - a `const` set from `String.raw` with the template `constructor`, or from `Object.freeze({ k: 'constructor' })`,
-    which count as runtime calls;
-  - `Symbol.for(x)` keys, which fold to the string `x`, so `globalThis[Symbol.for('$$matchers-object')]` reads
-    as a plain name.
+- `??`, `||` and `&&` whose selected value depends on a runtime operand. A known left operand still short-circuits:
+  `'constructor' || x` refuses and `undefined ?? 'constructor'` refuses. A `const` set from `String.raw` with the
+  template `constructor`, or from `Object.freeze({ k: 'constructor' })`, continues to count as a runtime call.
+- a literal container indexed by a runtime selector (`table[parameter]`), and an array's mutable numeric `length`;
+  these retain their runtime classification. Fixed selectors such as `table.k` and `table['k']` refuse as above.
 - code generation: `eval`, indirect eval (`(0, eval)(...)`), `Function`, a constructor chain. Search the diff for
   the words.
 - an unchanged CommonJS module's `module.exports`/`exports.x` or `export { default as P } from './c.cjs'` is not

@@ -42,17 +42,25 @@ export function devBrowserOf(request: Request): string | null {
 }
 
 /**
- * The host-only cookie that ties the browser's `__clerk_db_jwt` to the staff instance. Both instances set that one plain
- * name on a client origin, so the handshake sets this beside it only for a staff handshake this browser started here
+ * The cookie that ties the browser's `__clerk_db_jwt` to the staff instance. Both instances set that one plain name on a
+ * client origin, so the handshake sets this beside it only for a staff handshake this browser started here
  * (staffHandshakeOf) from a dev browser it could vouch for, and only when a token the staff key alone verifies set it.
+ *
+ * It and the correlation are `__Host-` cookies: the browser takes one only with Secure, Path=/ and no Domain, from this
+ * secure origin, so a sibling origin under the same parent domain cannot plant either (a host-only clear cannot remove
+ * a parent-Domain cookie). Only those names count; the unprefixed names used before (`__clearcase_staff_dvb`,
+ * `__clearcase_staff_hs`) are proof of nothing. A plain http origin cannot hold them, so it mints and reads neither
+ * (hostCookies) and its operator POST forwards no dev browser.
  */
-export const STAFF_DEV_BROWSER_TIE = '__clearcase_staff_dvb';
+export const STAFF_DEV_BROWSER_TIE = '__Host-clearcase_staff_dvb';
 /**
- * The correlation of a staff handshake this browser started on this origin: the start sets this host-only cookie and
- * puts the same random id in the handshake's redirect_url as this query parameter, and only a return carrying both counts.
+ * The correlation of a staff handshake this browser started on this origin: the start sets this cookie and puts the same
+ * random id in the handshake's redirect_url as this query parameter, and only a return carrying both counts.
  */
-export const STAFF_HANDSHAKE_COOKIE = '__clearcase_staff_hs';
+export const STAFF_HANDSHAKE_COOKIE = '__Host-clearcase_staff_hs';
 export const STAFF_HANDSHAKE_PARAM = '__clearcase_staff_hs';
+/** Whether this app's origin can hold the `__Host-` tie and correlation: https only. */
+const hostCookies = (config: ClerkIdentityConfig) => config.appOrigin.startsWith('https://');
 /** How long a started staff handshake may take to come back, in seconds (its round trip is automatic redirects). */
 export const STAFF_HANDSHAKE_TTL = 600;
 const TIE_LABEL = 'clearcase staff dev browser v2', HANDSHAKE_LABEL = 'clearcase staff handshake v1';
@@ -73,9 +81,11 @@ export function staffDevBrowserTie(config: ClerkIdentityConfig, devBrowser: stri
 
 /**
  * The browser's one `__clerk_db_jwt` as a StaffDevBrowser when its one tie verifies for this app, client and staff
- * instance, else null (no tie, a repeated cookie, another value, app, client or staff instance). Transport only.
+ * instance, else null (no tie, a repeated cookie, another value, app, client or staff instance, or an http origin).
+ * Transport only.
  */
 export async function tiedDevBrowser(request: Request, config: ClerkIdentityConfig): Promise<StaffDevBrowser | null> {
+	if (!hostCookies(config)) return null;
 	const value = devBrowserOf(request), ties = cookiePairs(request).filter((c) => c.name === STAFF_DEV_BROWSER_TIE);
 	if (value === null || ties.length !== 1 || !B64URL.test(ties[0]!.value) || !(await macVerifies(TIE_LABEL, config, [value], ties[0]!.value))) return null;
 	return { instance: 'staff', value, appOrigin: config.appOrigin, clientId: config.clientId, issuer: config.staff.issuer } as StaffDevBrowser;
@@ -88,19 +98,22 @@ export async function staffDevBrowserOf(request: Request, env: Readonly<Record<s
 
 /**
  * A new staff handshake correlation: a random 256-bit id for the redirect_url and the cookie that carries it, its issue
- * time and whether the start could vouch for the dev browser it hands the Frontend API (`vouched`), under one MAC.
+ * time and whether the start could vouch for the dev browser it hands the Frontend API (`vouched`), under one MAC. Null
+ * on an http origin, which cannot hold the `__Host-` cookie.
  */
-export async function startStaffHandshake(config: ClerkIdentityConfig, vouched: boolean, secure: boolean): Promise<{ id: string; setCookie: string }> {
+export async function startStaffHandshake(config: ClerkIdentityConfig, vouched: boolean): Promise<{ id: string; setCookie: string } | null> {
+	if (!hostCookies(config)) return null;
 	const id = b64url(crypto.getRandomValues(new Uint8Array(32))), parts = [id, String(Math.floor(Date.now() / 1000)), vouched ? '1' : '0'];
 	const value = `${parts.join('.')}.${await macOf(HANDSHAKE_LABEL, config, parts)}`;
-	return { id, setCookie: `${STAFF_HANDSHAKE_COOKIE}=${value}; Path=/; Max-Age=${STAFF_HANDSHAKE_TTL}; SameSite=Lax; HttpOnly${secure ? '; Secure' : ''}` };
+	return { id, setCookie: `${STAFF_HANDSHAKE_COOKIE}=${value}; Path=/; Max-Age=${STAFF_HANDSHAKE_TTL}; SameSite=Lax; HttpOnly; Secure` };
 }
 /**
  * The staff handshake correlation a returning request proves, or null: exactly one correlation cookie and one id in the
  * URL, equal, issued for this app, client and staff instance within STAFF_HANDSHAKE_TTL, under a MAC that verifies.
- * `vouched` says whether the start could vouch for the dev browser it handed the Frontend API.
+ * `vouched` says whether the start could vouch for the dev browser it handed the Frontend API. Null on an http origin.
  */
 export async function staffHandshakeOf(request: Request, config: ClerkIdentityConfig): Promise<{ vouched: boolean } | null> {
+	if (!hostCookies(config)) return null;
 	const cookies = cookiePairs(request).filter((c) => c.name === STAFF_HANDSHAKE_COOKIE), ids = new URL(request.url).searchParams.getAll(STAFF_HANDSHAKE_PARAM);
 	const m = cookies.length === 1 && ids.length === 1 ? CORRELATION.exec(cookies[0]!.value) : null;
 	if (!m || m[1] !== ids[0]) return null;
@@ -108,8 +121,8 @@ export async function staffHandshakeOf(request: Request, config: ClerkIdentityCo
 	if (age < -60 || age > STAFF_HANDSHAKE_TTL) return null;
 	return (await macVerifies(HANDSHAKE_LABEL, config, [m[1]!, m[2]!, m[3]!], m[4]!)) ? { vouched: m[3] === '1' } : null;
 }
-/** The directive that deletes the staff handshake correlation (a returning handshake consumes it in this browser). */
-export const staffHandshakeClear = (secure: boolean) => `${STAFF_HANDSHAKE_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly${secure ? '; Secure' : ''}`;
+/** The directive that deletes the staff handshake correlation (an accepted handshake return consumes it in this browser). */
+export const STAFF_HANDSHAKE_CLEAR = `${STAFF_HANDSHAKE_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly; Secure`;
 
 /** The cookie directives that delete exactly the Clerk session cookies a request carries (host-only, as they were set). */
 export function clerkCookieClears(request: Request, secure: boolean): string[] {

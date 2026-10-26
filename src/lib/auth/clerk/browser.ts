@@ -17,10 +17,11 @@
 //     the handshake (its no-refresh-cookie path), as before;
 //   - a returning handshake belongs to the instance whose configured key verifies its signature, so a first staff sign-in
 //     back on /cases is not resolved with the client key;
-//   - a development staff handshake this browser starts carries a correlation (flow.ts startStaffHandshake): a host-only
-//     cookie and the same random id in the redirect_url. Only a return that proves it, from a start that could vouch for
-//     the dev browser it handed the Frontend API (none, or the one already tied here), ties the dev browser to the staff
-//     instance. A signature shows which instance signed a handshake, not which browser asked for it.
+//   - a development staff handshake this browser starts on an https origin carries a correlation (flow.ts
+//     startStaffHandshake): a `__Host-` cookie and the same random id in the redirect_url. Only a return that proves it,
+//     from a start that could vouch for the dev browser it handed the Frontend API (none, or the one already tied here),
+//     ties the dev browser to the staff instance, again in a `__Host-` cookie. A signature shows which instance signed a
+//     handshake, not which browser asked for it. An http origin starts no correlation and ties nothing.
 // The SDK-free half (sign-in plan, return targets, cookie clears, sign-out) is flow.ts, which the hosted routes import
 // directly (the hosted import allowlist keeps @clerk/backend out of routes); it is re-exported here.
 // One browser session per origin: the client and staff instances share the cookie names `__session` and `__client_uat`
@@ -29,7 +30,7 @@
 import { createClerkClient } from '@clerk/backend';
 import { readClerkIdentityConfig, rsaJwkOf, type ClerkIdentityConfig, type InstanceKind } from './config.ts';
 import {
-	OPERATOR_PATH, STAFF_DEV_BROWSER_TIE, STAFF_HANDSHAKE_COOKIE, STAFF_HANDSHAKE_PARAM, cookiePairs, sdkCookieHeader, staffDevBrowserTie, staffHandshakeClear, staffHandshakeOf, startStaffHandshake, tiedDevBrowser,
+	OPERATOR_PATH, STAFF_DEV_BROWSER_TIE, STAFF_HANDSHAKE_CLEAR, STAFF_HANDSHAKE_COOKIE, STAFF_HANDSHAKE_PARAM, cookiePairs, sdkCookieHeader, staffDevBrowserTie, staffHandshakeOf, startStaffHandshake, tiedDevBrowser,
 	type ClerkBrowserHandshake, type HandshakeOutcome,
 } from './flow.ts';
 import { CLERK_COOKIE_NAME, REFRESH_COOKIE_NAME, SESSION_COOKIE_NAME, inspectToken, presentedToken } from './session.ts';
@@ -192,10 +193,12 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				if (to.origin !== instance.issuer || to.pathname !== '/v1/client/handshake' || back.origin !== config.appOrigin) return refuse(502, 'handshake-invalid');
 				to.searchParams.delete('format');
 				if (kind === 'staff' && staffDevelopment) {
-					const started = await startStaffHandshake(config, await vouches(request, url), secure);
-					back.searchParams.set(STAFF_HANDSHAKE_PARAM, started.id);
-					to.searchParams.set('redirect_url', back.href);
-					setCookies.push(started.setCookie);
+					const started = await startStaffHandshake(config, await vouches(request, url));
+					if (started !== null) {
+						back.searchParams.set(STAFF_HANDSHAKE_PARAM, started.id);
+						to.searchParams.set('redirect_url', back.href);
+						setCookies.push(started.setCookie);
+					}
 				}
 				return { kind: 'redirect', location: to.href, setCookies };
 			}
@@ -209,7 +212,7 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				const devBrowser = setCookies.findLast((c) => c.startsWith('__clerk_db_jwt='));
 				const value = devBrowser === undefined ? '' : devBrowser.slice('__clerk_db_jwt='.length).split(';')[0]!;
 				const correlated = kind === 'staff' ? await staffHandshakeOf(request, config) : null;
-				if (pairs.some((c) => c.name === STAFF_HANDSHAKE_COOKIE)) setCookies.push(staffHandshakeClear(secure));
+				if (pairs.some((c) => c.name === STAFF_HANDSHAKE_COOKIE)) setCookies.push(STAFF_HANDSHAKE_CLEAR);
 				if (correlated?.vouched && DEV_BROWSER.test(value) && (await signerOf(url.searchParams.get('__clerk_handshake')!)) === 'staff')
 					setCookies.push(devBrowser!.replace(/^__clerk_db_jwt=[^;]*/, `${STAFF_DEV_BROWSER_TIE}=${await staffDevBrowserTie(config, value)}`));
 				return { kind: 'redirect', location: clean.href, setCookies };

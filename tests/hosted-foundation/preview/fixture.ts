@@ -33,7 +33,7 @@ async function converted() {
     await writeFile(path.join(folder, PRESENT), bytes);
     const row = (n: number, filename: string, bundle: string) => ({ n: String(n), ref: `JN-00${n}`, date: `2001-02-0${n + 2}`, filename, subject: `Invented subject ${n}`, sender: 'Synthetic Sender', to: 'Synthetic Recipient', cc: '', excerpt: 'Invented synthetic excerpt.', doc_type: 'other', bundle, amount: '', also_in: [], text_status: 'extracted', url: './' + filename, refs: [], invoice_no: '', size: bytes.byteLength, seq: String(n), attachments: [] });
     const roots = synthRoots();
-    roots.DATA = { chronology: [row(1, PRESENT, 'Original'), row(2, MISSING, 'Invented missing bundle')] };
+    roots.DATA = { matter: { title: 'Synthetic matter', short: 'S', forum: 'F', storyline: [], strategy: [] }, chronology: [row(1, PRESENT, 'Original'), row(2, MISSING, 'Invented missing bundle')] };
     roots.META = { builtAt: '2001-05-06 07:08', docCount: 2, dataFolderName: 'Synthetic', bundles: { Original: 1, 'Invented missing bundle': 1 }, emails: 0, invoices: 0, people: 0, textNone: 0, textPending: 0, dateSpan: ['2001-02-03', '2001-02-04'], docTypes: { other: 2 } };
     roots.SCHED = { discovery: [], supplementary: [] };
     roots.CASELINES = { file: '', pages: 0, index: [] };

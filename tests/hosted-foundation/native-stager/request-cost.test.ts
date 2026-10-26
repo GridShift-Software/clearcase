@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -17,6 +17,7 @@ import { synthHtml, synthRoots } from '../../case-package/fixtures/synth.ts';
 import { BUDGETS } from '../storage/fixture.ts';
 import { ids } from '../storage/fixture.ts';
 import { caseId, now, pdf, world } from './world.ts';
+import { d1, digest, trace } from '../preview/trace.ts';
 
 /** Workers Free allows 50 external subrequests and 50 D1 queries per invocation; five of each are kept as headroom. */
 const FREE = { external: 45, d1: 45, cloudflare: 1000 };
@@ -39,7 +40,7 @@ async function converted(docs = 1) {
 }
 
 const worlds: ReturnType<typeof world>[] = [];
-afterEach(() => { for (const w of worlds.splice(0)) w.db.sqlite.close(); });
+afterEach(() => { vi.restoreAllMocks(); for (const w of worlds.splice(0)) w.db.sqlite.close(); });
 const migration = (p: string) => readFile(new URL(`../../../src/lib/${p}`, import.meta.url), 'utf8');
 
 /**
@@ -118,6 +119,8 @@ describe('one native import request on Workers Free', () => {
     expect(out.kind).toBe('linked');
     expect(cost).toEqual({ external: expect.toSatisfy((x: number) => x <= FREE.external), d1: expect.toSatisfy((x: number) => x <= FREE.d1), cloudflare: expect.toSatisfy((x: number) => x <= FREE.cloudflare) });
     expect({ d1: cost.d1, external: cost.external }).toEqual(nativeImportCost(shape(p), BUDGETS.maxRowsPerBatch));
+    // The alpha package at the runtime's rows per batch: the release fence is one D1 call after the settlement readback.
+    expect({ d1: cost.d1, external: cost.external }).toEqual({ d1: 44, external: 18 });
     noFalseRecord(p);
   });
 
@@ -197,6 +200,14 @@ describe('one native import request on Workers Free', () => {
     expect(await p.request()).toMatchObject({ kind: 'refused', code: 'validator-refused', detail: ['integrity', 'selected original is missing or changed'] });
     expect(p.count('SELECT COUNT(*) AS n FROM rs_results_version')).toBe(0);
     expect(p.count('SELECT COUNT(*) AS n FROM native_candidate')).toBe(0);
+    noFalseRecord(p);
+  });
+
+  it.each([['grant', 'forbidden'], ['session', 'invalid-session']] as const)('answers a %s lost at the first hash after the settlement as its denial, never a fresh link', async (lost, code) => {
+    const p = await production();
+    const t = trace(p.w.db);
+    t.when([d1('INSERT INTO native_candidate_audit_settlement'), digest], () => { if (lost === 'session') p.state.revoked = true; else p.revokeGrant(); });
+    await expect(p.request()).rejects.toMatchObject({ code });
     noFalseRecord(p);
   });
 });

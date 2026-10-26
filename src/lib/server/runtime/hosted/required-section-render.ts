@@ -5,6 +5,7 @@ import { render } from 'svelte/server';
 import ChronologyPage from '../../../../../deploy/client/routes/cases/[caseId]/views/[resultsVersion]/chronology/+page.svelte';
 import type { Candidate } from '../../../case-package/candidate.ts';
 import { INTEGRITY_DATASETS, isIntegrityKey, REQUIRED_DATASETS, type IntegrityKey } from '../../../case-package/registry.ts';
+import { carriesMeta, metaReconciles } from '../../../case-package/meta-integrity.ts';
 import { sourceLayoutRoundTrips } from '../../../case-package/source-layout.ts';
 import type { RequiredSectionState } from '../../../publication/hosted/ports.ts';
 import type { StagedProjection } from '../../../results/hosted/read-model.ts';
@@ -17,9 +18,9 @@ import { caseHref, notesHref, originalHref } from '../../../views/hosted/paths.t
 type Counts = Readonly<Record<string, number>>;
 
 const INTEGRITY_CHECKS: Record<IntegrityKey, (c: Candidate, counts: Counts) => boolean> = {
-  // The validator's META count check runs only when both exact schemas are present; then no disagreement means every
-  // META count reconciles with the records. A disagreement is only a warning to validation, but it fails this check.
-  meta: (c, counts) => c.dataset('chronology')?.schema === 'v5.chronology@1' && !counts.V5_META_COUNT_DISAGREEMENT,
+  // Validation only warns about a META disagreement, and skips a count it has no records for, so no diagnostic is not a
+  // verdict: every count is derived from the records here. A diagnostic is still a veto.
+  meta: (c, counts) => !counts.V5_META_COUNT_DISAGREEMENT && metaReconciles(c.datasetKeys().map((k) => c.dataset(k)!)),
   'source-layout': (c) => sourceLayoutRoundTrips(c.datasetKeys().map((k) => c.dataset(k)!)),
 };
 
@@ -35,8 +36,9 @@ export async function renderRequiredSections(a: {
 }): Promise<readonly { key: string; state: RequiredSectionState }[]> {
   const c = a.candidate;
   // The format has file/envelope required flags, not an invented feature-list extension. Chronology is also required
-  // by the canonical registry even if an attacker removes its manifest entry.
-  const keys = new Set([...REQUIRED_DATASETS, ...c.manifest.files.filter((f) => f.required).map((f) => f.key ?? f.path)]);
+  // by the canonical registry even if an attacker removes its manifest entry. Any dataset carrying the META root is checked too, even where the converter demoted it to an optional opaque dataset.
+  const keys = new Set([...REQUIRED_DATASETS, ...c.manifest.files.filter((f) => f.required).map((f) => f.key ?? f.path),
+    ...c.datasetKeys().filter((k) => carriesMeta(c.dataset(k)!))]);
   const out: { key: string; state: RequiredSectionState }[] = [];
   for (const key of [...keys].sort()) {
     const env = c.dataset(key);

@@ -328,25 +328,42 @@ const FALLS_THROUGH = new Set([ts.SyntaxKind.ExpressionStatement, ts.SyntaxKind.
 const NO_TARGETS = new Set<string>();
 /** Control flow the walk does not model: a loop, a switch or a label can keep a function from ever completing. */
 const UNMODELLED = (n: ts.Node) => ts.isIterationStatement(n, false) || ts.isSwitchStatement(n) || ts.isLabeledStatement(n) || ts.isWithStatement(n);
+/** Whether a local function runs its parameter `index` only by calling it inside the try block of a try with a catch clause.
+ * Any other use of the parameter (passed on, called in a catch, a finally, or a nested function) is not a structurally caught path. */
+function catchesCallback(fn: ts.FunctionLikeDeclaration, index: number): boolean {
+ const param = fn.parameters[index];
+ if (!param) return !fn.parameters.some((q) => q.dotDotDotToken);
+ if (!ts.isIdentifier(param.name) || param.dotDotDotToken) return false;
+ let caught = true;
+ const walk = (m: ts.Node, inTry: boolean): void => {
+  if (ts.isIdentifier(m) && m.text === (param.name as ts.Identifier).text && !(ts.isPropertyAccessExpression(m.parent) && m.parent.name === m) && !(ts.isPropertyAssignment(m.parent) && m.parent.name === m)
+   && !(inTry && ts.isCallExpression(m.parent) && m.parent.expression === m)) caught = false;
+  if (ts.isTryStatement(m)) { walk(m.tryBlock, inTry || !!m.catchClause); if (m.catchClause) walk(m.catchClause, inTry); if (m.finallyBlock) walk(m.finallyBlock, inTry); return; }
+  ts.forEachChild(m, (c) => walk(c, ts.isFunctionLike(c) ? false : inTry));
+ };
+ if (fn.body) walk(fn.body, false);
+ return caught;
+}
 /** Whether `n` may not complete: it throws, or holds a loop, switch or label, in its own statements or in a local function it
- * calls (an IIFE or a helper, however deeply nested). A local function it passes as an argument to a local function is a callback that helper may
- * run, so its loops count too; its throws do not, since a helper such as `outcome` catches them. */
-function mayNotComplete(n: ts.Node, seen = new Map<ts.Node, 'call' | 'callback'>(), throws = true): boolean {
+ * calls (an IIFE or a helper, however deeply nested). A local function it passes as an argument to a local function is a callback
+ * that helper may run: its loops count, and so do its throws unless the helper runs it only on a structurally caught path
+ * (`outcome`'s try with a catch). `seen` holds whether each function was entered with throws counted. */
+function mayNotComplete(n: ts.Node, seen = new Map<ts.Node, boolean>(), throws = true): boolean {
  let hit = false;
- const enter = (v: Value, call: boolean) => {
+ const enter = (v: Value, counts: boolean) => {
   if (!isFn(v)) return;
   const was = seen.get(v);
-  if (was === 'call' || (was && !call)) return;
-  seen.set(v, call ? 'call' : 'callback');
-  if (mayNotComplete(v.body!, seen, throws && call)) hit = true;
+  if (was === true || (was === false && !counts)) return;
+  seen.set(v, counts);
+  if (mayNotComplete(v.body!, seen, counts)) hit = true;
  };
  const walk = (m: ts.Node): void => {
   if (hit || (m !== n && ts.isFunctionLike(m))) return;
   if ((throws && ts.isThrowStatement(m)) || UNMODELLED(m)) hit = true;
   else if (ts.isCallExpression(m)) {
    const callees = values(m.expression, NO_TARGETS);
-   for (const v of callees) enter(v, true);
-   if (callees.some(isFn)) for (const a of m.arguments) for (const v of values(a, NO_TARGETS)) enter(v, false);
+   for (const v of callees) enter(v, throws);
+   for (const callee of callees) if (isFn(callee)) m.arguments.forEach((a, i) => { for (const v of values(a, NO_TARGETS)) enter(v, throws && !catchesCallback(callee, i)); });
   }
   ts.forEachChild(m, walk);
  };
@@ -694,6 +711,12 @@ describe('hosted form evidence is refused when its driving setup is gone', () =>
   ['a call chosen only by the dead arm of a literal conditional', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const h = true ? () => 1 : load; h(); });") }, false],
   ['a call after a helper chain that ends in an infinite loop', DIRECT, { ...MOD, [T]: directTest("const spin = () => { for (;;) {} };\nconst stop = () => { spin(); };\nit('x', () => { stop(); load(); });") }, false],
   ['a call after a helper that runs a looping callback', DIRECT, { ...MOD, [T]: directTest("const run = (f: () => unknown) => f();\nit('x', () => { run(() => { while (true) {} }); load(); });") }, false],
+  ['a call after a helper that runs a throwing callback with no catch', DIRECT, { ...MOD, [T]: directTest("const run = (f: () => unknown) => f();\nit('x', () => { run(() => { throw new Error('stop'); }); load(); });") }, false],
+  ['a call after a helper that runs a callback calling a throwing helper', DIRECT, { ...MOD, [T]: directTest("const boom = () => { throw new Error('stop'); };\nconst run = (f: () => unknown) => f();\nit('x', () => { run(() => boom()); load(); });") }, false],
+  ['a call after a helper that hands its callback to another helper that throws it', DIRECT, { ...MOD, [T]: directTest("const inner = (g: () => unknown) => g();\nconst run = (f: () => unknown) => inner(f);\nit('x', () => { run(() => { throw new Error('stop'); }); load(); });") }, false],
+  ['a call after a helper that runs a throwing callback in a try with only a finally', DIRECT, { ...MOD, [T]: directTest("const run = (f: () => unknown) => { try { return f(); } finally { void 0; } };\nit('x', () => { run(() => { throw new Error('stop'); }); load(); });") }, false],
+  ['a call after a helper that runs a throwing callback in its catch clause', DIRECT, { ...MOD, [T]: directTest("const run = (f: () => unknown) => { try { return 1; } catch { return f(); } };\nit('x', () => { run(() => { throw new Error('stop'); }); load(); });") }, false],
+  ['a call after a helper that catches the throwing callback it runs', DIRECT, { ...MOD, [T]: directTest("const outcome = async (f: () => unknown) => { try { return { value: await f() }; } catch (e) { return { thrown: e }; } };\nit('x', async () => { await outcome(() => { throw new Error('caught'); }); load(); });") }, true],
   ['a call after a helper chain that completes', DIRECT, { ...MOD, [T]: directTest("const inner = () => 1;\nconst outer = () => inner();\nit('x', () => { outer(); load(); });") }, true],
   ['a call chosen only by the dead right operand of ||', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const keep = () => 1; const h = keep || load; h(); });") }, false],
   ['a call chosen only by the dead arm of a conditional on a named constant', DIRECT, { ...MOD, [T]: directTest("it('x', () => { const on = true; const h = on ? () => 1 : load; h(); });") }, false],

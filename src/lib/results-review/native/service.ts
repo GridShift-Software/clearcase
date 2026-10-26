@@ -94,6 +94,15 @@ export function createNativeResultsImport(ports: NativeImportPorts | null): Nati
   const fenced = async <T>(a: AdmittedOperator, f: () => Promise<T>): Promise<T> => {
     try { return await f(); } catch (e) { if (!isDenial(e)) await observe(a); throw e; }
   };
+  /**
+   * A read or list refused at its final fence has already written its succeeded event (the data must not leave before it).
+   * The refusal is recorded beside it, best effort and only on the denial path; the success event is not rewritten and the
+   * refusal is what the caller sees whether or not the companion persists.
+   */
+  async function refusedRead(a: AdmittedOperator, object: AuditEvent['object'], e: unknown): Promise<never> {
+    if (isDenial(e)) await note({ actor: actor(a), action: 'results.read-candidate', object, version: null, outcome: 'denied' }, 'read-denied');
+    throw e;
+  }
   /** Every answer but a link (whose readback is fenced) is given only after a fresh observation. */
   const answer = async (a: AdmittedOperator, out: ImportOutcome): Promise<ImportOutcome> => { await observe(a); return out; };
 
@@ -226,7 +235,7 @@ export function createNativeResultsImport(ports: NativeImportPorts | null): Nati
       return fenced(a, () => repository.candidate({ ...scope(a.caseId), candidateId }, async ([c]) => {
         await audit.append({ eventId: `native-read-${crypto.randomUUID()}`, actor: actor(a), action: 'results.read-candidate', object: { kind: 'candidate', id: c!.candidateId, caseId: a.caseId }, version: c!.link.candidate.resultsVersion as ResultsVersion, outcome: 'succeeded', at: ports!.now().toISOString() });
         return fence(a);
-      }));
+      })).catch((e) => refusedRead(a, { kind: 'candidate', id: candidateId, caseId: a.caseId }, e));
     },
 
     async listCandidates(a) {
@@ -234,7 +243,7 @@ export function createNativeResultsImport(ports: NativeImportPorts | null): Nati
       return fenced(a, () => repository.list(scope(a.caseId), async () => {
         await audit.append({ eventId: `native-list-${crypto.randomUUID()}`, actor: actor(a), action: 'results.read-candidate', object: { kind: 'case', id: a.caseId, caseId: a.caseId }, version: null, outcome: 'succeeded', at: ports!.now().toISOString() });
         return fence(a);
-      }));
+      })).catch((e) => refusedRead(a, { kind: 'case', id: a.caseId, caseId: a.caseId }, e));
     },
   };
 }

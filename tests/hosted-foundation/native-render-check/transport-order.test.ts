@@ -26,6 +26,8 @@ afterAll(() => databases.forEach(db => db.close()));
 function rawDatabase() {
  const sqlite = new DatabaseSync(':memory:'); databases.push(sqlite);
  sqlite.exec(readFileSync('src/lib/viewer/hosted/migrations/0001_preview_render_work.sql', 'utf8'));
+ // The deployed chain: the case-limit migration admits the ceiling budget's case limit of 3.
+ sqlite.exec(`BEGIN;\n${readFileSync('src/lib/viewer/hosted/migrations/0002_preview_render_case_limit.sql', 'utf8')}\nCOMMIT;`);
  type Statement = CloudD1Statement & { sql: string; values: (string | number | null)[] };
  const primary: CloudD1 = {
   prepare(sql) {

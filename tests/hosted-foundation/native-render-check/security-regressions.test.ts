@@ -29,6 +29,8 @@ afterAll(() => databases.forEach(db => db.close()));
 function rawDatabase() {
  const sqlite = new DatabaseSync(':memory:'); databases.push(sqlite);
  sqlite.exec(readFileSync('src/lib/viewer/hosted/migrations/0001_preview_render_work.sql', 'utf8'));
+ // The deployed chain: the case-limit migration admits the ceiling budget's case limit of 3.
+ sqlite.exec(`BEGIN;\n${readFileSync('src/lib/viewer/hosted/migrations/0002_preview_render_case_limit.sql', 'utf8')}\nCOMMIT;`);
  type Statement = CloudD1Statement & { sql: string; values: (string | number | null)[] };
  const primary: CloudD1 = {
   prepare(sql) {
@@ -99,11 +101,13 @@ function sdkBoundary() {
  };
  return { page, browser, control, peerClosed, request, served, emit: (name: string, ...args: unknown[]) => { for (const fn of listeners.get(name) ?? []) fn(...args); } };
 }
-function options(db = rawDatabase()): NativePreviewRenderOptions {
+// These case-cap probes keep today's deployed case limit of 2; the ceiling of 3 is probed in case-ceiling.test.ts.
+const CASE_LIMIT_TWO = { ...NATIVE_PDF_RENDER_CEILINGS, maxRunsPerCasePerDay: 2 };
+function options(db = rawDatabase(), budget: NativePreviewRenderOptions['budget'] = { ...NATIVE_PDF_RENDER_CEILINGS }): NativePreviewRenderOptions {
  return {
   db, clientId, browser: { fetch: vi.fn(async () => { throw Error('inert BROWSER double: no provider call'); }) } as BrowserWorker,
   assets: { fetch: vi.fn(async (request: Request) => new Response(readFileSync(join(root, new URL(request.url).pathname)))) },
-  appOrigin: 'https://app.example', pins: structuredClone(pins), budget: { ...NATIVE_PDF_RENDER_CEILINGS }, now: () => new Date(clock),
+  appOrigin: 'https://app.example', pins: structuredClone(pins), budget, now: () => new Date(clock),
  };
 }
 beforeEach(() => { sdk.launch.mockReset(); clock = day + 10_000; });
@@ -268,7 +272,7 @@ describe('SQLite conflict strategies cannot bypass any render invariant; NOT D1 
  it.each([0, 1])('seals every immutable/monotonic table with recursive_triggers=%i', async recursive => {
   const db = rawDatabase(), boundary = sdkBoundary(); sdk.launch.mockResolvedValue(boundary.browser);
   db.sqlite.exec('PRAGMA recursive_triggers=' + recursive);
-  const checker = (await createNativePreviewRenderChecker(options(db)))!;
+  const checker = (await createNativePreviewRenderChecker(options(db, CASE_LIMIT_TWO)))!;
   expect(await checker.verify(input())).toMatchObject({ state: 'rendered' });
   clock += 82_000;
   // A second reservation legitimately updates both counters within the same atomic insertion.
@@ -320,7 +324,7 @@ describe('SQLite conflict strategies cannot bypass any render invariant; NOT D1 
 
  it('rejects direct quota reset/refund/lease shortening/identity swaps and fake projection rows', async () => {
   const db = rawDatabase(), boundary = sdkBoundary(); sdk.launch.mockResolvedValue(boundary.browser);
-  const checker = (await createNativePreviewRenderChecker(options(db)))!;
+  const checker = (await createNativePreviewRenderChecker(options(db, CASE_LIMIT_TWO)))!;
   await checker.verify(input());
   clock += 82_000;
   sdk.launch.mockResolvedValue(sdkBoundary().browser);
@@ -347,7 +351,7 @@ describe('SQLite conflict strategies cannot bypass any render invariant; NOT D1 
   expect(db.sqlite.prepare('SELECT * FROM npr_client_days').get()).toEqual(before);
   clock = day + 86_400_000 + 10_000;
   const fresh = sdkBoundary(); sdk.launch.mockResolvedValue(fresh.browser);
-  expect(await (await createNativePreviewRenderChecker(options(db)))!.verify({ ...input(), assetId: 'tomorrow' })).toMatchObject({ state: 'rendered' });
+  expect(await (await createNativePreviewRenderChecker(options(db, CASE_LIMIT_TWO)))!.verify({ ...input(), assetId: 'tomorrow' })).toMatchObject({ state: 'rendered' });
   expect(db.sqlite.prepare('SELECT day,runs FROM npr_client_days').get()).toMatchObject({ day: 20001, runs: 1 });
  });
 

@@ -37,6 +37,8 @@ afterAll(() => restoreRequest?.());
 function rawDatabase() {
  const sqlite = new DatabaseSync(':memory:'); databases.push(sqlite);
  sqlite.exec(readFileSync('src/lib/viewer/hosted/migrations/0001_preview_render_work.sql', 'utf8'));
+ // The deployed chain: the case-limit migration admits the ceiling budget's case limit of 3.
+ sqlite.exec(`BEGIN;\n${readFileSync('src/lib/viewer/hosted/migrations/0002_preview_render_case_limit.sql', 'utf8')}\nCOMMIT;`);
  type Statement = CloudD1Statement & { sql: string; values: (string | number | null)[] };
  const primary: CloudD1 = {
   prepare(sql) {
@@ -113,11 +115,13 @@ function sdkBoundary() {
  };
  return { page, browser, request, served, rejectRespond, emit: (name: string, ...args: unknown[]) => { for (const fn of listeners.get(name) ?? []) fn(...args); } };
 }
-function options(db = rawDatabase()): NativePreviewRenderOptions {
+// These case-cap probes keep today's deployed case limit of 2; the ceiling of 3 is probed in case-ceiling.test.ts.
+const CASE_LIMIT_TWO = { ...NATIVE_PDF_RENDER_CEILINGS, maxRunsPerCasePerDay: 2 };
+function options(db = rawDatabase(), budget: NativePreviewRenderOptions['budget'] = { ...NATIVE_PDF_RENDER_CEILINGS }): NativePreviewRenderOptions {
  return {
   db, clientId, browser: { fetch: vi.fn(async () => { throw Error('inert BROWSER double: no provider call'); }) } as BrowserWorker,
   assets: { fetch: vi.fn(async (request: Request) => new Response(readFileSync(join(root, new URL(request.url).pathname)))) },
-  appOrigin: 'https://app.example', pins: structuredClone(pins), budget: { ...NATIVE_PDF_RENDER_CEILINGS }, now: () => new Date(clock),
+  appOrigin: 'https://app.example', pins: structuredClone(pins), budget, now: () => new Date(clock),
  };
 }
 beforeEach(() => { sdk.launch.mockReset(); clock = day + 10_000; });
@@ -371,7 +375,7 @@ describe('native PDF SDK boundary orchestration (NOT renderer acceptance)', () =
 describe('actual migration trigger admission with SQLite D1 boundary double (NOT D1/provider acceptance)', () => {
  it('serializes concurrent attempts across fresh checker factories and never refunds a failed launch', async () => {
   const db = rawDatabase(); sdk.launch.mockRejectedValue(Error('deliberate SDK boundary failure'));
-  const a = (await createNativePreviewRenderChecker(options(db)))!, b = (await createNativePreviewRenderChecker(options(db)))!;
+  const a = (await createNativePreviewRenderChecker(options(db, CASE_LIMIT_TWO)))!, b = (await createNativePreviewRenderChecker(options(db, CASE_LIMIT_TWO)))!;
   const results = await Promise.all([a.verify(input()), b.verify(input())]);
   expect(results.map(r => r.state).sort()).toEqual(['failed', 'pending']); expect(sdk.launch).toHaveBeenCalledOnce();
   expect(db.sqlite.prepare('SELECT runs FROM npr_client_days').get()!.runs).toBe(1);

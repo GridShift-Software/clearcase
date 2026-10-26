@@ -27,13 +27,13 @@ export const PRESENT = 'synthetic-client-a.pdf';
 export const MISSING = 'synthetic-missing-bundle.pdf';
 
 /** The v5 converter's package over one uploaded PDF (JN-001) and one invented bundle that is declared but absent (JN-002). */
-async function converted() {
+async function converted(matter: boolean) {
   const folder = await mkdtemp(path.join(tmpdir(), 'native-preview-')), bytes = pdf('preview original');
   try {
     await writeFile(path.join(folder, PRESENT), bytes);
     const row = (n: number, filename: string, bundle: string) => ({ n: String(n), ref: `JN-00${n}`, date: `2001-02-0${n + 2}`, filename, subject: `Invented subject ${n}`, sender: 'Synthetic Sender', to: 'Synthetic Recipient', cc: '', excerpt: 'Invented synthetic excerpt.', doc_type: 'other', bundle, amount: '', also_in: [], text_status: 'extracted', url: './' + filename, refs: [], invoice_no: '', size: bytes.byteLength, seq: String(n), attachments: [] });
     const roots = synthRoots();
-    roots.DATA = { matter: { title: 'Synthetic matter', short: 'S', forum: 'F', storyline: [], strategy: [] }, chronology: [row(1, PRESENT, 'Original'), row(2, MISSING, 'Invented missing bundle')] };
+    roots.DATA = { ...(matter ? { matter: { title: 'Synthetic matter', short: 'S', forum: 'F', storyline: [], strategy: [] } } : {}), chronology: [row(1, PRESENT, 'Original'), row(2, MISSING, 'Invented missing bundle')] };
     roots.META = { builtAt: '2001-05-06 07:08', docCount: 2, dataFolderName: 'Synthetic', bundles: { Original: 1, 'Invented missing bundle': 1 }, emails: 0, invoices: 0, people: 0, textNone: 0, textPending: 0, dateSpan: ['2001-02-03', '2001-02-04'], docTypes: { other: 2 } };
     roots.SCHED = { discovery: [], supplementary: [] };
     roots.CASELINES = { file: '', pages: 0, index: [] };
@@ -47,7 +47,8 @@ const migration = (p: string) => readFile(new URL(`../../../src/lib/${p}`, impor
 type Role = 'viewer' | 'editor' | 'operator' | 'publisher';
 
 /** One deployment with a linked, durably audited current candidate, imported exactly as one production request makes it. */
-export async function previewWorld(o: { requestBudget?: Parameters<typeof nativeImportPorts>[0]['requestBudget'] } = {}) {
+/** `matter` adds the authored matter dataset a correction replaces; it is one file more than the alpha's package, so use it only uncapped. */
+export async function previewWorld(o: { requestBudget?: Parameters<typeof nativeImportPorts>[0]['requestBudget']; matter?: boolean } = {}) {
   const w = world();
   for (const p of ['tenancy/migrations/0001_tenant_case_grants.sql', 'audit/migrations/0001_native_audit.sql']) w.db.sqlite.exec(await migration(p));
   const deployment: ClientResourceIdentity = { clientId: ids.clientA, hostname: 'client-a.example', worker: 'client-a', d1DatabaseId: '11111111-1111-1111-1111-111111111111',
@@ -64,7 +65,7 @@ export async function previewWorld(o: { requestBudget?: Parameters<typeof native
   const revokeOperate = grant('synthetic-operator', 'operator');
   const revokeContent = grant('synthetic-operator', 'viewer');
   for (const c of [ids.caseB]) { grant('synthetic-operator', 'operator', 'staff', c); grant('synthetic-operator', 'viewer', 'staff', c); }
-  const pkg = await converted();
+  const pkg = await converted(o.matter === true);
   const revision = await w.upload(PRESENT, pkg.bytes);
 
   /** A Clerk-shaped identity: one Backend API fetch per session check, and authorize = that check, then the case authorizer. */

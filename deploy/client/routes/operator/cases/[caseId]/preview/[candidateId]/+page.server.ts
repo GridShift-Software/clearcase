@@ -13,11 +13,15 @@ export async function load(e: RequestEvent) {
   e.setHeaders({ 'cache-control': 'private, no-store' });
   const who = e.locals.identity;
   if (!who || who.kind !== 'verified') error(401, { message: 'Sign in to continue.', code: 'unauthenticated' });
-  if (who.principal.kind !== 'staff') error(403, { message: 'This preview requires explicit operator access.', code: 'forbidden' });
   // The ORIGINAL request, never a clone or a synthetic SSR fetch request.
   const reader = privatePreviewFor({ request: e.request });
-  if (!reader) error(503, { message: 'The private preview is not available on this deployment yet.', code: 'preview-unavailable' });
   const p = e.params as Record<string, string>;
+  if (who.principal.kind !== 'staff') {
+    // Refused before the reader runs, so this denial is recorded here (best effort), and no candidate is read.
+    await reader?.denied({ caseId: p.caseId, candidateId: p.candidateId });
+    error(403, { message: 'This preview requires explicit operator access.', code: 'forbidden' });
+  }
+  if (!reader) error(503, { message: 'The private preview is not available on this deployment yet.', code: 'preview-unavailable' });
   let preview: PrivatePreview;
   try { preview = await reader!.read({ caseId: p.caseId, candidateId: p.candidateId }); }
   catch (x) {

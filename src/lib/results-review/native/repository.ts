@@ -7,7 +7,7 @@ import { contractError } from '../../server/runtime/errors.ts';
 import type { CandidateImportLink, ImportLinkCoverage } from '../../server/runtime/hosted/alpha-contracts.ts';
 import { id, resultsVersion as brandVersion, sha256 as brandSha } from '../../server/runtime/ids.ts';
 import { sha256Text } from './digest.ts';
-import type { ChangeFact, CommittedCandidateAudit, CorrectionRecord, LinkedCandidate, NativeCandidateRepository, NativeD1, Origin, Scoped, SqlCondition } from './ports.ts';
+import type { ChangeFact, CommittedCandidateAudit, CorrectionRecord, LinkedCandidate, NativeCandidateRepository, NativeD1, Origin, ReleaseFence, Scoped } from './ports.ts';
 import { guard } from '../../storage/cloud/d1.ts';
 
 const unavailable = (): never => { throw contractError('storage-unavailable', true); };
@@ -29,6 +29,26 @@ const SELECT = `SELECT c.candidate_id, c.origin, c.parent_candidate_id, c.operat
   LEFT JOIN native_candidate_audit_intent ai ON ai.client_id = c.client_id AND ai.case_id = c.case_id AND ai.candidate_id = c.candidate_id
   LEFT JOIN native_candidate_supersession s ON s.client_id = c.client_id AND s.case_id = c.case_id AND s.old_candidate_id = c.candidate_id`;
 
+/**
+ * The release fence statement: the operate grant as SQL, and how many of the verified rows (bound once, as JSON) are still
+ * exactly what was hashed and checked: the same candidate, link id and digest, pinned version, audit event id and digest,
+ * settlement and supersession. `total` counts every candidate of the case, for a release of the whole list.
+ */
+const PIN = (k: string) => `json_extract(p.value, '$.${k}')`;
+const FENCE = (operate: string) => `SELECT (${operate}) AS operate,
+  (SELECT COUNT(*) FROM json_each(?) p
+    JOIN native_candidate c ON c.client_id = ? AND c.case_id = ? AND c.candidate_id = ${PIN('id')}
+    JOIN native_import_link l ON l.client_id = c.client_id AND l.case_id = c.case_id AND l.candidate_id = c.candidate_id
+    LEFT JOIN native_candidate_audit_intent ai ON ai.client_id = c.client_id AND ai.case_id = c.case_id AND ai.candidate_id = c.candidate_id
+    LEFT JOIN native_candidate_supersession s ON s.client_id = c.client_id AND s.case_id = c.case_id AND s.old_candidate_id = c.candidate_id
+    WHERE l.link_id = ${PIN('linkId')} AND l.link_sha256 = ${PIN('linkSha256')} AND c.origin = ${PIN('origin')} AND c.parent_candidate_id IS ${PIN('parent')}
+      AND c.results_version = ${PIN('resultsVersion')} AND c.manifest_sha256 = ${PIN('manifestSha256')} AND c.input_revision_id = ${PIN('inputRevisionId')}
+      AND ai.event_id IS ${PIN('eventId')} AND ai.event_sha256 IS ${PIN('eventSha256')} AND s.new_candidate_id IS ${PIN('supersededBy')}
+      AND EXISTS (SELECT 1 FROM native_candidate_audit_settlement ats WHERE ats.client_id = ai.client_id AND ats.case_id = ai.case_id AND ats.candidate_id = ai.candidate_id AND ats.event_id = ai.event_id) = ${PIN('settled')}) AS matched,
+  (SELECT COUNT(*) FROM native_candidate WHERE client_id = ? AND case_id = ?) AS total`;
+/** What hydration verified about one row: the exact values the release fence holds the database to. */
+interface Pin { id: string; linkId: string; linkSha256: string; origin: Origin; parent: string | null; resultsVersion: string; manifestSha256: string; inputRevisionId: string; eventId: string | null; eventSha256: string | null; supersededBy: string | null; settled: number }
+
 /** The link as a plain value: the exact shape that is hashed when it is written and again when it is read. */
 function linkOf(s: Scoped, r: { link_id: string; submission_revision_id: string; submission_manifest_sha256: string; candidate_id: string; results_version: string; manifest_sha256: string; input_revision_id: string; operator_issuer: string; operator_subject: string; linked_at: string }, coverage: ImportLinkCoverage): CandidateImportLink {
   return {
@@ -48,6 +68,9 @@ export function d1NativeCandidateRepository(db: NativeD1): NativeCandidateReposi
   const attempt = (s: Scoped, operationId: string) =>
     db.prepare('SELECT kind, operator_issuer, operator_subject, request_sha256, submission_revision_id, base_candidate_id, declared_at FROM native_import_attempt WHERE client_id = ? AND case_id = ? AND operation_id = ?')
       .bind(s.clientId, s.caseId, operationId).first<Attempt>().catch(unavailable);
+
+  // The candidates this adapter verified, each with the exact row values it verified them against.
+  const verified = new WeakMap<LinkedCandidate, Pin>();
 
   async function hydrate(s: Scoped, r: Row): Promise<LinkedCandidate> {
     // The candidate row and the link row must agree on what they pin, and the link must equal what was hashed at write time.
@@ -73,14 +96,31 @@ export function d1NativeCandidateRepository(db: NativeD1): NativeCandidateReposi
       correction = { reason: sup.reason, operator: { issuer: sup.operator_issuer, subject: sup.operator_subject }, at: sup.at,
         changes: changes.results.map((c): ChangeFact => ({ path: c.path, before: c.before_sha256 === null ? null : { sha256: c.before_sha256, size: c.before_size! }, after: { sha256: c.after_sha256, size: c.after_size } })) };
     }
-    return freeze(JSON.parse(JSON.stringify({ candidateId: r.candidate_id, origin: r.origin, parentCandidateId: r.parent_candidate_id, current: r.superseded_by === null && r.audit_settled === 1, supersededBy: r.superseded_by, link, correction })) as LinkedCandidate);
+    const candidate = freeze(JSON.parse(JSON.stringify({ candidateId: r.candidate_id, origin: r.origin, parentCandidateId: r.parent_candidate_id, current: r.superseded_by === null && r.audit_settled === 1, supersededBy: r.superseded_by, link, correction })) as LinkedCandidate);
+    verified.set(candidate, { id: r.candidate_id, linkId: r.link_id, linkSha256: r.link_sha256, origin: r.origin, parent: r.parent_candidate_id, resultsVersion: r.results_version, manifestSha256: r.manifest_sha256,
+      inputRevisionId: r.input_revision_id, eventId: r.event_id, eventSha256: r.event_sha256, supersededBy: r.superseded_by, settled: r.audit_settled });
+    return candidate;
   }
-  const read = async (s: Scoped, where: string, value: string, visible?: SqlCondition) => {
-    const r = await db.prepare(`${SELECT} WHERE c.client_id = ? AND c.case_id = ? AND ${where} = ?${visible ? ` AND ${visible.sql}` : ''}`)
-      .bind(s.clientId, s.caseId, value, ...(visible?.values ?? [])).first<Row>().catch(unavailable);
+  const read = async (s: Scoped, where: string, value: string) => {
+    const r = await db.prepare(`${SELECT} WHERE c.client_id = ? AND c.case_id = ? AND ${where} = ?`).bind(s.clientId, s.caseId, value).first<Row>().catch(unavailable);
     return r ? { row: r, candidate: await hydrate(s, r) } : null;
   };
   const one = async (s: Scoped, where: string, value: string) => (await read(s, where, value))?.candidate ?? null;
+
+  /**
+   * The release of verified candidates, which is the last asynchronous work of the call that answers them. Everything that
+   * hashes, parses or reads is already done. The fence callback then makes its own last checks (a fresh session, and the
+   * audit write of an audited read) and returns the operate grant as SQL; one statement holds that grant and every verified
+   * row exactly as hydration saw it. When it does not hold, nothing is released: the caller observes the authority, so a lost
+   * grant or session answers as its denial, and anything else is a retryable fault. Nothing is awaited after it.
+   */
+  async function release(s: Scoped, candidates: readonly LinkedCandidate[], fence: ReleaseFence, complete: boolean): Promise<void> {
+    const pins = candidates.map((c) => verified.get(c) ?? integrity());
+    const operate = await fence(candidates) ?? { sql: '1', values: [] };
+    const row = await db.prepare(FENCE(operate.sql)).bind(...operate.values, JSON.stringify(pins), s.clientId, s.caseId, s.clientId, s.caseId)
+      .first<{ operate: number; matched: number; total: number }>().catch(unavailable);
+    if (row?.operate !== 1 || row.matched !== pins.length || (complete && row.total !== pins.length)) throw contractError('storage-unavailable', true);
+  }
 
   async function auditIntent(a: Scoped & { candidateId: string }): Promise<CommittedCandidateAudit> {
     const row = await db.prepare('SELECT event_id, event_json, event_sha256 FROM native_candidate_audit_intent WHERE client_id = ? AND case_id = ? AND candidate_id = ?')
@@ -155,24 +195,30 @@ export function d1NativeCandidateRepository(db: NativeD1): NativeCandidateReposi
       for (const r of rows.results) intents.push(await auditIntent({ ...a, candidateId: r.candidate_id }));
       return intents;
     },
-    async settleAudit(a, visible) {
+    async settleAudit(a, fence) {
       // Only the exact committed intent settles: the insert is conditional on its event id and digest, in the same statement.
       const eventSha = await sha256Text(canonicalJson(a.event));
       await db.prepare(`INSERT INTO native_candidate_audit_settlement (client_id, case_id, candidate_id, event_id)
         SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM native_candidate_audit_settlement WHERE client_id = ? AND case_id = ? AND candidate_id = ?)
           AND EXISTS (SELECT 1 FROM native_candidate_audit_intent WHERE client_id = ? AND case_id = ? AND candidate_id = ? AND event_id = ? AND event_sha256 = ?)`)
         .bind(a.clientId, a.caseId, a.candidateId, a.event.eventId, a.clientId, a.caseId, a.candidateId, a.clientId, a.caseId, a.candidateId, a.event.eventId, eventSha).run().catch(() => undefined);
-      const now = await read(a, 'c.candidate_id', a.candidateId, visible);
-      if (!now) return visible ? null : unavailable();
+      const now = await read(a, 'c.candidate_id', a.candidateId);
+      if (!now) return unavailable();
       if (now.row.event_id !== a.event.eventId || now.row.event_sha256 !== eventSha) return integrity();
       if (now.row.audit_settled !== 1) return unavailable();
+      if (fence) await release(a, [now.candidate], fence, false);
       return now.candidate;
     },
-    candidate: (a) => one(a, 'c.candidate_id', a.candidateId),
-    async list(a) {
+    async candidate(a, fence) {
+      const now = await read(a, 'c.candidate_id', a.candidateId);
+      if (now && fence) await release(a, [now.candidate], fence, false);
+      return now?.candidate ?? null;
+    },
+    async list(a, fence) {
       const rows = await db.prepare(`${SELECT} WHERE c.client_id = ? AND c.case_id = ? ORDER BY l.linked_at, c.candidate_id`).bind(a.clientId, a.caseId).all<Row>().catch(unavailable);
       const out: LinkedCandidate[] = [];
       for (const r of rows.results) out.push(await hydrate(a, r));
+      if (fence) await release(a, out, fence, true);
       return out;
     },
   };

@@ -3,13 +3,17 @@
 // read happens before it, and nothing asynchronous follows it. The concurrent actor here loses the grant or the session
 // (or changes a row) in the gap an await leaves, which is where the fence used to be too early.
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { d1NativeCandidateRepository } from '../../../src/lib/results-review/native/repository.ts';
+import { ids } from '../storage/fixture.ts';
 import { caseId, previewWorld, type PreviewWorld } from './fixture.ts';
 import { audited, d1, d1Has, digest, fenceStep, trace } from './trace.ts';
 
 const worlds: PreviewWorld[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const p of worlds.splice(0)) p.w.db.sqlite.close(); });
-// Corrections are refused on the Free request budget, so this world is uncapped.
-const setup = async () => { const p = await previewWorld({ requestBudget: null }); worlds.push(p); return p; };
+// Corrections are refused on the Free request budget, so this world is uncapped and holds the matter dataset a correction replaces.
+const setup = async () => { const p = await previewWorld({ requestBudget: null, matter: true }); worlds.push(p); return p; };
+// The alpha's package on the Free budget, exactly as production composes it.
+const setupFree = async () => { const p = await previewWorld(); worlds.push(p); return p; };
 
 const SETTLE = 'INSERT INTO native_candidate_audit_settlement';
 const LOSS = { grant: 'forbidden', session: 'invalid-session' } as const;
@@ -51,12 +55,22 @@ describe('a grant or session lost while a settled candidate is verified is never
     t.when([d1(SETTLE), d1Has('FROM native_correction_change')], () => lose(p, kind));
     await expect(run()).rejects.toMatchObject({ code: LOSS[kind] });
   });
-  it.each(KINDS)('refuses a repeated import as its denial when the %s is lost at every hash after the settlement, not only the first', async (kind) => {
+  it.each(KINDS)('refuses a repeated import as its denial when the %s is lost at the third hash after the settlement, not only the first', async (kind) => {
     const p = await setup(), t = trace(p.w.db);
-    let n = 0;
-    t.when([d1(SETTLE)], () => undefined);
-    t.when([d1(SETTLE), digest, () => { n++; return n >= 3; }], () => lose(p, kind));
+    t.when([d1(SETTLE), digest, digest, digest], () => lose(p, kind));
     await expect(repeatImport(p)).rejects.toMatchObject({ code: LOSS[kind] });
+  });
+  describe('on the alpha package within the Free request budget', () => {
+    it.each(KINDS)('refuses a repeated import as its denial when the %s is lost at the first hash after the settlement', async (kind) => {
+      const p = await setupFree(), t = trace(p.w.db);
+      t.when([d1(SETTLE), digest], () => lose(p, kind));
+      await expect(repeatImport(p)).rejects.toMatchObject({ code: LOSS[kind] });
+    });
+    it('ends a repeated import on the statement that holds the operate grant', async () => {
+      const p = await setupFree(), t = trace(p.w.db);
+      expect(await repeatImport(p)).toMatchObject({ kind: 'linked', repeated: true });
+      expect(t.log.slice(t.last(fenceStep) + 1)).toEqual([]);
+    });
   });
 });
 
@@ -144,5 +158,16 @@ describe('genuine repeat, retry and audit-failure semantics', () => {
     expect(p.count('SELECT COUNT(*) AS n FROM native_candidate_audit_settlement')).toBe(1);
     expect(await correct(p, 'fence-audit-failure')).toMatchObject({ kind: 'linked', repeated: true, candidate: { origin: 'correction', current: true } });
     expect(p.count('SELECT COUNT(*) AS n FROM native_candidate_audit_settlement')).toBe(2);
+  });
+  it('does not let an existing settlement bless another event id or the same id with changed bytes', async () => {
+    const p = await setupFree(), repo = d1NativeCandidateRepository(p.w.db);
+    const intent = await repo.auditIntent({ clientId: ids.clientA, caseId, candidateId: p.candidate.candidateId });
+    const settled = () => p.count('SELECT COUNT(*) AS n FROM native_candidate_audit_settlement');
+    const before = settled();
+    for (const event of [{ ...intent.event, eventId: `${intent.event.eventId}-forged` }, { ...intent.event, outcome: 'denied' as const }]) {
+      await expect(repo.settleAudit({ ...intent, event })).rejects.toMatchObject({ code: 'integrity' });
+      expect(settled()).toBe(before);
+    }
+    expect(await repo.settleAudit(intent)).toMatchObject({ candidateId: p.candidate.candidateId, current: true });
   });
 });

@@ -42,6 +42,12 @@ export type AuthorizeOperate = (a: OperateIntent) => Promise<void>;
  */
 export type OperateCondition = (a: OperateIntent) => SqlCondition;
 export interface SqlCondition { readonly sql: string; readonly values: readonly NativeD1Value[] }
+/**
+ * The last checks before a release, called once everything has been hashed, parsed and read: a fresh session check, any audit
+ * write that must precede the data, and the operate grant as SQL (undefined where it can only be observed, which the callback
+ * has then done). The repository holds that grant and the exact verified rows in one final statement and awaits nothing after.
+ */
+export type ReleaseFence = (verified: readonly LinkedCandidate[]) => Promise<SqlCondition | undefined>;
 
 /**
  * The trusted reader of finalized submissions. It must check the upload state (not only that a revision row exists), and
@@ -126,11 +132,14 @@ export interface NativeCandidateRepository {
   pendingAudits(a: Scoped & { limit: number }): Promise<readonly CommittedCandidateAudit[]>;
   /**
    * Trusted caller only, AFTER the audit sink acknowledges these exact bytes. Idempotent, verified readback, which answers
-   * the settled candidate. With `visible`, the readback holds that condition too and answers null when it does not.
+   * the settled candidate. With `fence` the answer is a release: see `ReleaseFence`; when the final statement does not hold, it
+   * rejects `storage-unavailable` (retryable) and releases nothing.
    */
-  settleAudit(a: CommittedCandidateAudit, visible?: SqlCondition): Promise<LinkedCandidate | null>;
-  candidate(a: Scoped & { candidateId: string }): Promise<LinkedCandidate | null>;
-  list(a: Scoped): Promise<readonly LinkedCandidate[]>;
+  settleAudit(a: CommittedCandidateAudit, fence?: ReleaseFence): Promise<LinkedCandidate>;
+  /** With `fence`, a found candidate is released as `settleAudit` releases; an unknown one answers null without calling it. */
+  candidate(a: Scoped & { candidateId: string }, fence?: ReleaseFence): Promise<LinkedCandidate | null>;
+  /** With `fence`, the whole list is released only while it is still exactly these candidates, in the case. */
+  list(a: Scoped, fence?: ReleaseFence): Promise<readonly LinkedCandidate[]>;
 }
 
 /** Read access for the parent's review and sign-off components. A read through here is not audited; the caller audits. */

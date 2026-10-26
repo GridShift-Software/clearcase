@@ -4,7 +4,7 @@
 // runtime contracts only; no filesystem, no SQLite, no network.
 export type {
   AttemptClaim, AuthorizeOperate, OperateCondition, SqlCondition, CandidateAuditRecovery, CommittedCandidateAudit, CandidateReader, CandidateStager, CaseMismatchDiagnostic, ChangeFact, CorrectionRecord, FinalizedSubmissionReader, LinkedCandidate,
-  NativeCandidateRepository, NativeD1, NativeD1Statement, NativeD1Value, NativeImportBudget, NativeImportPorts, OperateIntent, OperatorRef, Origin, StageOutcome, StageRequest, StoredPackageReader,
+  NativeCandidateRepository, NativeD1, NativeD1Statement, NativeD1Value, NativeImportBudget, NativeImportPorts, OperateIntent, OperatorRef, Origin, ReleaseFence, StageOutcome, StageRequest, StoredPackageReader,
 } from './ports.ts';
 export { createCandidateReader, createNativeResultsImport, type AdmittedOperator, type CorrectionRequest, type ImportOutcome, type ImportRequest, type NativeResultsImport, type RefusalCode } from './service.ts';
 export { createNativeImportController, type NativeImportController, type NativeRequest } from './controller.ts';

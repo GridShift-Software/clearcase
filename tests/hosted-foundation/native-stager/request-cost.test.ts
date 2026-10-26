@@ -136,7 +136,7 @@ describe('one native import request on Workers Free', () => {
   it('refuses work over one request in the stager, before its first write, with the counts it needs', async () => {
     const p = await production({ docs: 8 }), n = meter(p);
     const out = await p.request();
-    expect(out).toEqual({ kind: 'refused', code: 'over-budget', detail: ['this import needs 48 D1 calls and 23 subrequests; one request here may make 45 and 45'] });
+    expect(out).toEqual({ kind: 'refused', code: 'over-budget', detail: ['this import needs 49 D1 calls and 23 subrequests; one request here may make 45 and 45'] });
     expect(p.count('SELECT COUNT(*) AS n FROM native_import_attempt')).toBe(1);
     expect(p.count('SELECT COUNT(*) AS n FROM rs_results_version')).toBe(0);
     expect(p.count('SELECT COUNT(*) AS n FROM rs_verification_work')).toBe(0);
@@ -146,9 +146,9 @@ describe('one native import request on Workers Free', () => {
   });
 
   it('refuses work its package already shows is over the limit before the attempt is recorded', async () => {
-    // The lower bound with no rows is 42 here: a limit of 41 refuses in the service, before anything is written.
-    const p = await production({ requestBudget: { d1: 41, external: 45 } });
-    expect(await p.request()).toEqual({ kind: 'refused', code: 'over-budget', detail: ['this import needs 42 D1 calls and 17 subrequests; one request here may make 41 and 45'] });
+    // The lower bound with no rows is 43 here: a limit of 42 refuses in the service, before anything is written.
+    const p = await production({ requestBudget: { d1: 42, external: 45 } });
+    expect(await p.request()).toEqual({ kind: 'refused', code: 'over-budget', detail: ['this import needs 43 D1 calls and 17 subrequests; one request here may make 42 and 45'] });
     expect(p.count('SELECT COUNT(*) AS n FROM native_import_attempt')).toBe(0);
     expect(p.count('SELECT COUNT(*) AS n FROM rs_results_version')).toBe(0);
     noFalseRecord(p);

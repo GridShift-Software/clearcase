@@ -44,7 +44,14 @@ export interface PrivatePreview {
   /** Declared originals the link records as missing or embedded, exactly as recorded: nothing here pretends they exist. */
   unavailable: ImportLinkCoverage['unavailableOriginals'];
 }
-export interface PrivatePreviewReader { read(a: { caseId: string; candidateId: string }): Promise<PrivatePreview> }
+export interface PrivatePreviewReader {
+  read(a: { caseId: string; candidateId: string }): Promise<PrivatePreview>;
+  /**
+   * The denied event for a refusal the caller makes before it reads: best effort, never throws, releases nothing. Only a
+   * verified identity of this deployment is recorded, and only against a well-formed case and candidate id.
+   */
+  denied(a: { caseId: string; candidateId: string }): Promise<void>;
+}
 
 const PART = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const fail = (code: string, retryable = false): never => { throw contractError(code, retryable); };
@@ -139,6 +146,13 @@ export function createPrivatePreview(o: PrivatePreviewOptions): PrivatePreviewRe
         if (isDenial(e) && codeOf(e) !== 'unauthenticated') await record(caseId, candidateId, rv, 'denied').catch(() => undefined);
         throw e;
       }
+    },
+    async denied(input: { caseId: string; candidateId: string }): Promise<void> {
+      try {
+        if (typeof input?.caseId !== 'string' || !PART.test(input.caseId) || typeof input.candidateId !== 'string' || !PART.test(input.candidateId)) return;
+        if (identity.kind !== 'verified' || identity.clientId !== clientId) return;
+        await record(id('case', input.caseId) as CaseId, input.candidateId, null, 'denied');
+      } catch { /* the refusal stands */ }
     },
   });
 }

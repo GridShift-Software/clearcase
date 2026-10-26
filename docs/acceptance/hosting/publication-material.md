@@ -69,9 +69,14 @@ before checker calls, and at release. `operate` is deliberately not required; th
 At base `d35a9a11140491a4f58b0ceae216b71c880aaf59` there is **no `HostedCaseView` component**. The actual hosted chronology
 Svelte page is rendered through `svelte/server`, using the genuine validated projection, existing chronology query helpers
 and immutable original attribution. Its ready/table/row markers are checked. The overview is only a summary; it does not
-render required analysis. All other required datasets are **unsupported**, even when schema-valid. Required sections are
+render required analysis. The registered integrity datasets, `meta` and `source-layout`, are not views
+([ADR 0012](../../adr/0012-integrity-metadata-is-not-a-view.md)). Each is `integrity-verified` only under its exact key and
+schema and only when its own check passes: META's counts reconcile with the records (no `V5_META_COUNT_DISAGREEMENT`), and the
+layout round-trips with the package's datasets. Otherwise it is `invalid`. Sign-off clears `integrity-verified` for those two keys
+only. All other required datasets are **unsupported**, even when schema-valid. Required sections are
 the manifest's real required-file flags plus the canonical `REQUIRED_DATASETS` policy (chronology), not invented feature
-keys, optional residuals or an empty list. No JSON dump substitutes for a supported view. Full v5 packages therefore HOLD.
+keys, optional residuals or an empty list. No JSON dump substitutes for a supported view. Full v5 packages therefore still HOLD on
+their view datasets.
 
 Every file asset is required for preview readiness; missing and embedded assets remain explicit pending entries. Each
 PDF, including aliases, passes its exact authorized byte-verified **unchanged original** to the checker with client, case,

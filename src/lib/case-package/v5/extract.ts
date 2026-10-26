@@ -2,9 +2,9 @@ import type { DiagSink } from '../diagnostics.ts';
 import { decodeUtf8Strict, isObject, parseStrictJson, StrictJsonError, type JsonValue } from '../strict-json.ts';
 import { JSON_SCRIPT_IDS, toV5Roots, type JsonScriptId } from './json-workspace.ts';
 import { isNewerGeneration, NEWER_VERSIONS, unsupportedVersion } from './newer-workspace.ts';
+import { V5_ROOTS, type V5Root } from '../source-layout.ts';
 
-export const V5_ROOTS = ['DATA', 'META', 'window.__SCHED__', 'window.__CASELINES_IDX__'] as const;
-export type V5Root = (typeof V5_ROOTS)[number];
+export { V5_ROOTS, type V5Root };
 const REQUIRED: readonly V5Root[] = ['DATA', 'META'];
 export const V5_CODE_LITERALS = ['NAV', 'IC', 'STORE_KEYS', 'ENF_OPTS', 'CBK', 'CBPH', 'CBHF', 'IFRAME_EXT'];
 

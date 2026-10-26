@@ -1,9 +1,11 @@
 // This is a display check, not another package validator. Only the actual hosted chronology page is supported at this
 // revision. In particular, the local pilot's richer views and the overview's summary do not render required analysis.
+// The registered integrity datasets are not views: each is checked against its own contract instead (ADR 0012).
 import { render } from 'svelte/server';
 import ChronologyPage from '../../../../../deploy/client/routes/cases/[caseId]/views/[resultsVersion]/chronology/+page.svelte';
 import type { Candidate } from '../../../case-package/candidate.ts';
-import { REQUIRED_DATASETS } from '../../../case-package/registry.ts';
+import { INTEGRITY_DATASETS, isIntegrityKey, REQUIRED_DATASETS, type IntegrityKey } from '../../../case-package/registry.ts';
+import { sourceLayoutRoundTrips } from '../../../case-package/source-layout.ts';
 import type { RequiredSectionState } from '../../../publication/hosted/ports.ts';
 import type { StagedProjection } from '../../../results/hosted/read-model.ts';
 import type { ResultsVersion } from '../contracts.ts';
@@ -12,11 +14,24 @@ import type { ChronologyData } from '../../../views/hosted/model.ts';
 import { optionsOf, queryFromParams, queryRows, statusOptions } from '../../../local-case/chronology.ts';
 import { caseHref, notesHref, originalHref } from '../../../views/hosted/paths.ts';
 
-/** Must be called only with the canonical validator's accepted candidate and the freshly verified projection. */
+type Counts = Readonly<Record<string, number>>;
+
+const INTEGRITY_CHECKS: Record<IntegrityKey, (c: Candidate, counts: Counts) => boolean> = {
+  // The validator's META count check runs only when both exact schemas are present; then no disagreement means every
+  // META count reconciles with the records. A disagreement is only a warning to validation, but it fails this check.
+  meta: (c, counts) => c.dataset('chronology')?.schema === 'v5.chronology@1' && !counts.V5_META_COUNT_DISAGREEMENT,
+  'source-layout': (c) => sourceLayoutRoundTrips(c.datasetKeys().map((k) => c.dataset(k)!)),
+};
+
+/**
+ * Must be called only with the canonical validator's accepted candidate, the uncapped diagnostic counts of that same
+ * validation and the freshly verified projection.
+ */
 export async function renderRequiredSections(a: {
   candidate: Candidate;
   projection: StagedProjection;
   originals: ReadonlyMap<string, string>;
+  counts: Counts;
 }): Promise<readonly { key: string; state: RequiredSectionState }[]> {
   const c = a.candidate;
   // The format has file/envelope required flags, not an invented feature-list extension. Chronology is also required
@@ -26,6 +41,9 @@ export async function renderRequiredSections(a: {
   for (const key of [...keys].sort()) {
     const env = c.dataset(key);
     if (!env) { out.push({ key, state: 'missing' }); continue; }
+    if (isIntegrityKey(key) && env.schema === INTEGRITY_DATASETS[key].schema) {
+      out.push({ key, state: INTEGRITY_CHECKS[key](c, a.counts) ? 'integrity-verified' : 'invalid' }); continue;
+    }
     if (key !== 'chronology' || env.schema !== 'v5.chronology@1') {
       out.push({ key, state: 'unsupported' }); continue;
     }

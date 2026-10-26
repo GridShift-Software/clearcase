@@ -260,7 +260,7 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
         const model = await loadVerifiedModel(primary, rv);
         if (projectionDifferences({ documents: model.docs, assets: model.assets, seeds: model.seeds,
           chronologyJson: JSON.stringify(model.docs.map((d) => JSON.parse(d.list_json))), overview: version.overview, expect: projected.projection.expect }, projected.projection).length) return integrity();
-        const requiredSections = [...await renderRequiredSections({ candidate: result.candidate, projection: projected.projection,
+        const requiredSections = [...await renderRequiredSections({ candidate: result.candidate, projection: projected.projection, counts: result.counts,
           originals: new Map(mapped.flatMap((m) => m.packageRefs.map((ref) => [ref, m.submissionAssetId] as const))) })];
         const requiredPreviews: { assetId: string; state: RequiredPreviewState }[] = [];
         const pagesByRef = referencePages(result.candidate);

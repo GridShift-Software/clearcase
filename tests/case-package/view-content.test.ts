@@ -8,7 +8,7 @@ import { importCandidate } from '../../src/lib/case-package/import.ts';
 import { VIEW_CONTENT } from '../../src/lib/case-package/registry.ts';
 import { convertV5 } from '../../src/lib/case-package/v5/adapter.ts';
 import { markupText, tokenize } from '../../src/lib/case-package/v5/js-scan.ts';
-import { reassembleV5 } from '../../src/lib/case-package/v5/reassemble.ts';
+import { reassembleV5 } from '../../src/lib/case-package/source-layout.ts';
 import { checkMap, extractViewContent, type Entry } from '../../src/lib/case-package/v5/view-content.ts';
 import { SHELL_VIEW, V5_VIEW_IDS, VIEW_CONTENT_AUDIT, VIEW_CONTENT_MAP, VIEW_CONTENT_OMISSIONS } from '../../src/lib/case-package/v5/view-content-map.ts';
 import { cleanup, SYNTH_VIEW_CODE, synthHtml, synthRoots, tempDir, writeCaseFolder, type SynthRoots } from './fixtures/synth.ts';

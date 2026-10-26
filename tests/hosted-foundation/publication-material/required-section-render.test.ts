@@ -5,8 +5,9 @@ import { buildSynth, editPackage, resealFiles } from '../../case-package/fixture
 import { cleanup, type SynthRoots } from '../../case-package/fixtures/synth.ts';
 import { world } from './fixture.ts';
 import { Candidate } from '../../../src/lib/case-package/candidate.ts';
+import { canonicalBytes } from '../../../src/lib/case-package/canonical.ts';
 import { validateHostedPackage } from '../../../src/lib/case-package/hosted-validation.ts';
-import type { DatasetEnvelope } from '../../../src/lib/case-package/schema.ts';
+import type { DatasetEnvelope, Manifest } from '../../../src/lib/case-package/schema.ts';
 import { preparePackage, type OriginalFacts } from '../../../src/lib/results/hosted/project.ts';
 import { renderRequiredSections } from '../../../src/lib/server/runtime/hosted/required-section-render.ts';
 import { checkSnapshot, signoffBlocker } from '../../../src/lib/publication/hosted/rules.ts';
@@ -56,7 +57,7 @@ const editLayout = (files: Map<string, Uint8Array>, edit: (layout: Record<string
 
 /** A Candidate over the same accepted package with one dataset replaced or added, as a reader would hold it. */
 function withDataset(c: Candidate, env: DatasetEnvelope): Candidate {
-  const manifest = structuredClone(c.manifest) as Candidate['manifest'];
+  const manifest = structuredClone(c.manifest) as Manifest;
   const file = { path: `datasets/${env.key}.json`, role: 'dataset' as const, key: env.key, kind: env.kind, schema: env.schema, required: env.required, count: env.count, sha256: '0'.repeat(64), size: 1 };
   manifest.files = [...manifest.files.filter((f) => f.key !== env.key), file];
   const datasets = new Map(c.datasetKeys().map((k) => [k, c.dataset(k)!]));
@@ -114,6 +115,15 @@ describe('integrity metadata on actual converter-generated packages', () => {
     files = editPackage(files, 'datasets/people.json', (env) => { env.provenance.sourcePath = 'DATA.persons'; });
     files = editLayout(files, (l) => { l.DATA = l.DATA!.map((k) => (k === 'people' ? 'persons' : k)); });
     expect((await sectionsOf(files))['source-layout']).toBe('invalid');
+  });
+
+  it('marks the layout invalid when a second dataset claims the same source path with the same data', async () => {
+    const full = await converted('integrity-duplicate', reconcileMeta);
+    const people = JSON.parse(new TextDecoder().decode(full.get('datasets/people.json')!));
+    const copy = { ...people, key: 'v5-residual-people-copy', schema: 'opaque@1', required: false };
+    const files = new Map(full).set('datasets/v5-residual-people-copy.json', canonicalBytes(copy));
+    const resealed = resealFiles(resealFiles(files, (m) => { m.files.push({ path: 'datasets/v5-residual-people-copy.json', role: 'dataset', key: copy.key, kind: copy.kind, schema: copy.schema, required: false, count: copy.count, sha256: '', size: 0 }); m.files.sort((x: { path: string }, y: { path: string }) => (x.path < y.path ? -1 : 1)); }));
+    expect((await sectionsOf(resealed))['source-layout']).toBe('invalid');
   });
 
   it('marks the layout invalid when the META dataset is removed from the package', async () => {

@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { LIMITS } from '../../../src/lib/case-package/limits.ts';
 import { buildPackage } from '../../../src/lib/case-package/writer.ts';
 import { nativeImportBudget, type CandidateStager, type LinkedCandidate } from '../../../src/lib/results-review/native/index.ts';
-import { planBatches, stagedBatchCost, type StagedImport, type StagedOutcome } from '../../../src/lib/results-review/native/staging/index.ts';
+import { planBatches, stagedBatchCost, type StagedOutcome } from '../../../src/lib/results-review/native/staging/index.ts';
 import { ValidatingStager } from './doubles.ts';
 import { buildFixture, pdf as syntheticPdf } from './fixtures.ts';
 import { Durable, Killed, KILL_PHASES, RecordingStager, pocPackage, sha256Hex, startProcess, submissionOf, type Kill, type Process } from './staged-world.ts';
@@ -293,4 +293,3 @@ describe('the small-package path is unchanged', () => {
   });
 });
 
-export type { StagedImport };

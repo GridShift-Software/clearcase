@@ -188,4 +188,3 @@ export function createStagedImport(d: StagedDeps): StagedImport {
     },
   };
 }
-export type { CaseId };

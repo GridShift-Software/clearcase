@@ -152,6 +152,17 @@ function expectedFromData(dataset: VerifiedDataset, ctx: RecordsContext): { reco
 }
 
 const sameList = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i]);
+// Multiset equality in linear time: the same strings with the same counts, in any order.
+const sameMultiset = (a: Iterable<string>, b: Iterable<string>): boolean => {
+  const counts = new Map<string, number>();
+  for (const x of a) counts.set(x, (counts.get(x) ?? 0) + 1);
+  for (const x of b) {
+    const n = counts.get(x);
+    if (!n) return false;
+    if (n === 1) counts.delete(x); else counts.set(x, n - 1);
+  }
+  return counts.size === 0;
+};
 
 /**
  * `records-rendered` only if the page is exactly the one the verified dataset and the route produce, and
@@ -180,8 +191,7 @@ export function recordsSectionState(dataset: VerifiedDataset, rendered: RecordsR
     const fromData = expectedFromData(dataset, ctx);
     if (fromData.duplicate || cells.size !== fromData.values.size) return 'invalid';
     for (const [marker, valueHtml] of fromData.values) if (cells.get(marker) !== valueHtml) return 'invalid';
-    const wantRecords = [...fromData.records].sort();
-    if (!sameList([...rendered.markers.records].sort(), wantRecords)) return 'invalid';
+    if (!sameMultiset(rendered.markers.records, fromData.records)) return 'invalid';
     for (const marker of rendered.markers.records) if (attributeCounts.get(`record:${marker}`) !== 1) return 'invalid';
     for (const marker of rendered.markers.leaves) if (attributeCounts.get(`leaf:${marker}`) !== 1) return 'invalid';
     return RECORDS_RENDERED;

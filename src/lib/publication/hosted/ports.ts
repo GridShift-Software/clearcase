@@ -104,7 +104,8 @@ export interface EvidenceItemRow { readonly key: string; readonly json: string; 
 export interface EvidenceReader {
   /**
    * At most `limit` rows after `after` (exclusive; null starts at the first), in key order, optionally only one kind. Null when this
-   * client's case has no completed run for the candidate and generation with exactly this root.
+   * client's case has no completed run for the candidate and generation with exactly this root, or when the run's stored rows are not
+   * exactly the ones its seal covers (a row added after sealing): rows outside the root are never served.
    */
   page(a: { clientId: ClientId; caseId: CaseId; candidateId: string; generation: string; root: string; after: string | null; kind: EvidenceKind | null; limit: number }): Promise<readonly EvidenceItemRow[] | null>;
 }

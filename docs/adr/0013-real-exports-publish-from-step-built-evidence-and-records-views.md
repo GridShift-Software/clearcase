@@ -5,7 +5,7 @@ date: 2026-10-27
 
 # Real exports publish from step-built evidence and records views
 
-On 27 October 2026, the user accepted records views and chose to stay on Workers Free in the orchestration session. Real exports are too large to validate and check for publication in a single request without exceeding runtime limits. Sampling or raising list caps would not prove completeness.
+On 27 October 2026, the user accepted records views. The same day, after a probe on a deployed Worker showed that a real-size case cannot run within Workers Free's per-request CPU limit, the user moved the account to Workers Paid. Real exports are too large to validate and check for publication in a single request without exceeding runtime limits. Sampling or raising list caps would not prove completeness.
 
 ## Required datasets
 
@@ -15,8 +15,8 @@ This amends how [ADR-0010](0010-exact-version-signoff-and-publication.md)'s requ
 
 ## Evidence and runtime
 
-Publication evidence is persisted per observation, bound to the candidate and exact inputs, and built in resumable, lease-claimed steps. Immutable evidence rows are sealed in pages under an evidence root; sign-off binds that root and publication recomputes it, refusing changed evidence. Readiness uses complete counts and cursor-paginated item lists, not caps or samples. Warning acknowledgements retain every fingerprint and a reason.
+Publication evidence is persisted per observation, bound to the candidate and exact inputs, and built in resumable, lease-claimed steps. Immutable evidence rows are sealed in pages under an evidence root; sign-off binds that root and publication recomputes it, refusing changed evidence. Readiness uses complete counts and cursor-paginated item lists, not caps or samples. Warning acknowledgements retain every fingerprint and one reason per acknowledged group.
 
-The deployment stays on Workers Free. Evidence steps are sized to Free's per-request CPU limit using measured safe bounds; import, readiness and publication reads must also fit that limit, with staging split as needed. A step that cannot fit holds honestly, refused or retryable; the budget is never silently raised.
+The deployment runs on Workers Paid with the default CPU limit. Measured on 27 October 2026 with a synthetic 1,689-document package, readiness used about 0.9 s of CPU and an evidence step over 20 originals about 40 ms, so CPU is not the binding limit. Steps are bounded by wall time, subrequests and memory instead; import, readiness and publication reads are split into steps where those bounds require it. A step that cannot fit holds honestly, refused or retryable; the CPU limit is never silently raised.
 
 These decisions do not claim that the implementation or real-export publication has been verified.

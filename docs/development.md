@@ -1,6 +1,6 @@
 # Developing the local ClearCase app
 
-The local pilot (GRS-12, CC-03): an operator imports a results package for a case folder, reads its validation report, previews and activates it, and follows a citation from the chronology or overview to the original, which opens safely or downloads. This page is the developer contract for the app and for the M2 view owners who extend it. The package contract is [results-package.md](results-package.md); words follow [GLOSSARY.md](../GLOSSARY.md).
+The local pilot (GRS-12, CC-03): an operator imports a results package for a case folder, reads its validation report, previews and activates it, and follows a citation from the chronology or overview to the original, which opens safely or downloads. This page is the developer contract for the app and for the M2 view owners who extend it. The package contract is [results-package.md](results-package.md); hosted producers should also follow the [processing contract](processing-contract.md). Words follow [GLOSSARY.md](../GLOSSARY.md).
 
 ## Stack decision
 

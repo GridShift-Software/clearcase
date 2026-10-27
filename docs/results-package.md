@@ -1,6 +1,6 @@
 # Results package contract (formatVersion 1)
 
-GRS-10 (CC-02). A results package is the versioned, inspectable output of processing one case: datasets, an index of the originals they cite, and identities that bind both. This page is the contract. GRS-12 (CC-03) builds the local app on the library exports named in [Library API](#library-api), and GRS-11 (CC-23) gates it. Words follow [GLOSSARY.md](../GLOSSARY.md).
+GRS-10 (CC-02). A results package is the versioned, inspectable output of processing one case: datasets, an index of the originals they cite, and identities that bind both. This page is the contract. Producers targeting hosted publication should also follow the [processing contract](processing-contract.md). GRS-12 (CC-03) builds the local app on the library exports named in [Library API](#library-api), and GRS-11 (CC-23) gates it. Words follow [GLOSSARY.md](../GLOSSARY.md).
 
 The v5 sample (1,689 documents) converts to 37 files: 35 datasets, `assets.json` and `manifest.json`, 6.2 MB in total (largest file 1.8 MB). Originals are never copied into a package. They stay in the operator's case folder and are matched by relative path, sha256 and size.
 

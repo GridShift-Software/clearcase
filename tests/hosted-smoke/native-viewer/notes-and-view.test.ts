@@ -150,7 +150,7 @@ describe('page notes persist through user work and stay on their own original', 
 });
 
 describe('the viewer page load', () => {
-  const run = (w: World, work: AsyncUserWork, caseId = 'case-a', assetId = 'a1') => load({ params: params(caseId, assetId), locals: { assets: w.assets, userWork: work } } as never).catch((e: unknown) => (isHttpError(e) ? { status: e.status } : Promise.reject(e)));
+  const run = (w: World, work: AsyncUserWork, caseId = 'case-a', assetId = 'a1') => load({ params: params(caseId, assetId), url: new URL('https://case.test/view'), locals: { assets: w.assets, userWork: work } } as never).catch((e: unknown) => (isHttpError(e) ? { status: e.status } : Promise.reject(e)));
 
   it('passes the requested page from the URL to the viewer, including invalid values', async () => {
     const { w, work } = await fixture();

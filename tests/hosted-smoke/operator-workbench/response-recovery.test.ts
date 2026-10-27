@@ -1,5 +1,5 @@
 // Function-level execution of the verbatim component request/state functions. Not hydration/browser proof.
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import ts from 'typescript';
 import { readFileSync } from 'node:fs';
 import * as WorkbenchExports from '../../../src/lib/views/hosted/OperatorWorkbench.svelte';
@@ -180,6 +180,24 @@ it('refuses well-shaped successes for another operation, submission, case, packa
       await h.attempt();
       expect(h.state().pending).toBe(h.original);
       expect(h.state().rotations).toBe(0);
+    }
+  }
+});
+
+// Heavy review M4: a 401 the hosted handle marked x-clearcase-reauth (an expired session only the handshake renews) reloads
+// this page, which goes through the handshake and back; the request is sent once and never retried.
+it('reloads the page for a marked 401 and sends nothing again', async () => {
+  for (const kind of ['import', 'correction', 'signoff', 'publish'] as const) {
+    const f = await fixture(kind), assign = vi.fn();
+    vi.stubGlobal('location', { href: 'https://client-a.clearcase.test/operator/results/case-a', assign });
+    try {
+      const h = exercise(f.request, () => new Response(JSON.stringify({ code: 'invalid-session', message: 'Your session has ended. Sign in again.' }), { status: 401, headers: { 'content-type': 'application/json', 'x-clearcase-reauth': '1' } }));
+      await h.attempt();
+      expect(assign).toHaveBeenCalledExactlyOnceWith('https://client-a.clearcase.test/operator/results/case-a');
+      expect(h.calls).toHaveLength(1);
+      expect(h.state().status).toMatch(/reloading to sign you in again.*not sent again/);
+    } finally {
+      vi.unstubAllGlobals();
     }
   }
 });

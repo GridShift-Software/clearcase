@@ -52,8 +52,12 @@ export const MAX_SESSION_LIFETIME_MS = 7 * 86_400_000;
  */
 export const SESSION_HOLD_COOKIE: Readonly<Record<InstanceKind, string>> = { client: '__Host-clearcase_refresh', staff: '__Host-clearcase_staff_refresh' };
 const HOLD_NAMES: ReadonlySet<string> = new Set(Object.values(SESSION_HOLD_COOKIE));
-/** A Clerk refresh token value: the standard-base64 class a real handshake returned, plus base64url and JWT characters. */
-export const REFRESH_TOKEN_VALUE = /^[A-Za-z0-9+/=._-]{16,4096}$/;
+/**
+ * A Clerk refresh token value: any RFC 6265 cookie-octet, which is all a value Clerk sets as a cookie can hold and all the
+ * hold can carry back. Its format is Clerk's: the live development handshake of 27 October set letters, digits and `:`,
+ * which a narrower class refused, so no hold was set and no session renewed (session-renewal-live).
+ */
+export const REFRESH_TOKEN_VALUE = /^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]{16,4096}$/;
 const HOLD_TOKEN = /^[A-Za-z0-9._-]{16,8192}$/, COOKIE_MAX_BYTES = 4096;
 export interface SessionHold { kind: InstanceKind; token: string; refreshToken: string }
 

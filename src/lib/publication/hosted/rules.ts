@@ -1,7 +1,7 @@
 import type { CandidateSnapshot, CandidateSnapshotV2, EvidenceCountGroup, EvidenceItemRow, EvidenceKind, EvidenceObservation, PreviewStateV2, SectionStateV2 } from './ports.ts';
 import { isIntegrityKey } from '../../case-package/registry.ts';
 import { META_DISAGREEMENT_CODE, metaDisagreementFingerprint, type MetaBinding, type MetaCountDetail, type MetaDisagreement } from '../../case-package/meta-integrity.ts';
-import { ASSET_HOLD_REASONS, ORIGINAL_NOT_SUPPLIED, authenticMissingOriginals, isAssetHoldReason, type AssetBinding, type MissingOriginal } from './asset-policy.ts';
+import { ASSET_ACK_CODE, ASSET_HOLD_REASONS, ORIGINAL_NOT_SUPPLIED, authenticMissingOriginals, isAssetHoldReason, type AssetBinding, type MissingOriginal } from './asset-policy.ts';
 import { PREVIEW_REASON_CODES, detachedData, isPreviewNavigationObservation, isPreviewReasonCode, isPreviewRenderStage } from './preview-outcome.ts';
 
 // Pure sign-off rules over a candidate snapshot (ADR-0010, ADR-0011, results-package acknowledgement contract). There
@@ -252,6 +252,30 @@ export function acknowledgementGroups(acks: readonly { readonly fingerprint: str
 
 /** Whether the only thing between a candidate and sign-off is the acknowledgement of its META disagreements, which the sign-off itself supplies. */
 export const awaitsMetaAcknowledgement = (b: Blocker | null): boolean => b !== null && b.code === 'required-section' && b.detail.length > 0 && b.detail.every((d) => d === 'meta:disagrees');
+
+/** What the sealed run's warnings ask of a sign-off (`warningsOf`): the ones the case's baseline does not hold, and the exceptions among them all. */
+export interface WarningsToAcknowledge { readonly fresh: readonly string[]; readonly meta: readonly MetaDisagreement[]; readonly missing: readonly MissingOriginal[] }
+export type AcknowledgementFault =
+  | { readonly code: 'ack-not-exact' }
+  | { readonly code: 'ack-incomplete'; readonly missing: readonly string[] }
+  | { readonly code: 'blocked'; readonly blocker: Blocker };
+/**
+ * Whether `groups` acknowledge exactly what the run asks, or the first fault. Sign-off applies it to the request's groups and publish to the
+ * recorded ones (`acknowledgementGroups`), so the two cannot decide differently. Every fingerprint named is a fresh warning, named once; a
+ * warning the baseline holds is never named, so a missing original the case already trusts needs nothing. A missing original and the
+ * validator's warning for it are named only under that warning's code. META disagreements clear only as `metaAcknowledged` says. Every fresh
+ * warning is named.
+ */
+export function acknowledgementFault(s: CandidateSnapshotV2, w: WarningsToAcknowledge, groups: readonly AcknowledgementGroup[]): AcknowledgementFault | null {
+  const fresh = new Set(w.fresh), named = groups.flatMap((g) => g.fingerprints), unique = new Set(named);
+  if (unique.size !== named.length || named.some((f) => !fresh.has(f))) return { code: 'ack-not-exact' };
+  const codeOf = new Map(groups.flatMap((g) => g.fingerprints.map((f) => [f, g.code] as const)));
+  if (w.missing.some((m) => [m.fingerprint, m.diagnostic].some((f) => codeOf.has(f) && codeOf.get(f) !== ASSET_ACK_CODE))) return { code: 'ack-not-exact' };
+  const first = signoffBlockerV2(s), still = awaitsMetaAcknowledgement(first) ? signoffBlockerV2(s, { disagreements: w.meta, acknowledgements: groups }) : first;
+  if (still) return { code: 'blocked', blocker: still };
+  const missing = w.fresh.filter((f) => !unique.has(f));
+  return missing.length ? { code: 'ack-incomplete', missing } : null;
+}
 
 function observationOf(o: unknown): { observation: EvidenceObservation; subject: string; meta?: MetaCountDetail; missing?: MissingOriginalDetail } | null {
   if (!plain(o)) return null;

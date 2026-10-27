@@ -30,6 +30,11 @@ export const isAssetHoldReason = (v: unknown): v is AssetHoldReason => (ASSET_HO
 
 /** The state the count of a missing original's warning is grouped under (`readiness-evidence.ts`). */
 export const ORIGINAL_NOT_SUPPLIED = 'original-not-supplied' as const;
+/**
+ * The state a missing original's warning is counted under when the run does not also hold the validator's own warning it names. No snapshot
+ * reader accepts it (`checkSnapshotV2`), so a run with such an exception is unavailable to readiness, sign-off and publish alike.
+ */
+export const ORIGINAL_NOT_WARNED = 'original-not-warned' as const;
 /** The code a sign-off groups the acknowledgement of a missing original under: the validator's own code for it. */
 export const ASSET_ACK_CODE = 'ASSET_MISSING_AT_BUILD' as const;
 const FINGERPRINT_TAG = 'clearcase.original-not-supplied/1';

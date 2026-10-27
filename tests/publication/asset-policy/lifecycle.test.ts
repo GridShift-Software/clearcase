@@ -15,7 +15,7 @@ describe('M1: readiness serves a missing original only with the validator warnin
   const unwarned = () => buildAssetEvidence([UNCITED_MISSING], FIXTURE_BOUND, (items) => items.filter((i) => i.key !== `warning/${diagnostic}`));
 
   it('a canonical, currently bound exception without its ASSET_MISSING_AT_BUILD warning is unavailable, on any page', async () => {
-    for (const params of [{}, { kind: 'warning' }]) {
+    for (const params of [{}, { kind: 'warning' }] as Record<string, string>[]) {
       const w = worldV2(await unwarned());
       const response = await createPublicationReadiness(w.ports).read(w.request(params));
       const body = await response.json() as Record<string, unknown>;

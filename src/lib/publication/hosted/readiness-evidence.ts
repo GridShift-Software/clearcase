@@ -1,6 +1,7 @@
 import type { CaseId, ClientId } from '../../server/runtime/contracts.ts';
 import { d1EvidenceStore, verifyEvidence, type EvidenceBinding, type EvidenceD1 } from './evidence/index.ts';
 import type { EvidenceCountGroup, EvidenceItemRow, EvidenceKind, EvidenceReader } from './ports.ts';
+import { ORIGINAL_NOT_SUPPLIED, ORIGINAL_NOT_WARNED } from './asset-policy.ts';
 
 // The D1 side of snapshot v2 readiness: it reads what a finished evidence build stored (`evidence/`) and builds, hashes and
 // recomputes nothing. Counts are one GROUP BY over the run's rows; a page is one keyset range over the primary key, so the cost of a
@@ -24,7 +25,8 @@ export interface D1EvidenceReader extends EvidenceReader {
   /**
    * The root, the item total, the counts and the number of warnings the case's baseline does not hold, for a completed run: what a
    * candidate reader puts in a v2 snapshot. Null when the run is missing, belongs to another client or case, is not complete, or its
-   * stored rows are not exactly what its sealed pages cover (`verifyEvidence`).
+   * stored rows are not exactly what its sealed pages cover (`verifyEvidence`). A missing original's warning is counted as one only when the
+   * run also holds the validator's warning it names; otherwise under `ORIGINAL_NOT_WARNED`, which no snapshot reader accepts.
    */
   summary(a: { clientId: ClientId; caseId: CaseId; candidateId: string; generation: string }): Promise<EvidenceSummary | null>;
 }
@@ -70,9 +72,11 @@ export function d1EvidenceReader(d1: EvidenceD1): D1EvidenceReader {
         `SELECT kind, CASE WHEN kind = 'section' THEN item END AS subject, state, reason, count(*) AS count FROM (
            SELECT json_extract(item_json, '$.observation.kind') AS kind, json_extract(item_json, '$.observation.key') AS item,
              coalesce(json_extract(item_json, '$.observation.state'),
-               CASE WHEN json_extract(item_json, '$.observation.kind') = 'warning' AND json_type(item_json, '$.observation.missing') = 'object' THEN 'original-not-supplied' END) AS state,
+               CASE WHEN json_extract(item_json, '$.observation.kind') = 'warning' AND json_type(item_json, '$.observation.missing') = 'object' THEN
+                 CASE WHEN EXISTS (SELECT 1 FROM pub_evidence_item d WHERE d.candidate_id = i.candidate_id AND d.generation = i.generation
+                   AND d.item_key = 'warning/' || json_extract(i.item_json, '$.observation.missing.diagnostic')) THEN '${ORIGINAL_NOT_SUPPLIED}' ELSE '${ORIGINAL_NOT_WARNED}' END END) AS state,
              json_extract(item_json, '$.observation.reasonCode') AS reason
-           FROM pub_evidence_item WHERE candidate_id = ? AND generation = ?)
+           FROM pub_evidence_item i WHERE candidate_id = ? AND generation = ?)
          GROUP BY kind, subject, state, reason`).bind(a.candidateId, a.generation).all<Row>();
       const groups = results.map((r): EvidenceCountGroup => ({ kind: r.kind as EvidenceKind, subject: r.subject as string | null, state: r.state as string | null, reason: r.reason as string | null, count: r.count as number }))
         .sort(order);

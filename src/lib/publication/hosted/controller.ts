@@ -3,8 +3,8 @@ import { codeOf } from '../../server/runtime/errors.ts';
 import { id } from '../../server/runtime/ids.ts';
 import { readAtMost } from '../../submissions/body.ts';
 import { MAX_SIGNOFF_VALUE_BYTES } from './ledger.ts';
-import { acknowledgementGroups, assetBindingOf, awaitsMetaAcknowledgement, checkSnapshot, checkSnapshotV2, evidenceCount, newWarnings, signoffBlocker, signoffBlockerV2, type Blocker } from './rules.ts';
-import { ASSET_ACK_CODE, ORIGINAL_NOT_SUPPLIED } from './asset-policy.ts';
+import { acknowledgementFault, acknowledgementGroups, assetBindingOf, awaitsMetaAcknowledgement, checkSnapshot, checkSnapshotV2, evidenceCount, newWarnings, signoffBlocker, signoffBlockerV2, type Blocker } from './rules.ts';
+import { ORIGINAL_NOT_SUPPLIED } from './asset-policy.ts';
 import { checkOriginals, checkRows, checkSealed, warningsOf, type EvidenceClaim } from './signoff-evidence.ts';
 import type { CandidateSnapshot, CandidateSnapshotV2, CheckedEvidenceRows, NativePublicationPorts, OperationRecord, PointerOutcome, PublicationIntent, PublicationState, SignoffAcknowledgement, SignoffIdentity, SignoffRecord } from './ports.ts';
 
@@ -203,12 +203,13 @@ export function createNativePublication(ports: NativePublicationPorts | null) {
     if (!port) return unavailable();
     const claim = claimOf(a, so.candidateId, s);
     // A META disagreement stands only while the sign-off's recorded groups acknowledge exactly what the run derives, and a missing original
-    // only while its exception is genuine and acknowledged under its own code. Both are read from the sealed rows, never from the sign-off.
+    // only while its exception is genuine. Both are read from the sealed rows, never from the sign-off, and the recorded groups are judged by
+    // the rule the sign-off was (`acknowledgementFault`): a missing original the baseline already holds needs no acknowledgement here either.
     if (meta || s.evidence.groups.some((g) => g.kind === 'warning' && g.state === ORIGINAL_NOT_SUPPLIED)) {
       const facts = await storage(warningsOf(port, claim, evidenceCount(s, 'warning'), assetBindingOf(s)));
       if (!facts) return 'candidate-changed';
-      if (meta && signoffBlockerV2(s, { disagreements: facts.meta, acknowledgements: acknowledgementGroups(so.acknowledgements) })) return 'candidate-blocked';
-      if (!facts.missing.every((m) => so.acknowledgements.some((x) => x.fingerprint === m.fingerprint && x.code === ASSET_ACK_CODE))) return 'warnings-changed';
+      const fault = acknowledgementFault(s, facts, acknowledgementGroups(so.acknowledgements));
+      if (fault) return fault.code === 'blocked' ? 'candidate-blocked' : 'warnings-changed';
     }
     if (!rows) return (await storage(checkSealed(port, claim))).ok ? null : 'candidate-changed';
     const checked = await storage(checkRows(port, claim));
@@ -291,17 +292,11 @@ export function createNativePublication(ports: NativePublicationPorts | null) {
         if (found.all.length !== evidenceCount(snap.s, 'warning') || found.fresh.length !== snap.s.evidence.newWarnings) return refuse(409, 'stale-candidate', 'The warnings changed since you reviewed them. Review the current version.', { fields: ['warnings'] });
         warningFingerprints = [...found.all].sort();
         if (JSON.stringify(warningFingerprints).length > MAX_SIGNOFF_VALUE_BYTES) return refuse(413, 'too-large', 'This candidate has more warnings than one sign-off can record.');
-        const fresh = new Set(found.fresh), named = groups.flatMap((g) => g.fingerprints), unique = new Set(named);
-        if (unique.size !== named.length || named.some((f) => !fresh.has(f))) return refuse(422, 'ack-not-exact', 'Acknowledge exactly the new warnings, each once.');
-        // A missing original is acknowledged under its own code, so a group for something else cannot stand for it.
-        const codeOf = new Map(groups.flatMap((g) => g.fingerprints.map((f) => [f, g.code] as const)));
-        if (found.missing.some((m) => codeOf.has(m.fingerprint) && codeOf.get(m.fingerprint) !== ASSET_ACK_CODE)) return refuse(422, 'ack-not-exact', 'Acknowledge exactly the new warnings, each once.');
-        if (awaitsMeta) {
-          const still = signoffBlockerV2(snap.s, { disagreements: found.meta, acknowledgements: groups });
-          if (still) return refuse(blockerResponse[still.code][0], still.code, blockerResponse[still.code][1], { detail: still.detail });
-        }
-        const missing = found.fresh.filter((f) => !unique.has(f));
-        if (missing.length) return refuse(422, 'ack-incomplete', 'Every new warning needs an acknowledgement with a reason.', { missing: missing.slice(0, MISSING_LISTED), missingCount: missing.length });
+        // Publish judges the recorded groups by this same rule.
+        const fault = acknowledgementFault(snap.s, found, groups);
+        if (fault?.code === 'ack-not-exact') return refuse(422, 'ack-not-exact', 'Acknowledge exactly the new warnings, each once.');
+        if (fault?.code === 'blocked') return refuse(blockerResponse[fault.blocker.code][0], fault.blocker.code, blockerResponse[fault.blocker.code][1], { detail: fault.blocker.detail });
+        if (fault?.code === 'ack-incomplete') return refuse(422, 'ack-incomplete', 'Every new warning needs an acknowledgement with a reason.', { missing: fault.missing.slice(0, MISSING_LISTED), missingCount: fault.missing.length });
         recorded = groups.flatMap((g) => g.fingerprints.map((fingerprint) => ({ fingerprint, reason: g.reason, code: g.code }))).sort((x, y) => (x.fingerprint < y.fingerprint ? -1 : 1));
         hashed = groups.map((g) => ({ ...g, fingerprints: [...g.fingerprints].sort() })).sort((x, y) => (`${x.code}\n${x.reason}\n${x.fingerprints[0]}` < `${y.code}\n${y.reason}\n${y.fingerprints[0]}` ? -1 : 1));
       }

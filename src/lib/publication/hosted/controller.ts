@@ -4,7 +4,7 @@ import { id } from '../../server/runtime/ids.ts';
 import { readAtMost } from '../../submissions/body.ts';
 import { MAX_SIGNOFF_VALUE_BYTES } from './ledger.ts';
 import { checkSnapshot, checkSnapshotV2, evidenceCount, newWarnings, signoffBlocker, signoffBlockerV2, type Blocker } from './rules.ts';
-import { checkRows, checkSealed, warningsOf, type EvidenceClaim } from './signoff-evidence.ts';
+import { checkOriginals, checkRows, checkSealed, warningsOf, type EvidenceClaim } from './signoff-evidence.ts';
 import type { CandidateSnapshot, CandidateSnapshotV2, CheckedEvidenceRows, NativePublicationPorts, OperationRecord, PointerOutcome, PublicationIntent, PublicationState, SignoffAcknowledgement, SignoffIdentity, SignoffRecord } from './ports.ts';
 
 /** What one publication request carries: the request, its URL, the route params and the request's identity (the existing contract). */
@@ -202,8 +202,16 @@ export function createNativePublication(ports: NativePublicationPorts | null) {
     const claim = claimOf(a, so.candidateId, s);
     if (!rows) return (await storage(checkSealed(port, claim))).ok ? null : 'candidate-changed';
     const checked = await storage(checkRows(port, claim));
-    if (checked.ok) keep?.({ signoffId: so.signoffId, rows: checked.rows });
-    return checked.ok ? null : 'candidate-changed';
+    if (!checked.ok) return 'candidate-changed';
+    // Originals (U8): R2 is read only inside the recheck. A run that holds originals is never passed without the comparison.
+    const originals = evidenceCount(s, 'original');
+    if (originals > 0) {
+      if (!port.originals) return unavailable();
+      const compared = await storage(checkOriginals(port, port.originals, claim, originals));
+      if (!compared.ok) return compared.reason === 'over-limit' ? unavailable('originals-over-limit', 'There are more originals than one publication check may compare.') : compared.reason === 'rows' ? 'candidate-changed' : 'originals-changed';
+    }
+    keep?.({ signoffId: so.signoffId, rows: checked.rows });
+    return null;
   }
 
   return {

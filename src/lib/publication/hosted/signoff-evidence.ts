@@ -4,6 +4,7 @@
 //                 hashes nothing: counts, greatest key and page digests. It is the check made at sign-off and again before publish.
 //   checkRows     `checkSealed`, then the root recomputed from the item rows themselves, in pages of 500 read in key order. A row
 //                 changed behind the application's back keeps every count and digest the metadata holds, so only this catches it.
+//   checkOriginals  the originals the sealed rows record (U8), compared with what R2 holds now: etag and size per object, in bounded batches.
 //   warningsOf    every warning of the run and whether the case's baseline already holds it, so a sign-off acknowledges what the rows
 //                 say and never what the request claims.
 //
@@ -13,11 +14,29 @@
 import { PAGE_SIZE, pageBytes, rootBytes, sha256Hex, verifyEvidence, type EvidenceStore } from './evidence/index.ts';
 import type { EvidenceReader } from './ports.ts';
 import { checkEvidenceItem } from './rules.ts';
+import { originalKey } from '../../storage/cloud/keys.ts';
+
+/** What R2 holds for one object right now, as `head` reports it. */
+export interface OriginalHead { readonly etag: string; readonly size: number }
+/**
+ * Where publish compares the originals the evidence recorded with the objects R2 holds now (U8). R2 is outside D1, so this is a read at a
+ * point in time and not a lock; it runs inside the recheck, immediately before the guarded D1 transaction. It never reads a body.
+ */
+export interface OriginalsComparison {
+  /** Most object keys one `heads` call is given. */
+  readonly batch: number;
+  /** Most distinct objects one publish recheck compares. A run with more answers 503 rather than skipping any (a subrequest budget, not a sample). */
+  readonly limit: number;
+  /** One entry per key, in order: the object's current etag and size, or null when it is not there. A fault rejects (503). */
+  heads(keys: readonly string[]): Promise<readonly (OriginalHead | null)[]>;
+}
 
 /** What a composition supplies as `signoffEvidence`: `d1EvidenceReader(db)` and `d1EvidenceStore(db)` over the client's `DB`. */
 export interface PublicationEvidence {
   readonly reader: EvidenceReader;
   readonly store: EvidenceStore;
+  /** Required once a run holds `original` items (U8): without it publish of such a candidate answers 503, never passes unchecked. */
+  readonly originals?: OriginalsComparison | null;
 }
 
 /** The run a sign-off is about: the candidate's own identity, the generation its snapshot names and the root it carries. */
@@ -90,4 +109,48 @@ export async function warningsOf(port: PublicationEvidence, x: EvidenceClaim, ex
     after = rows[rows.length - 1]!.key;
   }
   return null;
+}
+
+export type OriginalsCheck =
+  | { readonly ok: true; readonly compared: number }
+  /** An object is gone, or its etag or size is no longer the recorded one; or two rows record different facts for one object. */
+  | { readonly ok: false; readonly reason: 'changed' | 'missing' | 'rows' }
+  /** More distinct originals than the comparison may check in one recheck. Not a verdict on the originals. */
+  | { readonly ok: false; readonly reason: 'over-limit' };
+
+/**
+ * Every `original` row of the sealed run (read in pages of 500, each row checked against the candidate it is served for), then the
+ * current etag and size of each distinct object in batches. An original several assets share is one object (`orig/<sha256>`) and is
+ * compared once. The first difference stops the check. `expected` is the snapshot's count of original rows; any other count is `rows`.
+ */
+export async function checkOriginals(port: PublicationEvidence, originals: OriginalsComparison, x: EvidenceClaim, expected: number): Promise<OriginalsCheck> {
+  const objects = new Map<string, { sha256: string; etag: string; size: number }>();
+  let after: string | null = null, rowsSeen = 0, ended = false;
+  for (let reads = 0; reads <= Math.ceil(expected / PAGE_SIZE) + 1 && !ended; reads++) {
+    const rows = await port.reader.page({ clientId: x.clientId as never, caseId: x.caseId as never, candidateId: x.candidateId, generation: x.generation, root: x.root, after, kind: 'original', limit: PAGE_SIZE });
+    if (rows === null) return { ok: false, reason: 'rows' };
+    for (const row of rows) {
+      const item = checkEvidenceItem(row, x);
+      if (!item || item.observation.kind !== 'original') return { ok: false, reason: 'rows' };
+      const { sha256, etag, size } = item.observation, key = originalKey(sha256), known = objects.get(key);
+      if (known && (known.etag !== etag || known.size !== size)) return { ok: false, reason: 'rows' };
+      objects.set(key, { sha256, etag, size });
+      rowsSeen++;
+    }
+    ended = rows.length < PAGE_SIZE;
+    if (!ended) after = rows[rows.length - 1]!.key;
+  }
+  if (!ended || rowsSeen !== expected) return { ok: false, reason: 'rows' };
+  if (objects.size > originals.limit) return { ok: false, reason: 'over-limit' };
+  const keys = [...objects.keys()];
+  for (let from = 0; from < keys.length; from += originals.batch) {
+    const batch = keys.slice(from, from + originals.batch), found = await originals.heads(batch);
+    if (found.length !== batch.length) throw new Error('the comparison answered for another number of objects than it was given');
+    for (let i = 0; i < batch.length; i++) {
+      const now = found[i], recorded = objects.get(batch[i]!)!;
+      if (!now) return { ok: false, reason: 'missing' };
+      if (now.etag !== recorded.etag || now.size !== recorded.size) return { ok: false, reason: 'changed' };
+    }
+  }
+  return { ok: true, compared: keys.length };
 }

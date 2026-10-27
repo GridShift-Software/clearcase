@@ -6,7 +6,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { createNativePublication, type PublicationRequest } from '../../../src/lib/publication/hosted/controller.ts';
 import { d1PublicationPublisher, d1PublicationSnapshotRevision } from '../../../src/lib/publication/hosted/d1-publisher.ts';
 import { d1PublicationLedger, type PublicationD1Statement, type PublicationD1Value } from '../../../src/lib/publication/hosted/ledger.ts';
-import { createEvidenceEngine, d1EvidenceStore, type EvidenceBinding } from '../../../src/lib/publication/hosted/evidence/index.ts';
+import { createEvidenceEngine, d1EvidenceStore, type EvidenceBinding, type EvidenceProducer } from '../../../src/lib/publication/hosted/evidence/index.ts';
 import { d1EvidenceReader } from '../../../src/lib/publication/hosted/readiness-evidence.ts';
 import type { AuditEvent, CaseId, ClientId, Identity, Principal, ResultsVersion, SessionId } from '../../../src/lib/server/runtime/contracts.ts';
 import { id, resultsVersion } from '../../../src/lib/server/runtime/ids.ts';
@@ -86,7 +86,11 @@ function insert(db: Sqlite, table: string, row: Record<string, Value>) {
 const event = (operationId: string, action: string): AuditEvent => ({ eventId: `publication-${operationId}`, actor: { kind: 'verified', principal: PRINCIPAL, sessionId: SESSION },
   action: action as AuditEvent['action'], object: { kind: 'publication', id: operationId, caseId: CASE }, version: RV, outcome: 'succeeded', at: NOW });
 
-export interface Options { spec?: Spec; baseline?: number; evidence?: boolean }
+export interface Options { spec?: Spec; baseline?: number; evidence?: boolean;
+  /** Replaces the producer that walks `observations(spec)`. It must still produce every one of them (warnings are read from `items`), in key order. */
+  producer?: EvidenceProducer;
+  /** Added to the ports after the defaults (an R2 comparison for `signoffEvidence`, say). */
+  originals?: NonNullable<NativePublicationPorts['signoffEvidence']>['originals'] }
 export type World = Awaited<ReturnType<typeof world>>;
 
 /** One candidate with a sealed evidence run built by the real engine, a publish grant, and a controller whose ports are real. */
@@ -125,7 +129,7 @@ export async function world(options: Options = {}) {
   const store = d1EvidenceStore(db);
   let clock = 0, root: string | null = null;
   const engine = createEvidenceEngine({ binding, store, clock: () => clock, leaseId: 'builder', leaseMs: 1_000_000, bounds: { itemsPerStep: 500, bytesPerStep: 1024 * 1024 },
-    producer: async cursor => { const n = cursor === null ? 0 : Number(cursor), item = items[n]; return item ? { done: false, nextCursor: String(n + 1), key: item.key, observation: item.observation } : { done: true }; } });
+    producer: options.producer ?? (async cursor => { const n = cursor === null ? 0 : Number(cursor), item = items[n]; return item ? { done: false, nextCursor: String(n + 1), key: item.key, observation: item.observation } : { done: true }; }) });
   for (let step = 0; step < 200 && root === null; step++) { const r = await engine.step(); if (r.kind === 'complete') root = r.root; else if (r.kind !== 'progress') throw new Error(r.kind); clock++; }
   if (!root) throw new Error('evidence did not complete');
   // The first `baseline` warnings are already accepted for the case; every other warning needs an acknowledgement.
@@ -156,7 +160,7 @@ export async function world(options: Options = {}) {
   const publisher = d1PublicationPublisher({ db, clientId: CLIENT, checkSession: async authority => { checks.push(authority); } });
   const ports: NativePublicationPorts = { clientId: CLIENT, authorize: async () => {}, candidates: { read: async () => snapshot() }, publisher, ledger,
     audit: { append: async e => { if (!events.some(p => p.eventId === e.eventId)) events.push(structuredClone(e)); return { eventId: e.eventId }; } }, now: () => new Date(NOW),
-    signoffEvidence: { reader, store } };
+    signoffEvidence: { reader, store, ...(options.originals ? { originals: options.originals } : {}) } };
   const controller = createNativePublication(ports);
 
   const identity: Identity = { kind: 'verified', clientId: CLIENT, principal: PRINCIPAL, sessionId: SESSION, checkRevocation: async () => {}, authorize: async () => {} };

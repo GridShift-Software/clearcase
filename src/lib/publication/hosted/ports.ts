@@ -46,7 +46,7 @@ export interface CandidateSnapshot {
 // `rules.ts`; the compiler refuses the build until that row exists, and v1 is never touched.
 
 /** What an evidence item observes. The item key of every observation is `<kind>/<subject>`, so a kind is a contiguous key range. */
-export type EvidenceKind = 'section' | 'preview' | 'warning' | 'error';
+export type EvidenceKind = 'section' | 'preview' | 'warning' | 'error' | 'original';
 /**
  * v2 section states. `records-rendered` (ADR-0013, built by U6) is a required dataset shown in full by the schema-driven records
  * view; it is never `valid`, which means a native view rendered. `disagrees` (ADR-0014, Proposed; built by U12) is a META whose
@@ -61,7 +61,12 @@ export type EvidenceObservation =
   | { readonly kind: 'section'; readonly key: string; readonly state: SectionStateV2 }
   | { readonly kind: 'preview'; readonly assetId: string; readonly state: PreviewStateV2; readonly reasonCode?: PreviewReasonCode; readonly stage?: PreviewRenderStage; readonly navigation?: PreviewNavigationObservation }
   | { readonly kind: 'warning'; readonly fingerprint: string }
-  | { readonly kind: 'error'; readonly fingerprint: string };
+  | { readonly kind: 'error'; readonly fingerprint: string }
+  /**
+   * An original as the evidence build read it from R2 (U8): the SHA-256 it hashed, its size, and the etag R2 gave on that same read. Publish
+   * compares the current etag and size of the object to these. The key is `original/<assetId>`; the object is `orig/<sha256>`.
+   */
+  | { readonly kind: 'original'; readonly assetId: string; readonly sha256: string; readonly size: number; readonly etag: string };
 
 /** One group of the evidence counts. `subject` is a section's key and is null for every other kind; `state` and `reason` are null where the kind has none. */
 export interface EvidenceCountGroup {
@@ -264,7 +269,7 @@ export interface NativePublicationPorts {
   readonly audit: AuditSink | null;
   /**
    * Snapshot v2 only: where sign-off and publish check the sealed evidence run (`signoff-evidence.ts`). Without it a v2 candidate
-   * answers 503. The ledger must be composed with `{ evidence: true }` too, once migration 0005 is applied. (Readiness takes its own
+   * answers 503 (`originals` too, once the run holds original items). The ledger must be composed with `{ evidence: true }` too, once migration 0005 is applied. (Readiness takes its own
    * `evidence` reader; this one also carries the store, so it is a separate port.)
    */
   readonly signoffEvidence?: PublicationEvidence | null;

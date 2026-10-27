@@ -207,8 +207,9 @@ describe('a handshake with base64url-suffixed cookies', () => {
 		const session = token();
 		const o = redirectOf(await handshake(client).handle(page(`/cases?__clerk_handshake=${client.sign({ handshake: suffixed(s, session) })}`)));
 		expect(o.location).toBe(`${ORIGIN}/cases`);
-		expect(o.setCookies.map((c) => c.split('=')[0])).toEqual([`__client_uat_${s}`, `__client_uat_${s}`, `__session_${s}`, `__refresh_${s}`, `__clerk_db_jwt_${s}`]);
-		expect(o.setCookies[3]).toBe(`__refresh_${s}=${REFRESH}; Path=/; Max-Age=315360000; SameSite=Lax; HttpOnly; Secure`);
+		expect(o.setCookies.map((c) => c.split('=')[0])).toEqual([`__client_uat_${s}`, `__client_uat_${s}`, `__session_${s}`, `__clerk_db_jwt_${s}`, '__Host-clearcase_refresh']);
+		expect(o.setCookies.slice(0, 4).join('\n')).not.toContain(REFRESH);
+		expect(o.setCookies[4]).toMatch(new RegExp(`^__Host-clearcase_refresh=${session}~${REFRESH.replace(/[+/=]/g, '\\$&')}; Path=/; Max-Age=\\d+; SameSite=Lax; HttpOnly; Secure$`));
 		for (const c of o.setCookies) expect(c).not.toMatch(/Domain=/i);
 		expect(o.setCookies[2]).toBe(`__session_${s}=${session}; Path=/; Max-Age=60; SameSite=Lax; HttpOnly; Secure`);
 		const jar = o.setCookies.slice(1).map((c) => c.split(';')[0]).join('; ');

@@ -27,6 +27,7 @@ const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown>, waitUnti
 vi.mock('cloudflare:workers', () => workers);
 
 import { MAX_SESSION_LIFETIME_MS } from '../../../src/lib/auth/clerk/revocation.ts';
+import { clerkBrowserHandshakeFromEnv } from '../../../src/lib/auth/clerk/browser.ts';
 import { handle } from '../../../src/lib/server/runtime/hosted/hooks.server.ts';
 import { craftedInstance } from './synthetic.ts';
 
@@ -36,7 +37,7 @@ const operator = await import('../../../deploy/client/routes/sign-in/operator/+p
 const ORIGIN = 'https://client-a.clearcase.test';
 const A = craftedInstance('client-a.clerk.test'), B = craftedInstance('staff-b.clerk.test'), C = craftedInstance('client-c.clerk.test');
 const suffix = (pk: string) => createHash('sha1').update(pk).digest('base64url').slice(0, 8);
-const REFRESH_A = `__refresh_${suffix(A.publishableKey)}`, REFRESH_B = `__refresh_${suffix(B.publishableKey)}`;
+const REFRESH_A = `__refresh_${suffix(A.publishableKey)}`;
 // the app-owned cookies that hold what renewal needs, one per instance kind
 const HOLD_A = '__Host-clearcase_refresh', HOLD_B = '__Host-clearcase_staff_refresh';
 // a standard-base64 value, the class a real development handshake returned (browser-session.test.ts)
@@ -118,8 +119,9 @@ const saveNote = (cookie: string, headers: Record<string, string> = {}) => new R
 });
 const dataRequest = (cookie: string) => new Request(`${ORIGIN}/operator/cases/case-a/preview/cand-1/__data.json?q=JN-001&x-sveltekit-invalidated=01`, { headers: { 'sec-fetch-dest': 'empty', accept: '*/*', cookie } });
 const documentGet = (path: string, cookie: string) => new Request(`${ORIGIN}${path}`, { headers: { 'sec-fetch-dest': 'document', accept: 'text/html', cookie } });
-// What a browser holds for renewal beside its expired session token: the instance's refresh token.
-const held = (s: ReturnType<typeof session>, refresh = s.refresh) => `${REFRESH_A}=${refresh}`;
+// What a browser holds for renewal beside its expired session token: the app's session hold, the token and its refresh token.
+const hold = (token: string, refresh: string, name = HOLD_A) => `${name}=${token}~${refresh}`;
+const held = (s: ReturnType<typeof session>, refresh = s.refresh) => hold(s.stale(), refresh);
 const jar = (s: ReturnType<typeof session>, refresh = s.refresh) => `__client_uat=1761400000; __session=${s.stale()}; ${held(s, refresh)}`;
 const refreshCalls = () => calls.filter((c) => c.path.endsWith('/refresh'));
 const sessionCookie = (r: Response) => r.headers.getSetCookie().find((c) => /^__session=/.test(c));
@@ -135,19 +137,22 @@ describe('a signed-in user whose session token expired between page loads', () =
 		expect(refreshCalls()).toHaveLength(1);
 		expect(refreshCalls()[0]).toMatchObject({ path: `/v1/sessions/${s.sid}/refresh`, bearer: A.secretKey, body: { refresh_token: s.refresh, request_origin: ORIGIN, format: 'cookie' } });
 		expect(trap.blocked).toEqual([]);
+		// the hold moves on to the refreshed token
+		const token = set!.split(';')[0]!.slice('__session='.length);
+		expect(r.headers.getSetCookie().find((c) => c.startsWith(`${HOLD_A}=`))).toMatch(new RegExp(`^${HOLD_A}=${token}~${s.refresh.replace(/[+/=]/g, '\\$&')}; Path=/; Max-Age=\\d+; SameSite=Lax; HttpOnly; Secure$`));
 		// the refreshed cookie alone is a verified session at this origin
-		const again = await invoke(saveNote(`__client_uat=1761400000; ${set!.split(';')[0]}; ${REFRESH_A}=${s.refresh}`));
+		const again = await invoke(saveNote(`__client_uat=1761400000; ${set!.split(';')[0]}`));
 		expect(again.status).toBe(201);
 		expect(refreshCalls()).toHaveLength(1);
 	});
 	it('answers a filtered search (a __data.json request) for the operator, not "your session has ended"', async () => {
 		const s = session(B);
-		const r = await invoke(dataRequest(`__client_uat=1761400000; __session=${s.stale()}; ${REFRESH_B}=${s.refresh}`));
+		const r = await invoke(dataRequest(`__client_uat=1761400000; __session=${s.stale()}; ${hold(s.stale(), s.refresh, HOLD_B)}`));
 		expect(r.status).toBe(201);
 		expect(refreshCalls()).toHaveLength(1);
 		expect(refreshCalls()[0]!.bearer).toBe(B.secretKey);
 	});
-	it('stores the refresh token a handshake returns, host-only and HttpOnly, for the instance that signed the handshake', async () => {
+	it('holds the refresh token a handshake returns with its session token, in the __Host- hold of the instance that signed it', async () => {
 		const s = session();
 		const fresh = A.token({ sub: s.user, sid: s.sid, azp: ORIGIN });
 		const directives = [
@@ -157,7 +162,7 @@ describe('a signed-in user whose session token expired between page loads', () =
 		];
 		const r = await invoke(documentGet(`/cases?__clerk_handshake=${A.sign({ handshake: directives })}`, ''));
 		expect(r.status).toBe(303);
-		expect(r.headers.getSetCookie()).toContain(`${REFRESH_A}=${s.refresh}; Path=/; Max-Age=315360000; SameSite=Lax; HttpOnly; Secure`);
+		expect(r.headers.getSetCookie().filter((c) => c.includes(s.refresh))).toEqual([expect.stringMatching(new RegExp(`^${hold(fresh, s.refresh).replace(/[+/=]/g, '\\$&')}; Path=/; Max-Age=\\d+; SameSite=Lax; HttpOnly; Secure$`))]);
 	});
 	it('keeps no refresh token from a handshake that does not sign the browser in', async () => {
 		const s = session();
@@ -169,6 +174,26 @@ describe('a signed-in user whose session token expired between page loads', () =
 		const r = await invoke(documentGet(`/cases?__clerk_handshake=${A.sign({ handshake: directives })}`, ''));
 		expect(r.status).toBe(303);
 		expect(r.headers.getSetCookie().join('\n')).not.toContain(s.refresh);
+	});
+	it('clears the hold a browser carries when a handshake signs it out', async () => {
+		const s = session();
+		const directives = ['__client_uat=0; Path=/; Domain=clearcase.test; Max-Age=315360000; SameSite=Lax; Secure', '__session=; Path=/; Domain=clearcase.test; Max-Age=0; SameSite=Lax; Secure'];
+		const r = await invoke(documentGet(`/cases?__clerk_handshake=${A.sign({ handshake: directives })}`, held(s)));
+		expect(r.status).toBe(303);
+		expect(r.headers.getSetCookie()).toContain(`${HOLD_A}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly; Secure`);
+	});
+	it('holds nothing on an http origin, which cannot keep a __Host- cookie, and renews nothing there', async () => {
+		const s = session(), origin = 'http://localhost:5173';
+		const made = clerkBrowserHandshakeFromEnv({ ...workers.env, CLEARCASE_APP_ORIGIN: origin });
+		if (!made.ok) throw new Error(made.reason);
+		const fresh = A.token({ sub: s.user, sid: s.sid, azp: origin });
+		const directives = [`__session=${fresh}; Path=/; Max-Age=60; SameSite=Lax`, `${REFRESH_A}=${s.refresh}; Path=/; Max-Age=315360000; HttpOnly; SameSite=Lax`];
+		const o = await made.handshake.handle(new Request(`${origin}/cases?__clerk_handshake=${A.sign({ handshake: directives })}`, { headers: { 'sec-fetch-dest': 'document', accept: 'text/html' } }));
+		expect(o).toMatchObject({ kind: 'redirect' });
+		expect((o as { setCookies: string[] }).setCookies.join('\n')).not.toContain(s.refresh);
+		const stale = A.token({ sub: s.user, sid: s.sid, azp: origin, now: STALE() });
+		expect(await made.handshake.refresh(new Request(`${origin}${NOTES}`, { method: 'POST', headers: { cookie: hold(stale, s.refresh) } }))).toBeNull();
+		expect(calls).toEqual([]);
 	});
 });
 
@@ -193,13 +218,16 @@ describe('what the refresh never changes', () => {
 		expect(calls).toEqual([]);
 	});
 	it.each([
-		['another client instance', () => { const s = session(C); return `__session=${s.stale()}; ${REFRESH_A}=${s.refresh}`; }],
-		['a token naming this client but signed by another key', () => { const s = session(); return `__session=${C.token({ sub: s.user, sid: s.sid, azp: ORIGIN, now: STALE(), claims: { iss: A.iss } })}; ${REFRESH_A}=${s.refresh}`; }],
-		['another origin as authorized party', () => { const s = session(); return `__session=${A.token({ sub: s.user, sid: s.sid, azp: 'https://client-b.clearcase.test', now: STALE() })}; ${REFRESH_A}=${s.refresh}`; }],
-		['the staff instance refresh cookie beside a client session', () => { const s = session(); return `__session=${s.stale()}; ${REFRESH_B}=${s.refresh}`; }],
+		['another client instance', () => { const s = session(C); return `__session=${s.stale()}; ${held(s)}`; }],
+		['a token naming this client but signed by another key', () => { const s = session(), t = C.token({ sub: s.user, sid: s.sid, azp: ORIGIN, now: STALE(), claims: { iss: A.iss } }); return `__session=${t}; ${hold(t, s.refresh)}`; }],
+		['another origin as authorized party', () => { const s = session(), t = A.token({ sub: s.user, sid: s.sid, azp: 'https://client-b.clearcase.test', now: STALE() }); return `__session=${t}; ${hold(t, s.refresh)}`; }],
+		['the staff instance hold beside a client session', () => { const s = session(); return `__session=${s.stale()}; ${hold(s.stale(), s.refresh, HOLD_B)}`; }],
+		['the client instance hold of a staff session', () => { const s = session(B); return hold(s.stale(), s.refresh, HOLD_A); }],
 		['the plain refresh name, which names no instance', () => { const s = session(); return `__session=${s.stale()}; __refresh=${s.refresh}`; }],
-		['two refresh cookies of the instance', () => { const s = session(); return `__session=${s.stale()}; ${REFRESH_A}=${s.refresh}; ${REFRESH_A}=${s.refresh}x`; }],
-		['a session token older than any Clerk session lives', () => { const s = session(); return `__session=${A.token({ sub: s.user, sid: s.sid, azp: ORIGIN, now: Date.now() - 8 * 86_400_000 })}; ${REFRESH_A}=${s.refresh}`; }],
+		['two holds of the instance', () => { const s = session(); return `__session=${s.stale()}; ${held(s)}; ${held(s, `${s.refresh}x`)}`; }],
+		['a hold of each instance', () => { const s = session(); return `${held(s)}; ${hold(s.stale(), s.refresh, HOLD_B)}`; }],
+		['a hold beside another session token', () => { const s = session(), other = session(); return `__session=${other.stale()}; ${held(s)}`; }],
+		['a session token older than any Clerk session lives', () => { const s = session(), t = A.token({ sub: s.user, sid: s.sid, azp: ORIGIN, now: Date.now() - 8 * 86_400_000 }); return `__session=${t}; ${hold(t, s.refresh)}`; }],
 	])('never refreshes %s, and refuses it with no Backend API call', async (_name, cookie) => {
 		const r = await invoke(saveNote(cookie()));
 		expect(r.status).toBe(401);
@@ -208,13 +236,13 @@ describe('what the refresh never changes', () => {
 	});
 	it('never refreshes an expired bearer token, which carries no browser session', async () => {
 		const s = session();
-		const r = await invoke(saveNote(`${REFRESH_A}=${s.refresh}`, { authorization: `Bearer ${s.stale()}` }));
+		const r = await invoke(saveNote(held(s), { authorization: `Bearer ${s.stale()}` }));
 		expect(r.status).toBe(401);
 		expect(calls).toEqual([]);
 	});
 	it('refuses a session Clerk will not refresh (revoked, or a wrong refresh token) with 401, once per presented token', async () => {
 		const revoked = session(A, 'revoked'), wrong = session();
-		for (const cookie of [jar(revoked), `__session=${wrong.stale()}; ${REFRESH_A}=not-the-issued-refresh-token`]) {
+		for (const cookie of [jar(revoked), jar(wrong, 'not-the-issued-refresh-token')]) {
 			calls.length = 0;
 			expect((await invoke(saveNote(cookie))).status).toBe(401);
 			expect((await invoke(saveNote(cookie))).status).toBe(401);

@@ -6,7 +6,7 @@
 import type { Identity, Principal, SessionId } from '../../server/runtime/contracts.ts';
 import { contractError } from '../../server/runtime/errors.ts';
 import { isSignInFlowPage, readClerkIdentityConfig, type ClerkIdentityConfig, type ClerkInstanceConfig, type InstanceKind, type StaffDevBrowser } from './config.ts';
-import { revocationEvidenceOf, type RevocationEvidence } from './revocation.ts';
+import { MAX_SESSION_LIFETIME_MS, revocationEvidenceOf, type RevocationEvidence } from './revocation.ts';
 import { CLEARABLE_COOKIE_NAME, REFRESH_COOKIE_NAME, cookiePairs, inspectToken, presentedToken } from './session.ts';
 
 export { cookiePairs, type CookiePair } from './session.ts';
@@ -36,8 +36,43 @@ export interface ClerkBrowserHandshake {
  * refresh an expired session through the Backend API on each request). Exact names, not a prefix.
  */
 export function sdkCookieHeader(request: Request): string {
-	return cookiePairs(request).filter((c) => c.name !== '__clerk_handshake' && !REFRESH_COOKIE_NAME.test(c.name)).map((c) => `${c.name}=${c.value}`).join('; ');
+	return cookiePairs(request).filter((c) => c.name !== '__clerk_handshake' && !REFRESH_COOKIE_NAME.test(c.name) && !HOLD_NAMES.has(c.name)).map((c) => `${c.name}=${c.value}`).join('; ');
 }
+
+/**
+ * The app-owned cookie that keeps what a session refresh needs (browser.ts refresh) after the browser drops the session
+ * token's 60-second cookie: the last session token this app set and the instance's refresh token, as `<token>~<refresh>`,
+ * HttpOnly, one name per instance kind. It is a `__Host-` cookie, so only this secure origin can set it and a sibling
+ * under the parent domain can neither plant nor shadow it; Clerk's own `__refresh` names are never read. An http origin
+ * holds none. It lives until its token has been expired for MAX_SESSION_LIFETIME_MS: by then Clerk has ended the session
+ * and the token is no evidence (revocation.ts), so the hold could renew or revoke nothing. It never authenticates: the
+ * provider reads only `__session`, and a refresh must still succeed at Clerk.
+ */
+export const SESSION_HOLD_COOKIE: Readonly<Record<InstanceKind, string>> = { client: '__Host-clearcase_refresh', staff: '__Host-clearcase_staff_refresh' };
+const HOLD_NAMES: ReadonlySet<string> = new Set(Object.values(SESSION_HOLD_COOKIE));
+/** A Clerk refresh token value: the standard-base64 class a real handshake returned, plus base64url and JWT characters. */
+export const REFRESH_TOKEN_VALUE = /^[A-Za-z0-9+/=._-]{16,4096}$/;
+const HOLD_TOKEN = /^[A-Za-z0-9._-]{16,8192}$/, COOKIE_MAX_BYTES = 4096;
+export interface SessionHold { kind: InstanceKind; token: string; refreshToken: string }
+
+/** The one session hold a request carries, or null when it carries none, more than one, or one that does not parse. */
+export function sessionHoldOf(request: Request): SessionHold | null {
+	const holds = cookiePairs(request).filter((c) => HOLD_NAMES.has(c.name));
+	if (holds.length !== 1) return null;
+	const { name, value } = holds[0]!, sep = value.indexOf('~');
+	const token = value.slice(0, sep), refreshToken = value.slice(sep + 1);
+	if (sep < 0 || !HOLD_TOKEN.test(token) || !inspectToken(token) || !REFRESH_TOKEN_VALUE.test(refreshToken)) return null;
+	return { kind: name === SESSION_HOLD_COOKIE.staff ? 'staff' : 'client', token, refreshToken };
+}
+/** The directive that sets a hold for a token expiring at `exp` (seconds), or null when it is already useless or too big. */
+export function sessionHoldCookie(hold: SessionHold, exp: number): string | null {
+	const maxAge = Math.floor((exp * 1000 + MAX_SESSION_LIFETIME_MS - Date.now()) / 1000), pair = `${SESSION_HOLD_COOKIE[hold.kind]}=${hold.token}~${hold.refreshToken}`;
+	return maxAge > 0 && pair.length <= COOKIE_MAX_BYTES ? `${pair}; Path=/; Max-Age=${maxAge}; SameSite=Lax; HttpOnly; Secure` : null;
+}
+/** The directive that deletes a hold. */
+export const sessionHoldClear = (name: string) => `${name}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly; Secure`;
+/** The hold cookie names a request carries. */
+export const sessionHoldNames = (request: Request) => [...new Set(cookiePairs(request).map((c) => c.name).filter((n) => HOLD_NAMES.has(n)))];
 
 /** The browser's one `__clerk_db_jwt` (the dev browser a handshake set host-only here), or null when absent or repeated. */
 export function devBrowserOf(request: Request): string | null {
@@ -129,13 +164,13 @@ export async function staffHandshakeOf(request: Request, config: ClerkIdentityCo
 /** The directive that deletes the staff handshake correlation (an accepted handshake return consumes it in this browser). */
 export const STAFF_HANDSHAKE_CLEAR = `${STAFF_HANDSHAKE_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly; Secure`;
 
-/** The cookie directives that delete exactly the Clerk session cookies a request carries (host-only, as they were set). */
+/** The cookie directives that delete exactly the session cookies a request carries (host-only, as they were set). */
 export function clerkCookieClears(request: Request, secure: boolean): string[] {
-	return clearableNames(request).map((name) => `${name}=; Path=/; Max-Age=0${name.startsWith('__client_uat') ? '' : '; HttpOnly'}; SameSite=Lax${secure ? '; Secure' : ''}`);
+	return clearableNames(request).map((name) => `${name}=; Path=/; Max-Age=0${name.startsWith('__client_uat') ? '' : '; HttpOnly'}; SameSite=Lax${secure || HOLD_NAMES.has(name) ? '; Secure' : ''}`);
 }
-/** The names of the Clerk session cookies a request carries, in order of appearance. */
+/** The names of the session cookies a request carries, Clerk's and this app's session holds, in order of appearance. */
 export function clearableNames(request: Request): string[] {
-	return [...new Set(cookiePairs(request).map((c) => c.name).filter((n) => CLEARABLE_COOKIE_NAME.test(n)))];
+	return [...new Set(cookiePairs(request).map((c) => c.name).filter((n) => CLEARABLE_COOKIE_NAME.test(n) || HOLD_NAMES.has(n)))];
 }
 
 
@@ -262,7 +297,8 @@ export async function prepareSignIn(a: { env: Readonly<Record<string, unknown>>;
  * unknown.
  */
 async function expiredSessionEvidence(a: { env: Readonly<Record<string, unknown>>; request: Request }): Promise<(RevocationEvidence & { config: ClerkIdentityConfig }) | null> {
-	const token = presentedToken(a.request);
+	// a browser drops the session cookie a minute after it is set; the token this app last set is then in the session hold
+	const presented = presentedToken(a.request), token = presented === null ? (sessionHoldOf(a.request)?.token ?? null) : presented;
 	if (token === null || token === 'malformed' || !inspectToken(token)) return null;
 	const read = readClerkIdentityConfig(a.env);
 	if (!read.ok) throw contractError('identity-unavailable', true);

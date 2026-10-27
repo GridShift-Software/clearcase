@@ -122,10 +122,13 @@ describe('the staff tie needs a staff handshake this browser started here (H1)',
 		expect(tied(afterUrl)).toBe(false);
 		expect(await forwarded(ORIGIN_A, afterUrl)).toBeNull();
 		const viaCookie = await start(ORIGIN_A, '/sign-in/operator', new Map([['__clerk_db_jwt', ATTACKER_DVB], ['__client_uat', '1700000000']]));
-		expect(viaCookie.handedDvb).toBe(ATTACKER_DVB);
-		const afterCookie = apply(viaCookie.jar, await handle(ORIGIN_A, handedBack(viaCookie.back, ATTACKER_DVB), viaCookie.jar));
-		expect(tied(afterCookie)).toBe(false);
-		expect(await forwarded(ORIGIN_A, afterCookie)).toBeNull();
+		// a cookie it cannot tie never reaches the staff Frontend API (Astra finding 2): the start asks for a fresh dev
+		// browser instead, and only that one is tied and forwarded
+		expect(viaCookie.handedDvb).toBeNull();
+		expect(await forwarded(ORIGIN_A, viaCookie.jar)).toBeNull();
+		const afterCookie = apply(viaCookie.jar, await handle(ORIGIN_A, handedBack(viaCookie.back, OWN_DVB), viaCookie.jar));
+		expect(tied(afterCookie)).toBe(true);
+		expect(await forwarded(ORIGIN_A, afterCookie)).toBe(OWN_DVB);
 	});
 	it('ties nothing for an expired, tampered, missing or repeated correlation, or one another app issued', async () => {
 		const own = await start(ORIGIN_A, '/sign-in/operator');

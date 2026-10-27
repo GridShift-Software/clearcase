@@ -137,10 +137,11 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 	};
 	/**
 	 * Whether a staff handshake start can vouch for the dev browser the SDK hands the Frontend API (its query value, else
-	 * its cookie): none at all, or exactly the one plain dev browser already tied here. Anything else may be planted.
+	 * its cookie, unless `untied` kept the cookies from it): none at all, or exactly the one plain dev browser already tied
+	 * here. Anything else may be planted.
 	 */
-	const vouches = async (request: Request, url: URL) => {
-		const handed = url.searchParams.getAll('__clerk_db_jwt'), cookies = cookiePairs(request).filter((c) => DEV_BROWSER_COOKIE.test(c.name));
+	const vouches = async (request: Request, url: URL, untied: boolean) => {
+		const handed = url.searchParams.getAll('__clerk_db_jwt'), cookies = untied ? [] : cookiePairs(request).filter((c) => DEV_BROWSER_COOKIE.test(c.name));
 		if (handed.length === 0 && cookies.length === 0) return true;
 		const tied = await tiedDevBrowser(request, config);
 		return tied !== null && cookies.length === 1 && handed.length <= 1 && handed.every((v) => v === tied.value);
@@ -164,7 +165,14 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			// only the browser's own hints reach the SDK: no Authorization header, no forwarded host or proto
 			const headers = new Headers();
 			for (const h of ['accept', 'sec-fetch-dest']) if (request.headers.has(h)) headers.set(h, request.headers.get(h)!);
-			const cookie = sdkCookieHeader(request);
+			// On the operator route of an https origin, a development staff handshake never sees a dev browser cookie this origin
+			// cannot tie to the staff instance (the client instance's, which shares the name, or one planted). With one the SDK
+			// answers signed out and starts no handshake, nothing ties, the operator POST hands the staff portal no dev browser,
+			// and the portal falls back to its own, which may be signed in for another origin and sends the browser there
+			// (Astra auth matrix, 27 Oct, finding 2). Without it the SDK asks the Frontend API for a fresh one, as for a fresh
+			// profile, and that start can vouch for it.
+			const untied = operator && kind === 'staff' && staffDevelopment && secure && (await tiedDevBrowser(request, config)) === null;
+			const cookie = sdkCookieHeader(request).split('; ').filter((p) => !(untied && DEV_BROWSER_COOKIE.test(p.split('=')[0]!))).join('; ');
 			if (cookie) headers.set('cookie', cookie);
 			let state: Awaited<ReturnType<ReturnType<typeof createClerkClient>['authenticateRequest']>>;
 			try {
@@ -193,7 +201,7 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				if (to.origin !== instance.issuer || to.pathname !== '/v1/client/handshake' || back.origin !== config.appOrigin) return refuse(502, 'handshake-invalid');
 				to.searchParams.delete('format');
 				if (kind === 'staff' && staffDevelopment) {
-					const started = await startStaffHandshake(config, await vouches(request, url));
+					const started = await startStaffHandshake(config, await vouches(request, url, untied));
 					if (started !== null) {
 						back.searchParams.set(STAFF_HANDSHAKE_PARAM, started.id);
 						to.searchParams.set('redirect_url', back.href);

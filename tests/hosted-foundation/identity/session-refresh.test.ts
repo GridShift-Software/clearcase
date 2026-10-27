@@ -909,3 +909,87 @@ describe('a refresh token Clerk never rotates (astra-renewal-7614, round 4)', ()
 		expect(r.status).toBe(401);
 	});
 });
+
+// Round 4b: a save after an idle that a renewal already spent the refresh token of (astra-renewal-7614). Live Clerk renews
+// once per refresh token and answers no new one, so after a renewal the hold is spent: the next renewal, the one a later
+// save needs, is refused, and a save cannot go through the handshake. So the first GET after a renewal, a page load or a
+// page-data request (the renewing one itself), goes through the handshake, whose return holds a fresh refresh token.
+/** A document load as the browser makes it, through Clerk's handshake when sent there (a fresh refresh token, as live). */
+async function visit(b: ReturnType<typeof browser>, s: ReturnType<typeof session>, path: string) {
+	const r = b.take(await invoke(documentGet(path, b.cookie(path))));
+	if (![303, 307].includes(r.status) || new URL(r.headers.get('location')!, ORIGIN).origin !== A.iss) return { status: r.status, handshake: false };
+	const back = new URL(new URL(r.headers.get('location')!).searchParams.get('redirect_url')!);
+	const row = sessions.get(s.sid)!;
+	row.refresh = LIVE_RT(++n);
+	back.searchParams.set('__clerk_handshake', A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), row.refresh) }));
+	const returned = b.take(await invoke(documentGet(back.pathname + back.search, b.cookie(back.pathname))));
+	expect(returned.status).toBe(303);
+	const to = new URL(returned.headers.get('location')!, ORIGIN).pathname;
+	expect(to).toBe(path);
+	return { status: b.take(await invoke(documentGet(to, b.cookie(to)))).status, handshake: true };
+}
+
+describe('a save after an idle, when an earlier renewal spent the refresh token (astra-renewal-7614, round 4b)', () => {
+	beforeEach(() => void vi.useFakeTimers({ toFake: ['Date'] }));
+	afterEach(() => void vi.useRealTimers());
+	const signedIn = async (b: ReturnType<typeof browser>, s: ReturnType<typeof session>) => {
+		sessions.get(s.sid)!.refresh = LIVE_RT(n);
+		refreshAnswer = neverRotating(s);
+		expect((await load(b, s, `/cases?__clerk_handshake=${A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh) })}`)).status).toBe(303);
+	};
+	const save = async (b: ReturnType<typeof browser>) => b.take(await invoke(saveNote(b.cookie(NOTES)))).status;
+
+	it('idle, save, its page load, idle, save: both saves are written (the user\'s writing flow)', async () => {
+		const s = session(), b = browser();
+		await signedIn(b, s);
+		later(90_000);
+		expect(await save(b)).toBe(201);
+		expect(await visit(b, s, CASE_NOTES)).toEqual({ status: 201, handshake: true });
+		later(90_000);
+		expect(await save(b)).toBe(201);
+		expect(refreshCalls()).toHaveLength(2);
+		expect(trap.blocked).toEqual([]);
+	});
+	it('idle, save, its page load, idle, a data load, idle, save: both saves are written, through one handshake per renewal', async () => {
+		const s = session(), b = browser();
+		await signedIn(b, s);
+		later(90_000);
+		expect(await save(b)).toBe(201);
+		expect(await visit(b, s, CASE_NOTES)).toEqual({ status: 201, handshake: true });
+		later(90_000);
+		expect(await navigate(b, s)).toEqual({ status: 201, handoff: true });
+		later(90_000);
+		expect(await save(b)).toBe(201);
+		// bounded: the page after a save goes through the handshake once, and the next ones through none
+		expect(await visit(b, s, CASE_NOTES)).toEqual({ status: 201, handshake: true });
+		expect(await visit(b, s, CASE_NOTES)).toEqual({ status: 201, handshake: false });
+		expect(await navigate(b, s)).toEqual({ status: 201, handoff: false });
+		expect(sessionValues(b).size).toBe(1);
+		expect(holds(b)).toHaveLength(1);
+		expect(trap.blocked).toEqual([]);
+	});
+	it('adds no handshake to a page load or data load whose refresh token is unspent', async () => {
+		const s = session(), b = browser();
+		await signedIn(b, s);
+		later(5_000);
+		expect(await visit(b, s, CASE_NOTES)).toEqual({ status: 201, handshake: false });
+		expect(await navigate(b, s)).toEqual({ status: 201, handoff: false });
+		expect(refreshCalls()).toHaveLength(0);
+	});
+	it('sends a spent hold through the handshake at most once in a short while, even if its return holds no fresh token', async () => {
+		const s = session(), b = browser();
+		await signedIn(b, s);
+		later(90_000);
+		expect(await save(b)).toBe(201);
+		const first = await invoke(documentGet(CASE_NOTES, b.cookie(CASE_NOTES)));
+		expect(new URL(first.headers.get('location')!).origin).toBe(A.iss);
+		// a handshake return that signs in again but keeps the browser's spent hold: the marker stops a second handshake
+		const back = new URL(new URL(first.headers.get('location')!).searchParams.get('redirect_url')!);
+		back.searchParams.set('__clerk_handshake', A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh).filter((c) => !c.startsWith(REFRESH_A)) }));
+		b.take(await invoke(documentGet(back.pathname + back.search, b.cookie(back.pathname))));
+		const spentAgain = holds(b).length;
+		expect(await visit(b, s, CASE_NOTES)).toEqual({ status: 201, handshake: false });
+		expect(await navigate(b, s)).toEqual({ status: 201, handoff: false });
+		expect(spentAgain).toBeLessThanOrEqual(1);
+	});
+});

@@ -54,7 +54,7 @@ describe('the readiness view says what each policy state means', () => {
     const inputs = [UNCITED_MISSING, CITED_MISSING, EMBEDDED, DOCX_NO_PREVIEW, PDF_RENDERED];
     const previews = (await read(inputs, { kind: 'preview' })).page.items;
     expect(previews.map((i) => [i.key, i.policy?.key ?? null])).toEqual([
-      ['preview/SY-0002', null], ['preview/SY-0003.a1', 'embedded-not-extracted'], ['preview/SY-0004', 'preview-required'], ['preview/SY-0005', null]]);
+      ['preview/SY-0002', 'supplied-references'], ['preview/SY-0003.a1', 'embedded-not-extracted'], ['preview/SY-0004', 'preview-required'], ['preview/SY-0005', null]]);
     expect(previews.find((i) => i.key === 'preview/SY-0003.a1')!.policy).toMatchObject({ assetId: 'SY-0003.a1', title: 'Attachment not extracted', clearsBy: 'upstream-fix' });
   });
 

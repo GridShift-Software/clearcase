@@ -49,7 +49,7 @@ export const freshOf = (w: World): string[] => w.db.rows<{ f: string }>(`SELECT 
 export async function buildAssetEvidence(inputs: readonly AssetPolicyInput[], binding = BOUND) {
   const items = runItems(inputs, binding);
   const db = database(); db.exec('PRAGMA foreign_keys=OFF');
-  const adapter = d1(db), b = { ...readinessBinding, resultsVersion: RV, manifestSha256: binding.manifestSha256, validatorVersion: binding.validatorVersion };
+  const adapter = d1(db), b = readinessBinding;
   let now = 0, root: string | null = null;
   const engine = createEvidenceEngine({ binding: b, store: d1EvidenceStore(adapter), producer: producerOf(items), clock: () => now, leaseId: 'builder', leaseMs: 1_000_000, bounds: { itemsPerStep: 500, bytesPerStep: 1024 * 1024 } });
   for (let step = 0; step < 100 && root === null; step++, now++) { const r = await engine.step(); if (r.kind === 'complete') root = r.root; else if (r.kind !== 'progress') throw new Error(r.kind); }

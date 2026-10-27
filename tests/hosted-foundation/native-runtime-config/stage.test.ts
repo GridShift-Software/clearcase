@@ -27,6 +27,18 @@ describe('prepare and read', () => {
 		expect(JSON.parse(readFileSync(path.join(out, NATIVE_RUNTIME_CONFIG_MANIFEST), 'utf8'))).toMatchObject({ providerProof: false, provisioned: false, deployed: false });
 		expect(readNativeRuntimeConfig({ input: exampleInput(), stage: out }).manifestText).toBe(plan.manifestText);
 	});
+	it('stages privately under a setgid parent', ({ skip }) => {
+		const parent = fresh(); mkdirSync(parent);
+		try { chmodSync(parent, 0o2700); } catch (error) {
+			if (error instanceof Error && 'code' in error && ['EPERM', 'ENOTSUP', 'EOPNOTSUPP'].includes(String(error.code))) skip('OS refused the setgid bit on the parent directory');
+			throw error;
+		}
+		if ((lstatSync(parent).mode & 0o2000) === 0) skip('OS did not retain the setgid bit on the parent directory');
+		const out = path.join(parent, 'stage'), input = exampleInput();
+		prepareNativeRuntimeConfig({ input, out });
+		expect(lstatSync(out).mode & 0o7777).toBe(0o700);
+		expect(readNativeRuntimeConfig({ input, stage: out }).manifestText).toBe(planNativeRuntimeConfig(input).manifestText);
+	});
 	it('stages the planned Browser allocation byte for byte', () => {
 		const out = fresh();
 		const staged = prepareNativeRuntimeConfig({ input: exampleWithBrowserAllocation(), out });

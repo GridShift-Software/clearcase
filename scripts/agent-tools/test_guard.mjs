@@ -33,6 +33,8 @@ const READ_DOCUMENTS = [
   'docs/acceptance/CC-11/defects-table.md', // scripts/verify/evidence.sh passes it to dispositions.mjs --md
   'docs/acceptance/CC-11/matrix.md', // scripts/verify/matrix.mjs builds it as its default output
   'docs/acceptance/hosting/deployment.md', // deploy/probes/summary-check.ts and tests/hosting-probe/deployment/probe.ts
+  'docs/acceptance/hosting/native-recovery-http.md', // tests/hosted-foundation/recovery-http/snapshot.test.ts
+  'docs/acceptance/native-alpha-journey.md', // tests/native-alpha-journey/static.test.ts
   'docs/ci-runner.md', // tests/ci/workflow-admission.test.ts, tests/ci/pc1-vm-verify.test.ts
   'docs/compatibility.md', // tests/case-package/compat/probe.ts reads its compat-inventory block
   'docs/delivery-plan.md', // scripts/planning/plan_format.py and generate.py, agent-tools verify plan-format

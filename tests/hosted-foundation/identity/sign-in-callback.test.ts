@@ -310,16 +310,16 @@ describe('a callback that cleared other tabs\' attempts leaves no false singleto
 	it.each(KINDS)('%s: the marker lasts the attempt lifetime plus its delivery slack after the clear, then a single attempt routes normally', async (kind) => {
 		const { jar } = await clearedTwo(kind);
 		const still = new Map(jar);
-		vi.setSystemTime(new Date('2026-10-27T09:20:02Z'));
+		vi.setSystemTime(new Date('2026-10-27T09:25:02Z'));
 		await post(kind, ORIGIN_A, target('B'), still);
-		expect(await land(kind, ORIGIN_A, still), 'at the last second of the marker (cleared at 09:00:02, plus 900 and 300)').toEqual({ location: HOME });
-		vi.setSystemTime(new Date('2026-10-27T09:20:03Z'));
+		expect(await land(kind, ORIGIN_A, still), 'at the last second of the marker (cleared at 09:00:02, plus 900 and 600)').toEqual({ location: HOME });
+		vi.setSystemTime(new Date('2026-10-27T09:25:03Z'));
 		await post(kind, ORIGIN_A, target('B'), jar);
 		expect(await land(kind, ORIGIN_A, jar), 'after it lapsed').toEqual({ location: target('B') });
 		expect(attemptsOf(kind, jar)).toEqual([]);
-		expect(markersOf(jar), 'the expired marker is deleted').toEqual([]);
+		expect(markersOf(jar), 'nothing deletes the marker: the browser drops it at its max-age').toHaveLength(1);
 	});
-	it.each(KINDS)('%s: a tampered, empty, re-dated or other-flow marker is deleted and ignored', async (kind) => {
+	it.each(KINDS)('%s: a tampered, empty, re-dated or other-flow marker is ignored, and left in place', async (kind) => {
 		const other = kind === 'staff' ? 'client' : 'staff';
 		const [[name, value]] = markersOf((await clearedTwo(kind)).jar) as [[string, string]];
 		const [[otherName, otherValue]] = markersOf((await clearedTwo(other)).jar) as [[string, string]];
@@ -328,7 +328,7 @@ describe('a callback that cleared other tabs\' attempts leaves no false singleto
 			const jar: Jar = new Map(marker);
 			await post(kind, ORIGIN_A, target('B'), jar);
 			expect(await land(kind, ORIGIN_A, jar), marker[0]![1]).toEqual({ location: target('B') });
-			expect(markersOf(jar), marker[0]![1]).toEqual([]);
+			expect(markersOf(jar), marker[0]![1]).toEqual(marker);
 		}
 		expect(otherName).not.toBe(name);
 	});

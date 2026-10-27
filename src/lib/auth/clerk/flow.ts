@@ -189,18 +189,19 @@ export const SIGN_IN_RETURN_TTL = 900;
 /** How many sign-ins of one flow may be in flight in one browser; a further one evicts the oldest. */
 export const SIGN_IN_RETURN_LIMIT = 4;
 /**
- * Seconds a multi-tab marker outlives the newest attempt any clear could have seen. Responses can reach the browser out
- * of order, and the last marker written wins: an earlier clear's response landing after a later one's must not shorten
- * the protection. Basing the expiry on the clearing time, not on the attempts seen, keeps every rewrite within the
- * delivery delay of the one it replaces, and Cloudflare closes a response after about 100 seconds, well inside this.
+ * Seconds a multi-tab marker outlives the clear that wrote it, beyond SIGN_IN_RETURN_TTL. Responses can reach the browser
+ * out of order and the last marker written wins, so an earlier clear's late response must not shorten the protection a
+ * later clear gave. Every attempt that later clear saw lapses by its own time plus 60 seconds of accepted clock skew plus
+ * the TTL; dating the marker from the clearing time covers it while the late response is at most MARKER_SLACK - 60
+ * seconds behind. Cloudflare closes a response after about 100 seconds, well inside this.
  */
-const MARKER_SLACK = 300;
+const MARKER_SLACK = 600;
 /**
  * A callback that clears attempts it does not follow leaves the flow's marker: its expiry, under a MAC like an
  * attempt's, is the clearing time plus SIGN_IN_RETURN_TTL plus MARKER_SLACK. A cleared tab's callback still to come
  * cannot tell its own attempt is gone, so while the marker is valid every callback that finds an attempt clears them all
- * and lands home, and none takes a later tab's attempt for its own. A sign-in POST keeps it; an invalid or expired one
- * is deleted.
+ * and lands home, and none takes a later tab's attempt for its own. Nothing deletes it: the browser drops it at its
+ * max-age, and an invalid or expired one is ignored, because a late response's delete would erase a newer clear's marker.
  */
 const SIGN_IN_RETURN_MARKER: Readonly<Record<InstanceKind, string>> = { client: '__Host-clearcase_multi_tab', staff: '__Host-clearcase_staff_multi_tab' };
 // A browser holds a cookie of up to 4096 bytes, name included. One flow's attempts together stay within
@@ -316,11 +317,10 @@ export async function signInReturn(env: Readonly<Record<string, unknown>>, reque
 	if (!read.ok || !hostCookies(read.config)) return { location: fallback, change: { set: null, delete: [] } };
 	const names = [...new Set(cookiePairs(request).filter((c) => c.name.startsWith(SIGN_IN_RETURN_PREFIX[kind])).map((c) => c.name))];
 	const { attempts } = await signInAttempts(read.config, request, kind), marker = await multiTabMarker(read.config, request, kind);
-	const stale = marker.present && marker.expires === null ? [SIGN_IN_RETURN_MARKER[kind]] : [];
 	// Beyond the validation cap we cannot establish a singleton; fail safely and clear even the unscanned names.
 	const multiple = attempts.length > 1 || names.length > RETURN_SCAN || (marker.expires !== null && attempts.length > 0);
-	if (!multiple) return { location: attempts[0]?.to ?? fallback, change: { set: null, delete: [...names, ...stale] } };
-	if (!attempts.length) return { location: MULTI_TAB_RETURN, change: { set: null, delete: [...names, ...stale] } };
+	if (!multiple) return { location: attempts[0]?.to ?? fallback, change: { set: null, delete: names } };
+	if (!attempts.length) return { location: MULTI_TAB_RETURN, change: { set: null, delete: names } };
 	const expires = Math.max(marker.expires ?? 0, Math.floor(Date.now() / 1000) + SIGN_IN_RETURN_TTL + MARKER_SLACK);
 	return { location: MULTI_TAB_RETURN, change: { set: await sealMultiTabMarker(read.config, kind, expires), delete: names } };
 }

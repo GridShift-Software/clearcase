@@ -224,6 +224,94 @@ describe('two tabs signing in through the same flow land home without guessing (
 	});
 });
 
+describe('a callback that cleared other tabs\' attempts leaves no false singleton behind (M5)', () => {
+	const HOME = '/cases?signIn=multiple-tabs', target = (tab: string) => `/cases/tab-${tab}`;
+	/** The jar's cookies that belong to neither flow's attempts: the multi-tab marker a home landing leaves. */
+	const markersOf = (jar: Jar) => [...jar].filter(([n]) => !KINDS.some((k) => n.startsWith(SIGN_IN_RETURN_PREFIX[k])));
+	/** Tabs A then C post one second apart; A's callback clears both and lands home. C's attempt was issued at 09:00:01. */
+	async function clearedTwo(kind: InstanceKind) {
+		const jar: Jar = new Map(), tick = ticking();
+		await post(kind, ORIGIN_A, target('A'), jar);
+		tick();
+		await post(kind, ORIGIN_A, target('C'), jar);
+		tick();
+		expect(await land(kind, ORIGIN_A, jar), 'tab A').toEqual({ location: HOME });
+		return { jar, tick };
+	}
+	it.each(KINDS)('%s: A and C post, A lands home, then B posts: C lands home, never on B\'s target', async (kind) => {
+		const { jar, tick } = await clearedTwo(kind);
+		tick();
+		await post(kind, ORIGIN_A, target('B'), jar);
+		tick();
+		expect(await land(kind, ORIGIN_A, jar), 'tab C').toEqual({ location: HOME });
+		expect(attemptsOf(kind, jar)).toEqual([]);
+		expect(await land(kind, ORIGIN_A, jar), 'tab B').toEqual({ location: '/cases' });
+	});
+	it.each(KINDS)('%s: a singleton cleared under the marker extends it, so its own tab cannot take the next one', async (kind) => {
+		const { jar, tick } = await clearedTwo(kind);
+		await post(kind, ORIGIN_A, target('B'), jar);
+		tick();
+		expect(await land(kind, ORIGIN_A, jar), 'tab C').toEqual({ location: HOME });
+		vi.setSystemTime(new Date('2026-10-27T09:15:02Z'));
+		await post(kind, ORIGIN_A, target('E'), jar);
+		expect(await land(kind, ORIGIN_A, jar), 'tab B, after C\'s attempt would have lapsed').toEqual({ location: HOME });
+		expect(attemptsOf(kind, jar)).toEqual([]);
+	});
+	it.each(KINDS)('%s: the marker lasts until the newest cleared attempt would lapse, then a single attempt routes normally', async (kind) => {
+		const { jar } = await clearedTwo(kind);
+		const still = new Map(jar);
+		vi.setSystemTime(new Date('2026-10-27T09:15:01Z'));
+		await post(kind, ORIGIN_A, target('B'), still);
+		expect(await land(kind, ORIGIN_A, still), 'at the last second C\'s attempt was valid').toEqual({ location: HOME });
+		vi.setSystemTime(new Date('2026-10-27T09:15:02Z'));
+		await post(kind, ORIGIN_A, target('B'), jar);
+		expect(await land(kind, ORIGIN_A, jar), 'after it lapsed').toEqual({ location: target('B') });
+		expect(attemptsOf(kind, jar)).toEqual([]);
+		expect(markersOf(jar), 'the expired marker is deleted').toEqual([]);
+	});
+	it.each(KINDS)('%s: a tampered, empty, re-dated or other-flow marker is deleted and ignored', async (kind) => {
+		const other = kind === 'staff' ? 'client' : 'staff';
+		const [[name, value]] = markersOf((await clearedTwo(kind)).jar) as [[string, string]];
+		const [[otherName, otherValue]] = markersOf((await clearedTwo(other)).jar) as [[string, string]];
+		const [expires, mac] = value.split('.');
+		for (const marker of [[[name, flip(value)]], [[name, `${Number(expires) + 1}.${mac}`]], [[name, '']], [[name, otherValue]]] as [string, string][][]) {
+			const jar: Jar = new Map(marker);
+			await post(kind, ORIGIN_A, target('B'), jar);
+			expect(await land(kind, ORIGIN_A, jar), marker[0]![1]).toEqual({ location: target('B') });
+			expect(markersOf(jar), marker[0]![1]).toEqual([]);
+		}
+		expect(otherName).not.toBe(name);
+	});
+	it.each(KINDS)('%s: the marker is per flow and per origin', async (kind) => {
+		const other = kind === 'staff' ? 'client' : 'staff';
+		const { jar } = await clearedTwo(kind);
+		await post(other, ORIGIN_A, target('other'), jar);
+		expect(await land(other, ORIGIN_A, jar)).toEqual({ location: target('other') });
+		const elsewhere: Jar = new Map(markersOf(jar));
+		await post(kind, ORIGIN_C, target('B'), elsewhere);
+		expect(await land(kind, ORIGIN_C, elsewhere)).toEqual({ location: target('B') });
+	});
+	it.each(KINDS)('%s: two sequential attempts at the size cap and the marker all fit, so neither is evicted (L1)', async (kind) => {
+		const { jar, tick } = await clearedTwo(kind);
+		const big = (c: string) => `/cases/${c.repeat(1293)}`;
+		expect(new TextEncoder().encode(big('x')).length).toBe(1300);
+		await post(kind, ORIGIN_A, big('x'), jar);
+		tick();
+		await post(kind, ORIGIN_A, big('y'), jar);
+		expect(attemptsOf(kind, jar)).toHaveLength(2);
+		const [[name, value]] = markersOf(jar) as [[string, string]];
+		expect(attemptBytes(kind, jar) + name.length + value.length + 3).toBeLessThanOrEqual(3800);
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: HOME });
+	});
+	it.each(KINDS)('%s: a target over the size cap returns to /cases, so a sequential large pair leaves no false singleton (L1)', async (kind) => {
+		const jar: Jar = new Map(), tick = ticking(), big = (c: string) => `/cases/${c.repeat(1393)}`;
+		await post(kind, ORIGIN_A, big('x'), jar);
+		tick();
+		await post(kind, ORIGIN_A, big('y'), jar);
+		expect(await land(kind, ORIGIN_A, jar), 'tab A').not.toEqual({ location: big('y') });
+	});
+});
+
 describe('a hostile returnTo is refused when the state is set and when it is read', () => {
 	it.each(KINDS.flatMap((kind) => HOSTILE.map((returnTo) => [kind, returnTo] as const)))('%s: sends %j to /cases, with the callback unchanged', async (kind, returnTo) => {
 		const { r, jar } = await post(kind, ORIGIN_A, returnTo);

@@ -5,7 +5,7 @@ import { render } from 'svelte/server';
 import ChronologyPage from '../../../../../deploy/client/routes/cases/[caseId]/views/[resultsVersion]/chronology/+page.svelte';
 import type { Candidate } from '../../../case-package/candidate.ts';
 import { INTEGRITY_DATASETS, isIntegrityKey, REQUIRED_DATASETS, type IntegrityKey } from '../../../case-package/registry.ts';
-import { carriesMeta, metaReconciles } from '../../../case-package/meta-integrity.ts';
+import { carriesMeta, metaReconciles, metaSectionV2, type MetaSectionV2 } from '../../../case-package/meta-integrity.ts';
 import { sourceLayoutRoundTrips } from '../../../case-package/source-layout.ts';
 import type { RequiredSectionState } from '../../../publication/hosted/ports.ts';
 import type { StagedProjection } from '../../../results/hosted/read-model.ts';
@@ -74,4 +74,23 @@ export async function renderRequiredSections(a: {
     } catch { out.push({ key, state: 'invalid' }); }
   }
   return out;
+}
+
+/**
+ * The META section of a snapshot v2 candidate (ADR-0014, Proposed), derived from the candidate's own records and the validation that
+ * accepted it: `integrity-verified`, `disagrees` with the exact differing counts, or `invalid`. Null when the candidate carries no
+ * registered META, which the v1 renderer above handles. It is a separate entry point and `renderRequiredSections` is unchanged, so a v1
+ * candidate's META discrepancy is still `invalid`.
+ */
+export function metaSectionOf(a: {
+  candidate: Candidate;
+  validation: Readonly<{ validatorVersion: string; diagnosticsSha256: string; warningFingerprints: readonly string[] }>;
+  counts: Counts;
+}): MetaSectionV2 | null {
+  const c = a.candidate, env = c.dataset(INTEGRITY_DATASETS.meta.key);
+  if (!env || env.schema !== INTEGRITY_DATASETS.meta.schema) return null;
+  return metaSectionV2(c.datasetKeys().map((k) => c.dataset(k)!), {
+    binding: { resultsVersion: c.resultsVersion, manifestSha256: c.manifestSha256, validatorVersion: a.validation.validatorVersion, diagnosticsSha256: a.validation.diagnosticsSha256 },
+    warningFingerprints: a.validation.warningFingerprints, diagnostics: a.counts.V5_META_COUNT_DISAGREEMENT ?? 0,
+  });
 }

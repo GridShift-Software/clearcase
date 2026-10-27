@@ -74,6 +74,10 @@
               {
                 "const": "assets",
                 "type": "string"
+              },
+              {
+                "const": "preview",
+                "type": "string"
               }
             ]
           },

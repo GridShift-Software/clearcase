@@ -90,7 +90,7 @@ export class Durable {
   readonly clock = { ms: 1_000_000 };
   /** Milliseconds every bucket call takes on the shared clock: how a test makes wall time pass. */
   tick = 0;
-  readonly counts = { puts: 0, batches: 0, d1: 0, gets: 0, heads: 0, deletes: 0, lists: 0, bytesRead: 0, originalGets: 0, wholeStage: 0 };
+  readonly counts = { puts: 0, batches: 0, d1: 0, gets: 0, heads: 0, deletes: 0, lists: 0, bytesRead: 0, originalGets: 0, wholeStage: 0, identity: 0 };
   readonly putKeys: string[] = [];
   constructor(caseId: string) {
     this.caseId = caseId;
@@ -172,9 +172,9 @@ class ChaosD1 implements NativeD1, CloudD1 {
 }
 
 export interface ProcessOptions { kill?: KillAt | null; bounds?: Partial<StepBounds>; operate?: boolean; interleave?: () => Promise<void>; sweepObjects?: number; requestBudget?: NativeImportPorts['requestBudget'] }
-const operator = (): Identity => ({
+const operator = (checked: () => void): Identity => ({
   kind: 'verified', principal: { issuer: 'synthetic', subject: 'staff', kind: 'staff' }, sessionId: 'synthetic-session' as SessionId, clientId: ids.clientA,
-  async checkRevocation() {}, async authorize() { throw new Error('client published visibility must not be used'); },
+  async checkRevocation() { checked(); }, async authorize() { throw new Error('client published visibility must not be used'); },
 });
 
 /** A new "process" over the durable state: fresh closures, nothing remembered from a dead one. */
@@ -183,7 +183,7 @@ export async function startProcess(d: Durable, o: ProcessOptions = {}) {
   const life: Life = { dead: false };
   const db = new ChaosD1(d, kill, o.interleave ?? null, life), bucket = new ChaosR2(d, kill, life);
   const caseId = id('case', d.caseId) as CaseId;
-  const identity = operator();
+  const identity = operator(() => { d.counts.identity++; });
   const audit: HostedCandidateStagerOptions['audit'] = { async append(e) { d.events.push(e); return { eventId: e.eventId }; } };
   const authorizeOperate: HostedCandidateStagerOptions['authorizeOperate'] = async (a) => { if (o.operate === false || a.caseId !== caseId) throw contractError('forbidden'); };
   const operateCondition: HostedCandidateStagerOptions['operateCondition'] = () => ({ sql: '? = 1', values: [o.operate === false ? 0 : 1] });
@@ -212,7 +212,7 @@ export async function importWhole(p: Process, pkg: RealPackage, revisionId: stri
   return p.service.importPackage(p.token, { operationId: OP, submissionRevisionId: revisionId, files: pkg.files });
 }
 
-export interface StepRecord { phase: string; ms: number; originalGets: number; d1: number; r2Gets: number; bytesRead: number; puts: number; heads: number }
+export interface StepRecord { phase: string; ms: number; identity: number; originalGets: number; d1: number; r2Gets: number; bytesRead: number; puts: number; heads: number }
 /** What a client does: open with the manifest, send every file in planned batches, then call complete until it answers. */
 export async function driveStaged(p: Process, d: Durable, pkg: RealPackage, revisionId: string, o: { steps?: StepRecord[]; maxCalls?: number; mark?: { puts: number; batches: number } } = {}) {
   const manifest = pkg.files.get('manifest.json')!;
@@ -237,7 +237,7 @@ export async function completeAll(p: Process, d: Durable, o: { steps?: StepRecor
   for (let calls = 0; calls < (o.maxCalls ?? 5000); calls++) {
     const before = { ...d.counts }, startMs = d.clock.ms;
     const out = await p.staged.complete(p.token, { operationId: OP });
-    if (o.steps) o.steps.push({ phase: out.kind === 'staging' ? out.phase : out.kind, ms: d.clock.ms - startMs, originalGets: d.counts.originalGets - before.originalGets, d1: d.counts.d1 - before.d1, r2Gets: d.counts.gets - before.gets, bytesRead: d.counts.bytesRead - before.bytesRead, puts: d.counts.puts - before.puts, heads: d.counts.heads - before.heads });
+    if (o.steps) o.steps.push({ identity: d.counts.identity - before.identity, phase: out.kind === 'staging' ? out.phase : out.kind, ms: d.clock.ms - startMs, originalGets: d.counts.originalGets - before.originalGets, d1: d.counts.d1 - before.d1, r2Gets: d.counts.gets - before.gets, bytesRead: d.counts.bytesRead - before.bytesRead, puts: d.counts.puts - before.puts, heads: d.counts.heads - before.heads });
     if (out.kind !== 'staging') return out;
   }
   throw new Error('complete never finished');

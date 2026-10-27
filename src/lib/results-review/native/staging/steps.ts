@@ -58,24 +58,34 @@ export const DEFAULT_STEP_BOUNDS: StepBounds = Object.freeze({
 export const STRUCTURED_FILES = LIMITS.datasets + 2;
 /** Facts a step reads back a page (one D1 query) at a time. */
 export const FACT_PAGE = 500;
+/** Parsed asset aliases and per-ref links, not package files. Sized above v5's 2,997 originals/attachments. */
+export const STAGED_WORK_CAP = Object.freeze({ assets: 20_000, links: 20_000 });
+export interface StagedWorkCounts { readonly assets: number; readonly links: number }
+/** Check before any fact/original read; callers without parsed counts must budget for the ceiling. */
+export function checkedWorkCounts(c: StagedWorkCounts): StagedWorkCounts {
+  if (!Number.isSafeInteger(c.assets) || c.assets < 0 || c.assets > STAGED_WORK_CAP.assets
+    || !Number.isSafeInteger(c.links) || c.links < 0 || c.links > STAGED_WORK_CAP.links) throw new RangeError('staged import exceeds the 20,000 asset/link row cap');
+  return c;
+}
 
 /**
  * The most one step may call, by construction from the bounds and the package limits; the tests hold the measured counts to it. `d1` counts
  * D1 queries (a batch is one), `external` the identity provider's session checks, `r2` the bucket calls. Fixed: the grant and session
  * checks, the storage gate, the lease claim, the commit, the folder and the admission. Per phase, the largest of: an original costs a read, a
- * session check and a grant check; a batch of rows costs a query and a session check; `plan` and `validate-a` write a fact per file asset
- * or link, at most one per package file, a batch at a time; `begin` and `final` read two passes of facts back in pages, with the head and the
+ * session check and a grant check; a batch of rows costs a query and a session check; `plan` and `validate-a` write at most rowsPerStep
+ * asset/link facts, a batch at a time; `begin` and `final` read two passes of the capped parsed asset counts in pages, with the head and the
  * read model. R2: the structure (at most `STRUCTURED_FILES` reads, refused before the first when there are more) with a slice of originals,
  * or, per object, a read of the staged copy, a head, a put and a head after a lost race.
  */
-export function stepCost(b: StepBounds, rowsPerBatch: number): { d1: number; external: number; r2: number } {
+export function stepCost(b: StepBounds, rowsPerBatch: number, counts: StagedWorkCounts = STAGED_WORK_CAP): { d1: number; external: number; r2: number } {
+  checkedWorkCounts(counts);
   const per = Math.max(1, rowsPerBatch);
   const batches = Math.ceil(b.rowsPerStep / per) + 1;
-  const factBatches = Math.ceil(LIMITS.packageFiles / per) + 1;
-  const factPages = 2 * Math.ceil(LIMITS.packageFiles / FACT_PAGE) + 12;
+  const factBatches = Math.ceil(Math.min(b.rowsPerStep, Math.max(counts.assets, counts.links)) / per) + 1;
+  const factPages = 2 * (Math.ceil(counts.assets / FACT_PAGE) + 1) + 12;
   return {
-    d1: 30 + Math.max(2 * b.originalsPerStep, 3 * batches, factBatches, factPages),
-    external: 14 + Math.max(b.originalsPerStep, 2 * batches),
+    d1: 30 + factPages + Math.max(2 * b.originalsPerStep, 3 * batches, factBatches),
+    external: 14 + factPages + Math.max(b.originalsPerStep, 2 * batches, factBatches),
     r2: 6 + Math.max(STRUCTURED_FILES + b.originalsPerStep, 4 * b.objectsPerStep),
   };
 }
@@ -88,8 +98,8 @@ export function stepCost(b: StepBounds, rowsPerBatch: number): { d1: number; ext
 export const COMPLETE_LINK_COST = Object.freeze({ d1: 40, r2: STRUCTURED_FILES + 1, external: 16 });
 
 /** The most one `complete` request may call: `stepsPerRequest` steps and the link. Checked against the plan's allowance before a step runs. */
-export function stagedCompleteCost(b: StepBounds, rowsPerBatch: number): { d1: number; external: number; r2: number } {
-  const c = stepCost(b, rowsPerBatch), n = b.stepsPerRequest;
+export function stagedCompleteCost(b: StepBounds, rowsPerBatch: number, counts: StagedWorkCounts = STAGED_WORK_CAP): { d1: number; external: number; r2: number } {
+  const c = stepCost(b, rowsPerBatch, counts), n = b.stepsPerRequest;
   return { d1: n * c.d1 + COMPLETE_LINK_COST.d1, external: n * c.external + COMPLETE_LINK_COST.external, r2: n * c.r2 + COMPLETE_LINK_COST.r2 };
 }
 

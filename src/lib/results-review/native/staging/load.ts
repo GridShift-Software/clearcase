@@ -3,7 +3,7 @@ import type { HeldFile } from '../../../case-package/source.ts';
 import { checkRelPath } from '../../../case-package/paths.ts';
 import { decodeUtf8Strict, isObject, parseStrictJson } from '../../../case-package/strict-json.ts';
 import { inspectPackage, type Inspection } from '../package.ts';
-import { STRUCTURED_FILES, type StagedPackageView } from './steps.ts';
+import { STAGED_WORK_CAP, STRUCTURED_FILES, type StagedPackageView } from './steps.ts';
 
 /** The non-preview files of a staged package as bytes and its previews as the facts their upload check recorded. */
 export interface StagedStructure { readonly files: Map<string, Uint8Array>; readonly held: Map<string, HeldFile>; readonly bytes: number }
@@ -34,7 +34,19 @@ export async function loadStaged(pkg: StagedPackageView, maxBytes: number): Prom
   for (const f of structured) bytes += pkg.files.get(f.path)?.size ?? 0;
   if (bytes > maxBytes) return { ok: false, code: 'too-large', detail: [`the manifest, datasets and asset index together are ${bytes} bytes; one step may hold ${maxBytes}`] };
   const files = new Map<string, Uint8Array>([['manifest.json', pkg.manifest]]);
-  const read = await pool(structured.filter((f) => f.path !== 'manifest.json'), async (f) => [f.path, await pkg.read(f.path)] as const);
+  // Parse only the verified asset index first. Refuse its real cardinality before dataset, fact or original reads.
+  const indexes = structured.filter((f) => f.role === 'assets');
+  if (indexes.length !== 1) return { ok: false, code: 'package-invalid', detail: ['the package must list one asset index'] };
+  const index = indexes[0]!;
+  const data = await pkg.read(index.path);
+  try {
+    const parsed = parseStrictJson(decodeUtf8Strict(data));
+    if (!isObject(parsed) || !isObject(parsed.assets)) return { ok: false, code: 'package-invalid', detail: ['invalid asset index'] };
+    const count = Object.keys(parsed.assets).length;
+    if (count > STAGED_WORK_CAP.assets) return { ok: false, code: 'too-large', detail: [`the asset index has ${count} rows; staged import supports at most ${STAGED_WORK_CAP.assets} asset rows and ${STAGED_WORK_CAP.links} per-ref links`] };
+  } catch { return { ok: false, code: 'package-invalid', detail: ['asset index is not strict JSON'] }; }
+  files.set(index.path, data);
+  const read = await pool(structured.filter((f) => f.path !== 'manifest.json' && f.path !== index.path), async (f) => [f.path, await pkg.read(f.path)] as const);
   for (const [path, data] of read) files.set(path, data);
   const held = new Map<string, HeldFile>();
   for (const f of listed) {

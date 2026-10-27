@@ -22,6 +22,10 @@ const FINISHED = `EXISTS (SELECT 1 FROM native_candidate k WHERE ${of('k')})`;
 /** The session `s` was opened before the cutoff and nothing has been accepted or staged under it since. Three bound cutoffs. */
 const IDLE = `s.opened_at < ? AND NOT EXISTS (SELECT 1 FROM native_import_staged_file f WHERE ${of('f')} AND f.accepted_at >= ?)
   AND NOT EXISTS (SELECT 1 FROM native_import_stage_run r WHERE ${of('r')} AND r.updated_at >= ?)`;
+/** A durable writer start has no matching settlement. Facts are immutable and retained, including across restarts. */
+const WRITING = `EXISTS (SELECT 1 FROM native_import_stage_fact w WHERE ${of('w')} AND w.epoch = 0 AND w.pass = 'writer-start'
+  AND NOT EXISTS (SELECT 1 FROM native_import_stage_fact e WHERE e.client_id = w.client_id AND e.case_id = w.case_id AND e.operation_id = w.operation_id
+    AND e.epoch = 0 AND e.pass = 'writer-end' AND e.key = w.key))`;
 /** Bytes held by the client's sessions whose sweep is not done: one bound client id. */
 const HELD = `(SELECT COALESCE(SUM(h.expected_bytes + h.manifest_size), 0) FROM native_import_session h WHERE h.client_id = ?
   AND NOT EXISTS (SELECT 1 FROM native_import_cleanup c WHERE c.client_id = h.client_id AND c.case_id = h.case_id AND c.operation_id = h.operation_id AND c.state = 'done'))`;
@@ -98,6 +102,30 @@ export function d1StagingLedger(db: NativeD1, o: { rowsPerBatch: number }): Stag
       return r ?? unavailable();
     },
 
+    async beginWrite(a) {
+      const writerId = crypto.randomUUID();
+      const { results } = await db.prepare(`INSERT INTO native_import_stage_fact (client_id, case_id, operation_id, epoch, pass, key, value)
+        SELECT s.client_id, s.case_id, s.operation_id, 0, 'writer-start', ?, '{}' FROM native_import_session s
+        WHERE s.client_id = ? AND s.case_id = ? AND s.operation_id = ?
+          AND NOT EXISTS (SELECT 1 FROM native_import_cleanup c WHERE ${of('c')})${a.guard ? ` AND ${a.guard.sql}` : ''} RETURNING key`)
+        .bind(writerId, a.clientId, a.caseId, a.operationId, ...(a.guard?.values ?? [])).all<{ key: string }>().catch(unavailable);
+      return results.length === 1 ? writerId : null;
+    },
+
+    async endWrite(a) {
+      await db.prepare(`INSERT INTO native_import_stage_fact (client_id, case_id, operation_id, epoch, pass, key, value)
+        SELECT w.client_id, w.case_id, w.operation_id, 0, 'writer-end', w.key, '{}' FROM native_import_stage_fact w
+        WHERE w.client_id = ? AND w.case_id = ? AND w.operation_id = ? AND w.epoch = 0 AND w.pass = 'writer-start' AND w.key = ?
+          AND NOT EXISTS (SELECT 1 FROM native_import_stage_fact e WHERE e.client_id = w.client_id AND e.case_id = w.case_id AND e.operation_id = w.operation_id AND e.epoch = 0 AND e.pass = 'writer-end' AND e.key = w.key)`)
+        .bind(a.clientId, a.caseId, a.operationId, a.writerId).run().catch(unavailable);
+    },
+
+    async writing(a) {
+      const r = await db.prepare(`SELECT 1 AS active FROM native_import_session s WHERE s.client_id = ? AND s.case_id = ? AND s.operation_id = ? AND ${WRITING}`)
+        .bind(a.clientId, a.caseId, a.operationId).first<{ active: number }>().catch(unavailable);
+      return r !== null;
+    },
+
     async cleanup(a) {
       const r = await db.prepare(CLEANUP).bind(a.clientId, a.caseId, a.operationId).first<CleanupRaw>().catch(unavailable);
       return r ? cleanupOf(r) : null;
@@ -122,7 +150,8 @@ export function d1StagingLedger(db: NativeD1, o: { rowsPerBatch: number }): Stag
 
     async advanceCleanup(a) {
       // Only from the position the step read: a step that ran beside another and lost leaves the other's move, which covers its own deletes.
-      await db.prepare(`UPDATE native_import_cleanup SET after_key = ?, swept = ?, state = ?, finished_at = ? WHERE client_id = ? AND case_id = ? AND operation_id = ? AND state = 'sweeping' AND after_key = ?${a.guard ? ` AND ${a.guard.sql}` : ''}`)
+      await db.prepare(`UPDATE native_import_cleanup SET after_key = ?, swept = ?, state = ?, finished_at = ? WHERE client_id = ? AND case_id = ? AND operation_id = ? AND state = 'sweeping' AND after_key = ?
+        AND NOT EXISTS (SELECT 1 FROM native_import_session s WHERE s.client_id = native_import_cleanup.client_id AND s.case_id = native_import_cleanup.case_id AND s.operation_id = native_import_cleanup.operation_id AND ${WRITING})${a.guard ? ` AND ${a.guard.sql}` : ''}`)
         .bind(a.afterKey, a.swept, a.done ? 'done' : 'sweeping', a.done ? a.at : null, a.clientId, a.caseId, a.operationId, a.from, ...(a.guard?.values ?? [])).run().catch(unavailable);
       const r = await db.prepare(CLEANUP).bind(a.clientId, a.caseId, a.operationId).first<CleanupRaw>().catch(unavailable);
       if (!r) integrity();
@@ -133,7 +162,7 @@ export function d1StagingLedger(db: NativeD1, o: { rowsPerBatch: number }): Stag
     async nextDue(a) {
       const r = await db.prepare(`SELECT s.operation_id AS operation_id FROM native_import_session s
           LEFT JOIN native_import_cleanup c ON ${of('c')}
-          WHERE s.client_id = ? AND s.case_id = ? AND (c.state = 'sweeping' OR (c.state IS NULL AND (${FINISHED} OR (${IDLE}))))
+          WHERE s.client_id = ? AND s.case_id = ? AND NOT ${WRITING} AND (c.state = 'sweeping' OR (c.state IS NULL AND (${FINISHED} OR (${IDLE}))))
           ORDER BY (c.state = 'sweeping') DESC, ${FINISHED} DESC, s.opened_at, s.operation_id LIMIT 1`)
         .bind(a.clientId, a.caseId, a.idleFrom, a.idleFrom, a.idleFrom).first<{ operation_id: string }>().catch(unavailable);
       return r ? { operationId: r.operation_id } : null;

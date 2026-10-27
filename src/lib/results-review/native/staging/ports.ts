@@ -31,6 +31,12 @@ export interface StagingLedger {
   accept(a: Scoped & { operationId: string; rows: readonly StagedRow[]; at: string; guard?: SqlCondition }): Promise<'accepted' | 'swept'>;
   totals(a: Scoped & { operationId: string }): Promise<{ files: number; bytes: number }>;
 
+  /** Durable per-batch writer reservation, atomically refused once the cleanup tombstone exists. Never expires on a clock. */
+  beginWrite(a: Scoped & { operationId: string; guard?: SqlCondition }): Promise<string | null>;
+  /** Call only after every R2 put of this reservation has settled. A dead writer keeps its reservation (fail closed). */
+  endWrite(a: Scoped & { operationId: string; writerId: string }): Promise<void>;
+  writing(a: Scoped & { operationId: string }): Promise<boolean>;
+
   /** The sweep record of an operation, or null when none was started. */
   cleanup(a: Scoped & { operationId: string }): Promise<CleanupRow | null>;
   /**
@@ -44,7 +50,7 @@ export interface StagingLedger {
   advanceCleanup(a: Scoped & { operationId: string; from: string; afterKey: string; swept: number; done: boolean; at: string; guard?: SqlCondition }): Promise<void>;
   /**
    * The session of the case to sweep next: one whose sweep is under way, else the oldest with a candidate and no sweep, else the oldest idle
-   * since `idleFrom` with no sweep.
+   * since `idleFrom` with no sweep. Outstanding writers are skipped, but their capacity stays held.
    */
   nextDue(a: Scoped & { idleFrom: string }): Promise<{ operationId: string } | null>;
   /** Bytes the client's sessions hold that are not swept yet: each one's listed files and its manifest. */

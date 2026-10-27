@@ -49,5 +49,5 @@ export function planBatches(entries: readonly (readonly [path: string, size: num
  */
 export function stagedBatchCost(files: number, rowsPerBatch: number): { d1: number; r2: number; external: number } {
   const r2 = 1 + 3 * files;
-  return { d1: 10 + Math.ceil(files / rowsPerBatch), r2, external: r2 + 6 };
+  return { d1: 14 + Math.ceil(files / rowsPerBatch), r2, external: r2 + 10 };
 }

@@ -169,6 +169,9 @@ export function createStagedImport(d: StagedDeps): StagedImport {
       if (!c) return notFinished();
     }
     if (c.state === 'done') return d.answer(a, { kind: 'swept', operationId, deleted: 0, remaining: 0, state: 'done' });
+    // The tombstone fences new reservations. Wait before the FIRST listing until all earlier puts have settled, so no late write
+    // can land behind this cursor or after capacity is released. A clock timeout cannot prove an HTTP writer has stopped.
+    if (await ledger.writing({ ...scope(a), operationId })) return d.answer(a, { kind: 'swept', operationId, deleted: 0, remaining: 1, state: 'sweeping' });
     await d.observe(a);
     const page = await store.list({ ...scope(a), operationId, after: c.afterKey, limit: sweepObjects });
     let deleted = 0;
@@ -219,11 +222,14 @@ export function createStagedImport(d: StagedDeps): StagedImport {
       const opened = await d.fenced(a, () => ledger.open({ ...scope(a), operationId: r.operationId, submissionRevisionId: r.submissionRevisionId, manifestSha256: m.manifestSha256, manifestSize: r.manifest.byteLength, resultsVersion: m.manifest.resultsVersion,
         expectedFiles: m.files.size, expectedBytes: m.listedBytes, requestSha256, operator: operator(a), at: d.now().toISOString(), maxStagedBytes, guard }));
       if (opened.kind === 'operation-reused') return d.answer(a, refuse('operation-reused', 'this operation id was already used for a different request'));
-      if (opened.kind === 'over-quota') return d.answer(a, refuse('staging-quota', `staged imports of this deployment hold ${opened.held} bytes; with this one's ${m.listedBytes + r.manifest.byteLength} that is more than the ${maxStagedBytes} they may hold`, 'finish an import, or sweep a finished or abandoned one, then open again'));
+      if (opened.kind === 'over-quota') return d.answer(a, refuse('staging-quota', `staged imports of this deployment hold ${opened.held} bytes; with this one's ${m.listedBytes + r.manifest.byteLength} that is more than the ${maxStagedBytes} they may hold`, 'finish an import, or sweep a finished or abandoned one, then open again; an unsettled writer keeps its capacity reserved even past the idle TTL'));
       const key = { ...scope(a), operationId: r.operationId };
       if (await ledger.cleanup(key)) return swept(a);
       await d.observe(a);
-      await store.put({ ...key, sha256: m.manifestSha256, bytes: r.manifest });
+      const writerId = await d.fenced(a, async () => ledger.beginWrite({ ...key, guard: await d.fence(a) }));
+      if (!writerId) return swept(a);
+      try { await store.put({ ...key, sha256: m.manifestSha256, bytes: r.manifest }); }
+      finally { await ledger.endWrite({ ...key, writerId }); }
       // A sweep that began while the manifest was written may have listed past it.
       if (await ledger.cleanup(key)) { await unwrite(a, r.operationId, [m.manifestSha256]); return swept(a); }
       return d.answer(a, await progress(a, opened.session, m, opened.kind === 'repeated', null));
@@ -258,8 +264,13 @@ export function createStagedImport(d: StagedDeps): StagedImport {
       const fresh = [...r.files].filter(([path]) => !have.has(path)).map(([path, data]) => ({ path, data, ...listed.files.get(path)! }));
       if (fresh.length > 0) {
         await d.observe(a);
-        // Objects first, rows second: a row always has its object, and an object without a row is found again and left alone.
-        for (const f of fresh) await store.put({ ...scope(a), operationId: r.operationId, sha256: f.sha256, bytes: f.data });
+        const key = { ...scope(a), operationId: r.operationId };
+        const writerId = await d.fenced(a, async () => ledger.beginWrite({ ...key, guard: await d.fence(a) }));
+        if (!writerId) return swept(a);
+        // One reservation covers this sequential batch. Release only after every started R2 put has settled, on success OR failure.
+        // If the isolate is killed before settlement is recorded, the durable reservation keeps capacity held rather than guessing.
+        try { for (const f of fresh) await store.put({ ...key, sha256: f.sha256, bytes: f.data }); }
+        finally { await ledger.endWrite({ ...key, writerId }); }
         const guard = await d.fence(a);
         const accepted = await d.fenced(a, () => ledger.accept({ ...scope(a), operationId: r.operationId, rows: fresh.map(({ path, sha256, size, data }) => ({ path, sha256, size, pdf: isPdf(data) })), at: d.now().toISOString(), guard }));
         // A sweep began after the check above: nothing more is accepted, and what this batch wrote is removed again.

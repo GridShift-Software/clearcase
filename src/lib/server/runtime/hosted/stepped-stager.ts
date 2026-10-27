@@ -18,7 +18,7 @@ import { inspectPackage } from '../../../results-review/native/package.ts';
 import { submissionSnapshotReader } from '../../../results-review/native/submission-reader.ts';
 import { loadStaged, type StagedLoad } from '../../../results-review/native/staging/load.ts';
 import type { StageOutcome } from '../../../results-review/native/ports.ts';
-import { FACT_PAGE, type StagingStatus, type StepBounds, type StepOutcome, type StepPhase, type StepRequest, type SteppedStager } from '../../../results-review/native/staging/steps.ts';
+import { checkedWorkCounts, STAGED_WORK_CAP, FACT_PAGE, type StagingStatus, type StepBounds, type StepOutcome, type StepPhase, type StepRequest, type SteppedStager } from '../../../results-review/native/staging/steps.ts';
 import { loadVerifiedModel } from '../../../results/hosted/model.ts';
 import { preparePackage, type FileAssetClaim, type OriginalFact, type PreparedPackage } from '../../../results/hosted/project.ts';
 import { readModelDigest } from '../../../results/hosted/read-model.ts';
@@ -123,16 +123,15 @@ async function factsAt(db: CloudD1, id: Ids, epoch: number, pass: string, keys: 
     .bind(id.clientId, id.caseId, id.operationId, epoch, pass, ...keys).all<{ key: string; value: string }>();
   return results.map((r) => ({ key: r.key, value: parse(r.value) }));
 }
-async function factCount(db: CloudD1, id: Ids, epoch: number, pass: string): Promise<number> {
-  const r = await db.prepare('SELECT COUNT(*) AS n FROM native_import_stage_fact WHERE client_id = ? AND case_id = ? AND operation_id = ? AND epoch = ? AND pass = ?').bind(id.clientId, id.caseId, id.operationId, epoch, pass).first<{ n: number }>();
-  return r?.n ?? 0;
-}
-async function allFacts(db: CloudD1, id: Ids, epoch: number, pass: string, page = FACT_PAGE) {
+async function allFacts(db: CloudD1, id: Ids, epoch: number, pass: string, max: number = STAGED_WORK_CAP.assets) {
+  checkedWorkCounts({ assets: max, links: 0 });
   const out: { key: string; value: Json }[] = [];
   for (let after = ''; ;) {
-    const rows = await factPage(db, id, epoch, pass, after, page);
+    const limit = Math.min(FACT_PAGE, max - out.length + 1);
+    const rows = await factPage(db, id, epoch, pass, after, limit);
     out.push(...rows);
-    if (rows.length < page) return out;
+    if (out.length > max) integrity();
+    if (rows.length < limit) return out;
     after = rows[rows.length - 1]!.key;
   }
 }
@@ -209,6 +208,7 @@ export function createSteppedStager(t: SteppedToolkit): SteppedStager {
           applied();
         },
       };
+      checkedWorkCounts({ assets: Number(c.run.meta.assets ?? 0), links: Number(c.run.meta.links ?? 0) });
       const out = await HANDLERS[c.run.phase]!(c);
       if (out.kind === 'refused') {
         await c.commit({ phase: 'plan', restart: true, outcome: out.refusal });
@@ -290,15 +290,17 @@ export function createSteppedStager(t: SteppedToolkit): SteppedStager {
     const pre = await preflight(c.w, { caseId: req.caseId, resultsVersion: req.identity.resultsVersion, total: totalBytes(c) });
     if (pre.kind === 'refused') return { kind: 'refused', refusal: pre.refusal };
     if (pre.kind === 'stored' && pre.manifestSha256 !== req.identity.manifestSha256) return refuse('integrity', 'a stored version with another manifest');
-    const statements = selected.selections.map(({ asset, original: f }) => putFact(s.db, c.id, c.run.epoch, 'plan', asset.key,
+    const expected = selected.selections.length;
+    checkedWorkCounts({ assets: expected, links: 0 });
+    const i = Number(c.run.cursor.i ?? 0), end = Math.min(expected, i + bounds.rowsPerStep);
+    const statements = selected.selections.slice(i, end).map(({ asset, original: f }) => putFact(s.db, c.id, c.run.epoch, 'plan', asset.key,
       { path: f.path, sha256: f.sha256, size: f.size, objectKey: f.objectKey, assetPath: asset.path, mediaType: asset.mediaType }));
-    const expected = statements.length;
-    // Idempotent rows in chunks, then the move to the next phase, which holds only if every row is there.
-    await c.commit({ phase: 'originals-a', cursor: { after: '', n: 0 }, meta: { assets: expected } }, [
+    await c.commit(end < expected ? { phase: 'plan', cursor: { i: end }, meta: { assets: expected } }
+      : { phase: 'originals-a', cursor: { after: '', n: 0 }, meta: { assets: expected } }, [
       ...statements,
-      guard(s.db, '(SELECT COUNT(*) FROM native_import_stage_fact WHERE client_id = ? AND case_id = ? AND operation_id = ? AND epoch = ? AND pass = ?) = ?', c.id.clientId, c.id.caseId, c.id.operationId, c.run.epoch, 'plan', expected),
+      ...(end < expected ? [] : [guard(s.db, '(SELECT COUNT(*) FROM native_import_stage_fact WHERE client_id = ? AND case_id = ? AND operation_id = ? AND epoch = ? AND pass = ?) = ?', c.id.clientId, c.id.caseId, c.id.operationId, c.run.epoch, 'plan', expected)]),
     ], { idempotent: true });
-    return advance(0, expected);
+    return advance(end, expected);
   }
 
   /** The slice of the plan one pass reads next: bounded by count, by bytes and by wall time, and never empty while any is left. */
@@ -361,20 +363,32 @@ export function createSteppedStager(t: SteppedToolkit): SteppedStager {
   async function validateA(c: Ctx): Promise<Out> {
     const loaded = await structure(c);
     if (!loaded.ok) return loaded.out;
-    const facts = factMap(await allFacts(c.s.db, c.id, c.run.epoch, 'a'));
+    const facts = factMap(await allFacts(c.s.db, c.id, c.run.epoch, 'a', Number(c.run.meta.assets)));
     const bootstrap = validateHostedPackage({ files: loaded.files, held: loaded.held, originals: facts, limits: t.limits });
     if (bootstrap.result.verdict === 'reject') return refuse('validator-rejected', ...bootstrap.result.diagnostics.filter((d) => d.severity === 'error').map((d) => d.code));
     if (bootstrap.result.candidate.caseId !== c.req.caseId) return refuse('wrong-case', 'package names another case');
     const coverage = buildCoverage({ assets: bootstrap.result.candidate.assets, submission: c.req.submission, caseMismatch: bootstrap.caseMismatch, warningFingerprints: bootstrap.result.warningFingerprints });
     if (!coverage.ok) return refuse('original-link-required', ...coverage.reasons.map((r) => r.code));
     const links = coverage.coverage.mappedOriginals;
-    const statements = links.flatMap((link) => link.packageRefs.map((ref) => putFact(c.s.db, c.id, c.run.epoch, 'links', ref, link)));
     const expected = links.reduce((n, l) => n + l.packageRefs.length, 0);
-    await c.commit({ phase: 'originals-b', cursor: { after: '', n: 0 }, meta: { ...c.run.meta, links: expected, bootstrap: { digest: bootstrap.result.diagnosticsSha256, caseMismatch: await sha256Canonical(bootstrap.caseMismatch) } } }, [
+    checkedWorkCounts({ assets: Number(c.run.meta.assets), links: expected });
+    const i = Number(c.run.cursor.i ?? 0), end = Math.min(expected, i + bounds.rowsPerStep);
+    const statements: CloudD1Statement[] = [];
+    let n = 0;
+    const warnings = new Map<string, string[]>();
+    for (const w of bootstrap.caseMismatch) warnings.set(w.ref, [...(warnings.get(w.ref) ?? []), w.fingerprint]);
+    for (const link of links) for (const ref of link.packageRefs) {
+      // Keep only this alias in the row: copying a 16,000-ref link into every fact is quadratic.
+      if (n >= i && n < end) statements.push(putFact(c.s.db, c.id, c.run.epoch, 'links', ref, { ...link, packageRefs: [ref],
+        ...(link.pathMatch === 'case-nfc-unique' ? { preservedWarning: { code: 'ORIG_CASE_MISMATCH', fingerprints: warnings.get(ref) ?? [] } } : {}) }));
+      n++;
+    }
+    const meta = { ...c.run.meta, links: expected, bootstrap: { digest: bootstrap.result.diagnosticsSha256, caseMismatch: await sha256Canonical(bootstrap.caseMismatch) } };
+    await c.commit(end < expected ? { phase: 'validate-a', cursor: { i: end }, meta } : { phase: 'originals-b', cursor: { after: '', n: 0 }, meta }, [
       ...statements,
-      guard(c.s.db, '(SELECT COUNT(*) FROM native_import_stage_fact WHERE client_id = ? AND case_id = ? AND operation_id = ? AND epoch = ? AND pass = ?) = ?', c.id.clientId, c.id.caseId, c.id.operationId, c.run.epoch, 'links', expected),
+      ...(end < expected ? [] : [guard(c.s.db, '(SELECT COUNT(*) FROM native_import_stage_fact WHERE client_id = ? AND case_id = ? AND operation_id = ? AND epoch = ? AND pass = ?) = ?', c.id.clientId, c.id.caseId, c.id.operationId, c.run.epoch, 'links', expected)]),
     ], { idempotent: true });
-    return advance(0, Number(c.run.meta.assets ?? 0));
+    return advance(end, expected);
   }
 
   /** originals-b and originals-d: the storage rule's derivation, with the coverage's links, in bounded slices. A pass's refusals are kept and merged at its end. */
@@ -408,7 +422,7 @@ export function createSteppedStager(t: SteppedToolkit): SteppedStager {
     // problems `readOriginalFacts` would have given for the whole.
     if (refusals.length > 0) statements.push(...refusals.map((r, k) => putFact(s.db, c.id, c.run.epoch, `refused-${pass}`, `${String(sl.n).padStart(9, '0')}-${k}`, r)));
     if (more) { await c.commit({ phase: again, cursor: { after: last, n } }, statements); return advance(n, sl.assets); }
-    const kept = [...(await allFacts(s.db, c.id, c.run.epoch, `refused-${pass}`)).map((r) => r.value as unknown as { reason: string; problems: string[] }), ...refusals];
+    const kept = [...(await allFacts(s.db, c.id, c.run.epoch, `refused-${pass}`, Number(c.run.meta.assets))).map((r) => r.value as unknown as { reason: string; problems: string[] }), ...refusals];
     const unique = [...new Map(kept.map((r) => [canonicalText(r), r] as const)).values()];
     if (unique.length > 0) {
       const reasons = unique.map((r) => r.reason);
@@ -429,7 +443,7 @@ export function createSteppedStager(t: SteppedToolkit): SteppedStager {
     if (bad) return bad;
     const prepared = loaded.prepared as Extract<PreparedPackage, { ok: true }>;
     const { req, s } = c, id = c.id;
-    const a = factMap(await allFacts(s.db, id, c.run.epoch, 'a')), bb = factMap(await allFacts(s.db, id, c.run.epoch, 'b'));
+    const a = factMap(await allFacts(s.db, id, c.run.epoch, 'a', prepared.fileAssets.length)), bb = factMap(await allFacts(s.db, id, c.run.epoch, 'b', prepared.fileAssets.length));
     if (bb.size !== prepared.fileAssets.length || !same(sortedFacts(a), sortedFacts(bb))) return refuse('integrity', 'original facts changed during validation');
     const validated = validateHostedPackage({ files: loaded.files, held: loaded.held, originals: bb, limits: t.limits });
     const result = validated.result;
@@ -475,7 +489,7 @@ export function createSteppedStager(t: SteppedToolkit): SteppedStager {
     if (bad) return bad;
     const prepared = loaded.prepared as Extract<PreparedPackage, { ok: true }>;
     const { s } = c, rv = c.rv, attempt = Number(c.run.meta.attempt);
-    const bb = factMap(await allFacts(s.db, c.id, c.run.epoch, 'b'));
+    const bb = factMap(await allFacts(s.db, c.id, c.run.epoch, 'b', prepared.fileAssets.length));
     const projected = prepared.project(bb);
     if (!projected.ok) return refuse('integrity', ...projected.problems);
     if (await readModelDigest(projected.projection) !== c.run.meta.readModelSha256) return refuse('integrity', 'the read model changed between steps');
@@ -607,8 +621,8 @@ export function createSteppedStager(t: SteppedToolkit): SteppedStager {
     const prepared = preparePackage(files, held);
     if (!prepared.ok) return refuse('integrity', ...prepared.problems);
     const facts = {
-      b: factMap(await allFacts(s.db, c.id, c.run.epoch, 'b')),
-      d: factMap(await allFacts(s.db, c.id, c.run.epoch, 'd')),
+      b: factMap(await allFacts(s.db, c.id, c.run.epoch, 'b', prepared.fileAssets.length)),
+      d: factMap(await allFacts(s.db, c.id, c.run.epoch, 'd', prepared.fileAssets.length)),
     };
     const projected = prepared.project(facts.b);
     if (!projected.ok) return refuse('integrity', ...projected.problems);

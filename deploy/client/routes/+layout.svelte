@@ -21,7 +21,7 @@
   --teal-10: #E8F8F6; --teal-20: #D0F1EC; --teal-40: #A1E3DA; --teal-60: #72D4C7; --teal-80: #43C6B5;
   --canvas: #F7F8FA; --subtle: #F1F3F5; --surface: #FFFFFF;
   --border: #E4E7EB; --border-strong: #CBD2D9; --border-control: var(--navy-60);
-  --focus-ring: var(--teal-hover);
+  --focus-ring: var(--navy);
   --text: #162436; --text-secondary: #52606D; --text-tertiary: #7B8794;
   --danger: #B91C1C; --info: #1D4ED8; --success: #047857; --warning: #B45309;
   --danger-tint: #FEF2F2; --info-tint: #EFF6FF; --success-tint: #ECFDF5; --warning-tint: #FFFBEB;

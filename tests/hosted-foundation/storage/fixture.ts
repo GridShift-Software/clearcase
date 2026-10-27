@@ -221,13 +221,13 @@ export const setOp = (caseId: string, ref: string) => `set24-${caseId}-${ref}`.p
 /**
  * Opens a set, declares and stores each file through the REAL client intake controller over the real repository and the real
  * GRS-115 original intake, then seals it in steps. Returns the set's revision id. `seal: false` leaves the set open (stored,
- * not sealed). Its own allow-all upload grant and writer; fixture plumbing only.
+ * not sealed); `sealCalls` stops after that many seal calls, so a small `sealStep` can leave it sealing. Its own allow-all upload grant and writer; fixture plumbing only.
  */
-export async function submitSet(dep: Dep, caseId: string, setRef: string, uploads: readonly Submitted[], o: { seal?: boolean } = {}) {
+export async function submitSet(dep: Dep, caseId: string, setRef: string, uploads: readonly Submitted[], o: { seal?: boolean; sealStep?: { files: number; bytes: number; ms: number }; sealCalls?: number } = {}) {
   const writer = { bindings: { db: dep.db, bucket: dep.bucket }, clientId: ids.clientA, budgets: BUDGETS, quotas: QUOTAS, authorize: async () => {}, now: caseNow };
   const controller = createIntakeController({
     clientId: ids.clientA, budget: { maxMetadataBytes: 4096, maxFileBytes: BUDGETS.maxOriginalBytes }, authorizeUpload: async () => {}, now: caseNow,
-    originals: createOriginalIntake(writer as never), repository: d1SubmissionRepository(dep.db),
+    originals: createOriginalIntake(writer as never), repository: d1SubmissionRepository(dep.db), ...(o.sealStep ? { sealStep: o.sealStep } : {}),
   } as never);
   const identity = grantedIdentity(ids.clientA, [caseId]).identity;
   const origin = 'https://client-a.example', setId = setOp(caseId, setRef);
@@ -248,7 +248,7 @@ export async function submitSet(dep: Dep, caseId: string, setRef: string, upload
     const digest = await fileSetDigest(uploads.map((u) => ({ path: u.path.normalize('NFC'), size: u.bytes.byteLength, sha256: shaOf(u.bytes) })));
     for (let i = 0; ; i++) {
       const r = await call('POST', `/${setId}/seal`, { setId }, JSON.stringify({ filesSha256: digest }), 'application/json', controller.sealSet);
-      if (r.status !== 202) break;
+      if (r.status !== 202 || i + 1 === o.sealCalls) break;
       if (i > 10_000) throw new Error('fixture seal did not finish');
     }
   }

@@ -111,3 +111,31 @@ it('keeps one picked file on the single-file route', async () => {
   const op = (JSON.parse(sent[0]!.body as string) as { operationId: string }).operationId;
   expect(sent.map((s) => [s.method, s.url])).toEqual([['POST', `/client/intake/${CASE}/submissions`], ['PUT', `/client/intake/${CASE}/submissions/${op}`]]);
 });
+
+// U16 fix 1 (review M2): a send in flight belongs to the files it was started with. The picker is disabled meanwhile, and if
+// a new pick still arrives, the old attempt never writes its set, progress or sealed state onto the new selection.
+it('never shows an earlier selection’s set state on a newer selection', async () => {
+  const realFetch = fetch as unknown as ReturnType<typeof vi.fn>, inner = realFetch.getMockImplementation()! as (url: string, init: RequestInit) => Promise<Response>;
+  let release!: () => void, opened = 0;
+  const held = new Promise<void>((r) => { release = r; });
+  realFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
+    if (init.method === 'POST' && url === SETS && opened++ === 0) { const out = inner(url, init); await held; return out; }
+    return inner(url, init);
+  });
+  pick([pdfFile('old-a.pdf').file, pdfFile('old-b.pdf').file]);
+  submit();
+  await vi.waitFor(() => expect(opened).toBe(1));
+  expect(input().disabled).toBe(true);
+  pick([pdfFile('new-c.pdf').file, pdfFile('new-d.pdf').file]);
+  release();
+  await vi.waitFor(() => expect((document.querySelector('button[type=submit]') as HTMLButtonElement).disabled).toBe(false));
+  expect(stages()).toEqual({ 'new-c.pdf': 'waiting', 'new-d.pdf': 'waiting' });
+  expect(setState()).toBeUndefined();
+  expect(document.querySelector('[role=status]')!.textContent).not.toMatch(/Seal/);
+  expect(sent.filter((s) => s.method === 'PUT' || s.url.endsWith('/seal'))).toEqual([]);
+  // The new selection is then sent and sealed on its own.
+  submit();
+  await vi.waitFor(() => expect(setState()).toBe('sealed'));
+  expect(sent.filter((s) => s.method === 'POST' && s.url.endsWith('/files')).map((s) => json(s).path)).toEqual(['new-c.pdf', 'new-d.pdf']);
+  expect(stages()).toEqual({ 'new-c.pdf': 'stored', 'new-d.pdf': 'stored' });
+});

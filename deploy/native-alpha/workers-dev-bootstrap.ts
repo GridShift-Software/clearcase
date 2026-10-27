@@ -25,6 +25,8 @@ export type BootstrapSlot = 'client-a' | 'client-b' | 'staff';
 export type BootstrapClientSlot = Exclude<BootstrapSlot, 'staff'>;
 /** Which pinned hostname set the planned runtime configuration must name. Absent means 'workers-dev'. */
 export type BootstrapOrigin = 'workers-dev' | 'custom-domain';
+/** Cloudflare's `placement` key, restricted to the two forms that need no probed host: Smart Placement or an explicit cloud region hint. */
+export type BootstrapPlacement = { mode: 'smart' } | { region: string };
 export type BootstrapSettings = {
 	pins: { source: string; artifact: string; entry: string };
 	compatibilityDate: string;
@@ -36,6 +38,8 @@ export type BootstrapSettings = {
 	runtimeConfig?: unknown;
 	/** Explicit, absent by default (= 'workers-dev'): the one origin set the planned hostnames and app origins must equal. */
 	origin?: BootstrapOrigin;
+	/** Explicit, absent by default (= no `placement` key): written into the client configs only. A region hint runs the Worker's fetch handler near that cloud region. */
+	placement?: BootstrapPlacement;
 };
 const ACCOUNT = 'fb4c31b91c5d89b7a54afbdc34823170';
 /** The account's workers.dev subdomain: public provider metadata observed from the account API and every live URL, pinned beside ACCOUNT. */
@@ -94,8 +98,19 @@ function strings(value: unknown, max: number): string[] | null {
 	}
 	return captured;
 }
+/** Exactly `{mode:'smart'}` or `{region:'<aws|gcp|azure>:<region>'}`. `host` and `hostname` hints probe an external service and stay refused. */
+function placementOf(value: unknown): BootstrapPlacement {
+	const refuse = () => new Error("placement must be exactly {mode:'smart'} or {region:'<aws|gcp|azure>:<region>'}; host and hostname hints, extra keys and accessors are refused");
+	let captured: Record<string, unknown>;
+	try { captured = capture(value, [], 'placement', ['mode', 'region']); } catch { throw refuse(); }
+	const keys = Object.keys(captured);
+	if (keys.length !== 1) throw refuse();
+	if (keys[0] === 'mode' && captured.mode === 'smart') return { mode: 'smart' };
+	if (keys[0] === 'region' && typeof captured.region === 'string' && /^(aws|gcp|azure):[a-z0-9]+(-[a-z0-9]+)*$/.test(captured.region)) return { region: captured.region };
+	throw refuse();
+}
 function settings(value: unknown) {
-	const top = capture(value, ['pins', 'compatibilityDate', 'compatibilityFlags'], 'settings', ['browserClients', 'runtimeConfig', 'origin']);
+	const top = capture(value, ['pins', 'compatibilityDate', 'compatibilityFlags'], 'settings', ['browserClients', 'runtimeConfig', 'origin', 'placement']);
 	const pins = capture(top.pins, ['source', 'artifact', 'entry'], 'external pins');
 	if (typeof pins.source !== 'string' || !/^[0-9a-f]{40}$/.test(pins.source)) throw new Error('external source pin must be a full Git SHA');
 	for (const k of ['artifact', 'entry']) if (typeof pins[k] !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(pins[k] as string)) throw new Error(`external ${k} pin must be sha256:<64 lowercase hex>`);
@@ -115,11 +130,13 @@ function settings(value: unknown) {
 		if (top.origin !== 'workers-dev' && top.origin !== 'custom-domain') throw new Error("origin must be exactly 'workers-dev' or 'custom-domain'");
 		origin = top.origin;
 	}
+	let placement: BootstrapPlacement | undefined;
+	if (Object.hasOwn(top, 'placement')) placement = placementOf(top.placement);
 	// The planner snapshots its own input here, inside planning, so before any file is read; nothing later touches the caller's object.
 	const runtime = Object.hasOwn(top, 'runtimeConfig') ? runtimeConfig(top.runtimeConfig, browserClients ?? [], origin ?? 'workers-dev') : null;
 	const resolved: BootstrapSettings = {
 		pins: { source: pins.source, artifact: pins.artifact as string, entry: pins.entry as string }, compatibilityDate: date, compatibilityFlags: ['nodejs_compat'],
-		...(browserClients ? { browserClients } : {}), ...(origin ? { origin } : {}),
+		...(browserClients ? { browserClients } : {}), ...(origin ? { origin } : {}), ...(placement ? { placement } : {}),
 	};
 	return { settings: resolved, runtime };
 }
@@ -204,6 +221,8 @@ export function planWorkersDevBootstrap(value: unknown) {
 			vars: { CLEARCASE_INSTANCE_ROLE: client ? 'client' : 'staff', CLEARCASE_CLIENT_ID: client ? slot : '', ...planned?.vars },
 			// No migrations, secrets, service bindings or raw config escape hatch. Staff has no client stores.
 			...(client ? {
+				// Placement moves only the fetch handler, so it belongs on the Workers that call D1 and R2. Staff has no stores.
+				...(s.placement ? { placement: s.placement } : {}),
 				d1_databases: [{ binding: 'DB', database_name: client.database, database_id: client.uuid }],
 				r2_buckets: [{ binding: 'BUCKET', bucket_name: client.bucket, jurisdiction: 'eu' }],
 				// Controlled capability, not service proof or a budget: only the exact binding, never remote/proxy/env variants.

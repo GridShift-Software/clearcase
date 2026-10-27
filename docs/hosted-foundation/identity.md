@@ -8,10 +8,10 @@ The hosted client deployment authenticates with Clerk ([ADR-0007](../adr/0007-ho
 
 | Module | What it is | Imports the SDK |
 | --- | --- | --- |
-| `src/lib/auth/clerk/config.ts` | `readClerkIdentityConfig(env)` and `clerkSignInTarget(env, returnTo, kind)`: pure, no network, no secret in any result | no |
+| `src/lib/auth/clerk/config.ts` | `readClerkIdentityConfig(env)` and `clerkSignInTarget(env, kind)`: pure, no network, no secret in any result | no |
 | `src/lib/auth/clerk/provider.ts` | `clerkIdentityProviderFromEnv(env, { authorizeCase })` and `createClerkIdentityProvider`: the `IdentityProvider` of `runtime/contracts.ts`, plus `signOut` | `@clerk/backend` 3.26.0 (exact pin) |
 | `src/lib/auth/clerk/session.ts` | cookie names, `presentedToken` (the one credential rule) and `inspectToken` (the token shape gate), for routes and the provider | no |
-| `src/lib/auth/clerk/flow.ts` | the browser flow the routes call: `planSignIn`, `prepareSignIn`, `safeReturnTo`, `clerkCookieClears`, `signOutClerkSession`, `revokeClerkSession`, `revokeOwnedSession`, `handshakeResponse` | no |
+| `src/lib/auth/clerk/flow.ts` | the browser flow the routes call: `planSignIn`, `prepareSignIn`, `safeReturnTo`, `signInReturnCookie`, `signInReturn`, `clerkCookieClears`, `signOutClerkSession`, `revokeClerkSession`, `revokeOwnedSession`, `handshakeResponse` | no |
 | `src/lib/auth/clerk/revocation.ts` | `revocationEvidenceOf`: the revoke-only evidence of an expired or pending session token (below). Not an Identity, with no authentication use | no (WebCrypto) |
 | `src/lib/auth/clerk/browser.ts` | the hook-level handshake: `clerkBrowserHandshakeFromEnv(env)` returns `{ handshake }` whose `handle(request)` is `@clerk/backend`'s `authenticateRequest`, narrowed (below); re-exports `flow.ts` | `@clerk/backend` |
 
@@ -33,6 +33,17 @@ Every value comes from the Worker env, never from a request. Any missing or malf
 | `CLERK_API_URL` | var, optional | Backend API base; https, or http on loopback (tests) |
 | `CLERK_CLIENT_SIGN_IN_URL` | var, optional | the client instance's sign-in page that `/sign-in` links to; without it `/sign-in` stays 503 |
 | `AUTH_MFA_REQUIRED` | var, optional | `"true"` requires a second factor (`fva`); absent or `"false"` is off (ADR-0008: initially off) |
+
+### Clerk redirect allow-list: one entry per client origin
+
+Each sign-in portal returns to one fixed callback on the client origin, exactly and with no query, whatever page the user asked for. A Clerk instance that allows only exact redirect URLs therefore needs one entry per client origin, set in the Clerk dashboard when a client is provisioned:
+
+| Instance | Entry per client origin |
+| --- | --- |
+| staff (shared by every client) | `https://<client origin>/sign-in/operator` |
+| the client's own | `https://<client origin>/sign-in` |
+
+A redirect URL missing from the list is not refused. Clerk silently sends the browser to the instance's home URL instead. For the shared staff instance that is one client's origin, so a staff user signing in on client B without B's entry lands on client A (seen live on 27 October, when the callback still carried `returnTo` and each target needed its own entry). Whether the staff instance also checks the redirect URL of the handshake (`/v1/client/handshake`) against this list is unverified.
 
 ## What one request goes through
 
@@ -81,7 +92,9 @@ Shared changes the composition needs, all outside this ticket's writes:
 
 ## The first-party browser flow (contract only, UNWIRED)
 
-Sign-in is by invitation, at Clerk. The page links nowhere on its own: `/sign-in` is a form whose action runs the identity switch and then sends the browser (303) to the client instance's sign-in page with `redirect_url` set to a same-origin path (`safeReturnTo`: a path under this origin, never absolute, protocol-relative, backslashed or `/sign-out`; default `/cases`). Staff use `/sign-in/operator`, the per-client operator route on this same origin and Worker, which targets `CLERK_STAFF_SIGN_IN_URL`. There is no staff host and no third Worker. The hosted-gate profile has no operator sign-in (404).
+Sign-in is by invitation, at Clerk. The page links nowhere on its own: `/sign-in` is a form whose action runs the identity switch and then sends the browser (303) to the client instance's sign-in page with `redirect_url` set to `https://<origin>/sign-in`. Staff use `/sign-in/operator`, the per-client operator route on this same origin and Worker, which targets `CLERK_STAFF_SIGN_IN_URL` with `redirect_url` set to `https://<origin>/sign-in/operator`. There is no staff host and no third Worker. The hosted-gate profile has no operator sign-in (404).
+
+**Return target.** The page the user asked for (`returnTo`) never reaches Clerk. The sign-in POST keeps it in a state cookie, `__Host-clearcase_return` for the client flow and `__Host-clearcase_staff_return` for the staff flow: `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, no `Domain`, 900 seconds. The value is the target, its issue time and an HMAC-SHA-256 under that flow's own instance secret key over the app origin, client id, instance and flow. The target is checked when the cookie is set and again when it is read (`signInReturnTarget`: `safeReturnTo`, a path under this origin that is never absolute, protocol-relative, backslashed or a control character, and never a sign-in or sign-out page). Once the handshake has installed a session of the page's own kind, the callback page sends it to an explicit `returnTo` in its own URL, else to the target the state carries, else to `/cases`, and deletes the state. A missing, expired, repeated, tampered, foreign-origin or other-flow state goes to `/cases`. A plain http origin (loopback only) cannot hold a `__Host-` cookie, so it sets none and its sign-ins return to `/cases`. A verified session of the other kind stays on the page, so it can switch.
 
 **Handshake (the hook calls it).** `clerkBrowserHandshakeFromEnv(env)` gives `handshake.handle(request)`, which returns `continue`, a `redirect` (303 to `location`, with `setCookies`) or a `refuse`. `handshakeResponse(outcome)` turns it into a `Response`, or `null` to continue. It runs `authenticateRequest` of `@clerk/backend` with only the browser's cookie and document hints, for this origin only, and:
 

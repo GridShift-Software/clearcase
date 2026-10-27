@@ -183,7 +183,7 @@ export function readClerkIdentityConfig(env: Readonly<Record<string, unknown>>, 
 
 /**
  * What the public sign-in page may show: the sign-in URL of the client instance (default) or of the staff instance for the
- * per-client operator route, never a key. Null when unconfigured or when the return target is not on this origin.
+ * per-client operator route, never a key. Null when unconfigured.
  *
  * `devBrowser` is the browser's `__clerk_db_jwt` on this origin. A development instance keeps one Clerk client per dev
  * browser, so a portal on another origin signs in this browser's client only when handed it, as @clerk/backend's
@@ -193,20 +193,16 @@ export function readClerkIdentityConfig(env: Readonly<Record<string, unknown>>, 
  * browser a staff-signed handshake this browser started here set), never a plain string or another app's value. The
  * value is transport only: the session that comes back is verified as any other.
  *
- * The staff portal returns to the operator route, carrying the target as `returnTo`, not to the target itself: only that
- * route takes the staff handshake for a browser with no staff session yet, and it sends the verified session on.
+ * Each portal returns to its own sign-in page on this origin, exactly and with no query: an instance that allows only
+ * exact redirect URLs then needs one entry per client origin, and the sign-in page takes the handshake and sends the
+ * verified session on to the target the sign-in POST kept in its state cookie (flow.ts signInReturnCookie).
  */
-export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, returnTo: string, kind: InstanceKind = 'client', devBrowser: string | StaffDevBrowser | null = null): { href: string } | null {
+export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, kind: InstanceKind = 'client', devBrowser: string | StaffDevBrowser | null = null): { href: string } | null {
 	const read = readClerkIdentityConfig(env, { keys: 'optional' });
 	const signInUrl = read.ok ? (kind === 'client' ? read.config.signInUrl : read.config.staffSignInUrl) : null;
 	if (!read.ok || signInUrl === null) return null;
-	const target = new URL(signInUrl), back = new URL(returnTo, read.config.appOrigin);
-	if (back.origin !== read.config.appOrigin) return null;
-	if (kind === 'staff') {
-		const operator = new URL(STAFF_SIGN_IN_PAGE, read.config.appOrigin);
-		if (!isSignInFlowPage(back.pathname)) operator.searchParams.set('returnTo', `${back.pathname}${back.search}`);
-		target.searchParams.set('redirect_url', operator.href);
-	} else target.searchParams.set('redirect_url', back.href);
+	const target = new URL(signInUrl);
+	target.searchParams.set('redirect_url', new URL(SIGN_IN_PAGE[kind], read.config.appOrigin).href);
 	const staffScoped = typeof devBrowser === 'object' && devBrowser?.instance === 'staff' && devBrowser.appOrigin === read.config.appOrigin && devBrowser.clientId === read.config.clientId && devBrowser.issuer === read.config.staff.issuer;
 	const value = kind === 'client' ? (typeof devBrowser === 'string' ? devBrowser : null) : staffScoped ? devBrowser.value : null;
 	const development = read.config[kind].publishableKey.startsWith('pk_test_');
@@ -214,9 +210,10 @@ export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, return
 	return { href: target.href };
 }
 
-// The sign-in page of each instance: its form posts to itself and is redirected (303) to that instance's portal.
-const STAFF_SIGN_IN_PAGE = '/sign-in/operator';
-const SIGN_IN_PAGES: Readonly<Record<string, InstanceKind>> = { '/sign-in': 'client', [STAFF_SIGN_IN_PAGE]: 'staff' };
+// The sign-in page of each instance: its form posts to itself and is redirected (303) to that instance's portal, which
+// returns to it.
+const SIGN_IN_PAGE: Readonly<Record<InstanceKind, string>> = { client: '/sign-in', staff: '/sign-in/operator' };
+const SIGN_IN_PAGES: Readonly<Record<string, InstanceKind>> = { [SIGN_IN_PAGE.client]: 'client', [SIGN_IN_PAGE.staff]: 'staff' };
 const SIGN_IN_FLOW = /^\/sign-(?:in|out)(?:\/|$)/;
 
 /**

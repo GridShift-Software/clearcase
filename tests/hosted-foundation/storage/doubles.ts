@@ -78,6 +78,11 @@ export class MemoryR2 implements CloudR2 {
     this.objects.set(key, o);
     return this.head_(key, o);
   }
+  async delete(key: string): Promise<void> { this.objects.delete(key); }
+  async list(o: { prefix: string; startAfter?: string; limit: number }) {
+    const keys = [...this.objects.keys()].filter((k) => k.startsWith(o.prefix) && (o.startAfter === undefined || k > o.startAfter)).sort();
+    return { objects: keys.slice(0, o.limit).map((key) => ({ key })), truncated: keys.length > o.limit };
+  }
   /** A credential holder's change at rest: other bytes under the key, with no checksum update. */
   tamper(key: string, edit: (b: Uint8Array) => Uint8Array) {
     const o = this.objects.get(key);

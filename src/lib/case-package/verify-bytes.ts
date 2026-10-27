@@ -3,6 +3,7 @@ import { FORMAT, FORMAT_VERSION, Manifest } from './schema.ts';
 import { decodeUtf8Strict, isObject, parseStrictJson } from './strict-json.ts';
 import Value from 'typebox/value';
 import type { CandidateIdentity } from './candidate.ts';
+import type { HeldFile } from './source.ts';
 
 export type StoredFiles = ReadonlyMap<string, Uint8Array> | Readonly<Record<string, Uint8Array>> | Iterable<readonly [string, Uint8Array]>;
 
@@ -14,7 +15,11 @@ function toMap(files: StoredFiles): Map<string, Uint8Array> {
   return new Map(Object.entries(files as Record<string, Uint8Array>));
 }
 
-export function verifyCandidateBytes(storedFiles: StoredFiles, expected: CandidateIdentity): BytesVerdict {
+/**
+ * `held` names files whose bytes were checked elsewhere (a stepped import's previews): each is judged on its recorded size and SHA-256
+ * as a file of the same bytes would be, and a held path the manifest does not list is as unexpected as an extra file.
+ */
+export function verifyCandidateBytes(storedFiles: StoredFiles, expected: CandidateIdentity, held?: ReadonlyMap<string, HeldFile>): BytesVerdict {
   const problems: string[] = [];
   const files = toMap(storedFiles);
   const mBytes = files.get('manifest.json');
@@ -26,11 +31,13 @@ export function verifyCandidateBytes(storedFiles: StoredFiles, expected: Candida
   const manifest = m as unknown as Manifest;
   const listed = new Set(['manifest.json', ...manifest.files.map((f) => f.path)]);
   for (const p of files.keys()) if (!listed.has(p)) problems.push(`unexpected stored file ${p}`);
+  for (const p of held?.keys() ?? []) if (!listed.has(p) || files.has(p)) problems.push(`unexpected stored file ${p}`);
   for (const f of manifest.files) {
-    const b = files.get(f.path);
-    if (!b) { problems.push(`listed file ${f.path} is not stored`); continue; }
-    if (b.byteLength !== f.size) problems.push(`${f.path}: size ${b.byteLength} differs from ${f.size}`);
-    else if (sha256Hex(b) !== f.sha256) problems.push(`${f.path}: sha256 differs`);
+    const b = files.get(f.path), h = b ? undefined : held?.get(f.path);
+    if (!b && !h) { problems.push(`listed file ${f.path} is not stored`); continue; }
+    const size = b ? b.byteLength : h!.size;
+    if (size !== f.size) problems.push(`${f.path}: size ${size} differs from ${f.size}`);
+    else if ((b ? sha256Hex(b) : h!.sha256) !== f.sha256) problems.push(`${f.path}: sha256 differs`);
   }
   if (inputRevisionId(manifest.inputRevision.sources) !== manifest.inputRevision.id) problems.push('inputRevision.id does not match its sources');
   const rv = resultsVersionOf({ formatVersion: manifest.formatVersion, caseId: manifest.case.id, inputRevisionId: manifest.inputRevision.id, files: manifest.files });

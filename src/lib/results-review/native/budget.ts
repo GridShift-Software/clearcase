@@ -1,3 +1,4 @@
+import { LIMITS } from '../../case-package/limits.ts';
 import type { NativeImportBudget } from './ports.ts';
 
 /**
@@ -14,16 +15,17 @@ export function nativeImportBudget(value: unknown, o: { stagerMaxPackageBytes?: 
   if (Object.keys(b).sort().join() !== 'maxFileBytes,maxFiles,maxPackageBytes,maxRequestBytes') return null;
   const ok = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 1;
   if (!ok(b.maxFileBytes) || !ok(b.maxFiles) || !ok(b.maxPackageBytes) || !ok(b.maxRequestBytes)) return null;
-  if (b.maxFiles > 1023 + 1 || b.maxFileBytes > b.maxPackageBytes) return null;
+  if (b.maxFiles > LIMITS.packageFiles || b.maxFileBytes > b.maxPackageBytes) return null;
   if (o.stagerMaxPackageBytes !== undefined && b.maxPackageBytes > o.stagerMaxPackageBytes) return null;
   return Object.freeze({ maxRequestBytes: b.maxRequestBytes, maxFiles: b.maxFiles, maxFileBytes: b.maxFileBytes, maxPackageBytes: b.maxPackageBytes });
 }
 
 /**
  * What one request may make, from the deployment's plan: D1 calls (a batch is one) and external subrequests (each Clerk
- * session check), and the stager's `maxRowsPerBatch`, which sets how many row batches an import writes.
+ * session check), and the stager's `maxRowsPerBatch`, which sets how many row batches an import writes. `subrequests`, when the plan
+ * names it, is the one pool every D1, R2 and fetch call of the request shares; without it, `external` is the pool R2 calls share.
  */
-export interface RequestBudget { readonly d1: number; readonly external: number; readonly rowsPerBatch: number }
+export interface RequestBudget { readonly d1: number; readonly external: number; readonly rowsPerBatch: number; readonly subrequests?: number }
 /** An import's work as its package shows it: package files, distinct originals, and read-model rows (documents, assets, seeds). */
 export interface ImportShape { readonly files: number; readonly originals: number; readonly rows: number }
 

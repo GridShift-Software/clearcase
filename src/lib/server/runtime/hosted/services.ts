@@ -26,11 +26,17 @@ import { committedAuditRecovery, type RecoveryD1 } from '../../../audit/recovery
 import { createPublicationMaterialReader } from './publication-material.ts';
 import { createPrivatePreview } from './private-preview.ts';
 import { hostedValidationPolicy } from './validation-policy.ts';
-import { createNativePreviewRenderChecker, type NativePreviewRenderOptions } from '../../../viewer/hosted/native-render-check.ts';
+import { createNativePdfEvidenceChecker, createNativePreviewRenderChecker, type NativePdfEvidenceOptions, type NativePreviewRenderOptions } from '../../../viewer/hosted/native-render-check.ts';
 import { compiledPdfAssetPins } from './render-pins.ts';
 import { d1PublicationPublisher } from '../../../publication/hosted/d1-publisher.ts';
 import { d1PublicationLedger } from '../../../publication/hosted/ledger.ts';
-import { d1ReadinessFence } from '../../../publication/hosted/readiness-fence.ts';
+import { d1EvidenceReadinessFence, d1ReadinessFence } from '../../../publication/hosted/readiness-fence.ts';
+import { d1EvidenceReader } from '../../../publication/hosted/readiness-evidence.ts';
+import { d1EvidenceStore } from '../../../publication/hosted/evidence/index.ts';
+import { r2OriginalsComparison } from '../../../publication/hosted/originals-evidence.ts';
+import type { EvidenceBuildPorts } from '../../../publication/hosted/evidence-build.ts';
+import { createEvidenceSnapshotReader } from './publication-material-v2.ts';
+import { createEvidenceBuilder, EVIDENCE_REQUEST } from './evidence-gate.ts';
 import type { PublicationReadinessPorts } from '../../../publication/hosted/readiness.ts';
 
 type NativeContext = {
@@ -154,27 +160,33 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 					const validationLimits = hostedValidationPolicy(budgets);
 					const browserBinding = env.BROWSER;
 					const assetsBinding = env.ASSETS as { fetch?: (request: Request) => Promise<Response> } | undefined;
-					const renderBudget = context.settings.nativeRenderBudget;
-					const renderChecker = await createNativePreviewRenderChecker({
+					const renderBudget = context.settings.nativeRenderBudget, pdfBudget = context.settings.pdfEvidenceBudget;
+					const renderer = {
 						db: context.rawDb, clientId: clerk.config.clientId,
 						browser: browserBinding && typeof (browserBinding as { fetch?: unknown }).fetch === 'function'
 							? browserBinding as NativePreviewRenderOptions['browser'] : null,
 						assets: assetsBinding && typeof assetsBinding.fetch === 'function'
-							? { fetch: (assetRequest) => assetsBinding.fetch!(assetRequest) } : null,
-						appOrigin: clerk.config.appOrigin, pins: compiledPdfAssetPins(),
+							? { fetch: (assetRequest: Request) => assetsBinding.fetch!(assetRequest) } : null,
+						appOrigin: clerk.config.appOrigin, pins: compiledPdfAssetPins(), now,
+					};
+					const renderChecker = await createNativePreviewRenderChecker({ ...renderer,
 						// The factory validates all six finite bounds, ceilings and their relation. No budget defaults.
 						budget: renderBudget && typeof renderBudget === 'object' && !Array.isArray(renderBudget)
-							? renderBudget as NativePreviewRenderOptions['budget'] : null,
-						now,
-					});
+							? renderBudget as NativePreviewRenderOptions['budget'] : null });
+					// U9: the scaled PDF evidence checker, from its own deployment budget. Absent, a build with a PDF answers renderer-unavailable.
+					const pdfEvidence = await createNativePdfEvidenceChecker({ ...renderer,
+						budget: pdfBudget && typeof pdfBudget === 'object' && !Array.isArray(pdfBudget) ? pdfBudget as NativePdfEvidenceOptions['budget'] : null });
 					const material = validationLimits && createPublicationMaterialReader({ db: context.rawDb, bucket: cloud.bucket,
 						clientId: clerk.config.clientId, identity, audit: services.audit, storageBudgets: budgets,
 						// Revalidate with the importer's complete effective parser + explicit resource policy.
 						validationLimits,
 						// Missing binding, compiled pins or finite policy leaves genuine required previews pending.
 						renderChecker, now });
-					const publication: PublicationReadinessPorts | null = material ? {
-						clientId: clerk.config.clientId, candidates: material, now,
+					// Snapshot v2 (U14): a candidate with an evidence run is read from its latest sealed generation; any other through the v1 reader.
+					const candidates = material && createEvidenceSnapshotReader({ db: context.rawDb, clientId: clerk.config.clientId, identity, audit: services.audit, v1: material, now });
+					const evidenceReader = d1EvidenceReader(context.rawDb);
+					const publication: PublicationReadinessPorts | null = candidates ? {
+						clientId: clerk.config.clientId, candidates, now,
 						authorize: async (a) => {
 							if (a.principal.kind !== 'staff' || a.capability !== 'publish') throw contractError('forbidden');
 							await session(a);
@@ -184,8 +196,13 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 							if (a.clientId !== clerk.config.clientId || a.capability !== 'publish' || a.principal.kind !== 'staff') throw contractError('forbidden');
 							await session(a);
 						} }),
-						ledger: d1PublicationLedger(context.db),
+						// Migration 0005 is applied, so every sign-off read reports its evidence row and a v2 sign-off writes one.
+						ledger: d1PublicationLedger(context.db, { evidence: true }),
 						readinessFence: d1ReadinessFence({ db: context.rawDb, clientId: clerk.config.clientId }),
+						evidenceFence: d1EvidenceReadinessFence({ db: context.rawDb, clientId: clerk.config.clientId }),
+						evidence: evidenceReader,
+						// U8: publish HEADs each distinct original, four at a time, and holds a run of more than 2,000 rather than skip any.
+						signoffEvidence: { reader: evidenceReader, store: d1EvidenceStore(context.rawDb), originals: r2OriginalsComparison(cloud.bucket, EVIDENCE_REQUEST.comparison) },
 						audit: { append: (event) => canonicalText(event.actor) === canonicalText(requestActor)
 							? services.audit.append(event)
 							: historical.publication.append(event) },
@@ -194,11 +211,17 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 					// SQL in its final fence, over the same primary session. It shares no permit with the import or readiness.
 					const preview = createPrivatePreview({ clientId: clerk.config.clientId, identity, db: context.db, audit: services.audit, now,
 						authorizeOperate: (o) => authorizeOperate({ ...o, capability: 'operate' }), operateCondition: (o) => authority.operate.condition(o) });
+					const evidence: EvidenceBuildPorts | null = validationLimits ? {
+						clientId: clerk.config.clientId, audit: services.audit, now,
+						authorizeOperate: (o) => authorizeOperate({ ...o, capability: 'operate' }),
+						builder: createEvidenceBuilder({ db: context.rawDb, bucket: cloud.bucket, clientId: clerk.config.clientId, storageBudgets: budgets,
+							validationLimits, pdf: pdfEvidence, now, ...EVIDENCE_REQUEST.build }),
+					} : null;
 					bindNativeRequestCompositions(request, {
 						intake: { clientId: clerk.config.clientId, budget, authorizeUpload, mayUpload, originals, repository, now },
 						downloads: { clientId: clerk.config.clientId, authorizeOperate, repository, assets: results.assets, audit: services.audit, now,
 							...(scheduler ? { waitUntil: (work: Promise<void>) => scheduler.waitUntil(work) } : {}) },
-						imports, publication, preview,
+						imports, publication, preview, evidence,
 					});
 					dataReady = true;
 				}

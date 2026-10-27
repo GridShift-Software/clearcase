@@ -319,7 +319,7 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
 
 /** Canonical validation already bounded and checked these values. Page assertions additionally require actual renderer
  * page counts. No clamp, renumbering, generated pagination or mutation of supplied references is permitted. */
-function referencePages(candidate: Candidate): ReadonlyMap<string, readonly number[]> {
+export function referencePages(candidate: Candidate): ReadonlyMap<string, readonly number[]> {
   const pages = new Map<string, Set<number>>();
   const visit = (value: unknown): void => {
     if (typeof value === 'string') {

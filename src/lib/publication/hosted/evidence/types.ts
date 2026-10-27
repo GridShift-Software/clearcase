@@ -78,4 +78,9 @@ export interface EvidenceStore {
     readonly digests: readonly string[]; readonly items: number; readonly lastKey: string | null }): Promise<'sealed' | 'lost' | 'uncovered'>;
   /** The stored facts of a generation in one snapshot, or null when there is no run. Read-only. */
   inspect(binding: EvidenceBinding): Promise<EvidenceFacts | null>;
+  /**
+   * End this builder's lease on a run still building, so the next request (under its own lease id) can claim it at once. Only the lease
+   * holder's token releases it; a lost, expired or sealed run is left unchanged. Optional: a store without it leaves the lease to expire.
+   */
+  release?(binding: EvidenceBinding, leaseId: string): Promise<void>;
 }

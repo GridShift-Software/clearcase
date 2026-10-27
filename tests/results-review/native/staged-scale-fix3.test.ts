@@ -22,11 +22,11 @@ async function world() {
   const sweep = () => staged.sweep(p.token, { operationId: key.operationId });
   const stored = () => [...durable.r2.objects.values()].reduce((n, o) => n + o.bytes.length, 0);
   // Fails the settlement write (the writer-end insert) the next `times` times; the process stays alive.
-  const failSettlement = (times: number) => {
+  const failSettlement = (times: number, raw = false) => {
     const prepare = durable.db.prepare.bind(durable.db);
     let left = times, seen = 0;
     durable.db.prepare = ((sql: string) => {
-      if (left > 0 && sql.includes("'writer-end', w.key")) { left--; seen++; return { bind: () => ({ run: async () => { throw new Error('D1_ERROR: Network connection lost.'); } }) }; }
+      if (left > 0 && sql.includes("'writer-end', w.key")) { left--; seen++; if (raw) throw new Error('SETTLE_FAILED'); return { bind: () => ({ run: async () => { throw new Error('D1_ERROR: Network connection lost.'); } }) }; }
       return prepare(sql);
     }) as typeof durable.db.prepare;
     return { restore: () => { durable.db.prepare = prepare; }, seen: () => seen };
@@ -93,19 +93,20 @@ it('does not recover a writer that has no sweep under way', async () => {
   expect(await w.ledger.writing(w.key)).toBe(true);
 });
 
-it('surfaces the R2 put error, not the settlement error, and still settles', async () => {
+it('surfaces the put\'s own error, not the settlement error, and still settles', async () => {
   const w = await world();
   expect((await w.open()).kind).toBe('progress');
   const original = w.durable.r2.put.bind(w.durable.r2);
   w.durable.r2.put = async () => { throw new Error('R2_PUT_FAILED'); };
   const err = await w.put().then(() => null, (e) => e);
-  expect(String(err?.message ?? err)).toContain('R2_PUT_FAILED');
+  expect(err).toMatchObject({ code: 'storage-unavailable' }); // the store's own error for a failed put
   expect(await w.ledger.writing(w.key)).toBe(false);
-  // Both fail: the put's own error is the one the caller sees; the unsettled writer is left for the recovery path.
-  const fault = w.failSettlement(100);
+  // Both fail: the put's own error is the one the caller sees, not the settlement's; the unsettled writer is left for the recovery path.
+  const fault = w.failSettlement(100, true);
   const both = await w.put().then(() => null, (e) => e);
   fault.restore();
   w.durable.r2.put = original;
-  expect(String(both?.message ?? both)).toContain('R2_PUT_FAILED');
+  expect(String((both as Error)?.message)).not.toContain('SETTLE_FAILED');
+  expect(both).toMatchObject({ code: 'storage-unavailable' });
   expect(await w.ledger.writing(w.key)).toBe(true);
 });

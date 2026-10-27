@@ -8,7 +8,7 @@ import type { PreviewFirstViolation, PreviewGotoError, PreviewGotoState, Preview
 import type { NativePdfEvidenceBudget, NativePdfEvidenceChecker, NativePreviewRenderBudget, NativePreviewRenderChecker, PdfEvidenceOutcome, PdfEvidenceStep } from './render-check-contract.ts';
 import type { RequiredPreviewState } from '../../publication/hosted/ports.ts';
 import type { PreviewReasonCode } from '../../publication/hosted/preview-outcome.ts';
-import { checkedPageSet, decide, lookupReceiptRows, MAX_DOCUMENT_PAGES, receiptJson, sealReceipt, validPages, type ContentReceipt } from './pdf-content-receipts.ts';
+import { checkedPageSet, decide, lookupReceiptRows, MAX_CHECKED_PAGES, MAX_DOCUMENT_PAGES, MAX_RECEIPT_ROW_BYTES, receiptJson, sealReceipt, validPages, type ContentReceipt } from './pdf-content-receipts.ts';
 
 // Deliberately not an import of the build-time (node:fs) asset preparer. Parent supplies its reviewed inventory.
 const PDF_VERSION = '6.4.299';
@@ -604,7 +604,7 @@ function validateTranscript(value: unknown, a: { fixed: RenderInput; binding: st
 export const NATIVE_PDF_EVIDENCE_ALGORITHM = 'clearcase.native-pdf-pages/1';
 /** Hard ceilings for Workers Paid; the deployment may only narrow them. See `pdfEvidenceStepCost` for what a step may spend. */
 export const NATIVE_PDF_EVIDENCE_CEILINGS: Readonly<NativePdfEvidenceBudget> = Object.freeze({
- maxFileBytes: 16 * 1024 * 1024, maxCheckedPagesPerFile: 256, maxPagePixels: 4096 * 4096, maxDocumentMs: 20_000, maxSessionMs: 60_000,
+ maxFileBytes: 16 * 1024 * 1024, maxCheckedPagesPerFile: MAX_CHECKED_PAGES, maxPagePixels: 4096 * 4096, maxDocumentMs: 20_000, maxSessionMs: 60_000,
  maxDocumentsPerStep: 90, maxRendersPerSession: 32, maxSessionBytes: 256 * 1024 * 1024, maxSessionsPerClientPerDay: 96,
 });
 const PDF_PINNED_FILES = 191, CONTEXT_CLOSE_MS = 1_000;
@@ -615,23 +615,29 @@ const PDF_PART_BYTES = 1024 * 1024, MAX_PINNED_FILE_BYTES = 1_300_000, ENCODE_UN
  * joined string, its base64 and the CDP message that carries it (4/3 each). Responses are serialized, so one body at a time.
  */
 const ENCODE_BYTES_PER_BODY_BYTE = 13;
-/** Receipt rows one step may read: two per document considered. Each is bounded by its page count; held as text, parsed and validated. */
+/**
+ * Receipt rows one step may accept: two per document considered. The lookup fetches one more to know it must hold. Each row
+ * is priced at the renderer's fixed MAX_RECEIPT_ROW_BYTES, not the current citation budget, because rows written under a
+ * wider earlier budget are still reused; SQL withholds the payload of any larger row.
+ */
 const receiptRowsPerStep = (b: NativePdfEvidenceBudget) => 2 * b.maxDocumentsPerStep;
-const receiptRowBytes = (b: NativePdfEvidenceBudget) => 1024 + b.maxCheckedPagesPerFile * 160;
 
 /**
  * Worst case of one step under a budget, for the parent to reserve within Workers Paid's 10,000 subrequests and 128 MB per
- * invocation. At the ceilings: 259 subrequests, 97,903,008 bytes (93.4 MiB, inside a 96 MiB step allowance) and 62 s.
+ * invocation. At the ceilings: 259 subrequests, 98,028,960 bytes (93.5 MiB, inside a 96 MiB step allowance) and 62 s.
  * - Subrequests: the receipt lookup, the session admission, every attempted read and every sealed receipt (one each per render
  *   at most), launch plus upgrade, and each pinned static file once (ASSETS, cached for the session).
  * - Memory: three copies of the PDF in hand (the reader's, the checker's and the digest's), the cached static bytes, one
- *   response being encoded, and the receipt rows read.
+ *   response being encoded, and the receipt rows fetched (`receiptBytes`).
  * - Wall time: one absolute step deadline over every read, write and render, plus browser cleanup.
  */
-export function pdfEvidenceStepCost(b: NativePdfEvidenceBudget): { subrequests: number; memoryBytes: number; wallMs: number } {
+export function pdfEvidenceStepCost(b: NativePdfEvidenceBudget): { subrequests: number; memoryBytes: number; receiptBytes: number; wallMs: number } {
+ // Each fetched row is held three times: the D1 reply, the parsed row and the validation parse.
+ const receiptBytes = 3 * (receiptRowsPerStep(b) + 1) * MAX_RECEIPT_ROW_BYTES;
  return {
   subrequests: 1 + 1 + b.maxRendersPerSession * 2 + 2 + PDF_PINNED_FILES,
-  memoryBytes: 3 * b.maxFileBytes + MAX_STATIC_BYTES + ENCODE_BYTES_PER_BODY_BYTE * ENCODE_UNIT_BYTES + 3 * receiptRowsPerStep(b) * receiptRowBytes(b),
+  memoryBytes: 3 * b.maxFileBytes + MAX_STATIC_BYTES + ENCODE_BYTES_PER_BODY_BYTE * ENCODE_UNIT_BYTES + receiptBytes,
+  receiptBytes,
   wallMs: b.maxSessionMs + CLEANUP_MS,
  };
 }

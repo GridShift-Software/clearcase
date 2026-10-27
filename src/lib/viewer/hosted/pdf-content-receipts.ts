@@ -11,6 +11,19 @@ import type { CloudD1 } from '../../storage/cloud/bindings.ts';
 export const CONTENT_RECEIPT_FORMAT = 'clearcase.pdf-content-receipt/1';
 /** A sanity bound on a document's page count; only checked pages are rasterised. */
 export const MAX_DOCUMENT_PAGES = 100_000;
+/** The most pages this renderer version ever checks in one PDF, and so the most proofs one receipt it writes can hold. */
+export const MAX_CHECKED_PAGES = 256;
+/**
+ * The most bytes one stored receipt row of this renderer version may take: its JSON and page set at MAX_CHECKED_PAGES (each
+ * page proof is under 160 bytes) plus the fixed fields. A row over it, or with any non-ASCII byte, is never fetched whole.
+ */
+export const MAX_RECEIPT_ROW_BYTES = 1024 + MAX_CHECKED_PAGES * 160;
+// The payload columns come back only for a row within MAX_RECEIPT_ROW_BYTES; any other row returns them null, which fails
+// validation and holds its document, so a stored row can never cost more than the step priced.
+const RECEIPT_COLUMNS = `input_sha256,input_size,renderer_version,page_count,
+ CASE WHEN fits THEN page_set END AS page_set, CASE WHEN fits THEN receipt_json END AS receipt_json`;
+const RECEIPT_FITS = `(length(CAST(receipt_json AS BLOB)) + length(CAST(page_set AS BLOB)) <= ${MAX_RECEIPT_ROW_BYTES}
+ AND length(CAST(receipt_json AS BLOB)) = length(receipt_json) AND length(CAST(page_set AS BLOB)) = length(page_set)) AS fits`;
 const MAX_DIMENSION = 4096;
 
 export interface PageProof { readonly number: number; readonly width: number; readonly height: number; readonly pixelBytes: number; readonly pixelSha256: string }
@@ -79,8 +92,8 @@ export function receiptFromRow(row: unknown, expect: { sha256: string; size: num
 /** Every stored receipt row for these digests under one renderer, in one read; null when there are more than `limit`, so a step holds rather than decide on a partial view. */
 export async function lookupReceiptRows(db: CloudD1, rendererVersion: string, digests: readonly string[], limit: number): Promise<Record<string, unknown>[] | null> {
  if (!digests.length) return [];
- const { results } = await db.prepare(`SELECT input_sha256,input_size,renderer_version,page_set,page_count,receipt_json FROM npr_content_receipts
-  WHERE renderer_version=? AND input_sha256 IN (${digests.map(() => '?').join(',')}) LIMIT ?`).bind(rendererVersion, ...digests, limit + 1).all<Record<string, unknown>>();
+ const { results } = await db.prepare(`SELECT ${RECEIPT_COLUMNS} FROM (SELECT *, ${RECEIPT_FITS} FROM npr_content_receipts
+  WHERE renderer_version=? AND input_sha256 IN (${digests.map(() => '?').join(',')})) LIMIT ?`).bind(rendererVersion, ...digests, limit + 1).all<Record<string, unknown>>();
  return results.length > limit ? null : results;
 }
 
@@ -113,8 +126,8 @@ export async function sealReceipt(db: CloudD1, receipt: ContentReceipt, maxPageP
   db.prepare(`INSERT INTO npr_content_receipts (input_sha256,input_size,renderer_version,page_set,page_count,receipt_json)
    SELECT ?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM npr_content_receipts WHERE input_sha256=? AND input_size=? AND renderer_version=? AND page_set=?)`)
    .bind(...key, receipt.totalPages, json, ...key),
-  db.prepare(`SELECT input_sha256,input_size,renderer_version,page_set,page_count,receipt_json FROM npr_content_receipts
-   WHERE input_sha256=? AND input_size=? AND renderer_version=? AND page_set=?`).bind(...key),
+  db.prepare(`SELECT ${RECEIPT_COLUMNS} FROM (SELECT *, ${RECEIPT_FITS} FROM npr_content_receipts
+   WHERE input_sha256=? AND input_size=? AND renderer_version=? AND page_set=?)`).bind(...key),
  ]) as { success?: unknown; results?: unknown[] }[];
  if (written.length !== 2 || written.some(ack => ack?.success !== true)) return null;
  const rows = written[1]?.results;

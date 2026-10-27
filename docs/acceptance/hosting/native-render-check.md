@@ -207,8 +207,11 @@ rest. Calling again with the remaining documents resumes. So does calling again 
   pinned file (at most 1.3 MB) is being encoded at once. A PDF over `maxFileBytes` (ceiling 16 MiB) fails with
   `file-budget-exceeded` before it is read, which holds publication.
 - **Bounds.** `pdfEvidenceStepCost(budget)` gives one step's worst case. At the ceilings that is 259 subrequests (lookup,
-  admission, every attempted read, every receipt write, launch and ASSETS), 93.4 MiB of Worker memory (three copies of
-  one PDF, cached static files, one encoded response and the receipt rows) and 62 s of wall time. One absolute deadline
+  admission, every attempted read, every receipt write, launch and ASSETS), 93.5 MiB of Worker memory (three copies of
+  one PDF, cached static files, one encoded response and the receipt rows) and 62 s of wall time. Receipt rows are priced
+  at a fixed 41,984 bytes each for this renderer version (256 checked pages), whatever the current citation budget, and
+  the lookup's overflow row is included. SQL returns no payload for a stored row over that size or with a non-ASCII
+  byte, so that document holds with `render-receipt-integrity`. One absolute deadline
   covers every read, write, admission and render in the step; only browser cleanup follows it. The parent reserves this
   within Workers Paid's per-invocation limits. A kill loses only the document in flight. Its sealed receipts stand, and
   the session lease (session deadline plus cleanup plus the 60 s idle tail) delays the resume.

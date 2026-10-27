@@ -781,3 +781,126 @@ describe('a renewal Clerk refuses, and two isolates renewing one hold (session-r
 		expect(b.names().filter((n) => /__session|__client_uat|refresh/.test(n))).toEqual([]);
 	});
 });
+
+// Live at 7614d88b (astra-renewal-7614, 27 October): with f0486bab deployed the first renewal still worked and the second
+// still failed, on A after a save and on B with no saves at all. So Clerk's refresh answer carries no rotated refresh
+// token this Worker can read, and a refresh token renews once. The app must be right without one: a page-data request
+// whose expired session cannot be renewed hands the browser to a full page load through Clerk's handshake (Kit turns a
+// data redirect to another origin into one), which mints a fresh session and refresh token, and the user lands on the
+// page still signed in. A transient fault (an outage, a rate limit) is answered as before. One handshake per handoff: its
+// return marks the browser for a short while, and a data request carrying the mark is answered session-ended instead.
+const neverRotating = (s: ReturnType<typeof session>) => (sid: string) => {
+	if (sid !== s.sid) return null;
+	const row = sessions.get(sid)!;
+	if (calls.at(-1)!.body?.refresh_token !== row.refresh) return { status: 401, body: { errors: [{ code: 'authentication_invalid', message: 'synthetic spent refresh token' }] } };
+	row.refresh = `spent-${row.refresh}`;
+	return { status: 200, body: { object: 'cookies', cookies: [`${SESSION_SFX}=${A.token({ sub: s.user, sid, azp: ORIGIN })}; Path=/; Expires=${YEAR()}; Secure; SameSite=None`] } };
+};
+/** The location of a data response that redirects (Kit's `{"type":"redirect"}` node), or null. */
+async function dataRedirect(r: Response): Promise<URL | null> {
+	if (r.status !== 200 || !(r.headers.get('content-type') ?? '').includes('application/json')) return null;
+	const body = (await r.clone().json()) as { type?: string; location?: string };
+	return body.type === 'redirect' && body.location ? new URL(body.location, ORIGIN) : null;
+}
+/**
+ * A client-side navigation's data request as the browser and Kit make it: when the data response redirects to another
+ * origin, a full page load of that location, here Clerk's handshake, which answers for the session it holds (`signedIn`,
+ * with a fresh refresh token, as its handshake does) back to the page. The final answer, and whether a handoff happened.
+ */
+async function navigate(b: ReturnType<typeof browser>, s: ReturnType<typeof session>, signedIn = true) {
+	const r = b.take(await invoke(clientData(b.cookie())));
+	const to = await dataRedirect(r);
+	if (to === null) return { status: r.status, handoff: false };
+	expect(to.origin).toBe(A.iss);
+	expect(to.pathname).toBe('/v1/client/handshake');
+	const back = new URL(to.searchParams.get('redirect_url')!);
+	expect(back.origin + back.pathname).toBe(`${ORIGIN}/cases/case-a`);
+	const row = sessions.get(s.sid)!;
+	row.refresh = LIVE_RT(++n);
+	back.searchParams.set('__clerk_handshake', A.sign({ handshake: signedIn ? liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), row.refresh)
+		: ['__client_uat=0; Path=/; Domain=clearcase.test; Max-Age=315360000; Secure; SameSite=None', '__session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; SameSite=None'] }));
+	const returned = b.take(await invoke(documentGet(back.pathname + back.search, b.cookie(back.pathname))));
+	expect(returned.status).toBe(303);
+	const clean = new URL(returned.headers.get('location')!, ORIGIN);
+	expect(clean.pathname + clean.search).toBe('/cases/case-a');
+	return { status: b.take(await invoke(documentGet(clean.pathname, b.cookie(clean.pathname)))).status, handoff: true };
+}
+const holds = (b: ReturnType<typeof browser>) => b.names().filter((n) => /refresh/.test(n));
+
+describe('a refresh token Clerk never rotates (astra-renewal-7614, round 4)', () => {
+	beforeEach(() => void vi.useFakeTimers({ toFake: ['Date'] }));
+	afterEach(() => void vi.useRealTimers());
+	const signedIn = async (b: ReturnType<typeof browser>, s: ReturnType<typeof session>) => {
+		sessions.get(s.sid)!.refresh = LIVE_RT(n);
+		refreshAnswer = neverRotating(s);
+		expect((await load(b, s, `/cases?__clerk_handshake=${A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh) })}`)).status).toBe(303);
+	};
+
+	it('Astra B: three idle breadcrumbs with no saves all render the case; the second goes through the handshake', async () => {
+		const s = session(), b = browser();
+		await signedIn(b, s);
+		const out = [];
+		for (let i = 0; i < 3; i++) {
+			later(90_000);
+			out.push(await navigate(b, s));
+		}
+		expect(out).toEqual([{ status: 201, handoff: false }, { status: 201, handoff: true }, { status: 201, handoff: false }]);
+		expect(sessionValues(b).size).toBe(1);
+		expect(holds(b)).toHaveLength(1);
+		expect(trap.blocked).toEqual([]);
+	});
+	it('Astra A: a save after 90 s idle, two reloads, then a breadcrumb after another 90 s renders the case', async () => {
+		const s = session(), b = browser();
+		await signedIn(b, s);
+		later(90_000);
+		expect(b.take(await invoke(saveNote(b.cookie(NOTES)))).status).toBe(201);
+		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
+		later(5_000);
+		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
+		later(90_000);
+		expect(await navigate(b, s)).toEqual({ status: 201, handoff: true });
+		expect(sessionValues(b).size).toBe(1);
+	});
+	it('a document load whose session cannot be renewed goes through the handshake, not session-ended', async () => {
+		const s = session(), b = browser();
+		await signedIn(b, s);
+		later(90_000);
+		expect(await navigate(b, s)).toEqual({ status: 201, handoff: false });
+		later(90_000);
+		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
+	});
+	it('when the handshake says signed out, the page is session-ended and the next data request is not handed off again', async () => {
+		const s = session(), b = browser();
+		await signedIn(b, s);
+		later(90_000);
+		await navigate(b, s);
+		later(90_000);
+		expect(await navigate(b, s, false)).toEqual({ status: 401, handoff: true });
+		expect(await navigate(b, s)).toEqual({ status: 401, handoff: false });
+	});
+	it('hands off at most once in a short while: a data request just after a handoff returned is answered session-ended', async () => {
+		const s = session(), b = browser();
+		await signedIn(b, s);
+		later(90_000);
+		await navigate(b, s);
+		later(90_000);
+		expect((await navigate(b, s)).handoff).toBe(true);
+		// the session that handshake set is already unusable here (as if its token had been refused): no second handshake
+		const stale = b.cookie().split('; ').filter((c) => !/^__session=|^__Host-clearcase_refresh/.test(c)).concat(`__session=${s.stale()}`).join('; ');
+		later(10_000);
+		const again = await invoke(clientData(stale));
+		expect(await dataRedirect(again)).toBeNull();
+		expect(again.status).toBe(401);
+		later(60_000);
+		expect(await dataRedirect(await invoke(clientData(stale)))).not.toBeNull();
+	});
+	it.each([
+		['no session at all', () => '__client_uat=0'],
+		['an ambiguous session', () => { const s = session(), o = session(); return `__client_uat=1761400000; __session=${s.stale()}; ${SESSION_SFX}=${o.stale()}`; }],
+		['a token of an instance this deployment does not configure', () => { const c = session(C); return `__client_uat=1761400000; __session=${c.stale()}`; }],
+	])('never hands off a data request with %s', async (_name, cookie) => {
+		const r = await invoke(clientData(cookie()));
+		expect(await dataRedirect(r)).toBeNull();
+		expect(r.status).toBe(401);
+	});
+});

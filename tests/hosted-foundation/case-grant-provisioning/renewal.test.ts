@@ -289,12 +289,15 @@ describe('renewal operation replay, audit acknowledgement and competing writers'
 
   it('settles a concurrent double renew to one active row', async () => {
     const w = await world(), old = await expired(w);
+    w.hooks.sql.length = 0;
     const results = await Promise.all([
       w.renewal().renewCaseGrant(renewalOf(w, old)),
       w.renewal().renewCaseGrant(renewalOf(w, old, { operationId: 'case-renew-2', operator: 'alpha-renew-2', expiresAt: at(w, 9 * DAY) })),
     ]);
     expect(results.filter((r) => r.kind === 'applied')).toHaveLength(1);
     expect(results.filter((r) => r.kind !== 'applied')).toEqual([{ kind: 'stale' }]);
+    // Both read the old grant active and tried the supersede batch: the loser lost the version compare-and-set.
+    expect(w.writes().filter((sql) => /SET state = 'revoked'/.test(sql))).toHaveLength(2);
     expect(await held(w)).toMatchObject([{ state: 'active', supersedes: old.grantId }]);
     expect(w.grantRows()).toHaveLength(2);
     expect(w.operationRows()).toHaveLength(2);

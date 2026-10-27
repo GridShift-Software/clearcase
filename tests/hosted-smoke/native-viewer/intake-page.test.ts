@@ -110,7 +110,7 @@ const SIGN_IN = `/sign-in?returnTo=${encodeURIComponent(`/client/intake/${CASE}`
 it('a declaration refused with 401 offers a sign-in link that returns to this intake page, as a full navigation', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => reply(401, { code: 'unauthenticated', message: 'Sign in to continue.' })));
   pick(pdfFile('first.pdf', 'one').file); submit();
-  await vi.waitFor(() => expect(status()).toBe('Sign in to continue.'));
+  await vi.waitFor(() => expect(status()).toBe('first.pdf: Sign in to continue.'));
   expect(signInLink()!.getAttribute('href')).toBe(SIGN_IN);
   expect(signInLink()!.hasAttribute('data-sveltekit-reload')).toBe(true);
 });
@@ -129,6 +129,6 @@ it('an upload refused with 401 offers the same link, and a later send that is re
 it('a send refused for another reason offers no sign-in link', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => reply(403, { code: 'forbidden', message: 'You cannot supply files for this case.' })));
   pick(pdfFile('first.pdf', 'one').file); submit();
-  await vi.waitFor(() => expect(status()).toBe('You cannot supply files for this case.'));
+  await vi.waitFor(() => expect(status()).toBe('first.pdf: You cannot supply files for this case.'));
   expect(signInLink()).toBeNull();
 });

@@ -88,8 +88,9 @@ export function createHostedCandidateStager(o: HostedCandidateStagerOptions): Ho
    *   observe: the live session, then the current operate grant on the existing case. At the start, before each read of
    *     another request's stored content (an original's bytes; a stored package's bytes for a correction), and when a
    *     guarded read or write fails, to report a lost authority as the denial it is.
-   *   write: the live session, then the batch itself carries the grant as its first guard statement, so the grant holds
-   *     atomically with every staging write. Object writes follow the guarded row batch that names them.
+   *   write: the live session, then each D1 batch carries the grant as its first guard statement. The private
+   *     own-stage verification work run and package object puts can follow without a fresh check; they handle this
+   *     request's own bytes, not publication or cached permission. Finalization is guarded.
    *   release: the live session, then the final read of the version head is narrowed by the grant, with no await after it.
    * Nothing is remembered between boundaries: each one asks Clerk and D1 again.
    */

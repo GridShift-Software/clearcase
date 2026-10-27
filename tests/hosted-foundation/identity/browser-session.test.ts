@@ -204,13 +204,14 @@ describe('the cookies a real development handshake returns', () => {
 	};
 	const SESSION_CATEGORY = { cat: 'cl_B7d4PD111AAA' };
 
-	it('signs the browser in from the real directive set, storing the session and never the refresh token', async () => {
+	it('signs the browser in from the real directive set, storing the session and the instance refresh token HttpOnly', async () => {
 		const session = tokenA();
 		const o = redirectOf(await handshake().handle(page(`/cases?__clerk_handshake=${A.sign({ handshake: real(session) })}`)));
 		expect(o.location).toBe(`${ORIGIN}/cases`);
 		const names = o.setCookies.map((c) => c.split('=')[0]);
-		expect(names).toEqual(['__client_uat', '__client_uat', '__session', '__clerk_db_jwt']);
-		expect(o.setCookies.join('\n')).not.toContain(REFRESH);
+		expect(names).toEqual(['__client_uat', '__client_uat', '__session', '__clerk_db_jwt', '__Host-clearcase_refresh']);
+		expect(o.setCookies.slice(0, 4).join('\n')).not.toContain(REFRESH);
+		expect(o.setCookies[4]).toMatch(new RegExp(`^__Host-clearcase_refresh=${session}~${REFRESH.replace(/[+/=]/g, '\\$&')}; Path=/; Max-Age=\\d+; SameSite=Lax; HttpOnly; Secure$`));
 		for (const c of o.setCookies) expect(c).not.toMatch(/Domain=/i);
 		expect(o.setCookies[2]).toMatch(/^__session=[^;]+; Path=\/; Max-Age=60; SameSite=Lax; HttpOnly; Secure$/);
 		const jar = o.setCookies.slice(1).map((c) => c.split(';')[0]).join('; ');

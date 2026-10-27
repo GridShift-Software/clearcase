@@ -75,8 +75,11 @@ function nativeContext(env: Readonly<Record<string, unknown>>, b: Bindings, cler
 /** Keeps work running after the response for the invocation that calls it. */
 export interface RequestScheduler { waitUntil(work: Promise<void>): void }
 
-/** Fresh identity and audit state for this exact request; only immutable deployment configuration is shared. */
-export async function hostedServices(request: Request, env: Readonly<Record<string, unknown>>, scheduler: RequestScheduler | null = null): Promise<Readiness> {
+/**
+ * Fresh identity and audit state for this exact request; only immutable deployment configuration is shared. The identity
+ * is read from `credential` (a renewed session, handle.ts) when given, else from the request itself.
+ */
+export async function hostedServices(request: Request, env: Readonly<Record<string, unknown>>, scheduler: RequestScheduler | null = null, credential: Request = request): Promise<Readiness> {
 	const b = bindings(env), now = () => new Date();
 	const services: RequestServices = createUnavailableServices({ clientId: b.clientId ?? id('client', 'unconfigured'), now });
 	let dataReady = false;
@@ -98,7 +101,7 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 	if (!clerk.ok) return { ready: false, reason: clerk.reason, services };
 	native = nativeContext(env, b, clerk.config);
 	try {
-		services.identity = await clerk.provider.authenticate({ request });
+		services.identity = await clerk.provider.authenticate({ request: credential });
 	} catch {
 		return { ready: false, reason: 'the identity provider is unavailable', services };
 	}

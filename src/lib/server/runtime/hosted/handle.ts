@@ -32,14 +32,20 @@ export function withFormActions(csp: string, origins: readonly string[]): string
 	return csp.replace(FORM_ACTION_SELF, `$1form-action 'self' ${origins.join(' ')}`);
 }
 
+/** A request's renewed session: the credential its identity is read from instead, and the cookies its answer sets. */
+export type Refreshed = { credential: Request; setCookies: readonly string[] };
+
 /**
  * The hosted `handle`. It builds the six request services, refuses a protected request with 503 before resolving any
  * route when they are not ready, keeps SvelteKit's Origin check for form posts (and refuses a cross-origin write
  * itself first), and adds the security headers to every answer. `formActionsFor` names, per path, the origins a page's
  * form may additionally be redirected to (the production sign-in pages); without it every CSP stays the app's own.
+ * `refreshFor` may renew an expired session of a request the handshake let through (any method, after the Origin
+ * check): its identity is then read from the renewed credential and its answer sets the renewed cookies. A refresh
+ * that fails is no refresh, so the request meets the identity it presented.
  * The local pilot keeps its own hooks.
  */
-export function createHandle(servicesFor: (request: Request) => Promise<Readiness>, handshakeFor?: (request: Request) => Promise<Response | null>, formActionsFor?: (path: string) => readonly string[]): Handle {
+export function createHandle(servicesFor: (request: Request, credential?: Request) => Promise<Readiness>, handshakeFor?: (request: Request) => Promise<Response | null>, formActionsFor?: (path: string) => readonly string[], refreshFor?: (request: Request) => Promise<Refreshed | null>): Handle {
 	return async ({ event, resolve }) => {
 		const path = event.url.pathname;
 		if (LOCAL_ONLY(path)) return plain(404, 'Not found');
@@ -54,11 +60,17 @@ export function createHandle(servicesFor: (request: Request) => Promise<Readines
 				return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 			}
 		}
-		const readiness = await servicesFor(event.request);
+		let refreshed: Refreshed | null = null;
+		if (refreshFor && !PUBLIC(path) && path !== '/sign-out') {
+			try { refreshed = await refreshFor(event.request); }
+			catch { refreshed = null; }
+		}
+		const readiness = await servicesFor(event.request, refreshed?.credential);
 		Object.assign(event.locals, readiness.services);
 		if (!readiness.ready && !PUBLIC(path)) return plain(503, `ClearCase is unavailable: ${readiness.reason}`, { 'retry-after': '2' });
 		const response = await resolve(event);
 		for (const [name, value] of Object.entries(SECURITY)) response.headers.set(name, value);
+		for (const c of refreshed?.setCookies ?? []) response.headers.append('set-cookie', c);
 		const csp = formActionsFor ? response.headers.get('content-security-policy') : null;
 		if (csp) response.headers.set('content-security-policy', withFormActions(csp, formActionsFor!(path)));
 		return response;

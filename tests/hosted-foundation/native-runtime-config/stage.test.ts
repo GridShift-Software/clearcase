@@ -115,6 +115,18 @@ describe('changed stage bytes', () => {
 			}
 		}
 	});
+	it.each([0o1000, 0o2000, 0o4000])('refuses special mode bit %o on the stage directory', (bit) => {
+		const out = stage(); chmodSync(out, 0o700 | bit);
+		expect(lstatSync(out).mode & 0o7777).toBe(0o700 | bit);
+		expect(refused(() => read(out))).toMatch(/exactly the planned/);
+	});
+	it.each([0o1000, 0o2000, 0o4000])('refuses special mode bit %o on every stage file', (bit) => {
+		for (const name of ['client-a.runtime.json', 'client-b.runtime.json', NATIVE_RUNTIME_CONFIG_MANIFEST]) {
+			const out = stage(), file = path.join(out, name); chmodSync(file, 0o600 | bit);
+			expect(lstatSync(file).mode & 0o7777).toBe(0o600 | bit);
+			expect(refused(() => read(out))).toMatch(/exactly the planned/);
+		}
+	});
 	it('does not change a stage it refuses', () => {
 		const out = stage(); writeFileSync(path.join(out, 'extra.txt'), 'x');
 		const before = names(out); refused(() => read(out)); expect(names(out)).toEqual(before);

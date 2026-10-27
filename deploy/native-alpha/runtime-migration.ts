@@ -29,6 +29,13 @@ export const NATIVE_RENDER_CASE_LIMIT_APPLIED_RUNTIME = freeze({ path: SQL_FILE,
 	sha256: 'sha256:e854e9d1c6bca7a439dd5903ace1a3e7d01382dae3a7e79e624146f870cda97f', source: NATIVE_RUNTIME_MIGRATION_SOURCE });
 // 0003 is reserved for the separately reviewed audit-read increment; this one does not depend on it.
 const RENDER_CASE_LIMIT_SQL_FILE = 'migrations/0004_native_render_case_limit.sql';
+export const NATIVE_EVIDENCE_MIGRATION_MODE = 'evidence-0005';
+export const NATIVE_EVIDENCE_MIGRATION_INPUTS = freeze([
+	{ path: 'src/lib/publication/hosted/migrations/0004_publication_evidence.sql', bytes: 3141, sha256: 'sha256:789c0bc2698130126285b6827e155385d588284a32b6931a5ace21369fb4d450' },
+	{ path: 'src/lib/viewer/hosted/migrations/0003_content_receipts.sql', bytes: 1146, sha256: 'sha256:16d8c24237fac757496a4ed1ac586d2173ea61a0c38b83c4eb2fa8f92982f45f' },
+]);
+export const NATIVE_EVIDENCE_APPLIED_RENDER_CASE_LIMIT = freeze({ path: RENDER_CASE_LIMIT_SQL_FILE, bytes: 7849,
+	sha256: 'sha256:d57584cbb1c197c6d2392471f02751dc36ce1a2084adfe02136b874fe02af72e', source: NATIVE_RENDER_CASE_LIMIT_MIGRATION_SOURCE });
 const CLIENTS = freeze([
 	{ slot: 'client-a', name: 'cc-sbx-a-20261023-db', id: 'cd257736-7bf3-49f6-8544-ac58c2207802' },
 	{ slot: 'client-b', name: 'cc-sbx-b-20261025-r1-db', id: '7c340891-9fcc-4398-8128-68abe726f130' },
@@ -114,6 +121,14 @@ const RENDER_CASE_LIMIT_PACKET = {
 		initialSchemaDependency: NATIVE_RUNTIME_INITIAL_SCHEMA, appliedRuntimeDependency: NATIVE_RENDER_CASE_LIMIT_APPLIED_RUNTIME, inputs: NATIVE_RENDER_CASE_LIMIT_MIGRATION_INPUTS, output, targets, providerProof: false, provisioned: false }),
 };
 
+const EVIDENCE_PACKET = {
+	tag: NATIVE_EVIDENCE_MIGRATION_MODE, inputs: NATIVE_EVIDENCE_MIGRATION_INPUTS, sqlFile: 'migrations/0005_native_evidence.sql', manifestFile: 'evidence-migration.json', privateStage: true,
+	header: '-- ClearCase native evidence increment 0005. Requires applied 0001, 0002 and 0004; 0003 remains reserved.\n',
+	manifest: (output: Output, targets: Target[]) => ({ schema: 'clearcase.native-evidence-migration/1', mode: NATIVE_EVIDENCE_MIGRATION_MODE,
+		initialSchemaDependency: NATIVE_RUNTIME_INITIAL_SCHEMA, appliedRuntimeDependency: NATIVE_RENDER_CASE_LIMIT_APPLIED_RUNTIME, appliedRenderCaseLimitDependency: NATIVE_EVIDENCE_APPLIED_RENDER_CASE_LIMIT,
+		inputs: NATIVE_EVIDENCE_MIGRATION_INPUTS, output, targets, providerProof: false, provisioned: false }),
+};
+
 function assemble<M extends { readonly targets: readonly Target[] }>(packet: Packet<M>, inputs: readonly { path: string; bytes: Uint8Array }[]) {
 	const items = dense(inputs, packet.inputs.length, 'inputs');
 	const chunks: string[] = [];
@@ -137,6 +152,10 @@ export function assembleNativeRuntimeMigration(inputs: readonly { path: string; 
 /** The single pinned viewer case-limit input only, under the same one-copy capture. Emits a separately named 0004. */
 export function assembleNativeRenderCaseLimitMigration(inputs: readonly { path: string; bytes: Uint8Array }[]) {
 	return assemble(RENDER_CASE_LIMIT_PACKET, inputs);
+}
+
+export function assembleNativeEvidenceMigration(inputs: readonly { path: string; bytes: Uint8Array }[]) {
+	return assemble(EVIDENCE_PACKET, inputs);
 }
 
 function realPath(file: string, directory: boolean) {
@@ -256,3 +275,6 @@ export const checkNativeRuntimeMigrationInvocation = (value: { root: string; sta
 export const prepareNativeRenderCaseLimitMigration = (value: { root: string; out: string }) => prepare(RENDER_CASE_LIMIT_PACKET, value);
 export const readNativeRenderCaseLimitMigration = (value: { root: string; stage: string }) => read(RENDER_CASE_LIMIT_PACKET, value);
 export const checkNativeRenderCaseLimitMigrationInvocation = (value: { root: string; stage: string; cwd: string; slot: NativeRuntimeMigrationSlot; argv: readonly string[] }) => checkInvocation(RENDER_CASE_LIMIT_PACKET, value);
+export const prepareNativeEvidenceMigration = (value: { root: string; out: string }) => prepare(EVIDENCE_PACKET, value);
+export const readNativeEvidenceMigration = (value: { root: string; stage: string }) => read(EVIDENCE_PACKET, value);
+export const checkNativeEvidenceMigrationInvocation = (value: { root: string; stage: string; cwd: string; slot: NativeRuntimeMigrationSlot; argv: readonly string[] }) => checkInvocation(EVIDENCE_PACKET, value);

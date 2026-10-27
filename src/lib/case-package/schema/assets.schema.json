@@ -29,6 +29,36 @@
                   "minLength": 1,
                   "type": "string"
                 },
+                "preview": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "originalSha256": {
+                      "pattern": "^[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "path": {
+                      "maxLength": 1024,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "size": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "sha256",
+                    "size",
+                    "originalSha256"
+                  ],
+                  "type": "object"
+                },
                 "sha256": {
                   "pattern": "^[0-9a-f]{64}$",
                   "type": "string"

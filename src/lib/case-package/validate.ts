@@ -89,8 +89,11 @@ export function validateSnapshot(snap: Snapshot, sink: DiagSink, L: Limits, chec
     const at = { file: 'manifest.json', pointer: `/files/${i}/path`, subject: f.path.slice(0, 200) };
     const pv = checkRelPath(f.path);
     if (!pv.ok) { sink.add(pv.traversal ? 'PKG_PATH_TRAVERSAL' : 'PKG_PATH_INVALID', `listed path is unsafe: ${pv.reason}`, at); return; }
-    const expected = f.role === 'dataset' ? `datasets/${f.key}.json` : 'assets.json';
-    if (f.path !== expected) { sink.add('PKG_PATH_INVALID', `a ${f.role} file must be at ${f.role === 'dataset' ? 'datasets/<key>.json' : 'assets.json'}`, at); return; }
+    if (f.role === 'preview' && (foldPath(f.path).startsWith('datasets/') || foldPath(f.path) === 'assets.json')) {
+      sink.add('PKG_PREVIEW_PATH_INVALID', 'preview cannot occupy a dataset or asset index path', at);
+    }
+    const expected = f.role === 'dataset' ? `datasets/${f.key}.json` : f.role === 'assets' ? 'assets.json' : null;
+    if (expected !== null && f.path !== expected) { sink.add('PKG_PATH_INVALID', `a ${f.role} file must be at ${f.role === 'dataset' ? 'datasets/<key>.json' : 'assets.json'}`, at); return; }
     if (f.role === 'dataset' && (f.kind === undefined || f.schema === undefined || f.required === undefined || f.count === undefined)) {
       sink.add('PKG_MANIFEST_INVALID', 'dataset entries need key, kind, schema, required and count', { ...at, pointer: `/files/${i}` });
     }
@@ -105,9 +108,11 @@ export function validateSnapshot(snap: Snapshot, sink: DiagSink, L: Limits, chec
     const bytes = snap.files.get(f.path);
     if (!bytes) { sink.add('PKG_FILE_MISSING', 'listed file could not be read', at); return; }
     total += bytes.byteLength;
+    if (f.role === 'preview' && (bytes.length < 5 || decoder.decode(bytes.subarray(0, 5)) !== '%PDF-')) sink.add('PKG_PREVIEW_INVALID', 'preview must be a PDF', { file: f.path });
     if (bytes.byteLength !== f.size || sha256Hex(bytes) !== f.sha256) { sink.add('PKG_FILE_HASH_MISMATCH', 'size or sha256 differs from the manifest', { ...at, file: f.path }); return; }
     files.set(f.path, bytes);
     check();
+    if (f.role === 'preview') return;
     const v = parseFile(bytes, f.path, sink);
     if (v === undefined) return;
     if (canonicalText(v) !== decoder.decode(bytes)) sink.add('PKG_NONCANONICAL', 'file is not canonical JSON', { file: f.path });
@@ -165,6 +170,7 @@ export function validateSnapshot(snap: Snapshot, sink: DiagSink, L: Limits, chec
     }
   });
 
+  const referencedPreviews = new Map<string, string>();
   let assets: Record<string, Asset> = Object.create(null);
   if (assetsValue !== undefined) {
     if (isObject(assetsValue) && assetsValue.index === ASSET_INDEX && assetsValue.root === 'case-folder' && isObject(assetsValue.assets) && Object.keys(assetsValue).length === 3) {
@@ -188,6 +194,18 @@ export function validateSnapshot(snap: Snapshot, sink: DiagSink, L: Limits, chec
     }
     if (Object.keys(assets).length > L.assets) sink.add('PKG_TOO_LARGE', `more than ${L.assets} assets`, { file: 'assets.json' });
     checkAssets(assets, register, sink, L);
+    const previewEntries = new Map(manifest.files.filter((f) => f.role === 'preview').map((f) => [f.path, f]));
+    for (const [ref, asset] of Object.entries(assets)) {
+      if (asset.kind !== 'file' || !asset.preview) continue;
+      const preview = asset.preview;
+      const at = { file: 'assets.json', pointer: `/assets/${escapePointer(ref)}/preview`, subject: ref };
+      const entry = previewEntries.get(preview.path);
+      const previous = referencedPreviews.get(preview.path);
+      if (preview.originalSha256 !== asset.sha256 || !entry || entry.sha256 !== preview.sha256 || entry.size !== preview.size || (previous !== undefined && previous !== asset.sha256)) {
+        sink.add('PKG_PREVIEW_BINDING_MISMATCH', 'preview must match its original, any shared original, and its manifest entry', at);
+      }
+      referencedPreviews.set(preview.path, asset.sha256);
+    }
     if (chron?.schema === 'v5.chronology@1') {
       chronRows.forEach((r, i) => {
         if (!isObject(r) || !isRef(r.ref) || typeof r.url !== 'string') return;
@@ -197,6 +215,10 @@ export function validateSnapshot(snap: Snapshot, sink: DiagSink, L: Limits, chec
         if (d.ok && d.path !== a.path && d.path.normalize('NFC') !== a.path.normalize('NFC')) sink.add('LINK_ASSET_MISMATCH', 'url and indexed original path disagree', { file: 'datasets/chronology.json', pointer: `/data/${i}/url`, subject: r.ref });
       });
     }
+  }
+
+  for (const [i, entry] of manifest.files.entries()) {
+    if (entry.role === 'preview' && !referencedPreviews.has(entry.path)) sink.add('PKG_PREVIEW_UNREFERENCED', 'preview is not referenced by a file asset', { file: 'manifest.json', pointer: `/files/${i}/path`, subject: entry.path });
   }
 
   const targets = new Set<string>([...register, ...Object.keys(assets)]);

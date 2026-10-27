@@ -1,6 +1,6 @@
 # Decision records
 
-These ADRs record the product decisions the user confirmed from 11 to 17 October 2026. Records 0001 to 0006 govern the local v5 pilot; records 0007 to 0011 govern the hosted alpha. The 12 October answers refer to the orchestrator's 23-item V1 questionnaire. Each record says whether a decision is accepted, conditional or still pending, and names the issues and pull requests it affects.
+These ADRs record product decisions and proposals, including user decisions through 27 October 2026. Records 0001 to 0006 govern the local v5 pilot; later records address the hosted alpha. The 12 October answers refer to the orchestrator's 23-item V1 questionnaire. Each record states its status and identifies the affected issues or work.
 
 | ADR | Decision | Status | Affects |
 | --- | --- | --- | --- |
@@ -16,6 +16,8 @@ These ADRs record the product decisions the user confirmed from 11 to 17 October
 | [0010](0010-exact-version-signoff-and-publication.md) | Exact-version sign-off and audited candidate editing; independent case user work remains accessible without a publication | Accepted, 15–17 Oct; review topology proof UNRUN | GRS-88, GRS-30, GRS-31, GRS-114, GRS-117, GRS-130, GRS-136 |
 | [0011](0011-originals-and-complete-in-app-file-viewing.md) | Unchanged originals, complete published-file in-app viewing, explicit temporary pending-preview retrieval, verified citations, complete exports and durable PDF bundle versions | Accepted, 15–17 Oct; viewer selection and proofs UNRUN | GRS-90, GRS-97, GRS-120 to GRS-123, GRS-118, GRS-128, GRS-136 |
 | [0012](0012-integrity-metadata-is-not-a-view.md) | `meta` and `source-layout` are integrity metadata: the hosted sign-off gate checks META's counts and the layout's round trip instead of rendering them | Proposed, 26 Oct; awaiting wave review | native alpha sign-off gate |
+| [0013](0013-real-exports-publish-from-step-built-evidence-and-records-views.md) | Real exports publish from step-built evidence and records views | Accepted, 27 Oct; implementation and verification pending | GRS-88, GRS-92; hosted publication and sign-off |
+| [0014](0014-real-export-originals-and-meta-evidence.md) | Real-export originals and META evidence policies | Proposed, 27 Oct; awaiting user decision | GRS-90, GRS-205; hosted publication and sign-off |
 
 ## Superseded for the hosted app
 

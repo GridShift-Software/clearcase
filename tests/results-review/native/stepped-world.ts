@@ -29,7 +29,7 @@ export const BIG_QUOTAS = { ...QUOTAS, maxPackageBytesPerCase: 512 << 20, maxPac
 export const IMPORT_BUDGET = { maxRequestBytes: 8 << 20, maxFiles: 8192, maxFileBytes: 64 << 20, maxPackageBytes: 512 << 20 };
 
 /** Small bounds, so the poc needs many steps and every phase is cut more than once. */
-export const TEST_BOUNDS: StepBounds = Object.freeze({ originalsPerStep: 8, bytesPerStep: 512 * 1024, objectsPerStep: 40, rowsPerStep: 300, wallMsPerStep: 1e12, leaseMs: 60_000,
+export const TEST_BOUNDS: StepBounds = Object.freeze({ originalsPerStep: 8, bytesPerStep: 512 * 1024, objectsPerStep: 40, rowsPerStep: 300, wallMsPerStep: 30_000, leaseMs: 60_000,
   structuredBytes: 32 << 20, stepsPerRequest: 1, wallMsPerRequest: 1e12 });
 
 export interface RealPackage {
@@ -77,6 +77,8 @@ export async function realPackage(): Promise<RealPackage> {
   return { caseId: poc.caseId, files, original, previews: previews.size, documents: n };
 }
 
+/** A process that has been killed does nothing more: every later call through its bindings throws. */
+export interface Life { dead: boolean }
 export class Killed extends Error { readonly where: string; constructor(where: string) { super(`killed ${where}`); this.where = where; } }
 export interface KillAt { op: 'put' | 'batch'; nth: number; after: boolean }
 
@@ -101,25 +103,29 @@ class ChaosR2 implements CloudR2 {
   private puts = 0;
   private readonly d: Durable;
   private readonly kill: KillAt | null;
-  constructor(d: Durable, kill: KillAt | null) { this.d = d; this.kill = kill; }
-  head(key: string): Promise<CloudR2Head | null> { this.d.counts.heads++; return this.d.bucket.head(key); }
+  private readonly life: Life;
+  constructor(d: Durable, kill: KillAt | null, life: Life) { this.d = d; this.kill = kill; this.life = life; }
+  private alive() { if (this.life.dead) throw new Killed('dead'); }
+  head(key: string): Promise<CloudR2Head | null> { this.alive(); this.d.counts.heads++; return this.d.bucket.head(key); }
   async get(key: string): Promise<CloudR2Body | null> {
+    this.alive();
     this.d.counts.gets++;
     if (key.startsWith('orig/')) this.d.counts.originalGets++;
     const body = await this.d.bucket.get(key);
     return body && { ...body, arrayBuffer: async () => { const b = await body.arrayBuffer(); this.d.counts.bytesRead += b.byteLength; return b; } };
   }
   async put(key: string, value: Uint8Array, options: { sha256: string; onlyIf?: { etagDoesNotMatch: '*' } }) {
+    this.alive();
     this.d.counts.puts++;
     const nth = ++this.puts;
     const hit = this.kill?.op === 'put' && nth === this.kill.nth;
-    if (hit && !this.kill!.after) throw new Killed('before-put');
+    if (hit && !this.kill!.after) { this.life.dead = true; throw new Killed('before-put'); }
     const out = await this.d.bucket.put(key, value, options);
     if (out) this.d.putKeys.push(key);
-    if (hit) throw new Killed('after-put');
+    if (hit) { this.life.dead = true; throw new Killed('after-put'); }
     return out;
   }
-  async delete(key: string): Promise<void> { this.d.counts.deletes++; await this.d.bucket.delete(key); }
+  async delete(key: string): Promise<void> { this.alive(); this.d.counts.deletes++; await this.d.bucket.delete(key); }
 }
 
 class ChaosD1 implements NativeD1, CloudD1 {
@@ -129,7 +135,8 @@ class ChaosD1 implements NativeD1, CloudD1 {
   private readonly d: Durable;
   private readonly kill: KillAt | null;
   private readonly interleave: (() => Promise<void>) | null;
-  constructor(d: Durable, kill: KillAt | null, interleave: (() => Promise<void>) | null) { this.d = d; this.kill = kill; this.interleave = interleave; }
+  private readonly life: Life;
+  constructor(d: Durable, kill: KillAt | null, interleave: (() => Promise<void>) | null, life: Life) { this.d = d; this.kill = kill; this.interleave = interleave; this.life = life; }
   prepare(sql: string) {
     // bind() makes a new statement, so every statement that reaches batch() is tagged with its SQL. A D1 call is an execution or one batch.
     const tag = (s: CloudD1Statement): CloudD1Statement => {
@@ -138,22 +145,23 @@ class ChaosD1 implements NativeD1, CloudD1 {
       s.bind = (...v) => tag(bind(...v));
       for (const run of ['first', 'all', 'run'] as const) {
         const inner = (s[run] as () => Promise<unknown>).bind(s);
-        (s as unknown as Record<string, unknown>)[run] = () => { this.d.counts.d1++; return inner(); };
+        (s as unknown as Record<string, unknown>)[run] = () => { if (this.life.dead) throw new Killed('dead'); this.d.counts.d1++; return inner(); };
       }
       return s;
     };
     return tag(this.d.db.prepare(sql)) as never;
   }
   async batch(statements: CloudD1Statement[]) {
+    if (this.life.dead) throw new Killed('dead');
     // A step's commit is the batch that moves the run row; another process gets to run just before it, once.
     if (this.interleave && !this.interleaved && statements.some((s) => /UPDATE native_import_stage_run/.test(this.sql.get(s as object) ?? ''))) { this.interleaved = true; await this.interleave(); }
     this.d.counts.d1++;
     this.d.counts.batches++;
     const nth = ++this.batches;
     const hit = this.kill?.op === 'batch' && nth === this.kill.nth;
-    if (hit && !this.kill!.after) throw new Killed('before-batch');
+    if (hit && !this.kill!.after) { this.life.dead = true; throw new Killed('before-batch'); }
     const out = await this.d.db.batch(statements as never);
-    if (hit) throw new Killed('after-batch');
+    if (hit) { this.life.dead = true; throw new Killed('after-batch'); }
     return out;
   }
 }
@@ -167,7 +175,8 @@ const operator = (): Identity => ({
 /** A new "process" over the durable state: fresh closures, nothing remembered from a dead one. */
 export async function startProcess(d: Durable, o: ProcessOptions = {}) {
   const kill = o.kill ?? null;
-  const db = new ChaosD1(d, kill, o.interleave ?? null), bucket = new ChaosR2(d, kill);
+  const life: Life = { dead: false };
+  const db = new ChaosD1(d, kill, o.interleave ?? null, life), bucket = new ChaosR2(d, kill, life);
   const caseId = id('case', d.caseId) as CaseId;
   const identity = operator();
   const audit: HostedCandidateStagerOptions['audit'] = { async append(e) { d.events.push(e); return { eventId: e.eventId }; } };

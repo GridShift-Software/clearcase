@@ -2,6 +2,7 @@
 // one request. The poc package (60 documents; CLEARCASE_POC_DOCUMENTS=1689 for the v5-sized corpus) is imported both ways, over the
 // real validator, staging storage and native repositories. The stepped import must leave the same resultsVersion, the same
 // candidate and the same rows as the one-request import, whatever write a process dies at.
+import { writeFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { LinkedCandidate } from '../../../src/lib/results-review/native/index.ts';
 import { DEFAULT_STEP_BOUNDS, stepCost } from '../../../src/lib/results-review/native/staging/index.ts';
@@ -37,6 +38,13 @@ describe('the stepped import equals the one-request import', () => {
       stepped = { candidate: linked(done), steps, mark, total: { puts: durable.counts.puts, batches: durable.counts.batches }, originalGets: durable.counts.originalGets, wholeStage: durable.counts.wholeStage };
       expect(dump(durable)).toEqual(reference.dump);
     }
+    const max = (f: (s: StepRecord) => number) => Math.max(...stepped.steps.map(f));
+    const phases: Record<string, number> = {};
+    for (const s of stepped.steps) phases[s.phase] = (phases[s.phase] ?? 0) + 1;
+    const summary = JSON.stringify({ documents: pkg.documents, previews: pkg.previews, files: pkg.files.size, steps: stepped.steps.length, phases, maxPerStep: { d1: max((s) => s.d1), r2Gets: max((s) => s.r2Gets), heads: max((s) => s.heads), puts: max((s) => s.puts), bytesRead: max((s) => s.bytesRead) },
+      totals: stepped.total, originalGets: { stepped: stepped.originalGets, oneRequest: reference.originalGets }, wholeStage: stepped.wholeStage });
+    // The numbers the report quotes; written beside the receipt when asked, as the console is not kept.
+    if (process.env.CLEARCASE_STEPPED_SUMMARY) writeFileSync(process.env.CLEARCASE_STEPPED_SUMMARY, summary + '\n');
   }, 1_800_000);
 
   it('is the poc package: thousands of file assets, a preview each, and a package that needs many bounded steps', () => {

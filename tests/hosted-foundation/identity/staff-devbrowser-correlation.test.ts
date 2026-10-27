@@ -383,6 +383,43 @@ describe('no untied dev browser reaches staff Clerk by any transport the SDK rea
 		expect(devBrowsers(after)).toEqual([FRESH_DVB]);
 		expect(await forwarded(ORIGIN_A, cookieOf(after))).toBe(FRESH_DVB);
 	});
+	it('P3b: duplicates planted at the preview route\'s own path prefixes settle after one return, and a later staff sign-in starts no second handshake (carryover re-check, M3)', async () => {
+		const PREVIEW = `${ORIGIN_A}/operator/cases/case-a/preview/candidate-a`, h = handshake();
+		const devBrowsers = (browser: BrowserJar) => browser.getCookiesSync(PREVIEW).filter((c) => c.key === '__clerk_db_jwt').map((c) => c.value);
+		// The SDK's loop guard lasts two seconds; model a browsing session after it expired.
+		const settle = (browser: BrowserJar) => browser.setCookieSync('__clerk_redirect_count=; Path=/; Max-Age=0; Secure', ORIGIN_A);
+		const session = () => B.token({ sub: 'user_synthetic_staff', sid: 'sess_synthetic_staff', azp: ORIGIN_A });
+		// a staff browser signed in as the review's probe has it: the portal's return syncs the tied dev browser (ownBrowser(…, true))
+		const browser = await ownBrowser();
+		const sync = await h.handle(request(browser, `${ORIGIN_A}/cases?__clerk_db_jwt=${OWN_DVB}`));
+		// the unsigned /cases request still picks the client instance, whose Frontend API the redirect names; the return is the staff instance's
+		if (sync.kind !== 'redirect') throw new Error('expected a handshake redirect');
+		expect(new URL(sync.location).searchParams.get('__clerk_db_jwt')).toBe(OWN_DVB);
+		accept(browser, sync);
+		const back = new URL(new URL(sync.location).searchParams.get('redirect_url')!);
+		back.searchParams.set('__clerk_handshake', B.sign({ handshake: [
+			`__clerk_db_jwt=${OWN_DVB}; Path=/; Max-Age=315360000; SameSite=Lax; Secure`, '__client_uat=1700000000; Path=/; Max-Age=315360000; SameSite=Lax; Secure', `__session=${session()}; Path=/; Max-Age=60; SameSite=Lax; Secure`,
+		] }));
+		accept(browser, await h.handle(request(browser, back)));
+		for (const path of ['/operator/cases/case-a/preview/', '/operator/cases/case-a/preview/candidate-a']) {
+			browser.setCookieSync(`__clerk_db_jwt=${ATTACKER_DVB}; Domain=clearcase.test; Path=${path}; Secure; SameSite=Lax`, 'https://untrusted.clearcase.test/');
+		}
+		expect(devBrowsers(browser)).toHaveLength(3);
+		settle(browser);
+		const started = await h.handle(request(browser, PREVIEW));
+		expect(handedBy(started)).toBeNull();
+		accept(browser, started);
+		if (started.kind !== 'redirect') throw new Error('expected a handshake redirect');
+		accept(browser, await h.handle(request(browser, handedBack(new URL(new URL(started.location).searchParams.get('redirect_url')!), OWN_DVB))));
+		settle(browser);
+		expect(await h.handle(request(browser, PREVIEW))).toEqual({ kind: 'continue' });
+		expect(devBrowsers(browser)).toEqual([OWN_DVB]);
+		// a later valid staff session
+		browser.setCookieSync(`__session=${session()}; Path=/; Secure`, ORIGIN_A);
+		browser.setCookieSync('__client_uat=1700000000; Path=/; Secure', ORIGIN_A);
+		settle(browser);
+		expect(await handshake().handle(request(browser, PREVIEW))).toEqual({ kind: 'continue' });
+	});
 	it('still hands staff Clerk the tied dev browser the staff portal returns in the query, beside a parent-Domain duplicate too', async () => {
 		for (const plants of [[], [parentPlant]]) {
 			const browser = await ownBrowser(plants);

@@ -111,3 +111,43 @@ scripts/agent-tools/receipt --name stepped-import -- bun run --bun test tests/re
 ```
 
 `CLEARCASE_POC_DOCUMENTS=1689` (and optionally `CLEARCASE_POC_DIR`) runs the decisive test on the full 1,689-document poc corpus (about 1.8 GB, generated outside `/tmp` and the checkout); the default generates 60 documents once under `~/.cache/clearcase-rx27`.
+
+## U14: the real-export run on sandbox B
+
+What the orchestrator runs on B, in order. It stops where the owner signs off and publishes: nobody but the owner does that, and nothing below signs off, publishes or uses an owner identity. Local proof of every step is `tests/hosted-foundation/end-to-end/real-export.test.ts`: the real `hostedServices` behind the real routes, over the assembled native schema with 0005 to 0008 on node:sqlite and an in-memory R2. Clerk, the compiled PDF pins and the Browser Rendering SDK are doubles, so it proves no provider, memory or latency. It runs 126 synthetic documents by default and 1,689 with `CLEARCASE_U14_DOCUMENTS=1689`.
+
+**1. Migrations.** B runs 0001, 0002 and 0004. Apply 0005 to 0008 in order, one increment at a time. For each `mode` in `evidence-0005`, `import-staging-0006`, `intake-file-sets-0007` and `pdf-sessions-0008`:
+
+```sh
+bun scripts/hosted-native-runtime-migration.ts prepare <new-stage>/<mode> <mode>
+bun scripts/hosted-native-runtime-migration.ts verify <new-stage>/<mode> <mode>
+wrangler d1 time-travel info cc-sbx-b-20261025-r1-db        # record the bookmark before each apply
+wrangler d1 migrations apply cc-sbx-b-20261025-r1-db --remote --config <new-stage>/<mode>/client-b.wrangler.json
+```
+
+`tests/hosted-foundation/native-runtime-migration/pdf-sessions-migration.test.ts` upgrades a copy of B's schema, holding rows, through all four and checks that every earlier table, row, trigger and index survives. If an apply fails, restore the bookmark and stop.
+
+**2. Settings.** These are client B's planner policy, compiled by `bun scripts/hosted-native-runtime-config.ts prepare`. The values that must change from B's settings at b5866e59:
+
+| Setting | B now | U14 | Why |
+| --- | ---: | ---: | --- |
+| `storageQuotas.maxUploadsPerCase` | 20 | 4,096 | B's earlier uploads plus 1,753 v5 originals (`v5-sized-quotas.test.ts`). |
+| `storageQuotas.maxOriginalBytesPerCase` / `PerClient` | 16 / 64 MiB | 8 / 16 GiB | The v5 folder holds 3.03 GiB. |
+| `storageBudgets.maxRowsPerBatch` | 3 | 100 | At 3, `complete` refuses a 126-document package as over the request plan. |
+| `storageBudgets.maxDocuments` | 1,000 | 4,096 | 1,689 documents. |
+| `storageBudgets.maxVerifyObjects` / `maxVerifyBytes` and the case window | 256 / 32 MiB, 1,024 / 128 MiB an hour | 8,192 / 256 MiB, 1,048,576 / 16 GiB an hour | Every evidence build request verifies the package again, and the originals step reads each original once. |
+| `storageBudgets.maxOriginalBytes` = `maxBufferedObjectBytes` | 2 MiB | the orchestrator's choice | An original is verified whole in memory on a 128 MB Worker. Of the 1,753 v5 originals, 117 are over 2 MiB, 35 over 16 MiB and 17 over 32 MiB. Intake refuses an original over the limit, so the import cannot cover it. |
+| `pdfEvidenceBudget` | absent | `NATIVE_PDF_EVIDENCE_CEILINGS` | Without it, every build answers 503 `renderer-unavailable`. A PDF over its `maxFileBytes` (16 MiB) seals as a failed preview, and that blocks sign-off. |
+| `browserAllocation` | B's | B's render plus 122,000 ms × `maxSessionsPerClientPerDay`, plus one browser | The planner refuses an allocation the PDF sessions do not fit (`pdf-evidence-budget.test.ts`). |
+
+The package and import budgets (`maxPackageFiles`, `maxPackageFileBytes`, `maxPackageBytes`, `importBudget`, `storageQuotas.maxPackageBytesPerCase`) are set from the real export's measured file count and largest file before the import. A package file of up to `maxFileBytes` now fits one JSON body (the controller's strict parser takes strings that long).
+
+**3. Intake.** The client uploads the case folder as one file set: `POST /client/intake/[caseId]/sets`, then a declare and a `PUT` per file, then `POST .../sets/[setId]/seal` until it answers 200. The revision id is `subrev-<setId>`.
+
+**4. Staged import.** `POST /operator/results/[caseId]/imports/staged` with the manifest, `POST .../[operationId]/files` in batches planned by `stagedBounds`, then `POST .../[operationId]/complete` until it answers `linked`. Record the `candidateId`.
+
+**5. Evidence.** `POST /operator/publication/[caseId]/evidence` with `{"candidateId": "..."}`, repeated while it answers 202 (`building` or `rendering`). One PDF session per client runs at a time, and each holds its lease for up to 122 s, so space the calls by that much while it answers `rendering` with `render-admission-refused`. A 200 `complete` gives the generation and root. A 409 `leased` means another request holds the run. `{"restart": true}` begins the next generation and is the only way to replace a sealed run. At 1,689 synthetic documents the build took 53 requests.
+
+**6. Readiness.** `GET /operator/publication/[caseId]/readiness?candidateId=...` must answer 200 with `format: clearcase.readiness/2`, the generation and root from step 5, and no blocker other than the META disagreement (`required-section`, `meta:disagrees`), which the owner's acknowledgement clears. A 503 means the run is unsealed, older or does not cover the link: rebuild it with `restart`. Page the warnings with `&kind=warning` for the owner.
+
+Stop here. The owner signs off (acknowledgements grouped by code, including `ASSET_MISSING_AT_BUILD` and `V5_META_COUNT_DISAGREEMENT`) and publishes.

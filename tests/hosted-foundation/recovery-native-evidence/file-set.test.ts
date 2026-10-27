@@ -9,6 +9,7 @@ import { planNativeRestore, applyNativeRestore } from '../../../src/lib/recovery
 import { canonicalJson, encode, sha256Hex } from '../../../src/lib/recovery/hosted/bytes.ts';
 import { fileSetDigest } from '../../../src/lib/submissions/file-set.ts';
 import { world, CASE, CLIENT, type World } from '../recovery-native-adapters/world.ts';
+import { buildFixture } from '../../results-review/native/fixtures.ts';
 import { pdf, setOp, shaOf, submitSet } from '../storage/fixture.ts';
 import { nativeWorld, req, type NativeWorld } from './world.ts';
 
@@ -77,6 +78,19 @@ it('restores a sealed set archive exactly: the staged manifest is the sealed byt
   for (const table of ['submissions_set', 'submissions_set_member', 'submissions_revision', 'submissions_file', 'submissions_upload'])
     expect(back.evidence.tables[table]).toEqual(out.manifest.evidence.tables[table]);
   for (const r of out.manifest.references) expect(await deps.target!.objects.get(`restore/${CLIENT}/${CASE}/${req.exportId}/${r.blob}`)).toEqual(await deps.objects!.get(out.manifestKey.replace('manifest.json', r.blob)));
+});
+
+// A candidate linked to a set: the archive re-derives the submission manifest in the reader's order, the binary order of the
+// path key. These paths sort differently by locale ('a_1' before 'a-1'), so a locale sort would refuse a correct archive.
+it('archives and re-verifies a candidate linked to a sealed set whose paths sort differently by locale', async () => {
+  const w = await nativeWorld(); worlds.push(w);
+  const docs = ['set/a-1.pdf', 'set/a_1.pdf', 'set/b.pdf'].map((path, i) => ({ ref: `OD-10${i}`, path, bytes: pdf(`linked set member ${i}`) }));
+  const revisionId = await submitSet(w, CASE, 'linked', docs);
+  const linked = await w.service.importPackage(w.admitted, { operationId: 'native-set-import', submissionRevisionId: revisionId, files: buildFixture({ caseId: CASE, docs }).files });
+  expect(linked.kind).toBe('linked');
+  const { deps, out, t } = await exported(w);
+  expect(t.native_import_link!.some((l) => l.submission_revision_id === revisionId)).toBe(true);
+  await expect(verifyNativeExport(deps, { ...req, expectedManifestSha256: out.manifestSha256 })).resolves.toBeTruthy();
 });
 
 // The partial-restore class (REVIEW.md): an archive that lacks part of a set, or names a set it does not hold, is refused.

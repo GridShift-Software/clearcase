@@ -84,19 +84,16 @@ describe('the poc package imports in batches and survives a kill at any write', 
     expect(reference.candidate.link.candidate.resultsVersion).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
-  it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])('killed at a random write (seed %i) then resumed equals the uninterrupted import', async (seed) => {
-    const random = rng(seed);
-    const phase = KILL_PHASES[Math.floor(random() * KILL_PHASES.length)]!;
-    const nth = 1 + Math.floor(random() * (phase.includes('r2') ? reference.puts : reference.rowBatches));
+  /** Kills the first process at `kill`, starts a second over the same D1 and R2, resumes, and holds the result to the reference. */
+  async function killedThenResumed(kill: Kill) {
     const durable = new Durable();
-    const dead = await startProcess(options(durable, new RecordingStager(), { phase, nth }));
+    const dead = await startProcess(options(durable, new RecordingStager(), kill));
     await expect(drive(dead, poc)).rejects.toSatisfy((e) => e instanceof Killed || (e as { cause?: unknown })?.cause instanceof Killed || /killed|storage-unavailable/i.test(String((e as Error).message) + String((e as { code?: string }).code)));
 
     // A new process over the same D1 and R2: status says what is missing; only that is sent.
     const stager = new RecordingStager();
     const alive = await startProcess(options(durable, stager));
-    const before = durable.stagedPuts.length;
-    const out = await drive(alive, poc, { open: true });
+    const out = await drive(alive, poc);
     const candidate = linked(out.done);
 
     expect(candidate.link.candidate.resultsVersion).toBe(reference.candidate.link.candidate.resultsVersion);
@@ -107,9 +104,18 @@ describe('the poc package imports in batches and survives a kill at any write', 
     expect(rowCount(durable)).toBe(poc.files.size - 1);
     expect(new Set(durable.stagedPuts).size).toBe(durable.stagedPuts.length);
     expect(durable.stagedPuts.length).toBe(reference.puts);
-    expect(durable.stagedPuts.length - before).toBeLessThanOrEqual(reference.puts);
     expect(durable.db.rows('SELECT 1 FROM native_candidate').length).toBe(1);
+  }
+
+  it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])('killed at a random write (seed %i) then resumed equals the uninterrupted import', async (seed) => {
+    const random = rng(seed);
+    const phase = KILL_PHASES[Math.floor(random() * KILL_PHASES.length)]!;
+    await killedThenResumed({ phase, nth: 1 + Math.floor(random() * (phase.includes('r2') ? reference.puts : reference.rowBatches)) });
   }, 120_000);
+
+  it('survives a kill at every single R2 put and every single D1 row batch', async () => {
+    for (const phase of KILL_PHASES) for (let nth = 1; nth <= (phase.includes('r2') ? reference.puts : reference.rowBatches); nth++) await killedThenResumed({ phase, nth });
+  }, 600_000);
 
   it('a second complete answers the same candidate without staging again', async () => {
     const durable = new Durable();
@@ -120,6 +126,20 @@ describe('the poc package imports in batches and survives a kill at any write', 
     expect(again).toMatchObject({ kind: 'linked', repeated: true });
     expect(linked(again).candidateId).toBe(first.candidateId);
     expect(stager.calls).toBe(1);
+  });
+
+  it('a complete that fails at the stager is retried from the staged bytes alone, with no file sent again', async () => {
+    class FlakyStager extends RecordingStager { failures = 1; override async stage(a: Parameters<RecordingStager['stage']>[0]) { if (this.failures-- > 0) throw Object.assign(new Error('storage-unavailable'), { code: 'storage-unavailable', retryable: true }); return super.stage(a); } }
+    const durable = new Durable();
+    const stager = new FlakyStager();
+    const p = await startProcess(options(durable, stager));
+    await expect(drive(p, poc)).rejects.toMatchObject({ code: 'storage-unavailable' });
+    const putsBefore = durable.stagedPuts.length, rowsBefore = rowCount(durable);
+    const retry = await startProcess(options(durable, stager));
+    const out = await retry.service.staged!.complete(retry.token, { operationId: OP });
+    expect(JSON.stringify(linked(out))).toBe(JSON.stringify(reference.candidate));
+    expect(durable.stagedPuts.length).toBe(putsBefore);
+    expect(rowCount(durable)).toBe(rowsBefore);
   });
 
   it('refuses a file whose bytes do not match the manifest, writes nothing of that batch, and holds the import', async () => {
@@ -158,6 +178,15 @@ describe('the poc package imports in batches and survives a kill at any write', 
     // The right bytes then go through, and the import finishes as any other.
     const out = await drive(p, poc, { open: false });
     expect(linked(out.done).link.candidate.resultsVersion).toBe(reference.candidate.link.candidate.resultsVersion);
+  });
+
+  it('refuses to open against a submission that is not a finalized one of the case, before anything is stored', async () => {
+    const durable = new Durable();
+    const p = await startProcess(options(durable));
+    const out = await p.service.staged!.open(p.token, { operationId: OP, submissionRevisionId: 'subrev-unknown', manifest: poc.files.get('manifest.json')! });
+    expect(out).toMatchObject({ kind: 'refused', code: 'submission-not-found' });
+    expect(durable.db.rows('SELECT 1 FROM native_import_session')).toHaveLength(0);
+    expect(durable.r2.objects.size).toBe(0);
   });
 
   it('refuses a manifest that is not the package it names', async () => {

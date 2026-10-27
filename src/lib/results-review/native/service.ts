@@ -177,7 +177,8 @@ export function createNativeResultsImport(ports: NativeImportPorts | null): Nati
   // The chunked import shares this service's authority, fences and link path; it adds only acceptance in verified batches.
   let service: NativeResultsImport;
   const staged = ports.staging ? createStagedImport({ clientId, budget, staging: ports.staging, repository, requestBudget: ports.requestBudget ?? null, now: () => ports.now(),
-    must, observe, fence, fenced, answer, importPackage: (a, r) => service.importPackage(a, r), repeated }) : null;
+    must, observe, fence, fenced, answer, importPackage: (a, r) => service.importPackage(a, r), repeated,
+    submissionRefusal: async (caseId, revisionId) => { const s = await snapshotOf(caseId, revisionId); return isOutcome(s) && s.kind === 'refused' ? s : null; } }) : null;
 
   return service = {
     admit, budget, clientId, correctionsAvailable: ports.packages !== null, staged,

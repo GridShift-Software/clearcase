@@ -254,14 +254,14 @@ User notes, registers, selections and preparation material (the v5 browser store
 
 ## Bounds
 
-All bounds are in `limits.ts` (`LIMITS`); callers may lower them per import (`options.limits`). Each has at least 10 times headroom over the v5 sample.
+All bounds are in `limits.ts` (`LIMITS`); callers may lower them per import (`options.limits`). Each has at least 10 times headroom over the v5 sample. The file, manifest and byte bounds were raised on 27 October 2026 for a v5-sized export with a PDF preview per document and per extracted attachment (about 3,050 files); see [the chunked import](acceptance/native-staged-import.md#the-reviewed-ceiling).
 
 | Bound | Value | v5 sample |
 | --- | --: | --: |
-| `manifest.json` | 1 MiB | 12 KB |
+| `manifest.json` | 4 MiB | 12 KB |
 | any listed file | 64 MiB | 1.8 MB |
-| all listed files | 512 MiB | 6.2 MB |
-| files in a package (incl. manifest) / datasets | 1,024 / 512 | 36 / 34 |
+| all listed files | 2 GiB | 6.2 MB |
+| files in a package (incl. manifest) / datasets | 8,192 / 512 | 36 / 34 |
 | JSON nesting | 32 containers | 9 |
 | string | 1 Mi UTF-16 units | 4,000 |
 | keys per object / items per array / values per file | 100,000 / 1,000,000 / 20,000,000 | 481 / 1,745 / — |
@@ -272,7 +272,7 @@ All bounds are in `limits.ts` (`LIMITS`); callers may lower them per import (`op
 | listed diagnostics per code | 2,000 (rest counted, all fingerprinted) | 910 |
 | original / unique referenced originals | 8 GiB / 32 GiB | 1.85 GB in total |
 | validation deadline | 120 s | about 1.3 s warm |
-| zip: entries / per entry / expanded total / ratio above 1 MiB | 1,024 / 64 MiB / 512 MiB / 100:1 | — |
+| zip: entries / per entry / expanded total / ratio above 1 MiB | 8,192 / 64 MiB / 2 GiB / 100:1 | — |
 
 Exceeding a bound is an error with an actionable message, before activation and, for originals, before hashing.
 

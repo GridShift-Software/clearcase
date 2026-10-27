@@ -28,7 +28,7 @@ import type { Verdict } from '../../../src/lib/case-package/candidate.ts';
 import { canonicalBytes } from '../../../src/lib/case-package/canonical.ts';
 import type { Code } from '../../../src/lib/case-package/codes.ts';
 import { sha256Hex } from '../../../src/lib/case-package/hash.ts';
-import type { Limits } from '../../../src/lib/case-package/limits.ts';
+import { LIMITS, type Limits } from '../../../src/lib/case-package/limits.ts';
 import { mediaTypeForName } from '../../../src/lib/case-package/media.ts';
 import { isSafeAppHref } from '../../../src/lib/case-package/render.ts';
 import { buildPackage, type DatasetSpec } from '../../../src/lib/case-package/writer.ts';
@@ -233,7 +233,7 @@ export const PACKAGE_CASES: Record<string, PackageCase[]> = {
     pc('count-lie', 'envelope count disagrees with the records', (b) => editPackage(b, W, (v) => { v.count = 5; }), 'reject', ['DS_COUNT_MISMATCH']),
     pc('package-files-bound', 'more listed files than the bound', (b) => b, 'reject', ['PKG_TOO_MANY_FILES'], { limits: { packageFiles: 10 } }),
     pc('package-bytes-bound', 'more bytes than the bound', (b) => b, 'reject', ['PKG_TOO_LARGE'], { limits: { packageBytes: 4096 } }),
-    pc('manifest-too-large', 'manifest above 1 MiB', (b) => { const o = new Map(b); o.set('manifest.json', utf8(' '.repeat(1024 * 1024 + 1))); return o; }, 'reject', ['PKG_TOO_LARGE'], { only: true }),
+    pc('manifest-too-large', 'manifest above the 4 MiB bound', (b) => { const o = new Map(b); o.set('manifest.json', utf8(' '.repeat(LIMITS.manifestBytes + 1))); return o; }, 'reject', ['PKG_TOO_LARGE'], { only: true }),
   ],
   'schema-version': [
     pc('future-major', 'formatVersion 2', (b) => manifest(b, (m) => { m.formatVersion = 2; }), 'reject', ['VER_UNSUPPORTED'], { only: true }),

@@ -20,12 +20,18 @@ const root = path.join(import.meta.dirname, '../../..');
 export const STAGING_MIGRATION = path.join(root, 'src/lib/results-review/native/migrations/0002_native_import_staging.sql');
 export const STAGED_MIGRATIONS: readonly string[] = [...MIGRATIONS, STAGING_MIGRATION];
 
-/** The synthetic poc corpus (`fixtures:generate --profile poc`), generated once outside /tmp and the checkout. */
+/**
+ * The synthetic poc corpus (`fixtures:generate --profile poc`), generated once outside /tmp and the checkout. The gate uses 60
+ * documents (the same 37 package files, a smaller chronology); the acceptance run sets CLEARCASE_POC_DOCUMENTS=1689 for the full
+ * v5-sized corpus, optionally with CLEARCASE_POC_DIR for where it lives (the corpus is about 1.8 GB).
+ */
 export async function pocPackage(): Promise<{ caseId: string; files: Map<string, Uint8Array> }> {
-  const dir = process.env.CLEARCASE_POC_DIR ?? path.join(os.homedir(), '.cache', 'clearcase-rx27', 'poc');
+  const documents = Number(process.env.CLEARCASE_POC_DOCUMENTS ?? 60);
+  const cache = path.join(process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), '.cache'), 'clearcase-rx27');
+  const dir = process.env.CLEARCASE_POC_DIR ?? path.join(cache, `poc-${documents}`);
   try { statSync(path.join(dir, 'pkg', 'manifest.json')); } catch {
     mkdirSync(path.dirname(dir), { recursive: true });
-    await generateCorpus({ out: dir, seed: '20261017', documents: 1689, profile: 'poc' });
+    await generateCorpus({ out: dir, seed: '20261017', documents, profile: 'poc' });
   }
   const files = new Map<string, Uint8Array>();
   const walk = (rel: string) => {

@@ -97,11 +97,14 @@ async function imported(s: Awaited<ReturnType<typeof setup>>) {
   return { ports, publication: ports.publication, reader: ports.publication.candidates, result, scope: { clientId: ids.clientA, caseId, candidateId: result.candidate.candidateId } };
 }
 
+// The default manifest bound before the 8,192-file ceiling raised it to 4 MiB: this test needs a bound a cheap manifest can exceed.
+const OLD_MANIFEST_BYTES = 1 << 20;
+
 describe('composed import and publication share effective validation policy', () => {
   it('reads a genuine immutable >1 MiB manifest imported under an explicit 2 MiB file budget, still renderer-held', async () => {
     const budgets = { ...BUDGETS, maxPackageFileBytes: 2 << 20 };
     const s = await setup(700_000, budgets);
-    expect(s.manifestBytes.byteLength).toBeGreaterThan(LIMITS.manifestBytes);
+    expect(s.manifestBytes.byteLength).toBeGreaterThan(OLD_MANIFEST_BYTES);
     expect(s.manifestBytes.byteLength).toBeLessThan(budgets.maxPackageFileBytes);
     const observed = vi.spyOn(validation, 'validateHostedPackage'); // observe calls; run the genuine validator unchanged
     const { publication, reader, result, scope } = await imported(s);
@@ -112,7 +115,7 @@ describe('composed import and publication share effective validation policy', ()
     const before = s.db.rows<{ verdict: string; validator_version: string; diagnostics_sha256: string; warning_fingerprints: string }>('SELECT * FROM rs_results_version');
     // The old policy really is incompatible with the successfully linked immutable candidate.
     const old = createPublicationMaterialReader({ db: s.db, bucket: s.w.bucket, clientId: ids.clientA, identity: s.identity,
-      storageBudgets: budgets, validationLimits: { ...LIMITS }, renderChecker: null, audit: s.w.config.audit, now: s.w.config.now })!;
+      storageBudgets: budgets, validationLimits: { ...LIMITS, manifestBytes: OLD_MANIFEST_BYTES }, renderChecker: null, audit: s.w.config.audit, now: s.w.config.now })!;
     await expect(old.read(scope)).rejects.toMatchObject({ code: 'integrity' });
     observed.mockClear();
     const snapshot = checkSnapshot(await reader.read(scope));

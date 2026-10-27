@@ -111,8 +111,10 @@ describe('the chunked import over HTTP', () => {
     await world();
     expect((await call('open', 'POST', root, { caseId: 'case-a' }, { body: { operationId: OP, submissionRevisionId: REVISION, manifest } })).status).toBe(201);
     expect((await call('open', 'POST', root, { caseId: 'case-a' }, { body: { operationId: OP, submissionRevisionId: REVISION, manifest } })).json).toMatchObject({ repeated: true });
-    const other = await call('open', 'POST', root, { caseId: 'case-a' }, { body: { operationId: OP, submissionRevisionId: 'subrev-other', manifest } });
+    const different = buildFixture({ docs: [doc], matter: { title: 'Another matter' } });
+    const other = await call('open', 'POST', root, { caseId: 'case-a' }, { body: { operationId: OP, submissionRevisionId: REVISION, manifest: text(different.files.get('manifest.json')!) } });
     expect(other).toMatchObject({ status: 409, json: { code: 'operation-reused' } });
+    expect((await call('open', 'POST', root, { caseId: 'case-a' }, { body: { operationId: OP, submissionRevisionId: 'subrev-other', manifest } })).json.code).toBe('submission-not-found');
   });
 });
 

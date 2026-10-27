@@ -49,6 +49,8 @@ const STAGED_REFUSAL: Record<StagedRefusalCode, [number, string]> = {
   'batch-too-large': [413, 'This batch is more than one request may carry.'],
   'incomplete': [409, 'The staged import is missing files.'],
   'over-budget': [413, 'This is more work than one request on this deployment may do.'],
+  'submission-not-found': [404, 'No such finalized submission in this case.'],
+  'submission-not-finalized': [409, 'The submission is not finalized.'],
 };
 
 function authorityRefusal(e: unknown, access: 'read' | 'write'): never {

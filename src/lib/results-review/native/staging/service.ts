@@ -10,7 +10,7 @@ import type { StagingPorts, StagingSession } from './ports.ts';
 
 export type StagedRefusalCode =
   | 'invalid-request' | 'package-invalid' | 'wrong-case' | 'too-large' | 'operation-reused' | 'session-not-found'
-  | 'file-not-in-manifest' | 'file-mismatch' | 'batch-too-large' | 'incomplete' | 'over-budget';
+  | 'file-not-in-manifest' | 'file-mismatch' | 'batch-too-large' | 'incomplete' | 'over-budget' | 'submission-not-found' | 'submission-not-finalized';
 export interface StagedRefused { kind: 'refused'; code: StagedRefusalCode; detail: readonly string[] }
 export interface StagedProgress {
   kind: 'progress';
@@ -50,6 +50,8 @@ export interface StagedDeps {
   fenced<T>(a: AdmittedOperator, f: () => Promise<T>): Promise<T>;
   answer<T>(a: AdmittedOperator, out: T): Promise<T>;
   importPackage(a: AdmittedOperator, r: ImportRequest): Promise<ImportOutcome>;
+  /** The refusal the one-request import gives for a submission revision that is not a finalized one of this case, or null when it is. */
+  submissionRefusal(caseId: CaseId, revisionId: string): Promise<{ code: string; detail: readonly string[] } | null>;
   repeated(a: AdmittedOperator, existing: Awaited<ReturnType<NativeCandidateRepository['byOperation']>> & object): Promise<ImportOutcome>;
 }
 
@@ -107,6 +109,9 @@ export function createStagedImport(d: StagedDeps): StagedImport {
       const checked = checkManifest(r.manifest, a.caseId, limits());
       if (!checked.ok) return d.answer(a, refuse(checked.code, ...checked.detail));
       const m = checked.value;
+      // Learn that the submission cannot be linked before any byte is sent, not at completion.
+      const gone = await d.submissionRefusal(a.caseId, r.submissionRevisionId);
+      if (gone) return d.answer(a, refuse(gone.code === 'submission-not-finalized' ? 'submission-not-finalized' : 'submission-not-found', ...gone.detail));
       const requestSha256 = await sha256Canonical({ kind: 'staged-import', submissionRevisionId: r.submissionRevisionId, manifestSha256: m.manifestSha256 });
       // The manifest object first, then the session row: a session always has its manifest.
       await d.observe(a);

@@ -33,8 +33,8 @@ Defaults and merging come from the existing [results-package bounds](../../resul
 
 | Active bound | Default |
 | --- | ---: |
-| `manifestBytes` / `fileBytes` / `packageBytes` | 1 / 64 / 512 MiB |
-| `packageFiles` / `datasets` / `assets` | 1,024 / 512 / 500,000 |
+| `manifestBytes` / `fileBytes` / `packageBytes` | 4 MiB / 64 MiB / 2 GiB |
+| `packageFiles` / `datasets` / `assets` | 8,192 / 512 / 500,000 |
 | `originalBytes` / `originalsTotalBytes` | 8 / 32 GiB |
 | `diagnosticsPerCode` | 2,000 listed; all instances fingerprinted |
 | `parentDepth` | 4 |

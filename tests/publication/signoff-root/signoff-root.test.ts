@@ -103,6 +103,7 @@ describe('the evidence root is checked again at publish', () => {
   it('refuses a row added to the sealed generation after sign-off', async () => {
     const w = await world();
     const signed = await w.signOff();
+    await w.freezeSnapshot();
     w.db.exec(`INSERT INTO pub_evidence_item (candidate_id, generation, item_key, item_json) VALUES ('${CANDIDATE}', '1', 'warning/${'f'.repeat(32)}', '{"input":{},"observation":{"kind":"warning","fingerprint":"${'f'.repeat(32)}"}}')`);
     const refused = await w.publish(signed.body.signoffId as string);
     expect(refused).toMatchObject({ status: 409, body: { code: 'signoff-stale', reason: 'candidate-changed' } });
@@ -112,6 +113,7 @@ describe('the evidence root is checked again at publish', () => {
   it('refuses a row that appears after the last recheck and before the pointer write', async () => {
     const w = await world();
     const signed = await w.signOff();
+    await w.freezeSnapshot();
     w.db.beforeBatch = () => w.db.exec(`INSERT INTO pub_evidence_item (candidate_id, generation, item_key, item_json) VALUES ('${CANDIDATE}', '1', 'warning/${'e'.repeat(32)}', '{}')`);
     const refused = await w.publish(signed.body.signoffId as string);
     expect(refused.status).toBe(409);
@@ -144,7 +146,7 @@ describe('the evidence root is checked again at publish', () => {
     w.flipSnapshotToV1();
     expect(await w.publish(signed.body.signoffId as string)).toMatchObject({ status: 409, body: { code: 'signoff-stale' } });
     const bare = await world();
-    delete (bare.ports as { evidence?: unknown }).evidence;
+    delete (bare.ports as { signoffEvidence?: unknown }).signoffEvidence;
     expect((await bare.signOff()).status).toBe(503);
     expect(CASE).toBeTruthy();
   });

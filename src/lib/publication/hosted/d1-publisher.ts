@@ -37,6 +37,24 @@ function decode(value: unknown): PublicationApplyReceipt {
 }
 const same = (a: PublicationIntent, b: PublicationIntent) => canonical(a) === canonical(b);
 
+// Snapshot v2 (real-export design 2): the pointer is written only while the sign-off's evidence row, the sealed run it names and the
+// rows that run holds still agree, decided in the same transaction as the write. A guard that fails inserts nothing; no trigger names it.
+// This is the metadata half of `verifyEvidence` in SQL: the run is complete, bound to the sign-off's candidate, results version and
+// manifest, carries the signed root, and holds exactly the rows its pages cover with the greatest key its build ended on. The
+// recomputation of the root from the rows themselves is the controller's recheck, made just before this batch.
+const EVIDENCE_GUARD = `WHERE EXISTS (
+  SELECT 1 FROM pub_signoff s
+  JOIN pub_signoff_evidence e ON e.signoff_id = s.signoff_id AND e.candidate_id = s.candidate_id
+  JOIN pub_evidence_run r ON r.candidate_id = e.candidate_id AND r.generation = e.generation
+  WHERE s.signoff_id = ? AND s.client_id = ? AND s.case_id = ? AND e.generation = ? AND e.evidence_root = ?
+    AND r.state = 'complete' AND r.evidence_root = e.evidence_root AND r.client_id = s.client_id AND r.case_id = s.case_id
+    AND r.results_version = s.results_version AND r.manifest_sha256 = s.manifest_sha256
+    AND json_extract(r.cursor, '$.done') = 1 AND json_extract(r.cursor, '$.inPage') = 0
+    AND json_extract(r.cursor, '$.pages') = (SELECT count(*) FROM pub_evidence_page p WHERE p.candidate_id = r.candidate_id AND p.generation = r.generation)
+    AND (SELECT count(*) FROM pub_evidence_item i WHERE i.candidate_id = r.candidate_id AND i.generation = r.generation)
+      = (SELECT coalesce(sum(p.item_count), 0) FROM pub_evidence_page p WHERE p.candidate_id = r.candidate_id AND p.generation = r.generation)
+    AND (SELECT max(i.item_key) FROM pub_evidence_item i WHERE i.candidate_id = r.candidate_id AND i.generation = r.generation) IS json_extract(r.cursor, '$.last'))`;
+
 /**
  * SQL, not a process lock, serializes the current grant, sign-off, candidate generation, expected pointer and receipt.
  * Migration 0002_atomic_publication.sql owns those predicates and the pointer-writing receipt trigger.
@@ -74,10 +92,15 @@ export function d1PublicationPublisher(options: D1PublicationOptions): StoragePu
     if (prior) return same(prior.intent, intent) ? { kind: 'applied', repeated: true } : { kind: 'refused', reason: 'intent-mismatch' };
 
     const primary = db.withSession('first-primary');
-    const insert = primary.prepare(`INSERT INTO pub_apply_receipt
+    const evidence = kind === 'publish' ? intent.signedIdentity?.evidence : undefined;
+    const receiptValues = [intent.operationId, clientId, intent.caseId, canonical(intent), authority.principal.issuer, authority.principal.subject, authority.principal.kind, authority.sessionId];
+    const insert = evidence && intent.signoffId
+      ? primary.prepare(`INSERT INTO pub_apply_receipt
       (operation_id, client_id, case_id, intent_json, authority_issuer, authority_subject, authority_kind, authority_session_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(intent.operationId, clientId, intent.caseId, canonical(intent), authority.principal.issuer, authority.principal.subject, authority.principal.kind, authority.sessionId);
+      SELECT ?, ?, ?, ?, ?, ?, ?, ? ${EVIDENCE_GUARD}`).bind(...receiptValues, intent.signoffId, clientId, intent.caseId, evidence.generation, evidence.root)
+      : primary.prepare(`INSERT INTO pub_apply_receipt
+      (operation_id, client_id, case_id, intent_json, authority_issuer, authority_subject, authority_kind, authority_session_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(...receiptValues);
     const readback = primary.prepare('SELECT intent_json FROM pub_apply_receipt WHERE client_id = ? AND case_id = ? AND operation_id = ?')
       .bind(clientId, intent.caseId, intent.operationId);
     // Recheck errors are outside the storage catch. Preserve the controller's private Refusal object unchanged.
@@ -95,6 +118,12 @@ export function d1PublicationPublisher(options: D1PublicationOptions): StoragePu
     try {
       const result = await primary.batch([insert, readback]);
       const last = result[1] as { results?: { intent_json?: unknown }[] } | undefined;
+      if (evidence && !last?.results?.[0]) {
+        // The guard inserted nothing. Another isolate may have won this very operation; otherwise the evidence moved after the recheck.
+        const raced = await receipt(key);
+        if (raced) return same(raced.intent, intent) ? { kind: 'applied', repeated: true } : { kind: 'refused', reason: 'intent-mismatch' };
+        return { kind: 'guard-refused', reason: 'signoff-stale' };
+      }
       const saved = decode(last?.results?.[0]?.intent_json);
       if (!same(saved.intent, intent)) return unavailable();
       return { kind: 'applied', repeated: false };

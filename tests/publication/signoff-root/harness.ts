@@ -40,7 +40,8 @@ export class Sqlite {
   readonly batches: string[][] = [];
   beforeBatch: (() => void) | null = null;
   failReads: RegExp | null = null;
-  constructor(readonly sqlite: DatabaseSync) {}
+  readonly sqlite: DatabaseSync;
+  constructor(sqlite: DatabaseSync) { this.sqlite = sqlite; }
   withSession(_: 'first-primary') { return this; }
   prepare(sql: string) {
     const db = this;
@@ -127,8 +128,9 @@ export async function world(options: Options = {}) {
   for (let n = 0; n < (options.baseline ?? 10); n++) insert(db, 'rs_trusted_fingerprint', { case_id: CASE, fingerprint: fp(n) });
 
   const reader = d1EvidenceReader(db);
-  let flipV1 = false;
+  let flipV1 = false, frozen: unknown = null;
   const snapshot = async (): Promise<unknown> => {
+    if (frozen) return structuredClone(frozen);
     const revision = await d1PublicationSnapshotRevision(db, { clientId: CLIENT, caseId: CASE, candidateId: CANDIDATE });
     const summary = await reader.summary({ clientId: CLIENT, caseId: CASE, candidateId: CANDIDATE, generation: GENERATION });
     if (!revision || !summary) throw new Error('no snapshot');
@@ -148,10 +150,10 @@ export async function world(options: Options = {}) {
   const checks: unknown[] = [];
   const ledger = d1PublicationLedger(db, { evidence: options.evidence ?? true });
   const publisher = d1PublicationPublisher({ db, clientId: CLIENT, checkSession: async authority => { checks.push(authority); } });
-  const ports: NativePublicationPorts & { evidence?: unknown } = { clientId: CLIENT, authorize: async () => {}, candidates: { read: async () => snapshot() }, publisher, ledger,
+  const ports: NativePublicationPorts = { clientId: CLIENT, authorize: async () => {}, candidates: { read: async () => snapshot() }, publisher, ledger,
     audit: { append: async e => { if (!events.some(p => p.eventId === e.eventId)) events.push(structuredClone(e)); return { eventId: e.eventId }; } }, now: () => new Date(NOW),
-    evidence: { reader, store } };
-  const controller = createNativePublication(ports as NativePublicationPorts);
+    signoffEvidence: { reader, store } };
+  const controller = createNativePublication(ports);
 
   const identity: Identity = { kind: 'verified', clientId: CLIENT, principal: PRINCIPAL, sessionId: SESSION, checkRevocation: async () => {}, authorize: async () => {} };
   const request = (route: 'signoffs' | 'publish', body: unknown): PublicationRequest => {
@@ -183,5 +185,7 @@ export async function world(options: Options = {}) {
   const signoffRow = (signoffId: string) => db.rows<Record<string, string | null>>('SELECT * FROM pub_signoff WHERE signoff_id = ?', signoffId)[0]!;
 
   return { raw, db, items, binding, store, reader, root, ports, controller, request, signOff, publish, pointer, receipts, signoffRow, groups, fresh, current, claimed, events, checks, read,
-    flipSnapshotToV1: () => { flipV1 = true; } };
+    flipSnapshotToV1: () => { flipV1 = true; },
+    /** The candidate reader keeps answering with the snapshot it gives now: a reader that cached, or read before the change. */
+    freezeSnapshot: async () => { frozen = await snapshot(); } };
 }

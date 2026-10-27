@@ -1,6 +1,7 @@
 import type { AuditEvent, AuditSink, CaseId, ClientId, Principal, ResultsVersion, SessionId } from '../../server/runtime/contracts.ts';
 import type { PreviewNavigationObservation, PreviewReasonCode, PreviewRenderStage } from './preview-outcome.ts';
 import type { ImportLinkSignoffBinding } from '../../server/runtime/hosted/alpha-contracts.ts';
+import type { PublicationEvidence } from './signoff-evidence.ts';
 
 // Native exact-version sign-off and publication (ADR-0010). Ports only: the parent composition supplies each one from
 // trusted configuration. A missing port answers 503; nothing here supplies a default, a double, an allow or a role.
@@ -167,7 +168,13 @@ export interface StoragePublisher {
  */
 export type AuthorizePublication = (a: { principal: Principal; sessionId: SessionId; caseId: CaseId; capability: 'publish' }) => Promise<void>;
 
-export interface SignoffAcknowledgement { readonly fingerprint: string; readonly reason: string }
+/**
+ * One acknowledged warning and its reason. `code` is the diagnostic code of the group the publisher acknowledged it under (snapshot v2
+ * only); a v1 acknowledgement has none. Warning evidence rows carry fingerprints only, so a code is recorded, not cross-checked.
+ */
+export interface SignoffAcknowledgement { readonly fingerprint: string; readonly reason: string; readonly code?: string }
+/** The sealed evidence run a v2 sign-off binds. `candidateId` is read back from the stored row and must equal the sign-off's own. */
+export interface SignoffEvidence { readonly candidateId: string; readonly generation: string; readonly root: string }
 /** The exact identity a sign-off binds; every field is compared again before publication. */
 export interface SignoffIdentity {
   readonly candidateId: string;
@@ -180,6 +187,8 @@ export interface SignoffIdentity {
   readonly diagnosticsSha256: string;
   readonly validatorVersion: string;
   readonly snapshotRevision: string;
+  /** Snapshot v2 only: the evidence root the sign-off binds. Absent on a v1 sign-off, whose identity is exactly what it always was. */
+  readonly evidence?: SignoffEvidence;
 }
 export interface SignoffRecord extends SignoffIdentity {
   readonly signoffId: string;
@@ -244,5 +253,11 @@ export interface NativePublicationPorts {
   readonly publisher: StoragePublisher | null;
   readonly ledger: PublicationLedger | null;
   readonly audit: AuditSink | null;
+  /**
+   * Snapshot v2 only: where sign-off and publish check the sealed evidence run (`signoff-evidence.ts`). Without it a v2 candidate
+   * answers 503. The ledger must be composed with `{ evidence: true }` too, once migration 0005 is applied. (Readiness takes its own
+   * `evidence` reader; this one also carries the store, so it is a separate port.)
+   */
+  readonly signoffEvidence?: PublicationEvidence | null;
   now(): Date;
 }

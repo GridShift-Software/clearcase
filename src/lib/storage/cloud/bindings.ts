@@ -33,6 +33,11 @@ export interface CloudR2 {
   put(key: string, value: Uint8Array, options: { sha256: string; onlyIf?: { etagDoesNotMatch: '*' } }): Promise<CloudR2Head | null>;
   /** Removes an object; an absent key is not an error (R2's `delete`). Present on the real bucket; only the staged-object sweep calls it. */
   delete?(key: string): Promise<void>;
+  /**
+   * Keys under `prefix` after `startAfter`, in key order, at most `limit` (R2's `list`, which caps a page at 1,000). Present on the real
+   * bucket; only the staged-object sweep calls it.
+   */
+  list?(options: { prefix: string; startAfter?: string; limit: number }): Promise<{ objects: { key: string }[]; truncated: boolean }>;
 }
 export interface CloudBindings { db: CloudD1; bucket: CloudR2 }
 

@@ -3,6 +3,7 @@ import { inputRevisionId, resultsVersionOf, sha256Hex } from '../../../case-pack
 import { FORMAT, FORMAT_VERSION, Manifest } from '../../../case-package/schema.ts';
 import { decodeUtf8Strict, isObject, parseStrictJson } from '../../../case-package/strict-json.ts';
 import { packagePathOk } from '../package.ts';
+import { STRUCTURED_FILES } from './steps.ts';
 
 export interface ManifestListing {
   readonly manifest: Manifest;
@@ -42,5 +43,7 @@ export function checkManifest(bytes: Uint8Array, caseId: string, limits: Manifes
   }
   if (listedBytes + bytes.byteLength > limits.maxPackageBytes) return bad('too-large', 'the package is larger than this deployment accepts');
   if (m.files.filter((f) => f.role === 'assets').length !== 1) return bad('package-invalid', 'the package needs exactly one asset index');
+  // A step loads every non-preview file at once, so their number is held to what a package may have before any is read.
+  if (m.files.filter((f) => f.role !== 'preview').length + 1 > STRUCTURED_FILES) return bad('too-large', `the package lists more datasets than a package may have (${STRUCTURED_FILES - 2})`);
   return { ok: true, value: { manifest: m, manifestSha256: sha256Hex(bytes), files, listedBytes } };
 }

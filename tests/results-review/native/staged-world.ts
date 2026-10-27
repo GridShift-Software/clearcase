@@ -99,6 +99,7 @@ class ChaosR2 implements CloudR2 {
   constructor(d: Durable, kill: Kill | null) { this.d = d; this.kill = kill; }
   head(key: string): Promise<CloudR2Head | null> { this.d.counts.r2++; return this.d.r2.head(key); }
   get(key: string): Promise<CloudR2Body | null> { this.d.counts.r2++; return this.d.r2.get(key); }
+  list(o: { prefix: string; startAfter?: string; limit: number }) { this.d.counts.r2++; return this.d.r2.list(o); }
   async delete(key: string): Promise<void> {
     this.d.counts.r2++;
     this.d.deletes.push(key);

@@ -90,7 +90,7 @@ export class Durable {
   readonly clock = { ms: 1_000_000 };
   /** Milliseconds every bucket call takes on the shared clock: how a test makes wall time pass. */
   tick = 0;
-  readonly counts = { puts: 0, batches: 0, d1: 0, gets: 0, heads: 0, deletes: 0, bytesRead: 0, originalGets: 0, wholeStage: 0 };
+  readonly counts = { puts: 0, batches: 0, d1: 0, gets: 0, heads: 0, deletes: 0, lists: 0, bytesRead: 0, originalGets: 0, wholeStage: 0 };
   readonly putKeys: string[] = [];
   constructor(caseId: string) {
     this.caseId = caseId;
@@ -130,6 +130,7 @@ class ChaosR2 implements CloudR2 {
     return out;
   }
   async delete(key: string): Promise<void> { this.alive(); this.d.counts.deletes++; await this.d.bucket.delete(key); }
+  list(o: { prefix: string; startAfter?: string; limit: number }) { this.alive(); this.d.counts.lists++; return this.d.bucket.list(o); }
 }
 
 class ChaosD1 implements NativeD1, CloudD1 {

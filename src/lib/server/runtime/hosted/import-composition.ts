@@ -24,10 +24,11 @@ export const WORKERS_FREE_REQUEST: Pick<RequestBudget, 'd1' | 'external'> = Obje
  * using the Fetch API or to Cloudflare services like R2, KV, or D1", so R2 and D1 binding calls count; a separate "subrequests to
  * internal services" row is the configured limit, 10,000 by default. D1 limits (developers.cloudflare.com/d1/platform/limits/): 1,000
  * queries per invocation on Paid, a batch counting as one. `d1` keeps 10% of those 1,000 as headroom. `external` counts the identity
- * provider's session checks, which are fetches: it is held under half of the 10,000 so the D1 and R2 calls that share the limit have room
- * even if it is one pool. The import and staging routes use this; every other route has its own budget.
+ * provider's session checks, which are fetches. `subrequests` is the one pool of 10,000 that the D1 queries, the R2 calls and those fetches
+ * share, 10% kept as headroom; a staged step and its link are held to all three. The import and staging routes use this; every other route
+ * has its own budget.
  */
-export const WORKERS_PAID_REQUEST: Pick<RequestBudget, 'd1' | 'external'> = Object.freeze({ d1: 900, external: 4500 });
+export const WORKERS_PAID_REQUEST: Pick<RequestBudget, 'd1' | 'external' | 'subrequests'> = Object.freeze({ d1: 900, external: 4500, subrequests: 9000 });
 
 /** The request's own case authority: the live identity-provider session, then the explicit grant authorizer. */
 export function caseAuthority(a: { identity: Identity; deployment: ClientResourceIdentity; db: D1; audit: AuditSink; now(): Date }) {

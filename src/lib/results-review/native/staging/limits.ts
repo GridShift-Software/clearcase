@@ -11,6 +11,8 @@ export const STAGED_MISSING_LISTED = 512;
 export const STAGED_SESSION_TTL_MS = 7 * 24 * 3600 * 1000;
 /** Staged objects one sweep step deletes. */
 export const STAGED_SWEEP_OBJECTS = 100;
+/** Staged bytes one client's sessions not yet swept may hold together: four GiB. A session's share is its listed files and its manifest. */
+export const STAGED_BYTES_PER_CLIENT = 4 * 1024 * MiB;
 /** JSON framing per file in a batch body: the quoted path (at most 1,024 bytes), a colon, a comma and the base64 quotes. */
 const FRAMING_PER_FILE = 1100;
 const ENVELOPE = 4096;

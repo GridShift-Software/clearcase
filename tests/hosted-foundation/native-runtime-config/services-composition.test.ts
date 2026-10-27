@@ -77,7 +77,7 @@ describe('hostedServices accepts the emitted settings', () => {
 		const { ports, file } = await compose('client-a');
 		const imports = ports!.imports!;
 		const storage = nativeConfigOf(file) as { storageBudgets: { maxRowsPerBatch: number } };
-		expect(imports.requestBudget).toEqual({ d1: 900, external: 4500, rowsPerBatch: storage.storageBudgets.maxRowsPerBatch });
+		expect(imports.requestBudget).toEqual({ d1: 900, external: 4500, subrequests: 9000, rowsPerBatch: storage.storageBudgets.maxRowsPerBatch });
 		expect(imports.staging).not.toBeNull();
 		expect(imports.stepped).not.toBeNull();
 		expect(imports.stepped!.bounds.stepsPerRequest).toBeGreaterThanOrEqual(1);

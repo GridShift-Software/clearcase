@@ -87,12 +87,12 @@ describe('0006 chunked-import staging increment', () => {
     expect(() => db.exec(`INSERT OR REPLACE INTO native_import_stage_fact (client_id,case_id,operation_id,epoch,pass,key,value) VALUES ('client','case','op1',1,'a','K1','{"x":2}')`)).toThrow();
     expect(() => db.exec(`UPDATE native_import_stage_fact SET value='{}'`)).toThrow();
     expect(() => db.exec(`DELETE FROM native_import_stage_fact`)).toThrow();
-    db.exec(`INSERT INTO native_import_cleanup (client_id,case_id,operation_id,reason,after_path,swept,state,started_at,finished_at) VALUES ('client','case','op1','complete','',0,'sweeping','2026-10-27T00:00:00Z',NULL)`);
-    db.exec(`UPDATE native_import_cleanup SET after_path='datasets/a.json', swept=3 WHERE operation_id='op1'`);
+    db.exec(`INSERT INTO native_import_cleanup (client_id,case_id,operation_id,reason,after_key,swept,state,started_at,finished_at) VALUES ('client','case','op1','complete','',0,'sweeping','2026-10-27T00:00:00Z',NULL)`);
+    db.exec(`UPDATE native_import_cleanup SET after_key='datasets/a.json', swept=3 WHERE operation_id='op1'`);
     db.exec(`UPDATE native_import_cleanup SET state='done', finished_at='2026-10-27T00:01:00Z' WHERE operation_id='op1'`);
     expect(() => db.exec(`UPDATE native_import_cleanup SET state='sweeping' WHERE operation_id='op1'`)).toThrow();
     expect(() => db.exec(`DELETE FROM native_import_cleanup`)).toThrow();
-    expect(() => db.exec(`INSERT INTO native_import_cleanup (client_id,case_id,operation_id,reason,after_path,swept,state,started_at,finished_at) VALUES ('client','case','op1','abandoned','',0,'sweeping','t',NULL)`)).toThrow();
+    expect(() => db.exec(`INSERT INTO native_import_cleanup (client_id,case_id,operation_id,reason,after_key,swept,state,started_at,finished_at) VALUES ('client','case','op1','abandoned','',0,'sweeping','t',NULL)`)).toThrow();
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     db.close();
   });

@@ -18,7 +18,7 @@ import { inspectPackage } from '../../../results-review/native/package.ts';
 import { submissionSnapshotReader } from '../../../results-review/native/submission-reader.ts';
 import { loadStaged, type StagedLoad } from '../../../results-review/native/staging/load.ts';
 import type { StageOutcome } from '../../../results-review/native/ports.ts';
-import { type StagingStatus, type StepBounds, type StepOutcome, type StepPhase, type StepRequest, type SteppedStager } from '../../../results-review/native/staging/steps.ts';
+import { FACT_PAGE, type StagingStatus, type StepBounds, type StepOutcome, type StepPhase, type StepRequest, type SteppedStager } from '../../../results-review/native/staging/steps.ts';
 import { loadVerifiedModel } from '../../../results/hosted/model.ts';
 import { preparePackage, type FileAssetClaim, type OriginalFact, type PreparedPackage } from '../../../results/hosted/project.ts';
 import { readModelDigest } from '../../../results/hosted/read-model.ts';
@@ -72,8 +72,14 @@ const RUN_COLUMNS = 'epoch, phase, cursor, meta, steps';
 const parse = (text: string): Json => JSON.parse(text) as Json;
 const runOf = (r: { epoch: number; phase: string; cursor: string; meta: string; steps: number }): Run => ({ epoch: r.epoch, phase: r.phase as StepPhase, cursorText: r.cursor, cursor: parse(r.cursor), meta: parse(r.meta), steps: r.steps });
 
+/**
+ * Takes the run's lease, starting the run on the first step. A run that is `done` and still has no candidate under its operation finished
+ * staging and was never linked (the request died between the two, or the link failed): its outcome is no longer fresh evidence, because the
+ * originals and stored objects may have changed since. It restarts in a new epoch at `plan`, so every check runs again before a link; the
+ * stored version is found and read back, not written again. A `done` run whose candidate exists answers its outcome.
+ */
 async function claimRun(db: CloudD1, id: Ids, lease: string, nowMs: number, untilMs: number, nowIso: string): Promise<Claim> {
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     const taken = await db.prepare(`UPDATE native_import_stage_run SET lease_id = ?, lease_until_ms = ? WHERE client_id = ? AND case_id = ? AND operation_id = ? AND phase <> 'done' AND lease_until_ms <= ? RETURNING ${RUN_COLUMNS}`)
       .bind(lease, untilMs, id.clientId, id.caseId, id.operationId, nowMs).all<{ epoch: number; phase: string; cursor: string; meta: string; steps: number }>();
     if (taken.results.length === 1) return { kind: 'claimed', run: runOf(taken.results[0]!) };
@@ -85,7 +91,16 @@ async function claimRun(db: CloudD1, id: Ids, lease: string, nowMs: number, unti
         .bind(id.clientId, id.caseId, id.operationId, nowIso, id.clientId, id.caseId, id.operationId).run();
       continue;
     }
-    if (now.phase === 'done') return { kind: 'done', outcome: JSON.parse(now.outcome!) as Staged };
+    if (now.phase === 'done') {
+      const again = await db.prepare(`UPDATE native_import_stage_run SET epoch = epoch + 1, phase = 'plan', cursor = '{}', meta = '{}', outcome = NULL, steps = steps + 1, lease_id = ?, lease_until_ms = ?, updated_at = ?
+          WHERE client_id = ? AND case_id = ? AND operation_id = ? AND phase = 'done'
+            AND NOT EXISTS (SELECT 1 FROM native_candidate WHERE client_id = ? AND case_id = ? AND operation_id = ?) RETURNING ${RUN_COLUMNS}`)
+        .bind(lease, untilMs, nowIso, id.clientId, id.caseId, id.operationId, id.clientId, id.caseId, id.operationId).all<{ epoch: number; phase: string; cursor: string; meta: string; steps: number }>();
+      if (again.results.length === 1) return { kind: 'claimed', run: runOf(again.results[0]!) };
+      const linked = await db.prepare('SELECT 1 AS linked FROM native_candidate WHERE client_id = ? AND case_id = ? AND operation_id = ?').bind(id.clientId, id.caseId, id.operationId).first<{ linked: number }>();
+      if (linked) return { kind: 'done', outcome: JSON.parse(now.outcome!) as Staged };
+      continue;
+    }
     return { kind: 'leased' };
   }
   return { kind: 'leased' };
@@ -112,7 +127,7 @@ async function factCount(db: CloudD1, id: Ids, epoch: number, pass: string): Pro
   const r = await db.prepare('SELECT COUNT(*) AS n FROM native_import_stage_fact WHERE client_id = ? AND case_id = ? AND operation_id = ? AND epoch = ? AND pass = ?').bind(id.clientId, id.caseId, id.operationId, epoch, pass).first<{ n: number }>();
   return r?.n ?? 0;
 }
-async function allFacts(db: CloudD1, id: Ids, epoch: number, pass: string, page = 500) {
+async function allFacts(db: CloudD1, id: Ids, epoch: number, pass: string, page = FACT_PAGE) {
   const out: { key: string; value: Json }[] = [];
   for (let after = ''; ;) {
     const rows = await factPage(db, id, epoch, pass, after, page);

@@ -80,13 +80,15 @@ CREATE TABLE IF NOT EXISTS native_import_stage_fact (
   FOREIGN KEY (client_id, case_id, operation_id) REFERENCES native_import_session (client_id, case_id, operation_id)
 );
 
--- The sweep of a finished or abandoned import's staged objects, in bounded steps. `after_path` is the last staged file already dealt with.
+-- The sweep of a finished or abandoned import's staged objects, in bounded steps over a listing of the operation's own key prefix, so an
+-- object written before its row is found too. `after_key` is the last listed name already dealt with. The row is also the tombstone every
+-- writer of the operation honours: once it exists no file is accepted under the operation, and a writer that lost the race deletes its own.
 CREATE TABLE IF NOT EXISTS native_import_cleanup (
   client_id TEXT NOT NULL,
   case_id TEXT NOT NULL,
   operation_id TEXT NOT NULL,
   reason TEXT NOT NULL CHECK (reason IN ('complete', 'abandoned')),
-  after_path TEXT NOT NULL,
+  after_key TEXT NOT NULL,
   swept INTEGER NOT NULL CHECK (swept >= 0),
   state TEXT NOT NULL CHECK (state IN ('sweeping', 'done')),
   started_at TEXT NOT NULL,
@@ -114,6 +116,6 @@ CREATE TRIGGER IF NOT EXISTS native_cleanup_insert_once BEFORE INSERT ON native_
   BEGIN SELECT RAISE(ABORT, 'cleanup is recorded once'); END;
 CREATE TRIGGER IF NOT EXISTS native_cleanup_moves_forward BEFORE UPDATE ON native_import_cleanup
   WHEN NEW.client_id IS NOT OLD.client_id OR NEW.case_id IS NOT OLD.case_id OR NEW.operation_id IS NOT OLD.operation_id OR NEW.reason IS NOT OLD.reason
-    OR NEW.swept < OLD.swept OR NEW.after_path < OLD.after_path OR (OLD.state = 'done' AND NEW.state <> 'done')
+    OR NEW.swept < OLD.swept OR NEW.after_key < OLD.after_key OR (OLD.state = 'done' AND NEW.state <> 'done')
   BEGIN SELECT RAISE(ABORT, 'cleanup only moves forward'); END;
 CREATE TRIGGER IF NOT EXISTS native_cleanup_no_delete BEFORE DELETE ON native_import_cleanup BEGIN SELECT RAISE(ABORT, 'cleanup is retained'); END;

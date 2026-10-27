@@ -3,7 +3,7 @@ import type { HeldFile } from '../../../case-package/source.ts';
 import { checkRelPath } from '../../../case-package/paths.ts';
 import { decodeUtf8Strict, isObject, parseStrictJson } from '../../../case-package/strict-json.ts';
 import { inspectPackage, type Inspection } from '../package.ts';
-import type { StagedPackageView } from './steps.ts';
+import { STRUCTURED_FILES, type StagedPackageView } from './steps.ts';
 
 /** The non-preview files of a staged package as bytes and its previews as the facts their upload check recorded. */
 export interface StagedStructure { readonly files: Map<string, Uint8Array>; readonly held: Map<string, HeldFile>; readonly bytes: number }
@@ -19,7 +19,7 @@ async function pool<T, R>(items: readonly T[], f: (item: T) => Promise<R>): Prom
 
 /**
  * Reads the manifest, the datasets and the asset index of a staged package (each verified against the manifest as it is read), refusing
- * before the first read when they would be more than `maxBytes` together. A preview is never read: its size, SHA-256 and PDF header were
+ * before the first read when they are more than `STRUCTURED_FILES` or more than `maxBytes` together. A preview is never read: its size, SHA-256 and PDF header were
  * recorded when it was uploaded and checked, and the validator is handed those. The manifest was checked when the session opened.
  */
 export async function loadStaged(pkg: StagedPackageView, maxBytes: number): Promise<StagedLoad> {
@@ -29,6 +29,7 @@ export async function loadStaged(pkg: StagedPackageView, maxBytes: number): Prom
     if (isObject(m) && Array.isArray(m.files)) listed = m.files.flatMap((f) => (isObject(f) && typeof f.path === 'string' && typeof f.role === 'string' ? [{ path: f.path, role: f.role }] : []));
   } catch { return { ok: false, code: 'package-invalid', detail: ['manifest.json is not strict JSON'] }; }
   const structured = listed.filter((f) => f.role !== 'preview' && checkRelPath(f.path).ok);
+  if (structured.length + 1 > STRUCTURED_FILES) return { ok: false, code: 'too-large', detail: [`the package lists ${structured.length} non-preview files; one step reads at most ${STRUCTURED_FILES - 1}`] };
   let bytes = pkg.manifest.byteLength;
   for (const f of structured) bytes += pkg.files.get(f.path)?.size ?? 0;
   if (bytes > maxBytes) return { ok: false, code: 'too-large', detail: [`the manifest, datasets and asset index together are ${bytes} bytes; one step may hold ${maxBytes}`] };

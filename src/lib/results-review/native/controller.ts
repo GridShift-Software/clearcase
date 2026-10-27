@@ -54,6 +54,7 @@ const STAGED_REFUSAL: Record<StagedRefusalCode, [number, string]> = {
   'session-expired': [410, 'The staged files of this import were deleted.'],
   'not-finished': [409, 'The import has no candidate yet and is still inside its time to live.'],
   'busy': [409, 'Another request is running a step of this import. Try again shortly.'],
+  'staging-quota': [409, 'Staged imports on this deployment hold all the space they may. Finish or sweep one, then open again.'],
 };
 
 function authorityRefusal(e: unknown, access: 'read' | 'write'): never {
@@ -185,7 +186,10 @@ export function createNativeImportController(service: NativeResultsImport | null
       return stagedResult(await staged(a.service).sweep(a.who, { operationId }));
     }),
 
-    /** POST .../imports/staged/sweep: the same step for the session of the case that is due next (past its time to live). */
+    /**
+     * POST .../imports/staged/sweep: the drain. The same step for the session of the case that is due next: a sweep under way, a finished
+     * import, or one idle past its time to live. Call it until `operationId` is null.
+     */
     sweepExpiredStaged: (r: NativeRequest) => handle(async () => {
       const a = await admit(r, 'write', 'application/json');
       await body(r, a.service, '');

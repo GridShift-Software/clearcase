@@ -1,5 +1,5 @@
-// U15 round 2: staged objects are deleted once their import is finished (a candidate exists) or abandoned (the session is older than
-// its time to live), in bounded steps, and never while another live session of the case still needs the same bytes.
+// U15 round 2: staged objects are deleted once their import is finished (a candidate exists) or abandoned (the session is idle past
+// its time to live), in bounded steps. Fix round 1: each import's objects are its own, so a sweep never touches another session's.
 import { describe, expect, it } from 'vitest';
 import { STAGED_SESSION_TTL_MS, planBatches, type StagedOutcome } from '../../../src/lib/results-review/native/staging/index.ts';
 import { buildFixture, pdf } from './fixtures.ts';
@@ -87,16 +87,16 @@ describe('after complete', () => {
     expect(stagedKeys(durable)).toEqual(before);
   });
 
-  it('keeps a byte another live session of the case still needs', async () => {
+  it('keeps every byte another live session of the case accepted, the same bytes included', async () => {
     const { durable, fx, start } = await world();
     const p = await start();
     await upload(p, OP_A, fx);
-    // A second session of the same package, begun and only partly sent: it shares every object by content.
+    // A second session of the same package, begun and only partly sent: the same bytes, in objects of its own.
     const paths = [...fx.files.keys()].filter((x) => x !== 'manifest.json').sort();
     await upload(p, OP_B, fx, paths.slice(0, 2));
     expect(await p.service.staged!.complete(p.token, { operationId: OP_A })).toMatchObject({ kind: 'linked' });
     const staged = stagedKeys(durable);
-    expect(staged.length).toBe(fx.files.size);
+    expect(staged.length).toBe(fx.files.size + 3);
 
     await sweepAll(p, OP_A);
     // Everything B has recorded, and its manifest, is still there.
@@ -141,8 +141,8 @@ describe('after the session time to live', () => {
     now = T0 + 5 * DAY;
     const young = await start({ now: () => new Date(now) });
     await upload(young, OP_B, other, null, REVISION_B);
-    // Everything B needs, including what it shares with A by content.
-    const keysB = [...new Set([...other.files.values()].map((b) => `native-import/client-a/case-a/${sha256Hex(b)}`))].sort();
+    // Everything B needs, in B's own objects.
+    const keysB = [...new Set([...other.files.values()].map((b) => `native-import/client-a/case-a/${OP_B}/${sha256Hex(b)}`))].sort();
     expect(keysB.every((k) => stagedKeys(durable).includes(k))).toBe(true);
     expect(keysB.length).toBeGreaterThan(0);
 

@@ -14,7 +14,9 @@ const ROWS = 100;
 describe('the Workers Paid request budget', () => {
   it('stays under Cloudflare\'s documented Paid limits with headroom, and leaves Free\'s composition as it was', () => {
     expect(WORKERS_FREE_REQUEST).toEqual({ d1: 45, external: 45 });
-    expect(WORKERS_PAID_REQUEST).toEqual({ d1: 900, external: 4500 });
+    expect(WORKERS_PAID_REQUEST).toEqual({ d1: 900, external: 4500, subrequests: 9000 });
+    // The one pool D1 queries, R2 calls and fetches share, with 10% headroom.
+    expect(WORKERS_PAID_REQUEST.subrequests).toBeLessThanOrEqual(PAID.subrequests * 0.9);
     expect(WORKERS_PAID_REQUEST.d1).toBeLessThanOrEqual(PAID.d1Queries * 0.9);
     // Clerk fetches, D1 queries and R2 calls all count against subrequests; fetches are held to under half the limit so the rest is room for D1 and R2.
     expect(WORKERS_PAID_REQUEST.external + WORKERS_PAID_REQUEST.d1).toBeLessThanOrEqual(PAID.subrequests * 0.6);

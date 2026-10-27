@@ -22,9 +22,10 @@ export function nativeImportBudget(value: unknown, o: { stagerMaxPackageBytes?: 
 
 /**
  * What one request may make, from the deployment's plan: D1 calls (a batch is one) and external subrequests (each Clerk
- * session check), and the stager's `maxRowsPerBatch`, which sets how many row batches an import writes.
+ * session check), and the stager's `maxRowsPerBatch`, which sets how many row batches an import writes. `subrequests`, when the plan
+ * names it, is the one pool every D1, R2 and fetch call of the request shares; without it, `external` is the pool R2 calls share.
  */
-export interface RequestBudget { readonly d1: number; readonly external: number; readonly rowsPerBatch: number }
+export interface RequestBudget { readonly d1: number; readonly external: number; readonly rowsPerBatch: number; readonly subrequests?: number }
 /** An import's work as its package shows it: package files, distinct originals, and read-model rows (documents, assets, seeds). */
 export interface ImportShape { readonly files: number; readonly originals: number; readonly rows: number }
 

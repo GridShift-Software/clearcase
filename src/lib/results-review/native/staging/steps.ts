@@ -1,3 +1,4 @@
+import { LIMITS } from '../../../case-package/limits.ts';
 import type { CaseId, ClientId } from '../../../server/runtime/contracts.ts';
 import type { FinalizedSubmissionSnapshot } from '../../../server/runtime/hosted/alpha-contracts.ts';
 import type { StageOutcome } from '../ports.ts';
@@ -53,22 +54,43 @@ export const DEFAULT_STEP_BOUNDS: StepBounds = Object.freeze({
   structuredBytes: 16 * 1024 * 1024, stepsPerRequest: 4, wallMsPerRequest: 25_000,
 });
 
-/** Non-preview files of a package: the manifest, up to 512 datasets and the asset index. */
-export const STRUCTURED_FILES = 514;
+/** Non-preview files of a package: the manifest, up to 512 datasets and the asset index. Checked at open and before a step reads any. */
+export const STRUCTURED_FILES = LIMITS.datasets + 2;
+/** Facts a step reads back a page (one D1 query) at a time. */
+export const FACT_PAGE = 500;
 
 /**
- * The most one step may call, as a bound the tests hold the measured counts to. `d1` counts D1 queries (a batch is one), `external` the
- * identity provider's session checks, `r2` the bucket calls. Fixed: the grant and session checks, the storage gate, the lease claim, the
- * commit, the folder and the admission. Per phase: an original costs a read, a session check and a grant check; an object costs a read
- * of the staged copy, a head, a put and a head after a lost race; a batch of rows costs a query and a session check.
+ * The most one step may call, by construction from the bounds and the package limits; the tests hold the measured counts to it. `d1` counts
+ * D1 queries (a batch is one), `external` the identity provider's session checks, `r2` the bucket calls. Fixed: the grant and session
+ * checks, the storage gate, the lease claim, the commit, the folder and the admission. Per phase, the largest of: an original costs a read, a
+ * session check and a grant check; a batch of rows costs a query and a session check; `plan` and `validate-a` write a fact per file asset
+ * or link, at most one per package file, a batch at a time; `begin` and `final` read two passes of facts back in pages, with the head and the
+ * read model. R2: the structure (at most `STRUCTURED_FILES` reads, refused before the first when there are more) with a slice of originals,
+ * or, per object, a read of the staged copy, a head, a put and a head after a lost race.
  */
 export function stepCost(b: StepBounds, rowsPerBatch: number): { d1: number; external: number; r2: number } {
-  const batches = Math.ceil(b.rowsPerStep / Math.max(1, rowsPerBatch)) + 1;
+  const per = Math.max(1, rowsPerBatch);
+  const batches = Math.ceil(b.rowsPerStep / per) + 1;
+  const factBatches = Math.ceil(LIMITS.packageFiles / per) + 1;
+  const factPages = 2 * Math.ceil(LIMITS.packageFiles / FACT_PAGE) + 12;
   return {
-    d1: 30 + Math.max(2 * b.originalsPerStep, 3 * batches),
+    d1: 30 + Math.max(2 * b.originalsPerStep, 3 * batches, factBatches, factPages),
     external: 14 + Math.max(b.originalsPerStep, 2 * batches),
     r2: 6 + Math.max(STRUCTURED_FILES + b.originalsPerStep, 4 * b.objectsPerStep),
   };
+}
+
+/**
+ * What one `complete` request calls besides its steps: the session, sweep and acceptance reads and the manifest, the attempt claim, the
+ * submission, the candidate checks, the link's second load of the structure (every non-preview file again), the link, its audit and the
+ * operator checks around them.
+ */
+export const COMPLETE_LINK_COST = Object.freeze({ d1: 40, r2: STRUCTURED_FILES + 1, external: 16 });
+
+/** The most one `complete` request may call: `stepsPerRequest` steps and the link. Checked against the plan's allowance before a step runs. */
+export function stagedCompleteCost(b: StepBounds, rowsPerBatch: number): { d1: number; external: number; r2: number } {
+  const c = stepCost(b, rowsPerBatch), n = b.stepsPerRequest;
+  return { d1: n * c.d1 + COMPLETE_LINK_COST.d1, external: n * c.external + COMPLETE_LINK_COST.external, r2: n * c.r2 + COMPLETE_LINK_COST.r2 };
 }
 
 /** The staged package a step reads: the manifest and every listed file, each verified against the manifest as it is read. */

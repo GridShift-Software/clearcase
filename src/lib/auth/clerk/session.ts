@@ -6,6 +6,8 @@ export const SESSION_COOKIE = '__session';
 const SUFFIX = '(?:_[A-Za-z0-9_-]{1,32})?';
 /** The cookie names Clerk keeps a session token in: the plain name and its per-instance suffixed form. */
 export const SESSION_COOKIE_NAME = new RegExp(`^__session${SUFFIX}$`);
+/** The cookie names Clerk keeps the client's last sign-in time in, plain and suffixed. */
+export const CLIENT_UAT_COOKIE_NAME = new RegExp(`^__client_uat${SUFFIX}$`);
 /** The cookie names that carry a browser's Clerk state and that sign-out and a handshake may set or clear. */
 export const CLERK_COOKIE_NAME = new RegExp(`^(?:__session|__client_uat|__clerk_db_jwt|__clerk_redirect_count)${SUFFIX}$`);
 /** The session cookies a sign-out clears. */

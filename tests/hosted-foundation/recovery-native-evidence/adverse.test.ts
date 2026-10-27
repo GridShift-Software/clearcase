@@ -41,7 +41,7 @@ it('one transactional evidence batch binds all components even if publication ch
   const w = await setup(), batch = w.db.batch.bind(w.db); let captures = 0;
   w.db.batch = async (s) => {
     const rows = await batch(s);
-    if (s.length === 40) { captures++; w.db.exec("UPDATE rs_publication SET state = 'withdrawn' WHERE case_id = ?", CASE); }
+    if (s.length === 44) { captures++; w.db.exec("UPDATE rs_publication SET state = 'withdrawn' WHERE case_id = ?", CASE); }
     return rows;
   };
   // Use the default current-publication policy: a fresh authority check refuses the now-hidden exact version.
@@ -54,7 +54,7 @@ it('refuses foreign-case rows returned by a faulty source batch', async () => {
   const w = await setup(), batch = w.db.batch.bind(w.db);
   w.db.batch = async (s) => {
     const out = await batch(s);
-    if (s.length === 40) for (const r of out as { results: Record<string, unknown>[] }[]) for (const row of r.results) if ('candidate_id' in row && 'origin' in row) row.case_id = 'foreign-case';
+    if (s.length === 44) for (const r of out as { results: Record<string, unknown>[] }[]) for (const row of r.results) if ('candidate_id' in row && 'origin' in row) row.case_id = 'foreign-case';
     return out;
   };
   await expect(exportNativeCase(await w.deps(), req)).rejects.toMatchObject({ code: 'foreign-input' });

@@ -317,12 +317,13 @@ export async function createNativeRecoveryAdapters(input: NativeRecoveryOptions)
   }
   async function representable() {
     await check();
-    // /1 has no slots for submission file/path -> asset bindings, import links, corrections or their audit lineage.
+    // /1 has no slots for submission file/path -> asset bindings, sets, import links, corrections or their audit lineage.
     // A missing schema is unavailable too: never treat an unreadable lineage as "no lineage".
     const row = await db.prepare(`SELECT
       EXISTS(SELECT 1 FROM native_candidate WHERE client_id = ? AND case_id = ?) AS candidates,
-      EXISTS(SELECT 1 FROM submissions_upload WHERE client_id = ? AND case_id = ?) AS submissions`)
-      .bind(clientId, a.caseId, clientId, a.caseId).first<{ candidates: number; submissions: number }>().catch(unavailable);
+      EXISTS(SELECT 1 FROM submissions_upload WHERE client_id = ? AND case_id = ?)
+        OR EXISTS(SELECT 1 FROM submissions_set WHERE client_id = ? AND case_id = ?) AS submissions`)
+      .bind(clientId, a.caseId, clientId, a.caseId, clientId, a.caseId).first<{ candidates: number; submissions: number }>().catch(unavailable);
     if (!row || row.candidates !== 0 || row.submissions !== 0) return unavailable();
     // Also checked by the final getCase: a private version added during source reads must not silently disappear.
     for (const version of await inventory()) await visible(version.version_id);

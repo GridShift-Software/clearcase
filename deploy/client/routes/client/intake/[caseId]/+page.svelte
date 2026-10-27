@@ -26,6 +26,9 @@
 	let set: SetView | null = $state(null);
 	let failed = $derived(rows.filter((r) => r.stage === 'failed').length);
 	const UPLOADS_AT_ONCE = 3;
+	// Each pick is a new selection. A send belongs to the selection it started with and stops writing to the page once another
+	// pick replaces it, so an answer that arrives late never shows its state against files it did not send.
+	let selection = 0;
 
 	const base = () => `/client/intake/${encodeURIComponent(data.caseId)}/submissions`;
 	const sets = () => `/client/intake/${encodeURIComponent(data.caseId)}/sets`;
@@ -36,6 +39,7 @@
 	const post = (url: string, body: unknown) => fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 	function choose(picked: File[]) {
+		selection++;
 		file = picked.length === 1 ? picked[0]! : null;
 		set = null;
 		status = '';
@@ -48,23 +52,24 @@
 		status = 'Checking the file…';
 		// The picker stays live while the bytes are read: take the file, its name and its upload id before the first await,
 		// so the declaration, the bytes and a retry all describe this file. A later pick is a new send with a new upload id.
-		const chosen = file, { name } = chosen;
+		const chosen = file, { name } = chosen, mine = selection;
+		const say = (text: string) => { if (mine === selection) status = text; };
 		try {
 			if (pending?.file !== chosen) pending = { file: chosen, operationId: crypto.randomUUID() };
 			const attempt = pending, { operationId } = attempt;
 			const bytes = await chosen.arrayBuffer();
 			const meta = { operationId, path: name, size: bytes.byteLength, sha256: await sha256(bytes), mediaType: 'application/pdf' };
 			const d = await fetch(base(), { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(meta) });
-			if (!d.ok) { status = ((await d.json()) as { message?: string }).message ?? `Refused (${d.status}).`; return; }
-			status = 'Sending the file…';
+			if (!d.ok) { say(((await d.json()) as { message?: string }).message ?? `Refused (${d.status}).`); return; }
+			say('Sending the file…');
 			const u = await fetch(`${base()}/${operationId}`, { method: 'PUT', credentials: 'same-origin', headers: { 'content-type': 'application/pdf' }, body: bytes });
 			const body = (await u.json()) as { message?: string; stage?: string };
-			if (!u.ok) { status = body.message ?? `Refused (${u.status}).`; return; }
+			if (!u.ok) { say(body.message ?? `Refused (${u.status}).`); return; }
 			if (pending === attempt) pending = null;
-			status = 'Finalized. No results yet.';
+			say('Finalized. No results yet.');
 			await invalidateAll();
 		} catch {
-			status = 'The upload did not finish. Try again: the same file keeps the same upload.';
+			say('The upload did not finish. Try again: the same file keeps the same upload.');
 		} finally {
 			busy = false;
 		}
@@ -75,7 +80,7 @@
 	async function sendSet() {
 		if (rows.length < 2 || busy) return;
 		busy = true;
-		const chosen = rows;
+		const chosen = rows, mine = selection, live = () => mine === selection;
 		try {
 			status = 'Checking the files…';
 			for (const r of chosen) if (!r.sha256) { const bytes = await r.file.arrayBuffer(); r.size = bytes.byteLength; r.sha256 = await sha256(bytes); }
@@ -83,18 +88,23 @@
 			const setId = `set-${(await sha256(new TextEncoder().encode(`${data.caseId}\n${digest}`))).slice(0, 40)}`;
 			for (const r of chosen) if (!r.operationId) r.operationId = `fs-${(await sha256(new TextEncoder().encode(`${setId}\n${r.path}`))).slice(0, 40)}`;
 			const opened = await post(sets(), { setId, fileCount: chosen.length, totalBytes: chosen.reduce((n, r) => n + r.size, 0) });
-			if (!opened.ok) { status = await message(opened); return; }
-			set = ((await opened.json()) as { set: SetView }).set;
-			if (set.state === 'open' && set.stored > 0) await learnStored(setId, chosen);
-			if (set.state === 'open') {
+			if (!live()) return;
+			if (!opened.ok) { const text = await message(opened); if (live()) status = text; return; }
+			const first = ((await opened.json()) as { set: SetView }).set;
+			if (!live()) return;
+			set = first;
+			if (first.state === 'open' && first.stored > 0) await learnStored(setId, chosen);
+			if (!live()) return;
+			if (first.state === 'open') {
 				status = 'Sending the files…';
 				const queue = chosen.filter((r) => r.stage !== 'stored');
-				await Promise.all(Array.from({ length: Math.min(UPLOADS_AT_ONCE, queue.length) }, async () => { for (let r = queue.shift(); r; r = queue.shift()) await sendOne(setId, r); }));
+				await Promise.all(Array.from({ length: Math.min(UPLOADS_AT_ONCE, queue.length) }, async () => { for (let r = queue.shift(); r && live(); r = queue.shift()) await sendOne(setId, r); }));
+				if (!live()) return;
 				if (chosen.some((r) => r.stage === 'failed')) { status = 'Some files did not finish. Retry sends only those; the stored files are kept.'; return; }
 			}
-			await seal(setId, digest);
+			await seal(setId, digest, live);
 		} catch {
-			status = 'The upload did not finish. Retry: stored files are kept and not sent again.';
+			if (live()) status = 'The upload did not finish. Retry: stored files are kept and not sent again.';
 		} finally {
 			busy = false;
 		}
@@ -125,12 +135,15 @@
 			r.error = 'The upload did not finish.';
 		}
 	}
-	async function seal(setId: string, digest: string) {
+	async function seal(setId: string, digest: string, live: () => boolean) {
 		for (;;) {
 			status = set && set.state === 'sealing' ? `Sealing: ${set.finalized} of ${set.fileCount} files finalized…` : 'Sealing the set…';
 			const r = await post(`${sets()}/${setId}/seal`, { filesSha256: digest });
-			if (!r.ok) { status = await message(r); return; }
-			set = ((await r.json()) as { set: SetView }).set;
+			if (!live()) return;
+			if (!r.ok) { const text = await message(r); if (live()) status = text; return; }
+			const next = ((await r.json()) as { set: SetView }).set;
+			if (!live()) return;
+			set = next;
 			if (r.status !== 202) break;
 		}
 		status = 'Sealed. No results yet.';
@@ -143,7 +156,7 @@
 	<p data-intake-state="unavailable">File intake is not available on this deployment yet.</p>
 {:else}
 	<form data-intake-state="available" onsubmit={(e) => { e.preventDefault(); void (rows.length > 1 ? sendSet() : send()); }}>
-		<label>PDF files (one, or several sent as one submission) <input type="file" multiple accept="application/pdf,.pdf" onchange={(e) => choose([...((e.currentTarget as HTMLInputElement).files ?? [])])} /></label>
+		<label>PDF files (one, or several sent as one submission) <input type="file" multiple accept="application/pdf,.pdf" disabled={busy} onchange={(e) => choose([...((e.currentTarget as HTMLInputElement).files ?? [])])} /></label>
 		<button type="submit" disabled={!(file || rows.length > 1) || busy}>Send</button>
 		<p role="status">{status}</p>
 	</form>

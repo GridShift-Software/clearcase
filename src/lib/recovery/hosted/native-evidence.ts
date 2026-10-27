@@ -4,6 +4,7 @@ import type { CloudD1, D1Value } from '../../storage/cloud/bindings.ts';
 import { decodeUtf8Strict, parseStrictJson } from '../../case-package/strict-json.ts';
 import { canonicalText } from '../../case-package/canonical.ts';
 import { safePath } from '../../submissions/path.ts';
+import { fileSetDigest, MAX_SET_FILES } from '../../submissions/file-set.ts';
 import { authorizeAndAudit, recheck, recordAfter, recordFailure, requireCaseId, requireObjects } from './authority.ts';
 import { canonicalJson, encode, fail, ID, objectKeys, SHA, sha256Hex } from './bytes.ts';
 import { parseManifest, exportScopes, type VerifyRequest, type Verified } from './verify.ts';
@@ -77,6 +78,8 @@ const SCHEMAS = {
   submissions_upload: 'client_id:s case_id:s operation_id:s asset_id:s path:s filename:s media_type:s size:n sha256:s state:s principal_issuer:s principal_subject:s declared_at:s stored_at:s?',
   submissions_revision: 'client_id:s case_id:s revision_id:s sequence:n operation_id:s file_count:n finalized_at:s',
   submissions_file: 'client_id:s case_id:s revision_id:s path:s path_key:s filename:s media_type:s size:n sha256:s asset_id:s',
+  submissions_set: 'client_id:s case_id:s set_id:s file_count:n total_bytes:n state:s files_sha256:s? principal_issuer:s principal_subject:s opened_at:s sealed_at:s?',
+  submissions_set_member: 'client_id:s case_id:s set_id:s operation_id:s path_key:s',
   native_import_attempt: 'client_id:s case_id:s operation_id:s kind:s operator_issuer:s operator_subject:s request_sha256:s submission_revision_id:s base_candidate_id:s? declared_at:s',
   native_candidate: 'client_id:s case_id:s candidate_id:s results_version:s manifest_sha256:s input_revision_id:s origin:s parent_candidate_id:s? operation_id:s created_at:s',
   native_import_link: 'client_id:s case_id:s link_id:s candidate_id:s submission_revision_id:s submission_manifest_sha256:s results_version:s manifest_sha256:s input_revision_id:s coverage_json:s operator_issuer:s operator_subject:s linked_at:s link_sha256:s',
@@ -110,6 +113,8 @@ const json = (s: string): unknown => { try { return parseStrictJson(s); } catch 
 function jsonBytes(bytes: Uint8Array): unknown { try { return json(decodeUtf8Strict(bytes)); } catch { return bad(); } }
 const hash = (v: unknown) => sha256Hex(encode(canonicalJson(v)));
 const eq = (a: unknown, b: unknown) => { if (canonicalJson(a) !== canonicalJson(b)) bad(); };
+// The submission reader's order: SQLite's binary collation of the path key, which is UTF-8 byte order, never a locale order.
+const byteOrder = (a: Cell, b: Cell) => { const x = encode(String(a)), y = encode(String(b)); for (let i = 0; i < Math.min(x.length, y.length); i++) if (x[i] !== y[i]) return x[i]! - y[i]!; return x.length - y.length; };
 function unique(rows: EvidenceRow[], keys: string[]) {
   const seen = new Set<string>();
   for (const r of rows) { const k = canonicalJson(keys.map((c) => r[c])); if (seen.has(k)) bad(); seen.add(k); }
@@ -274,36 +279,74 @@ export async function validateEvidence(e: NativeEvidence, clientId: ClientId, ca
   if (e.audit === 'none' && LINEAGE_TABLES.some((t) => T(t).length > 0)) unavailable();
   const keys: Partial<Record<Table, string[]>> = {
     rs_case: ['case_id'], rs_results_version: ['version_id'], rs_package_file: ['version_id', 'path'], rs_preview: ['version_id', 'asset_id'], rs_original: ['sha256'], rs_case_original: ['asset_id'], rs_original_upload: ['operation_id'],
-    rs_publication: ['case_id'], rs_version_withdrawal: ['version_id'], submissions_upload: ['operation_id'], submissions_revision: ['revision_id'], submissions_file: ['revision_id', 'path_key'], native_import_attempt: ['operation_id'], native_candidate: ['candidate_id'],
+    rs_publication: ['case_id'], rs_version_withdrawal: ['version_id'], submissions_upload: ['operation_id'], submissions_revision: ['revision_id'], submissions_file: ['revision_id', 'path_key'],
+    submissions_set: ['set_id'], submissions_set_member: ['set_id', 'path_key'], native_import_attempt: ['operation_id'], native_candidate: ['candidate_id'],
     native_import_link: ['link_id'], native_candidate_supersession: ['old_candidate_id'], native_correction_change: ['candidate_id', 'path'], native_candidate_audit_intent: ['candidate_id'], native_candidate_audit_settlement: ['candidate_id'], native_audit_events: ['event_id'],
   };
   for (const t of TABLES) unique(T(t), keys[t]!);
   unique(T('native_candidate'), ['results_version']); unique(T('native_candidate'), ['operation_id']); unique(T('native_import_link'), ['candidate_id']); unique(T('native_candidate_supersession'), ['new_candidate_id']);
   unique(T('native_candidate_audit_intent'), ['event_id']); unique(T('submissions_revision'), ['operation_id']); unique(T('submissions_revision'), ['sequence']); unique(T('submissions_upload'), ['asset_id']);
+  unique(T('submissions_set_member'), ['operation_id']);
   for (const o of T('rs_case_original')) one('rs_original', 'sha256', o.sha256);
   for (const r of T('rs_original')) if (!T('rs_case_original').some((o) => o.sha256 === r.sha256)) bad();
   // An unfinished upload is archived as its persisted state. It claims a revision only once the schema recorded one, and a
-  // case original only once one is bound; a finalized one, and anything lineage references, needs all of it.
-  for (const u of T('submissions_upload')) {
-    if (!['received', 'stored', 'reserved', 'finalized'].includes(String(u.state))) bad();
-    const revs = T('submissions_revision').filter((r) => r.operation_id === u.operation_id);
-    if (!revs.length) { if (u.state === 'reserved' || u.state === 'finalized') missing(); continue; }
-    if (u.state === 'received') bad();
-    const rev = revs[0]!;
-    if (rev.revision_id !== `subrev-${u.operation_id}` || rev.file_count !== 1 || Number(rev.sequence) < 1) bad();
-    const f = one('submissions_file', 'revision_id', rev.revision_id);
+  // case original only once one is bound; a finalized one, and anything lineage references, needs all of it. A file of a set
+  // claims its set's revision instead of one of its own, and is checked with its set below.
+  const sets = new Map(T('submissions_set').map((x) => [x.set_id, x])), members = new Map(T('submissions_set_member').map((x) => [x.operation_id, x]));
+  const bindFile = (f: EvidenceRow, u: EvidenceRow) => {
     for (const k of ['path', 'filename', 'media_type', 'size', 'sha256', 'asset_id']) eq(f[k], u[k]);
     const path = safePath(f.path);
     if (!path || path.path !== f.path || path.key !== f.path_key || path.filename !== f.filename || f.media_type !== 'application/pdf' || Number(f.size) <= 0) bad();
     const bound = T('rs_case_original').filter((o) => o.asset_id === f.asset_id);
     if (u.state === 'finalized' && bound.length !== 1) missing();
     for (const o of bound) { for (const k of ['sha256', 'filename', 'media_type']) eq(o[k], f[k]); eq(one('rs_original', 'sha256', f.sha256).size, f.size); }
+  };
+  for (const u of T('submissions_upload')) {
+    if (!['received', 'stored', 'reserved', 'finalized'].includes(String(u.state)) || sets.has(u.operation_id)) bad();
+    if (members.has(u.operation_id)) continue;
+    const revs = T('submissions_revision').filter((r) => r.operation_id === u.operation_id);
+    if (!revs.length) { if (u.state === 'reserved' || u.state === 'finalized') missing(); continue; }
+    if (u.state === 'received') bad();
+    const rev = revs[0]!;
+    if (rev.revision_id !== `subrev-${u.operation_id}` || rev.file_count !== 1 || Number(rev.sequence) < 1) bad();
+    bindFile(one('submissions_file', 'revision_id', rev.revision_id), u);
   }
-  for (const rev of T('submissions_revision')) one('submissions_upload', 'operation_id', rev.operation_id);
+  // A set is archived as its persisted state too: open (files declared and stored, no revision), sealing (the digest fixed and
+  // the revision and every file recorded, originals being finalized) or sealed (every original final). The archive must hold
+  // the whole set: each member's upload and, once sealing, exactly one revision file per member and nothing else.
+  const MEMBER_STATES: Record<string, string[]> = { open: ['received', 'stored'], sealing: ['reserved', 'finalized'], sealed: ['finalized'] };
+  for (const m of members.values()) { if (!sets.has(m.set_id)) missing(); one('submissions_upload', 'operation_id', m.operation_id); }
+  for (const x of sets.values()) {
+    const allowed = MEMBER_STATES[String(x.state)], count = Number(x.file_count);
+    if (!allowed || !ID.test(String(x.set_id)) || count < 1 || count > MAX_SET_FILES || Number(x.total_bytes) < count || (x.state === 'open') !== (x.files_sha256 === null) || (x.state === 'sealed') !== (x.sealed_at !== null)) bad();
+    if (!iso(x.opened_at) || (x.sealed_at !== null && !iso(x.sealed_at))) bad();
+    const own = T('submissions_set_member').filter((m) => m.set_id === x.set_id).map((m) => ({ m, u: one('submissions_upload', 'operation_id', m.operation_id) }));
+    if (own.length > count) bad();
+    for (const { m, u } of own) {
+      const path = safePath(u.path);
+      if (!path || path.path !== u.path || path.key !== m.path_key || !allowed.includes(String(u.state))) bad();
+    }
+    const revs = T('submissions_revision').filter((r) => r.operation_id === x.set_id);
+    if (x.state === 'open') { if (revs.length) bad(); continue; }
+    if (own.length !== count) missing();
+    if (own.reduce((n, { u }) => n + Number(u.size), 0) !== x.total_bytes) bad();
+    if (await fileSetDigest(own.map(({ u }) => ({ path: String(u.path), size: Number(u.size), sha256: String(u.sha256) }))) !== x.files_sha256) bad();
+    if (revs.length !== 1) missing();
+    const rev = revs[0]!;
+    if (rev.revision_id !== `subrev-${x.set_id}` || rev.file_count !== x.file_count || Number(rev.sequence) < 1) bad();
+    const files = T('submissions_file').filter((f) => f.revision_id === rev.revision_id);
+    if (files.length > count) bad();
+    for (const { m, u } of own) { const f = files.find((f) => f.path_key === m.path_key); if (!f) missing(); bindFile(f, u); }
+  }
+  for (const rev of T('submissions_revision')) {
+    if (sets.has(rev.operation_id)) continue; // checked with its set
+    if (members.has(rev.operation_id)) bad(); // a file of a set never has a revision of its own
+    one('submissions_upload', 'operation_id', rev.operation_id);
+  }
   for (const f of T('submissions_file')) one('submissions_revision', 'revision_id', f.revision_id);
   const finalSubmission = (revisionId: Cell) => {
-    const rev = one('submissions_revision', 'revision_id', revisionId);
-    if (one('submissions_upload', 'operation_id', rev.operation_id).state !== 'finalized') missing();
+    const rev = one('submissions_revision', 'revision_id', revisionId), set = sets.get(rev.operation_id);
+    if ((set ? set.state !== 'sealed' : one('submissions_upload', 'operation_id', rev.operation_id).state !== 'finalized')) missing();
     return rev;
   };
   for (const r of T('rs_original_upload')) {
@@ -330,7 +373,7 @@ export async function validateEvidence(e: NativeEvidence, clientId: ClientId, ca
     eq(l.results_version, c.results_version); eq(at.submission_revision_id, l.submission_revision_id); eq(at.kind, c.origin); eq(at.base_candidate_id, c.parent_candidate_id);
     eq(l.operator_issuer, at.operator_issuer); eq(l.operator_subject, at.operator_subject); eq(l.linked_at, c.created_at);
     const rev = finalSubmission(l.submission_revision_id);
-    const files = T('submissions_file').filter((f) => f.revision_id === rev.revision_id).sort((x, y) => String(x.path_key).localeCompare(String(y.path_key)));
+    const files = T('submissions_file').filter((f) => f.revision_id === rev.revision_id).sort((x, y) => byteOrder(x.path_key, y.path_key));
     const manifest = { format: 'clearcase.submission-manifest/1', clientId, caseId, revisionId: rev.revision_id, sequence: rev.sequence, operationId: rev.operation_id, finalizedAt: rev.finalized_at,
       files: files.map((f) => ({ path: f.path, filename: f.filename, mediaType: f.media_type, size: f.size, sha256: f.sha256, assetId: f.asset_id })) };
     if (await sha256Hex(encode(canonicalText(manifest))) !== l.submission_manifest_sha256) bad();

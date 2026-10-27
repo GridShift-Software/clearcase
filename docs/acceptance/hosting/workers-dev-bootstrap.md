@@ -124,7 +124,16 @@ Each planned client is matched against the exact bootstrap target: client id `cl
 and UUID and R2 bucket must equal the table above, and the hostname must be exactly `<Worker>.shiny-sunset-211d.workers.dev`. That
 account subdomain is pinned in the bootstrap beside the account id (public provider metadata, observed from the account API and the live
 URLs); a caller-supplied label, even one that matches the shape, or different labels for A and B, is refused. Planning a
-single client leaves the other as the unchanged shell. The merge then puts the planner's public vars after
+single client leaves the other as the unchanged shell.
+
+`settings.origin` is the one switch between two pinned hostname sets and is absent by default, which means `'workers-dev'`. A Worker serves
+one origin: `CLEARCASE_APP_ORIGIN`, the manifest hostname and Clerk's fixed sign-in callbacks all name it, and the runtime refuses a pair
+that differs. `'custom-domain'` requires each client's hostname, deployment tuple and app origin to be exactly its own single label under
+the approved zone, `sbx-a.clearcase.co.za` or `sbx-b.clearcase.co.za`, read from `APPROVED_NATIVE_SCOPE`; a wildcard, another zone, the
+workers.dev name and the other client's host refuse. Under either value the other set refuses, so the switch moves both clients together.
+The config keeps `workers_dev: true` and `routes: []` in both modes: the domain is bound by the reviewed free Workers Custom Domain PUT
+(`custom-domain-bind.ts`), never by a route, and workers.dev stays on as a static fallback that cannot sign in while the custom domain is
+the pinned origin. Rolling back is a redeploy of the workers-dev stage, then detaching the two bindings. The merge then puts the planner's public vars after
 `CLEARCASE_INSTANCE_ROLE` and `CLEARCASE_CLIENT_ID` in that client's config (the planned client id must equal the slot, so role and
 client stay locked). Only these names are admitted: the planner's public Clerk values, `CLEARCASE_APP_ORIGIN`, `AUTH_MFA_REQUIRED`
 and `CLEARCASE_NATIVE_CONFIG`; each value is a string of at most 5000 UTF-8 bytes. Secret names, the role variable and anything else

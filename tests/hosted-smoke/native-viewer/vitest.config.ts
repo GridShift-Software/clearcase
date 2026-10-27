@@ -1,4 +1,4 @@
-// Runs this directory alone until the root vitest.config.ts (parent-owned) includes tests/hosted-smoke/native-viewer/**/*.test.ts.
+// Runs this directory standalone or as the native-viewer project in the root vitest.config.ts.
 // Client compilation is test-only; no app build or browser is started.
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';

@@ -18,7 +18,7 @@ import { inspectPackage } from '../../../results-review/native/package.ts';
 import { submissionSnapshotReader } from '../../../results-review/native/submission-reader.ts';
 import { loadStaged, type StagedLoad } from '../../../results-review/native/staging/load.ts';
 import type { StageOutcome } from '../../../results-review/native/ports.ts';
-import { STEP_PHASES, type StagingStatus, type StepBounds, type StepOutcome, type StepPhase, type StepRequest, type SteppedStager } from '../../../results-review/native/staging/steps.ts';
+import { type StagingStatus, type StepBounds, type StepOutcome, type StepPhase, type StepRequest, type SteppedStager } from '../../../results-review/native/staging/steps.ts';
 import { loadVerifiedModel } from '../../../results/hosted/model.ts';
 import { preparePackage, type FileAssetClaim, type OriginalFact, type PreparedPackage } from '../../../results/hosted/project.ts';
 import { readModelDigest } from '../../../results/hosted/read-model.ts';
@@ -133,8 +133,6 @@ interface Ctx {
   req: StepRequest; rv: ResultsVersion; id: Ids; lease: string; scope: StepScope; s: OpenStorage; w: OpenWriter; run: Run; started: number;
   commit(next: Next, statements?: CloudD1Statement[], o?: { idempotent?: boolean }): Promise<void>;
   wrap(next: Next): { before: CloudD1Statement[]; after: CloudD1Statement[]; applied(): void };
-  /** True once this step should start no further unit. */
-  spent(units: number, bytes: number): boolean;
 }
 
 /** Marks a step whose lease or position was taken by another: it wrote nothing, and its caller is told to try again. */
@@ -193,7 +191,6 @@ export function createSteppedStager(t: SteppedToolkit): SteppedStager {
           } else await s.db.batch([...before, ...statements, ...after]);
           applied();
         },
-        spent(units, bytes) { return units >= 1 && (units >= bounds.objectsPerStep * 1e9 || bytes >= bounds.bytesPerStep || t.clock() - c.started >= bounds.wallMsPerStep); },
       };
       const out = await HANDLERS[c.run.phase]!(c);
       if (out.kind === 'refused') {
@@ -604,6 +601,5 @@ export function createSteppedStager(t: SteppedToolkit): SteppedStager {
     plan, 'originals-a': originalsA, 'validate-a': validateA, 'originals-b': independent('b', 'begin', 'originals-b'), begin, rows, objects, verify, readback,
     'originals-d': independent('d', 'final', 'originals-d'), final, done: async () => { throw contractError('integrity'); },
   };
-  void STEP_PHASES;
   return { step };
 }

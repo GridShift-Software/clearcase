@@ -157,6 +157,15 @@ export function createStagedImport(d: StagedDeps): StagedImport {
     return d.answer(a, { kind: 'swept', operationId, deleted, remaining, state: exhausted ? 'done' : 'sweeping' });
   }
 
+  async function sweepNext(a: AdmittedOperator): Promise<SweepOutcome> {
+    d.must(a, 'write');
+    const next = await ledger.nextExpired({ ...scope(a), before: liveFrom() });
+    if (!next) return d.answer(a, { kind: 'swept', operationId: null, deleted: 0, remaining: 0, state: 'done' });
+    return sweepOne(a, next.operationId);
+  }
+  /** Whether one sweep step fits the plan's request budget alongside the call that triggers it. */
+  const sweepFits = () => !d.requestBudget || (d.requestBudget.d1 >= 2 * sweepObjects + 30 && d.requestBudget.external >= 2 * sweepObjects + 30);
+
   return {
     bounds,
 
@@ -176,6 +185,8 @@ export function createStagedImport(d: StagedDeps): StagedImport {
       const opened = await d.fenced(a, () => ledger.open({ ...scope(a), operationId: r.operationId, submissionRevisionId: r.submissionRevisionId, manifestSha256: m.manifestSha256, manifestSize: r.manifest.byteLength, resultsVersion: m.manifest.resultsVersion,
         expectedFiles: m.files.size, expectedBytes: m.listedBytes, requestSha256, operator: operator(a), at: d.now().toISOString(), guard }));
       if (opened.kind === 'operation-reused') return d.answer(a, refuse('operation-reused', 'this operation id was already used for a different request'));
+      // An import that was begun and never finished is swept by the next one, a bounded step at a time. Best effort: the open does not wait on it.
+      if (opened.kind === 'opened' && sweepFits()) await sweepNext(a).catch(() => undefined);
       return d.answer(a, await progress(a, opened.session, m, opened.kind === 'repeated', null));
     },
 
@@ -249,8 +260,8 @@ export function createStagedImport(d: StagedDeps): StagedImport {
         // request here may make is refused before anything is written.
         const rb = d.requestBudget;
         if (rb && d.stepBounds) {
-          const c = stepCost(d.stepBounds, d.staging.rowsPerBatch);
-          if (c.d1 > rb.d1 || c.external > rb.external) return d.answer(a, refuse('over-budget', `one step needs up to ${c.d1} D1 calls and ${c.external} subrequests; one request here may make ${rb.d1} and ${rb.external}`));
+          const c = stepCost(d.stepBounds, d.staging.rowsPerBatch), n = d.stepBounds.stepsPerRequest;
+          if (c.d1 * n > rb.d1 || c.external * n > rb.external) return d.answer(a, refuse('over-budget', `${n} step(s) of one request need up to ${c.d1 * n} D1 calls and ${c.external * n} subrequests; one request here may make ${rb.d1} and ${rb.external}`));
         }
         await d.observe(a);
         const byPath = new Map(have.map((x) => [x.path, x] as const));
@@ -281,11 +292,6 @@ export function createStagedImport(d: StagedDeps): StagedImport {
 
     sweep: (a, r) => sweepOne(a, r.operationId),
 
-    async sweepExpired(a) {
-      d.must(a, 'write');
-      const next = await ledger.nextExpired({ ...scope(a), before: liveFrom() });
-      if (!next) return d.answer(a, { kind: 'swept', operationId: null, deleted: 0, remaining: 0, state: 'done' });
-      return sweepOne(a, next.operationId);
-    },
+    sweepExpired: (a) => sweepNext(a),
   };
 }

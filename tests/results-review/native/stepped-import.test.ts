@@ -127,24 +127,31 @@ describe('the stepped import equals the one-request import', () => {
     await killedThenResumed({ op, nth: lo + 1 + Math.floor(random() * (total - lo)), after: random() < 0.5 });
   }, 600_000);
 
-  it('a step whose lease was taken over cannot write', async () => {
+  it('a step whose lease was taken over cannot write, however far the other has got', async () => {
     const { durable, revisionId } = await uploaded(pkg);
     const a = await startProcess(durable);
-    await a.staged.open(a.token, { operationId: OP, submissionRevisionId: revisionId, manifest: pkg.files.get('manifest.json')! });
-    await driveStaged(a, durable, pkg, revisionId, { maxCalls: 3 }).catch(() => undefined);
-    const state = () => rowsOf(durable, 'SELECT phase, cursor, steps FROM native_import_stage_run');
-    const before = state();
-    // Process A takes the lease for its step, then B takes it over after the lease lapses and finishes that step; A's write must lose.
+    await driveStaged(a, durable, pkg, revisionId, { maxCalls: 2 }).catch(() => undefined);
+    const state = () => rowsOf(durable, 'SELECT epoch, phase, cursor, steps, lease_id FROM native_import_stage_run')[0] as { epoch: number; phase: string; cursor: string; steps: number; lease_id: string | null };
+    const factsBefore = rowsOf(durable, 'SELECT COUNT(*) AS n FROM native_import_stage_fact');
+    // Process A claims the lease for its step. Before A commits, its lease lapses and B takes three steps; A's write must lose, and must
+    // neither move the run back to where A read it nor add anything.
     const b = await startProcess(durable);
-    const slow = await startProcess(durable, { interleave: async () => { durable.clock.ms += TEST_BOUNDS.leaseMs + 1; await completeAll(b, durable, { maxCalls: 1 }); } });
+    let left: ReturnType<typeof state> | null = null, factsAfterB: unknown = null;
+    const slow = await startProcess(durable, { interleave: async () => {
+      durable.clock.ms += TEST_BOUNDS.leaseMs + 1;
+      for (let i = 0; i < 3; i++) expect((await b.staged.complete(b.token, { operationId: OP })).kind).toBe('staging');
+      left = state(); factsAfterB = rowsOf(durable, 'SELECT COUNT(*) AS n FROM native_import_stage_fact');
+    } });
     const lost = await slow.staged.complete(slow.token, { operationId: OP });
-    expect(lost.kind === 'refused' || lost.kind === 'staging').toBe(true);
-    const after = state();
-    expect(after).not.toEqual(before);
-    // Each step moved the run forward exactly once: the steps count equals the cursor moves B and A together committed.
-    expect((after[0] as { steps: number }).steps).toBeGreaterThan((before[0] as { steps: number }).steps);
+    expect(lost).toMatchObject({ kind: 'refused', code: 'busy' });
+    expect(left).not.toBeNull();
+    expect(state()).toEqual(left);
+    expect(rowsOf(durable, 'SELECT COUNT(*) AS n FROM native_import_stage_fact')).toEqual(factsAfterB);
+    expect(factsAfterB).not.toEqual(factsBefore);
+    expect(state().steps).toBeGreaterThanOrEqual(5);
     const finished = linked(await completeAll(await startProcess(durable), durable));
     expect(JSON.stringify(finished)).toBe(JSON.stringify(reference.candidate));
+    expect(dump(durable)).toEqual(reference.dump);
   }, 600_000);
 
   it('refuses a tampered original as the one-request import does, writes no version, and succeeds once the original is back', async () => {
@@ -161,9 +168,14 @@ describe('the stepped import equals the one-request import', () => {
     expect(out).toEqual(expected);
     expect(rowsOf(durable, 'SELECT COUNT(*) AS n FROM rs_results_version')).toEqual([{ n: 0 }]);
     expect(rowsOf(durable, 'SELECT COUNT(*) AS n FROM native_candidate')).toEqual([{ n: 0 }]);
+    // The refusal restarts the run in a new epoch, and what the first epoch derived stays but is not read again.
+    expect(rowsOf(durable, 'SELECT epoch, phase, cursor FROM native_import_stage_run')).toEqual([{ epoch: 1, phase: 'plan', cursor: '{}' }]);
+    expect((rowsOf(durable, 'SELECT COUNT(*) AS n FROM native_import_stage_fact WHERE epoch = 0')[0] as { n: number }).n).toBeGreaterThan(0);
     durable.bucket.tamper(key, () => new Uint8Array(good));
     const retry = await completeAll(await startProcess(durable), durable);
     expect(JSON.stringify(linked(retry))).toBe(JSON.stringify(reference.candidate));
+    expect(rowsOf(durable, 'SELECT epoch, phase FROM native_import_stage_run')).toEqual([{ epoch: 1, phase: 'done' }]);
+    expect((rowsOf(durable, 'SELECT COUNT(*) AS n FROM native_import_stage_fact WHERE epoch = 1')[0] as { n: number }).n).toBeGreaterThan(0);
   }, 600_000);
 
   it('refuses a package whose preview is not a PDF at the same point the validator does, naming the same code', async () => {

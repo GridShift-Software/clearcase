@@ -363,6 +363,10 @@ Budget on puk (decision 8, fixed from the GRS-9 baseline before implementation):
 | `PKG_VERSION_MISMATCH` | error | integrity | resultsVersion is not the digest of the listed content |
 | `PKG_UNPROCESSABLE` | error | structural | the package could not be processed (unexpected failure while reading or validating) |
 | `PKG_ROLE_INVALID` | error | structural | missing or duplicate asset index |
+| `PKG_PREVIEW_UNREFERENCED` | error | structural | preview is not referenced by a file asset |
+| `PKG_PREVIEW_INVALID` | error | structural | preview does not have a PDF header |
+| `PKG_PREVIEW_PATH_INVALID` | error | structural | preview occupies a dataset or asset index path |
+| `PKG_PREVIEW_BINDING_MISMATCH` | error | integrity | preview binding does not match its manifest entry or original |
 | `JSON_BAD_UTF8` | error | structural | file is not valid UTF-8 or has a byte order mark |
 | `JSON_MALFORMED` | error | structural | malformed JSON |
 | `JSON_DUPLICATE_KEY` | error | structural | duplicate key in a JSON object |

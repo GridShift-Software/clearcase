@@ -195,7 +195,7 @@ export function readClerkIdentityConfig(env: Readonly<Record<string, unknown>>, 
  *
  * Each portal returns to its own sign-in page on this origin, exactly and with no query: an instance that allows only
  * exact redirect URLs then needs one entry per client origin, and the sign-in page takes the handshake and sends the
- * verified session on to the target the sign-in POST kept in its state cookie (flow.ts signInReturnCookie).
+ * verified session on to the target the sign-in POST kept in its attempt cookie (flow.ts signInReturnCookie).
  */
 export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, kind: InstanceKind = 'client', devBrowser: string | StaffDevBrowser | null = null): { href: string } | null {
 	const read = readClerkIdentityConfig(env, { keys: 'optional' });
@@ -212,7 +212,7 @@ export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, kind: 
 
 // The sign-in page of each instance: its form posts to itself and is redirected (303) to that instance's portal, which
 // returns to it.
-const SIGN_IN_PAGE: Readonly<Record<InstanceKind, string>> = { client: '/sign-in', staff: '/sign-in/operator' };
+export const SIGN_IN_PAGE: Readonly<Record<InstanceKind, string>> = { client: '/sign-in', staff: '/sign-in/operator' };
 const SIGN_IN_PAGES: Readonly<Record<string, InstanceKind>> = { [SIGN_IN_PAGE.client]: 'client', [SIGN_IN_PAGE.staff]: 'staff' };
 const SIGN_IN_FLOW = /^\/sign-(?:in|out)(?:\/|$)/;
 

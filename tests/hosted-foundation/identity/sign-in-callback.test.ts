@@ -5,7 +5,7 @@
 // evidence only, not a browser or a real Clerk instance.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readClerkIdentityConfig, type InstanceKind } from '../../../src/lib/auth/clerk/config.ts';
-import { SIGN_IN_RETURN_COOKIE, sealSignInReturn } from '../../../src/lib/auth/clerk/flow.ts';
+import { SIGN_IN_RETURN_PREFIX, sealSignInReturn } from '../../../src/lib/auth/clerk/flow.ts';
 import { craftedInstance } from './synthetic.ts';
 
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
@@ -66,6 +66,21 @@ async function callback(kind: InstanceKind, origin: Origin, jar: Jar) {
 	expect(r.thrown, `${kind} callback on ${origin}`).toMatchObject({ status: 303 });
 	return r.thrown!.location!;
 }
+/** This flow's attempt cookies in the jar, and the bytes they add to a Cookie header. */
+const attemptsOf = (kind: InstanceKind, jar: Jar) => [...jar].filter(([n]) => n.startsWith(SIGN_IN_RETURN_PREFIX[kind]));
+const attemptBytes = (kind: InstanceKind, jar: Jar) => attemptsOf(kind, jar).reduce((n, [name, value]) => n + name.length + value.length + 3, 0);
+/** A fake Date one second further on each call, so attempts made in a loop have a definite order. */
+const ticking = () => {
+	vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-27T09:00:00Z') });
+	return () => vi.setSystemTime(Date.now() + 1000);
+};
+/** Changes one decoded byte of a MAC near its end (the last base64url character also carries unused bits). */
+const flip = (s: string) => `${s.slice(0, -3)}${s.at(-3) === 'A' ? 'B' : 'A'}${s.slice(-2)}`;
+const sealed = async (kind: InstanceKind, origin: Origin, to: string) => {
+	const c = await sealSignInReturn(configOf(origin), kind, to);
+	if (!c) throw new Error('no attempt on this origin');
+	return [c.name, c.value] as [string, string];
+};
 const configOf = (origin: Origin) => {
 	const read = readClerkIdentityConfig(app(origin), { keys: 'optional' });
 	if (!read.ok) throw new Error(read.reason);
@@ -107,14 +122,14 @@ describe('returnTo survives the round trip in a short-lived __Host- state cookie
 		const { sets, jar } = await post(kind, ORIGIN_A, '/cases/case-2?tab=documents');
 		expect(sets).toHaveLength(1);
 		const [set] = sets;
-		expect(set!.name).toBe(SIGN_IN_RETURN_COOKIE[kind]);
+		expect(set!.name).toMatch(new RegExp(`^${SIGN_IN_RETURN_PREFIX[kind]}[A-Za-z0-9_-]{22}$`));
 		expect(set!.name.startsWith('__Host-')).toBe(true);
 		expect(set!.options).toMatchObject({ path: '/', httpOnly: true, secure: true, sameSite: 'lax' });
 		expect(set!.options).not.toHaveProperty('domain');
 		expect(set!.options.maxAge).toBeGreaterThan(0);
 		expect(set!.options.maxAge).toBeLessThanOrEqual(900);
 		expect(await callback(kind, ORIGIN_A, jar)).toBe('/cases/case-2?tab=documents');
-		expect(jar.has(SIGN_IN_RETURN_COOKIE[kind])).toBe(false);
+		expect(attemptsOf(kind, jar)).toEqual([]);
 		expect(await callback(kind, ORIGIN_A, jar)).toBe('/cases');
 	});
 	it('keeps a staff and a client sign-in in flight in one browser apart', async () => {
@@ -129,6 +144,224 @@ describe('returnTo survives the round trip in a short-lived __Host- state cookie
 	});
 });
 
+/** The verified callback page on `origin` at `search` with this jar: its redirect location. */
+async function land(kind: InstanceKind, origin: Origin, jar: Jar, search = '') {
+	workers.env = app(origin);
+	const url = new URL(`${callbackUrl(kind, origin)}${search}`);
+	const r = await outcome(() => flows[kind].route.load({ locals: locals(verified(kind)), url, request: new Request(url, { headers: jar.size ? { cookie: header(jar) } : {} }), cookies: cookiesOf(jar, []) } as never));
+	if (r.thrown) {
+		expect(r.thrown, `${kind} callback on ${origin}${search}`).toMatchObject({ status: 303 });
+		return { location: r.thrown.location! };
+	}
+	throw new Error('verified callback did not redirect');
+}
+describe('two tabs signing in through the same flow land home without guessing (alpha redesign)', () => {
+	const ORDERS = [['A', 'B'], ['B', 'A']] as const;
+	it.each(KINDS.flatMap((kind) => ORDERS.map((order) => [kind, order.join(' then ')] as const)))('%s: callbacks in order %s', async (kind, order) => {
+		const jar: Jar = new Map(), target = (tab: string) => `/cases/tab-${tab}`, tick = ticking();
+		await post(kind, ORIGIN_A, target('A'), jar);
+		tick();
+		await post(kind, ORIGIN_A, target('B'), jar);
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: '/cases?signIn=multiple-tabs' });
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: '/cases' });
+		expect(attemptsOf(kind, jar)).toEqual([]);
+	});
+	it.each(KINDS)('%s: a second POST for the same target keeps one entry and returns straight there', async (kind) => {
+		const jar: Jar = new Map();
+		await post(kind, ORIGIN_A, '/cases/case-1', jar);
+		await post(kind, ORIGIN_A, '/cases/case-1', jar);
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: '/cases/case-1' });
+		expect(attemptsOf(kind, jar)).toEqual([]);
+	});
+	it.each(KINDS)('%s: bounds the set, keeping the newest attempts in a cookie a browser will hold', async (kind) => {
+		const jar: Jar = new Map(), tick = ticking();
+		for (const n of [1, 2, 3, 4, 5, 6]) { await post(kind, ORIGIN_A, `/cases/case-${n}`, jar); tick(); }
+		expect(attemptsOf(kind, jar)).toHaveLength(4);
+		expect(attemptBytes(kind, jar)).toBeLessThanOrEqual(3800);
+		expect(attemptsOf(kind, jar).map(([, value]) => atob(value.split('.')[0]!.replace(/-/g, '+').replace(/_/g, '/')))).toEqual(['/cases/case-3', '/cases/case-4', '/cases/case-5', '/cases/case-6']);
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: '/cases?signIn=multiple-tabs' });
+		expect(attemptsOf(kind, jar)).toEqual([]);
+		// Targets at the 1,300-byte cap: two of them now fit together, so neither is evicted and the callback lands home.
+		const big = (c: string) => `/cases/${c.repeat(1293)}`;
+		await post(kind, ORIGIN_A, big('x'), jar);
+		tick();
+		await post(kind, ORIGIN_A, big('y'), jar);
+		expect(attemptBytes(kind, jar)).toBeLessThanOrEqual(3800);
+		for (const [name, value] of attemptsOf(kind, jar)) expect(name.length + value.length + 1, 'one cookie a browser will hold').toBeLessThan(4096);
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: '/cases?signIn=multiple-tabs' });
+	});
+	it.each(KINDS)('%s: drops an expired, tampered or other-flow entry from the set and keeps the rest', async (kind) => {
+		vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-27T09:00:00Z') });
+		const other = kind === 'staff' ? 'client' : 'staff';
+		const old = await sealed(kind, ORIGIN_A, '/cases/old');
+		vi.setSystemTime(new Date('2026-10-27T09:15:01Z'));
+		const fresh = await sealed(kind, ORIGIN_A, '/cases/fresh'), [foreignName, foreign] = await sealed(other, ORIGIN_A, '/cases/foreign');
+		const [tamperedName, tampered] = await sealed(kind, ORIGIN_A, '/cases/tampered');
+		// The other flow's attempt, renamed into this flow's prefix with its own id, still counts as none.
+		const moved = `${SIGN_IN_RETURN_PREFIX[kind]}${foreignName.slice(SIGN_IN_RETURN_PREFIX[other].length)}`;
+		const jar: Jar = new Map([old, [moved, foreign], [tamperedName, flip(tampered)], fresh]);
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: '/cases/fresh' });
+		expect(attemptsOf(kind, jar), 'the used attempt and the refused ones are deleted').toEqual([]);
+	});
+	it('keeps two staff tabs and a client tab apart in one browser', async () => {
+		const jar: Jar = new Map(), tick = ticking();
+		await post('staff', ORIGIN_A, '/cases/staff-A', jar);
+		await post('client', ORIGIN_A, '/cases/client-A', jar);
+		tick();
+		await post('staff', ORIGIN_A, '/cases/staff-B', jar);
+		expect(await land('client', ORIGIN_A, jar)).toEqual({ location: '/cases/client-A' });
+		expect(await land('staff', ORIGIN_A, jar)).toEqual({ location: '/cases?signIn=multiple-tabs' });
+		expect(attemptsOf('staff', jar)).toEqual([]);
+	});
+	it.each(KINDS)('%s: an explicit returnTo cannot choose among multiple attempts; none retains the existing fallback', async (kind) => {
+		const jar: Jar = new Map(), tick = ticking();
+		await post(kind, ORIGIN_A, '/cases/tab-A', jar);
+		tick();
+		await post(kind, ORIGIN_A, '/cases/tab-B', jar);
+		expect(await land(kind, ORIGIN_A, jar, query('/cases/elsewhere'))).toEqual({ location: '/cases?signIn=multiple-tabs' });
+		expect(attemptsOf(kind, jar)).toEqual([]);
+		expect(await land(kind, ORIGIN_A, jar, query('/cases/elsewhere'))).toEqual({ location: '/cases/elsewhere' });
+		expect(await land(kind, ORIGIN_A, jar, query('//attacker.example.test'))).toEqual({ location: '/cases' });
+	});
+});
+
+describe('a callback that cleared other tabs\' attempts leaves no false singleton behind (M5)', () => {
+	const HOME = '/cases?signIn=multiple-tabs', target = (tab: string) => `/cases/tab-${tab}`;
+	/** The jar's cookies that belong to neither flow's attempts: the multi-tab marker a home landing leaves. */
+	const markersOf = (jar: Jar) => [...jar].filter(([n]) => !KINDS.some((k) => n.startsWith(SIGN_IN_RETURN_PREFIX[k])));
+	/** Tabs A then C post one second apart; A's callback clears both and lands home. C's attempt was issued at 09:00:01. */
+	async function clearedTwo(kind: InstanceKind) {
+		const jar: Jar = new Map(), tick = ticking();
+		await post(kind, ORIGIN_A, target('A'), jar);
+		tick();
+		await post(kind, ORIGIN_A, target('C'), jar);
+		tick();
+		expect(await land(kind, ORIGIN_A, jar), 'tab A').toEqual({ location: HOME });
+		return { jar, tick };
+	}
+	it.each(KINDS)('%s: A and C post, A lands home, then B posts: C lands home, never on B\'s target', async (kind) => {
+		const { jar, tick } = await clearedTwo(kind);
+		tick();
+		await post(kind, ORIGIN_A, target('B'), jar);
+		tick();
+		expect(await land(kind, ORIGIN_A, jar), 'tab C').toEqual({ location: HOME });
+		expect(attemptsOf(kind, jar)).toEqual([]);
+		expect(await land(kind, ORIGIN_A, jar), 'tab B').toEqual({ location: '/cases' });
+	});
+	it.each(KINDS)('%s: a singleton cleared under the marker extends it, so its own tab cannot take the next one', async (kind) => {
+		const { jar, tick } = await clearedTwo(kind);
+		await post(kind, ORIGIN_A, target('B'), jar);
+		tick();
+		expect(await land(kind, ORIGIN_A, jar), 'tab C').toEqual({ location: HOME });
+		vi.setSystemTime(new Date('2026-10-27T09:15:02Z'));
+		await post(kind, ORIGIN_A, target('E'), jar);
+		expect(await land(kind, ORIGIN_A, jar), 'tab B, after C\'s attempt would have lapsed').toEqual({ location: HOME });
+		expect(attemptsOf(kind, jar)).toEqual([]);
+	});
+	it.each(KINDS)('%s: a delayed callback response that lands last cannot shorten the marker and reopen M5', async (kind) => {
+		const jar: Jar = new Map(), tick = ticking();
+		await post(kind, ORIGIN_A, target('A'), jar);
+		tick();
+		await post(kind, ORIGIN_A, target('C'), jar);
+		const slowA = new Map(jar);
+		expect(await land(kind, ORIGIN_A, slowA), 'tab A, its response held back').toEqual({ location: HOME });
+		vi.setSystemTime(new Date('2026-10-27T09:00:10Z'));
+		await post(kind, ORIGIN_A, target('B'), jar);
+		expect(await land(kind, ORIGIN_A, jar), 'tab C clears A, C and B').toEqual({ location: HOME });
+		for (const [name, value] of markersOf(slowA)) jar.set(name, value); // A's response reaches the browser last
+		vi.setSystemTime(new Date('2026-10-27T09:15:02Z'));
+		await post(kind, ORIGIN_A, target('E'), jar);
+		expect(await land(kind, ORIGIN_A, jar), 'tab B, still inside its own lifetime').toEqual({ location: HOME });
+		expect(attemptsOf(kind, jar)).toEqual([]);
+	});
+	it.each(KINDS)('%s: a late response cannot shorten the marker below an attempt issued by a clock up to 60 s ahead (M5a)', async (kind) => {
+		const jar: Jar = new Map(), tick = ticking();
+		await post(kind, ORIGIN_A, target('A'), jar);
+		tick();
+		await post(kind, ORIGIN_A, target('C'), jar);
+		const slowA = new Map(jar);
+		expect(await land(kind, ORIGIN_A, slowA), 'tab A at 09:00:01, its response held back').toEqual({ location: HOME });
+		vi.setSystemTime(new Date('2026-10-27T09:06:01Z')); // B is signed by a server clock 60 seconds ahead
+		await post(kind, ORIGIN_A, target('B'), jar);
+		vi.setSystemTime(new Date('2026-10-27T09:05:01Z'));
+		expect(await land(kind, ORIGIN_A, jar), 'tab C clears A, C and B').toEqual({ location: HOME });
+		for (const [name, value] of markersOf(slowA)) jar.set(name, value); // A's response arrives 300 seconds late, last
+		vi.setSystemTime(new Date('2026-10-27T09:20:02Z'));
+		await post(kind, ORIGIN_A, target('E'), jar);
+		expect(await land(kind, ORIGIN_A, jar), 'tab B, still inside its own lifetime').toEqual({ location: HOME });
+	});
+	it.each(KINDS)('%s: a late response from a callback that saw the marker expired cannot erase a newer marker (M5b)', async (kind) => {
+		const { jar } = await clearedTwo(kind);
+		const [[name, value]] = markersOf(jar) as [[string, string]];
+		const lapsed = (Number(value.split('.')[0]) + 1) * 1000;
+		vi.setSystemTime(lapsed);
+		await post(kind, ORIGIN_A, target('D'), jar);
+		const slowD = new Map(jar);
+		expect(await land(kind, ORIGIN_A, slowD), 'tab D after the marker lapsed, its response held back').toEqual({ location: target('D') });
+		vi.setSystemTime(lapsed + 1000);
+		await post(kind, ORIGIN_A, target('B'), jar);
+		await post(kind, ORIGIN_A, target('F'), jar);
+		expect(await land(kind, ORIGIN_A, jar), 'tab B clears D, B and F').toEqual({ location: HOME });
+		if (!slowD.has(name)) jar.delete(name); // D's response arrives last: whatever it did to the marker happens now
+		vi.setSystemTime(lapsed + 2000);
+		await post(kind, ORIGIN_A, target('E'), jar);
+		expect(await land(kind, ORIGIN_A, jar), 'tab F, still inside its own lifetime').toEqual({ location: HOME });
+	});
+	it.each(KINDS)('%s: the marker lasts the attempt lifetime plus its delivery slack after the clear, then a single attempt routes normally', async (kind) => {
+		const { jar } = await clearedTwo(kind);
+		const still = new Map(jar);
+		vi.setSystemTime(new Date('2026-10-27T09:25:02Z'));
+		await post(kind, ORIGIN_A, target('B'), still);
+		expect(await land(kind, ORIGIN_A, still), 'at the last second of the marker (cleared at 09:00:02, plus 900 and 600)').toEqual({ location: HOME });
+		vi.setSystemTime(new Date('2026-10-27T09:25:03Z'));
+		await post(kind, ORIGIN_A, target('B'), jar);
+		expect(await land(kind, ORIGIN_A, jar), 'after it lapsed').toEqual({ location: target('B') });
+		expect(attemptsOf(kind, jar)).toEqual([]);
+		expect(markersOf(jar), 'nothing deletes the marker: the browser drops it at its max-age').toHaveLength(1);
+	});
+	it.each(KINDS)('%s: a tampered, empty, re-dated or other-flow marker is ignored, and left in place', async (kind) => {
+		const other = kind === 'staff' ? 'client' : 'staff';
+		const [[name, value]] = markersOf((await clearedTwo(kind)).jar) as [[string, string]];
+		const [[otherName, otherValue]] = markersOf((await clearedTwo(other)).jar) as [[string, string]];
+		const [expires, mac] = value.split('.');
+		for (const marker of [[[name, flip(value)]], [[name, `${Number(expires) + 1}.${mac}`]], [[name, '']], [[name, otherValue]]] as [string, string][][]) {
+			const jar: Jar = new Map(marker);
+			await post(kind, ORIGIN_A, target('B'), jar);
+			expect(await land(kind, ORIGIN_A, jar), marker[0]![1]).toEqual({ location: target('B') });
+			expect(markersOf(jar), marker[0]![1]).toEqual(marker);
+		}
+		expect(otherName).not.toBe(name);
+	});
+	it.each(KINDS)('%s: the marker is per flow and per origin', async (kind) => {
+		const other = kind === 'staff' ? 'client' : 'staff';
+		const { jar } = await clearedTwo(kind);
+		await post(other, ORIGIN_A, target('other'), jar);
+		expect(await land(other, ORIGIN_A, jar)).toEqual({ location: target('other') });
+		const elsewhere: Jar = new Map(markersOf(jar));
+		await post(kind, ORIGIN_C, target('B'), elsewhere);
+		expect(await land(kind, ORIGIN_C, elsewhere)).toEqual({ location: target('B') });
+	});
+	it.each(KINDS)('%s: two sequential attempts at the size cap and the marker all fit, so neither is evicted (L1)', async (kind) => {
+		const { jar, tick } = await clearedTwo(kind);
+		const big = (c: string) => `/cases/${c.repeat(1293)}`;
+		expect(new TextEncoder().encode(big('x')).length).toBe(1300);
+		await post(kind, ORIGIN_A, big('x'), jar);
+		tick();
+		await post(kind, ORIGIN_A, big('y'), jar);
+		expect(attemptsOf(kind, jar)).toHaveLength(2);
+		const [[name, value]] = markersOf(jar) as [[string, string]];
+		expect(attemptBytes(kind, jar) + name.length + value.length + 3).toBeLessThanOrEqual(3800);
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: HOME });
+	});
+	it.each(KINDS)('%s: a target over the size cap returns to /cases, so a sequential large pair leaves no false singleton (L1)', async (kind) => {
+		const jar: Jar = new Map(), tick = ticking(), big = (c: string) => `/cases/${c.repeat(1393)}`;
+		await post(kind, ORIGIN_A, big('x'), jar);
+		tick();
+		await post(kind, ORIGIN_A, big('y'), jar);
+		expect(await land(kind, ORIGIN_A, jar), 'tab A').not.toEqual({ location: big('y') });
+	});
+});
+
 describe('a hostile returnTo is refused when the state is set and when it is read', () => {
 	it.each(KINDS.flatMap((kind) => HOSTILE.map((returnTo) => [kind, returnTo] as const)))('%s: sends %j to /cases, with the callback unchanged', async (kind, returnTo) => {
 		const { r, jar } = await post(kind, ORIGIN_A, returnTo);
@@ -136,41 +369,43 @@ describe('a hostile returnTo is refused when the state is set and when it is rea
 		expect(await callback(kind, ORIGIN_A, jar)).toBe('/cases');
 	});
 	it.each(KINDS.flatMap((kind) => HOSTILE.map((returnTo) => [kind, returnTo] as const)))('%s: refuses %j even under a state MAC that verifies', async (kind, returnTo) => {
-		const value = await sealSignInReturn(configOf(ORIGIN_A), kind, returnTo);
-		expect(value).not.toBeNull();
-		expect(await callback(kind, ORIGIN_A, new Map([[SIGN_IN_RETURN_COOKIE[kind], value!]]))).toBe('/cases');
+		expect(await callback(kind, ORIGIN_A, new Map([await sealed(kind, ORIGIN_A, returnTo)]))).toBe('/cases');
 	});
 });
 
 describe('a missing, expired, tampered or foreign state goes to /cases, never elsewhere', () => {
-	const stateOf = async (kind: InstanceKind, origin: Origin, returnTo = '/cases/case-1') => (await post(kind, origin, returnTo)).jar.get(SIGN_IN_RETURN_COOKIE[kind])!;
+	const stateOf = async (kind: InstanceKind, origin: Origin, returnTo = '/cases/case-1') => attemptsOf(kind, (await post(kind, origin, returnTo)).jar)[0]!;
 
 	it.each(KINDS)('expires a %s state after its lifetime', async (kind) => {
 		vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-27T09:00:00Z') });
 		const state = await stateOf(kind, ORIGIN_A);
 		vi.setSystemTime(new Date('2026-10-27T09:14:00Z'));
-		expect(await callback(kind, ORIGIN_A, new Map([[SIGN_IN_RETURN_COOKIE[kind], state]]))).toBe('/cases/case-1');
+		expect(await callback(kind, ORIGIN_A, new Map([state]))).toBe('/cases/case-1');
 		vi.setSystemTime(new Date('2026-10-27T09:15:01Z'));
-		expect(await callback(kind, ORIGIN_A, new Map([[SIGN_IN_RETURN_COOKIE[kind], state]]))).toBe('/cases');
+		expect(await callback(kind, ORIGIN_A, new Map([state]))).toBe('/cases');
 	});
-	it.each(KINDS)('refuses a tampered, truncated, repeated or renamed %s state', async (kind) => {
-		const name = SIGN_IN_RETURN_COOKIE[kind], state = await stateOf(kind, ORIGIN_A), other = await stateOf(kind, ORIGIN_A, '/cases/case-2');
+	it.each(KINDS)('refuses a tampered, truncated, repeated, renamed or moved %s state', async (kind) => {
+		const [name, state] = await stateOf(kind, ORIGIN_A), [otherName, other] = await stateOf(kind, ORIGIN_A, '/cases/case-2');
 		const [target, issued, mac] = state.split('.'), [otherTarget] = other.split('.');
-		const flip = (s: string) => `${s.slice(0, -1)}${s.endsWith('A') ? 'B' : 'A'}`;
+		expect(await callbackWithHeader(kind, ORIGIN_A, `${name}=${state}`)).toBe('/cases/case-1');
 		for (const cookie of [
 			`${name}=${flip(state)}`, `${name}=${otherTarget}.${issued}.${mac}`, `${name}=${target}.${Number(issued) + 1}.${mac}`, `${name}=${target}.${issued}`, `${name}=${target}`, `${name}=`,
 			`${name}=${state}; ${name}=${state}`, `${name}=${state}; ${name}=${other}`, `${name.replace('__Host-', '')}=${state}`,
+			`${otherName}=${state}`, `${SIGN_IN_RETURN_PREFIX[kind].slice(0, -1)}=${state}`, `${name}x=${state}`,
 		]) expect(await callbackWithHeader(kind, ORIGIN_A, cookie), cookie).toBe('/cases');
 	});
 	it.each(KINDS)('refuses a %s state minted on another client origin that shares the staff instance', async (kind) => {
 		const state = await stateOf(kind, ORIGIN_C);
-		expect(await callback(kind, ORIGIN_A, new Map([[SIGN_IN_RETURN_COOKIE[kind], state]]))).toBe('/cases');
-		expect(await callback(kind, ORIGIN_C, new Map([[SIGN_IN_RETURN_COOKIE[kind], state]]))).toBe('/cases/case-1');
+		expect(await callback(kind, ORIGIN_A, new Map([state]))).toBe('/cases');
+		expect(await callback(kind, ORIGIN_C, new Map([state]))).toBe('/cases/case-1');
 	});
 	it('refuses a state minted for the other flow, under either cookie name', async () => {
+		const into = (kind: InstanceKind, [name, value]: [string, string], from: InstanceKind) => new Map([[`${SIGN_IN_RETURN_PREFIX[kind]}${name.slice(SIGN_IN_RETURN_PREFIX[from].length)}`, value]]);
 		const staff = await stateOf('staff', ORIGIN_A), clientState = await stateOf('client', ORIGIN_A);
-		expect(await callback('client', ORIGIN_A, new Map([[SIGN_IN_RETURN_COOKIE.client, staff]]))).toBe('/cases');
-		expect(await callback('staff', ORIGIN_A, new Map([[SIGN_IN_RETURN_COOKIE.staff, clientState]]))).toBe('/cases');
+		expect(await callback('client', ORIGIN_A, into('client', staff, 'staff'))).toBe('/cases');
+		expect(await callback('staff', ORIGIN_A, into('staff', clientState, 'client'))).toBe('/cases');
+		expect(await callback('client', ORIGIN_A, new Map([staff]))).toBe('/cases');
+		expect(await callback('staff', ORIGIN_A, new Map([clientState]))).toBe('/cases');
 	});
 	it.each(KINDS)('sets no %s state on a plain http origin, which cannot hold a __Host- cookie, and returns it to /cases', async (kind) => {
 		const { r, sets, jar } = await post(kind, ORIGIN_L, '/cases/case-1');

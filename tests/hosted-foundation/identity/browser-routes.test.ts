@@ -2,7 +2,7 @@
 // session before it clears cookies, and signing in as the other identity signs the first out or refuses ambiguity.
 // SYNTHETIC keys and a loopback Backend API. Route-handler unit evidence only: no browser, no hook, no real Clerk.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SIGN_IN_RETURN_COOKIE } from '../../../src/lib/auth/clerk/flow.ts';
+import { SIGN_IN_RETURN_PREFIX } from '../../../src/lib/auth/clerk/flow.ts';
 import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
 
@@ -92,8 +92,9 @@ describe('/sign-in as one browser session per origin', () => {
 			const url = new URL(`${ORIGIN}/sign-in?returnTo=${encodeURIComponent(returnTo)}`), c = jar();
 			const r = await outcome(() => signIn.actions.default!({ locals: l, request: new Request(url, { method: 'POST' }), url, cookies: c.cookies } as never));
 			expect(new URL(r.thrown!.location!).searchParams.get('redirect_url'), returnTo).toBe(`${ORIGIN}/sign-in`);
-			const name = SIGN_IN_RETURN_COOKIE.client, callback = new URL(`${ORIGIN}/sign-in`);
-			const returned = await outcome(() => signIn.load({ locals: verified, url: callback, request: new Request(callback, { headers: { cookie: `${name}=${c.set.get(name)}` } }), cookies: jar().cookies } as never));
+			const callback = new URL(`${ORIGIN}/sign-in`), state = [...c.set].filter(([n]) => n.startsWith(SIGN_IN_RETURN_PREFIX.client));
+			expect(state).toHaveLength(1);
+			const returned = await outcome(() => signIn.load({ locals: verified, url: callback, request: new Request(callback, { headers: { cookie: state.map(([n, v]) => `${n}=${v}`).join('; ') } }), cookies: jar().cookies } as never));
 			expect(returned.thrown, returnTo).toMatchObject({ status: 303, location: back });
 		}
 	});

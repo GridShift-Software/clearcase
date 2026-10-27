@@ -209,48 +209,76 @@ export function signInReturnTarget(value: unknown): string {
 }
 
 /**
- * The return target of a sign-in in flight, one cookie per flow. Clerk sees one fixed callback per origin and flow
- * (config.ts clerkSignInTarget), because an instance that allows only exact redirect URLs sends any other one to its
- * home URL, so the sign-in POST keeps the target here and the callback reads it once. The value is the target
- * (base64url), its issue time and an HMAC-SHA-256 under the flow's own instance secret key over this app, client,
- * instance and flow: a state from another origin, client or flow counts as none. It is a `__Host-` cookie a sibling
- * origin cannot plant; a plain http origin cannot hold one, so its sign-ins return to DEFAULT_RETURN.
+ * The return targets of the sign-ins in flight, one `__Host-` cookie per attempt. Clerk sees one fixed callback per
+ * origin and flow (config.ts clerkSignInTarget), because an instance that allows only exact redirect URLs sends any
+ * other one to its home URL, so the sign-in POST keeps the target here and the callback reads it. Each POST sets its own
+ * cookie, the flow's prefix and a random attempt id, so two POSTs in flight at once never write the same cookie and
+ * neither answer drops the other's attempt (a read-modify-write of one shared cookie cannot be made race-free). Its
+ * value is the target (base64url), its issue time and an HMAC-SHA-256 under the flow's own instance secret key over
+ * this app, client, instance, flow and attempt id, so a value from another origin, client, flow or attempt counts as
+ * none. A sibling origin cannot plant a `__Host-` cookie; a plain http origin cannot hold one, so its sign-ins return to
+ * DEFAULT_RETURN.
+ *
+ * Two tabs of one browser share the cookies and come back to the same callback with the same cookies, so a callback
+ * cannot tell which attempt is its own. It never guesses: a document navigation follows one fresh attempt, but
+ * several are all cleared and land on the flow's safe home with a plain notice. Data requests, preloads and fetches
+ * change no cookies. Deletion consumes a browser hint, not a credential: replay remains possible until its expiry.
  */
-export const SIGN_IN_RETURN_COOKIE: Readonly<Record<InstanceKind, string>> = { client: '__Host-clearcase_return', staff: '__Host-clearcase_staff_return' };
+export const SIGN_IN_RETURN_PREFIX: Readonly<Record<InstanceKind, string>> = { client: '__Host-clearcase_return-', staff: '__Host-clearcase_staff_return-' };
 /** How long a sign-in may take at the portal before its return target lapses, in seconds. */
 export const SIGN_IN_RETURN_TTL = 900;
-const RETURN_LABEL = 'clearcase sign-in return v1', RETURN_MAX_BYTES = 2048;
+/** How many sign-ins of one flow may be in flight in one browser; a further one evicts the oldest. */
+export const SIGN_IN_RETURN_LIMIT = 4;
+/**
+ * Seconds a multi-tab marker outlives the clear that wrote it, beyond SIGN_IN_RETURN_TTL. Responses can reach the browser
+ * out of order and the last marker written wins, so an earlier clear's late response must not shorten the protection a
+ * later clear gave. Every attempt that later clear saw lapses by its own time plus 60 seconds of accepted clock skew plus
+ * the TTL; dating the marker from the clearing time covers it while the late response is at most MARKER_SLACK - 60
+ * seconds behind. Cloudflare closes a response after about 100 seconds, well inside this.
+ */
+const MARKER_SLACK = 600;
+/**
+ * A callback that clears attempts it does not follow leaves the flow's marker: its expiry, under a MAC like an
+ * attempt's, is the clearing time plus SIGN_IN_RETURN_TTL plus MARKER_SLACK. A cleared tab's callback still to come
+ * cannot tell its own attempt is gone, so while the marker is valid every callback that finds an attempt clears them all
+ * and lands home, and none takes a later tab's attempt for its own. Nothing deletes it: the browser drops it at its
+ * max-age, and an invalid or expired one is ignored, because a late response's delete would erase a newer clear's marker.
+ */
+const SIGN_IN_RETURN_MARKER: Readonly<Record<InstanceKind, string>> = { client: '__Host-clearcase_multi_tab', staff: '__Host-clearcase_staff_multi_tab' };
+// A browser holds a cookie of up to 4096 bytes, name included. One flow's attempts together stay within
+// RETURN_STATE_MAX bytes of Cookie header less the marker's MARKER_BYTES, oldest evicted first; POSTs that overlap may
+// each add one before the next request bounds them again. At most RETURN_SCAN of a flow's cookies are read.
+// RETURN_MAX_BYTES keeps two sequential attempts and the marker together: a staff attempt is 52 bytes of name, 55 of
+// issue time and MAC, 3 of separators and the target as base64url, so 2 × (110 + ⌈1300 × 4/3⌉) + 91 = 3779 ≤ 3800.
+const RETURN_LABEL = 'clearcase sign-in return v2', MARKER_LABEL = 'clearcase sign-in multi-tab v1';
+const RETURN_MAX_BYTES = 1300, RETURN_STATE_MAX = 3800, RETURN_SCAN = 2 * SIGN_IN_RETURN_LIMIT;
+const MARKER_BYTES = Math.max(...Object.values(SIGN_IN_RETURN_MARKER).map((n) => n.length)) + 3 + 12 + 1 + 43;
+const RETURN_ID = /^[A-Za-z0-9_-]{22}$/;
 const RETURN_STATE = /^([A-Za-z0-9_-]{2,2731})\.(\d{1,12})\.([A-Za-z0-9_-]{43})$/;
-const returnParts = (config: ClerkIdentityConfig, kind: InstanceKind, issued: string, to: string) => [kind, config[kind].issuer, issued, to];
+const MARKER_STATE = /^(\d{1,12})\.([A-Za-z0-9_-]{43})$/;
+const returnParts = (config: ClerkIdentityConfig, kind: InstanceKind, id: string, issued: string, to: string) => [kind, config[kind].issuer, id, issued, to];
+const markerParts = (config: ClerkIdentityConfig, kind: InstanceKind, expires: string) => [kind, config[kind].issuer, expires];
+const returnOptions = { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: SIGN_IN_RETURN_TTL } as const;
+type ReturnCookieOptions = Omit<typeof returnOptions, 'maxAge'> & { maxAge: number };
+type Attempt = { name: string; id: string; to: string; issued: number; bytes: number };
+/** The cookies a route changes for the return targets: at most one cookie to set (an attempt or the marker), and those to delete. */
+export type SignInReturnChange = { set: { name: string; value: string; options: ReturnCookieOptions } | null; delete: string[] };
 
-/** The state value for a target exactly as given (signInReturnCookie validates it first), or null on an http origin. */
-export async function sealSignInReturn(config: ClerkIdentityConfig, kind: InstanceKind, returnTo: string): Promise<string | null> {
+/** A new attempt's cookie for a target exactly as given (signInReturnCookie validates it first), or null on an http origin. */
+export async function sealSignInReturn(config: ClerkIdentityConfig, kind: InstanceKind, returnTo: string): Promise<{ name: string; value: string } | null> {
 	if (!hostCookies(config)) return null;
-	const issued = String(Math.floor(Date.now() / 1000));
-	return `${b64url(new TextEncoder().encode(returnTo))}.${issued}.${await macOf(RETURN_LABEL, config, returnParts(config, kind, issued, returnTo), config[kind])}`;
+	const id = b64url(crypto.getRandomValues(new Uint8Array(16))), issued = String(Math.floor(Date.now() / 1000));
+	const mac = await macOf(RETURN_LABEL, config, returnParts(config, kind, id, issued, returnTo), config[kind]);
+	return { name: `${SIGN_IN_RETURN_PREFIX[kind]}${id}`, value: `${b64url(new TextEncoder().encode(returnTo))}.${issued}.${mac}` };
 }
 /**
- * The state cookie a sign-in POST sets for the asked `returnTo`, validated by signInReturnTarget (a target too long for
- * a cookie is DEFAULT_RETURN); null when Clerk is not configured or on an http origin.
+ * The target one attempt carries for this flow, or null: issued for this app, client, instance, flow and attempt id
+ * within SIGN_IN_RETURN_TTL, under a MAC that verifies, naming a target signInReturnTarget keeps unchanged.
  */
-export async function signInReturnCookie(env: Readonly<Record<string, unknown>>, kind: InstanceKind, returnTo: unknown) {
-	const read = readClerkIdentityConfig(env, { keys: 'optional' });
-	if (!read.ok) return null;
-	const target = signInReturnTarget(returnTo), to = new TextEncoder().encode(target).length <= RETURN_MAX_BYTES ? target : DEFAULT_RETURN;
-	const value = await sealSignInReturn(read.config, kind, to);
-	return value === null ? null : { name: SIGN_IN_RETURN_COOKIE[kind], value, options: { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: SIGN_IN_RETURN_TTL } as const };
-}
-/**
- * The target a callback's state carries for this flow, or null: exactly one cookie, issued for this app, client, instance
- * and flow within SIGN_IN_RETURN_TTL, under a MAC that verifies, naming a target signInReturnTarget keeps unchanged.
- */
-export async function signInReturnOf(env: Readonly<Record<string, unknown>>, request: Request, kind: InstanceKind): Promise<string | null> {
-	const read = readClerkIdentityConfig(env, { keys: 'optional' });
-	if (!read.ok || !hostCookies(read.config)) return null;
-	const states = cookiePairs(request).filter((c) => c.name === SIGN_IN_RETURN_COOKIE[kind]);
-	const m = states.length === 1 ? RETURN_STATE.exec(states[0]!.value) : null;
-	if (!m) return null;
-	const age = Math.floor(Date.now() / 1000) - Number(m[2]);
+async function openSignInReturn(config: ClerkIdentityConfig, kind: InstanceKind, id: string, value: string): Promise<{ to: string; issued: number } | null> {
+	const m = RETURN_STATE.exec(value);
+	if (!RETURN_ID.test(id) || !m) return null;
+	const issued = Number(m[2]), age = Math.floor(Date.now() / 1000) - issued;
 	if (age < -60 || age > SIGN_IN_RETURN_TTL) return null;
 	let to: string;
 	try {
@@ -258,16 +286,89 @@ export async function signInReturnOf(env: Readonly<Record<string, unknown>>, req
 	} catch {
 		return null;
 	}
-	if (!(await macVerifies(RETURN_LABEL, read.config, returnParts(read.config, kind, m[2]!, to), m[3]!, read.config[kind]))) return null;
-	return signInReturnTarget(to) === to ? to : null;
+	if (!(await macVerifies(RETURN_LABEL, config, returnParts(config, kind, id, m[2]!, to), m[3]!, config[kind]))) return null;
+	return signInReturnTarget(to) === to ? { to, issued } : null;
 }
 /**
- * Where a sign-in page sends a session already verified for its flow: an explicit `returnTo` in the page URL, else the
- * target its state carries, else DEFAULT_RETURN. The state is read once, so `clear` names the cookie to delete.
+ * This flow's attempts in `request`, oldest first. When a POST is `adding`, bound the retained attempts plus the new
+ * one by SIGN_IN_RETURN_LIMIT and RETURN_STATE_MAX. Names to delete: each cookie openSignInReturn refuses or repeats,
+ * those for the target being added, and the oldest valid ones beyond the bounds. None on an http origin.
  */
-export async function signInReturn(env: Readonly<Record<string, unknown>>, request: Request, url: URL, kind: InstanceKind): Promise<{ location: string; clear: string }> {
-	const location = url.searchParams.has('returnTo') ? signInReturnTarget(url.searchParams.get('returnTo')) : ((await signInReturnOf(env, request, kind)) ?? DEFAULT_RETURN);
-	return { location, clear: SIGN_IN_RETURN_COOKIE[kind] };
+async function signInAttempts(config: ClerkIdentityConfig, request: Request, kind: InstanceKind, adding?: { to: string; bytes: number }): Promise<{ attempts: Attempt[]; drop: string[] }> {
+	if (!hostCookies(config)) return { attempts: [], drop: [] };
+	const prefix = SIGN_IN_RETURN_PREFIX[kind], pairs = cookiePairs(request).filter((c) => c.name.startsWith(prefix));
+	const attempts: Attempt[] = [], drop: string[] = [];
+	for (const name of [...new Set(pairs.map((c) => c.name))].slice(0, RETURN_SCAN)) {
+		const values = pairs.filter((c) => c.name === name), id = name.slice(prefix.length);
+		const opened = values.length === 1 ? await openSignInReturn(config, kind, id, values[0]!.value) : null;
+		if (opened && opened.to !== adding?.to) attempts.push({ name, id, ...opened, bytes: name.length + values[0]!.value.length + 3 });
+		else drop.push(name);
+	}
+	attempts.sort((a, b) => a.issued - b.issued || (a.name < b.name ? -1 : 1));
+	const count = () => attempts.length + (adding ? 1 : 0), bytes = () => attempts.reduce((n, a) => n + a.bytes, adding?.bytes ?? 0);
+	// Bound writes, not callback classification: evicting here on a read could turn two attempts into a false singleton.
+	while (adding && attempts.length && (count() > SIGN_IN_RETURN_LIMIT || bytes() > RETURN_STATE_MAX - MARKER_BYTES)) drop.push(attempts.shift()!.name);
+	return { attempts, drop };
+}
+/** This flow's marker in `request`: its expiry when exactly one verifies and has not passed, and whether any is present. */
+async function multiTabMarker(config: ClerkIdentityConfig, request: Request, kind: InstanceKind): Promise<{ expires: number | null; present: boolean }> {
+	const values = cookiePairs(request).filter((c) => c.name === SIGN_IN_RETURN_MARKER[kind]);
+	const m = values.length === 1 ? MARKER_STATE.exec(values[0]!.value) : null;
+	if (!m) return { expires: null, present: values.length > 0 };
+	const expires = Number(m[1]), left = expires - Math.floor(Date.now() / 1000);
+	const valid = left >= 0 && left <= SIGN_IN_RETURN_TTL + MARKER_SLACK + 60 && (await macVerifies(MARKER_LABEL, config, markerParts(config, kind, m[1]!), m[2]!, config[kind]));
+	return { expires: valid ? expires : null, present: true };
+}
+async function sealMultiTabMarker(config: ClerkIdentityConfig, kind: InstanceKind, expires: number): Promise<NonNullable<SignInReturnChange['set']>> {
+	const mac = await macOf(MARKER_LABEL, config, markerParts(config, kind, String(expires)), config[kind]);
+	const maxAge = Math.max(1, expires - Math.floor(Date.now() / 1000));
+	return { name: SIGN_IN_RETURN_MARKER[kind], value: `${expires}.${mac}`, options: { ...returnOptions, maxAge } };
+}
+/** A callback may consume return hints only on a real document GET, never on Kit's unmarked data preloads. */
+const documentNavigation = (request: Request, url: URL, isDataRequest: boolean) => request.method === 'GET'
+	&& !isDataRequest && ![url.pathname, new URL(request.url).pathname].some((p) => /\/__data\.json\/?$/.test(p))
+	&& !['sec-purpose', 'purpose'].some((h) => /\b(prefetch|preload|prerender)\b/i.test(request.headers.get(h) ?? ''))
+	&& (!request.headers.has('sec-fetch-mode') || request.headers.get('sec-fetch-mode') === 'navigate');
+/**
+ * The cookies a sign-in POST changes: a new attempt for the asked `returnTo`, validated by signInReturnTarget (a target
+ * too long for a cookie is DEFAULT_RETURN), and deletes for this flow's refused attempts, those for the same target and
+ * the oldest beyond the bounds. Null when Clerk is not configured or on an http origin.
+ */
+export async function signInReturnCookie(env: Readonly<Record<string, unknown>>, kind: InstanceKind, returnTo: unknown, request: Request): Promise<SignInReturnChange | null> {
+	const read = readClerkIdentityConfig(env, { keys: 'optional' });
+	if (!read.ok) return null;
+	const target = signInReturnTarget(returnTo), to = new TextEncoder().encode(target).length <= RETURN_MAX_BYTES ? target : DEFAULT_RETURN;
+	const sealed = await sealSignInReturn(read.config, kind, to);
+	if (sealed === null) return null;
+	const { drop } = await signInAttempts(read.config, request, kind, { to, bytes: sealed.name.length + sealed.value.length + 3 });
+	return { set: { ...sealed, options: returnOptions }, delete: drop };
+}
+/** Safe home for either flow on this per-client Worker; the query carries only a fixed, non-sensitive notice. */
+export const MULTI_TAB_RETURN = `${DEFAULT_RETURN}?signIn=multiple-tabs`;
+/**
+ * A verified callback consumes only on document navigation. One valid, fresh attempt goes to its signed target;
+ * several, or any under a valid marker, clear every cookie for this flow and land home, never on another tab's target,
+ * and leave the marker (SIGN_IN_RETURN_MARKER) past any attempt they could have seen. No chooser or consumed-id
+ * store exists. With none, retain the explicit safe returnTo fallback or DEFAULT_RETURN.
+ */
+export async function signInReturn(env: Readonly<Record<string, unknown>>, request: Request, url: URL, kind: InstanceKind, isDataRequest = false): Promise<{ location: string; change: SignInReturnChange }> {
+	const fallback = url.searchParams.has('returnTo') ? signInReturnTarget(url.searchParams.get('returnTo')) : DEFAULT_RETURN;
+	if (!documentNavigation(request, url, isDataRequest)) return { location: fallback, change: { set: null, delete: [] } };
+	const read = readClerkIdentityConfig(env, { keys: 'optional' });
+	if (!read.ok || !hostCookies(read.config)) return { location: fallback, change: { set: null, delete: [] } };
+	const names = [...new Set(cookiePairs(request).filter((c) => c.name.startsWith(SIGN_IN_RETURN_PREFIX[kind])).map((c) => c.name))];
+	const { attempts } = await signInAttempts(read.config, request, kind), marker = await multiTabMarker(read.config, request, kind);
+	// Beyond the validation cap we cannot establish a singleton; fail safely and clear even the unscanned names.
+	const multiple = attempts.length > 1 || names.length > RETURN_SCAN || (marker.expires !== null && attempts.length > 0);
+	if (!multiple) return { location: attempts[0]?.to ?? fallback, change: { set: null, delete: names } };
+	if (!attempts.length) return { location: MULTI_TAB_RETURN, change: { set: null, delete: names } };
+	const expires = Math.max(marker.expires ?? 0, Math.floor(Date.now() / 1000) + SIGN_IN_RETURN_TTL + MARKER_SLACK);
+	return { location: MULTI_TAB_RETURN, change: { set: await sealMultiTabMarker(read.config, kind, expires), delete: names } };
+}
+/** Applies a SignInReturnChange to a route's cookies. */
+export function applySignInReturnChange(cookies: { set(name: string, value: string, options: ReturnCookieOptions): void; delete(name: string, options: { path: string; secure: boolean }): void }, change: SignInReturnChange): void {
+	for (const name of new Set(change.delete)) cookies.delete(name, { path: '/', secure: true });
+	if (change.set) cookies.set(change.set.name, change.set.value, change.set.options);
 }
 
 /**

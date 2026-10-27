@@ -5,25 +5,25 @@ import { refuse } from '$lib/server/runtime/hosted/http';
 import { codeOf } from '$lib/server/runtime/errors';
 import { id } from '$lib/server/runtime/ids';
 import { clerkSignInTarget } from '$lib/auth/clerk/config';
-import { devBrowserOf, prepareSignIn, signInReturn, signInReturnCookie } from '$lib/auth/clerk/flow';
+import { applySignInReturnChange, devBrowserOf, prepareSignIn, signInReturn, signInReturnCookie } from '$lib/auth/clerk/flow';
 
 const IDENTITY = /^([a-z0-9][a-z0-9-]{0,62})\/([A-Za-z0-9._-]{1,64})$/;
 const unconfigured = () => error(503, { message: 'No sign-in provider is configured for this deployment.', code: 'identity-unavailable' });
 // The hosted-gate profile signs in through its test identity double. Production signs in at this client's Clerk
 // application (GRS-113), which is invite-only: the page links there and holds no key.
 // The client portal returns here, to this exact URL; a verified client session then goes on to the target the POST kept
-// in its state cookie. The page data never carries the dev browser; only the POST's redirect hands it to the portal.
+// in its attempt cookie. The page data never carries the dev browser; only the POST's redirect hands it to the portal.
 const clerk = (request?: Request) => clerkSignInTarget(env, 'client', request ? devBrowserOf(request) : null);
 
-export async function load({ locals, url, request, cookies }: RequestEvent) {
+export async function load({ locals, url, request, cookies, isDataRequest }: RequestEvent) {
 	const double = locals.runtime.testIdentity;
 	if (double) {
 		const options = await double.options().catch((e) => refuse(e));
 		return { provider: double.provider, href: null, options: options.map((o) => ({ value: `${o.clientId}/${o.subject}`, label: o.label })) };
 	}
 	if (locals.identity.kind === 'verified' && locals.identity.principal.kind === 'client') {
-		const back = await signInReturn(env, request, url, 'client');
-		cookies.delete(back.clear, { path: '/', secure: true });
+		const back = await signInReturn(env, request, url, 'client', isDataRequest);
+		applySignInReturnChange(cookies, back.change);
 		redirect(303, back.location);
 	}
 	const target = clerk();
@@ -34,6 +34,7 @@ export async function load({ locals, url, request, cookies }: RequestEvent) {
 export const actions: Actions = {
 	default: async ({ request, locals, cookies, url }: RequestEvent) => {
 		const double = locals.runtime.testIdentity;
+		const form = await request.formData().catch(() => null);
 		if (!double) {
 			const target = clerk(request);
 			if (!target) unconfigured();
@@ -41,11 +42,11 @@ export const actions: Actions = {
 			const prepared = await prepareSignIn({ env, request, identity: locals.identity, target: 'client' }).catch((e) => refuse(e));
 			for (const name of prepared.clear) cookies.delete(name, { path: '/', secure: url.protocol === 'https:' });
 			if (prepared.action === 'refuse') return fail(409, { message: 'We could not tell which session is yours. It has been cleared; sign in again.' });
-			const state = await signInReturnCookie(env, 'client', url.searchParams.get('returnTo'));
-			if (state) cookies.set(state.name, state.value, state.options);
+			const change = await signInReturnCookie(env, 'client', url.searchParams.get('returnTo'), request);
+			if (change) applySignInReturnChange(cookies, change);
 			redirect(303, target!.href, { external: [new URL(target!.href).origin] });
 		}
-		const value = (await request.formData()).get('identity');
+		const value = form?.get('identity');
 		const match = typeof value === 'string' ? IDENTITY.exec(value) : null;
 		if (!match) return fail(400, { message: 'Choose a test identity.' });
 		const session = await double.signIn({ clientId: id('client', match[1]!), subject: match[2]! }).catch((e) => (codeOf(e) === 'unauthenticated' ? null : refuse(e)));

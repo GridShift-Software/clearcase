@@ -51,8 +51,9 @@ export const freshOf = (w: World): string[] => w.db.rows<{ f: string }>(`SELECT 
 const fixture = snapshot();
 export const FIXTURE_BOUND: AssetBinding = { resultsVersion: fixture.link.candidate.resultsVersion, manifestSha256: fixture.link.candidate.manifestSha256, validatorVersion: fixture.validation.validatorVersion,
   diagnosticsSha256: fixture.validation.diagnosticsSha256 };
-export async function buildAssetEvidence(inputs: readonly AssetPolicyInput[], binding: AssetBinding = FIXTURE_BOUND) {
-  const items = runItems(inputs, binding);
+/** `edit` changes the run's items before they are sealed, for a run the asset step would never write. */
+export async function buildAssetEvidence(inputs: readonly AssetPolicyInput[], binding: AssetBinding = FIXTURE_BOUND, edit: (items: Item[]) => Item[] = (items) => items) {
+  const items = edit(runItems(inputs, binding));
   const db = database(); db.exec('PRAGMA foreign_keys=OFF');
   const adapter = d1(db), b = readinessBinding;
   let now = 0, root: string | null = null;

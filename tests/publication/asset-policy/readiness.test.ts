@@ -84,7 +84,7 @@ describe('an acknowledgement is not an observation', () => {
   it('counts its warning as a missing original, apart from every ordinary warning', async () => {
     const body = await read([UNCITED_MISSING, PDF_RENDERED]);
     expect(body.evidence.groups.filter((g) => g.kind === 'warning')).toEqual([
-      { kind: 'warning', subject: null, state: null, reason: null, count: 1 }, { kind: 'warning', subject: null, state: 'original-not-supplied', reason: null, count: 1 }]);
+      { kind: 'warning', subject: null, state: null, reason: null, count: 1 }, { kind: 'warning', subject: null, state: 'original-not-supplied:warned', reason: null, count: 1 }]);
   });
 
   it('summarises from counts alone, so a state with a different kind or reason is never read as a policy state', () => {

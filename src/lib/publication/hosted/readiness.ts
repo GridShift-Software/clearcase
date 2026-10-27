@@ -7,7 +7,7 @@ import type { PublicationRequest } from './controller.ts';
 import type { CandidateSnapshot, CandidateSnapshotV2, EvidenceCountGroup, EvidenceKind, EvidenceObservation, EvidenceReader, NativePublicationPorts, RequiredPreviewState, SignoffIdentity, SignoffRecord } from './ports.ts';
 import type { PreviewNavigationObservation, PreviewReasonCode, PreviewRenderStage } from './preview-outcome.ts';
 import { EVIDENCE_KINDS, acknowledgementFault, acknowledgementGroups, assetBindingOf, awaitsMetaAcknowledgement, checkEvidenceItem, checkSnapshot, checkSnapshotV2, evidenceCount, newWarnings, signoffBlocker, signoffBlockerV2, type Blocker } from './rules.ts';
-import { ORIGINAL_NOT_SUPPLIED, assetPolicySummary, assetPolicyWording, isAssetHoldReason, isAuthenticMissingOriginal, type AssetPolicyKey, type AssetPolicyLine, type AssetPolicyWording } from './asset-policy.ts';
+import { ORIGINAL_WARNED, assetPolicySummary, assetPolicyWording, isAssetHoldReason, isAuthenticMissingOriginal, type AssetPolicyKey, type AssetPolicyLine, type AssetPolicyWording } from './asset-policy.ts';
 import { warningsOf } from './signoff-evidence.ts';
 import type { ReadinessFence, ReadinessFenceResult, ReadinessObservation } from './readiness-fence.ts';
 
@@ -227,9 +227,10 @@ export function createPublicationReadiness(ports: PublicationReadinessPorts | nu
         try { rows = await reader.page({ ...scope, candidateId, generation: s.evidence.generation, root: s.evidence.root, after: cursor?.after ?? null, kind, limit: size + 1 }); } catch { return unavailable(); }
         if (rows === null) return await stale();
         if (!Array.isArray(rows) || rows.length > size + 1) return unavailable();
-        // The run's summary counts a missing original as one only when the run also holds the validator's warning it names; any other is a
-        // state `checkSnapshotV2` refuses. So a page serves one only from a snapshot that counts it, and only when it is the recomputed exception.
-        const warned = s.evidence.groups.some((g) => g.kind === 'warning' && g.state === ORIGINAL_NOT_SUPPLIED);
+        // The run's summary counts a missing original under `ORIGINAL_WARNED` only when the run also holds the validator's warning it names; any
+        // other state, including an older summary's, is one `checkSnapshotV2` refuses. So a page serves one only from a snapshot that counts it
+        // so, and only when it is the recomputed exception.
+        const warned = s.evidence.groups.some((g) => g.kind === 'warning' && g.state === ORIGINAL_WARNED);
         const more = rows.length > size, bound = { clientId: p.clientId, caseId, resultsVersion: s.link.candidate.resultsVersion, manifestSha256: s.link.candidate.manifestSha256 };
         const items: ReadinessItemV2[] = [];
         for (const row of rows.slice(0, size)) {

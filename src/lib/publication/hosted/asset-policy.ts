@@ -28,12 +28,16 @@ export const ASSET_HOLD_REASONS = ['preview-required', 'embedded-not-extracted',
 export type AssetHoldReason = (typeof ASSET_HOLD_REASONS)[number];
 export const isAssetHoldReason = (v: unknown): v is AssetHoldReason => (ASSET_HOLD_REASONS as readonly unknown[]).includes(v);
 
-/** The state the count of a missing original's warning is grouped under (`readiness-evidence.ts`). */
+/** The policy key of a missing original nothing cites, as the publisher reads it. */
 export const ORIGINAL_NOT_SUPPLIED = 'original-not-supplied' as const;
 /**
- * The state a missing original's warning is counted under when the run does not also hold the validator's own warning it names. No snapshot
- * reader accepts it (`checkSnapshotV2`), so a run with such an exception is unavailable to readiness, sign-off and publish alike.
+ * The state the run summary (`readiness-evidence.ts`) counts a missing original's warning under when the run also holds the validator's warning
+ * it names. Only the current summary query writes it. One computed before that check counted every such warning as `original-not-supplied`, a
+ * state no snapshot reader accepts any longer (`checkSnapshotV2`), so an older cached snapshot holding a missing original is unavailable until
+ * its summary is computed again.
  */
+export const ORIGINAL_WARNED = 'original-not-supplied:warned' as const;
+/** The state a missing original's warning is counted under when the run does not hold the validator's warning it names. No snapshot reader accepts it either. */
 export const ORIGINAL_NOT_WARNED = 'original-not-warned' as const;
 /** The code a sign-off groups the acknowledgement of a missing original under: the validator's own code for it. */
 export const ASSET_ACK_CODE = 'ASSET_MISSING_AT_BUILD' as const;
@@ -219,7 +223,7 @@ export interface AssetPolicyLine extends AssetPolicyWording { readonly count: nu
 export function assetPolicySummary(groups: readonly EvidenceCountGroup[]): AssetPolicyLine[] {
   const counts = new Map<AssetPolicyKey, number>();
   for (const g of groups) {
-    const key = g.kind === 'warning' && g.state === ORIGINAL_NOT_SUPPLIED ? ORIGINAL_NOT_SUPPLIED : g.kind === 'preview' && g.state === 'failed' && isAssetHoldReason(g.reason) ? g.reason : null;
+    const key = g.kind === 'warning' && g.state === ORIGINAL_WARNED ? ORIGINAL_NOT_SUPPLIED : g.kind === 'preview' && g.state === 'failed' && isAssetHoldReason(g.reason) ? g.reason : null;
     if (key) counts.set(key, (counts.get(key) ?? 0) + g.count);
   }
   return ([ORIGINAL_NOT_SUPPLIED, ...ASSET_HOLD_REASONS] as const).flatMap((key) => (counts.has(key) ? [{ ...WORDING[key], count: counts.get(key)! }] : []));

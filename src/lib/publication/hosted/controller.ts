@@ -4,7 +4,7 @@ import { id } from '../../server/runtime/ids.ts';
 import { readAtMost } from '../../submissions/body.ts';
 import { MAX_SIGNOFF_VALUE_BYTES } from './ledger.ts';
 import { acknowledgementFault, acknowledgementGroups, assetBindingOf, awaitsMetaAcknowledgement, checkSnapshot, checkSnapshotV2, evidenceCount, newWarnings, signoffBlocker, signoffBlockerV2, type Blocker } from './rules.ts';
-import { ORIGINAL_NOT_SUPPLIED } from './asset-policy.ts';
+import { ORIGINAL_WARNED } from './asset-policy.ts';
 import { checkOriginals, checkRows, checkSealed, warningsOf, type EvidenceClaim } from './signoff-evidence.ts';
 import type { CandidateSnapshot, CandidateSnapshotV2, CheckedEvidenceRows, NativePublicationPorts, OperationRecord, PointerOutcome, PublicationIntent, PublicationState, SignoffAcknowledgement, SignoffIdentity, SignoffRecord } from './ports.ts';
 
@@ -205,7 +205,7 @@ export function createNativePublication(ports: NativePublicationPorts | null) {
     // A META disagreement stands only while the sign-off's recorded groups acknowledge exactly what the run derives, and a missing original
     // only while its exception is genuine. Both are read from the sealed rows, never from the sign-off, and the recorded groups are judged by
     // the rule the sign-off was (`acknowledgementFault`): a missing original the baseline already holds needs no acknowledgement here either.
-    if (meta || s.evidence.groups.some((g) => g.kind === 'warning' && g.state === ORIGINAL_NOT_SUPPLIED)) {
+    if (meta || s.evidence.groups.some((g) => g.kind === 'warning' && g.state === ORIGINAL_WARNED)) {
       const facts = await storage(warningsOf(port, claim, evidenceCount(s, 'warning'), assetBindingOf(s)));
       if (!facts) return 'candidate-changed';
       const fault = acknowledgementFault(s, facts, acknowledgementGroups(so.acknowledgements));

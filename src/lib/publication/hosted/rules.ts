@@ -1,7 +1,7 @@
 import type { CandidateSnapshot, CandidateSnapshotV2, EvidenceCountGroup, EvidenceItemRow, EvidenceKind, EvidenceObservation, PreviewStateV2, SectionStateV2 } from './ports.ts';
 import { isIntegrityKey } from '../../case-package/registry.ts';
 import { META_DISAGREEMENT_CODE, metaDisagreementFingerprint, type MetaBinding, type MetaCountDetail, type MetaDisagreement } from '../../case-package/meta-integrity.ts';
-import { ASSET_ACK_CODE, ASSET_HOLD_REASONS, ORIGINAL_NOT_SUPPLIED, authenticMissingOriginals, isAssetHoldReason, type AssetBinding, type MissingOriginal } from './asset-policy.ts';
+import { ASSET_ACK_CODE, ASSET_HOLD_REASONS, ORIGINAL_WARNED, authenticMissingOriginals, isAssetHoldReason, type AssetBinding, type MissingOriginal } from './asset-policy.ts';
 import { PREVIEW_REASON_CODES, detachedData, isPreviewNavigationObservation, isPreviewReasonCode, isPreviewRenderStage } from './preview-outcome.ts';
 
 // Pure sign-off rules over a candidate snapshot (ADR-0010, ADR-0011, results-package acknowledgement contract). There
@@ -111,8 +111,9 @@ function groupOk(g: unknown): g is EvidenceCountGroup {
   switch (g.kind) {
     case 'section': return text(g.subject) && sectionState(g.state) && g.reason === null && g.count === 1;
     case 'preview': return g.subject === null && previewState(g.state) && (g.reason === null || reasonFits(g.state, g.reason));
-    // A warning is grouped as a missing original when its item says so (`readiness-evidence.ts`); no other kind has a state or a reason.
-    case 'warning': return g.subject === null && (g.state === null || g.state === ORIGINAL_NOT_SUPPLIED) && g.reason === null;
+    // A warning is grouped as a missing original when its item says so and the run holds its validator warning (`readiness-evidence.ts`). An
+    // older summary's `original-not-supplied` did not check that, so it is refused like any unknown state. No other kind has a state or a reason.
+    case 'warning': return g.subject === null && (g.state === null || g.state === ORIGINAL_WARNED) && g.reason === null;
     case 'error': case 'original': return g.subject === null && g.state === null && g.reason === null;
     default: return false;
   }

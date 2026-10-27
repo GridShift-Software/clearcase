@@ -181,13 +181,14 @@ describe('two tabs signing in through the same flow land home without guessing (
 		expect(attemptsOf(kind, jar).map(([, value]) => atob(value.split('.')[0]!.replace(/-/g, '+').replace(/_/g, '/')))).toEqual(['/cases/case-3', '/cases/case-4', '/cases/case-5', '/cases/case-6']);
 		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: '/cases?signIn=multiple-tabs' });
 		expect(attemptsOf(kind, jar)).toEqual([]);
-		const big = (c: string) => `/cases/${c.repeat(2000)}`;
+		// Targets at the 1,300-byte cap: two of them now fit together, so neither is evicted and the callback lands home.
+		const big = (c: string) => `/cases/${c.repeat(1293)}`;
 		await post(kind, ORIGIN_A, big('x'), jar);
 		tick();
 		await post(kind, ORIGIN_A, big('y'), jar);
 		expect(attemptBytes(kind, jar)).toBeLessThanOrEqual(3800);
 		for (const [name, value] of attemptsOf(kind, jar)) expect(name.length + value.length + 1, 'one cookie a browser will hold').toBeLessThan(4096);
-		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: big('y') });
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: '/cases?signIn=multiple-tabs' });
 	});
 	it.each(KINDS)('%s: drops an expired, tampered or other-flow entry from the set and keeps the rest', async (kind) => {
 		vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-27T09:00:00Z') });

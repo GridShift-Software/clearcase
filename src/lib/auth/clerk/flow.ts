@@ -188,17 +188,31 @@ export const SIGN_IN_RETURN_PREFIX: Readonly<Record<InstanceKind, string>> = { c
 export const SIGN_IN_RETURN_TTL = 900;
 /** How many sign-ins of one flow may be in flight in one browser; a further one evicts the oldest. */
 export const SIGN_IN_RETURN_LIMIT = 4;
+/**
+ * A callback that clears attempts it does not follow leaves the flow's marker: its expiry, when the newest cleared
+ * attempt would have lapsed, under a MAC like an attempt's. A cleared tab's callback still to come cannot tell its own
+ * attempt is gone, so while the marker is valid every callback that finds an attempt clears them all and lands home,
+ * and none takes a later tab's attempt for its own. A sign-in POST keeps it; an invalid or expired one is deleted.
+ */
+const SIGN_IN_RETURN_MARKER: Readonly<Record<InstanceKind, string>> = { client: '__Host-clearcase_multi_tab', staff: '__Host-clearcase_staff_multi_tab' };
 // A browser holds a cookie of up to 4096 bytes, name included. One flow's attempts together stay within
-// RETURN_STATE_MAX bytes of Cookie header, oldest evicted first; POSTs that overlap may each add one before the next
-// request bounds them again. At most RETURN_SCAN of a flow's cookies are read.
-const RETURN_LABEL = 'clearcase sign-in return v2', RETURN_MAX_BYTES = 2048, RETURN_STATE_MAX = 3800, RETURN_SCAN = 2 * SIGN_IN_RETURN_LIMIT;
+// RETURN_STATE_MAX bytes of Cookie header less the marker's MARKER_BYTES, oldest evicted first; POSTs that overlap may
+// each add one before the next request bounds them again. At most RETURN_SCAN of a flow's cookies are read.
+// RETURN_MAX_BYTES keeps two sequential attempts and the marker together: a staff attempt is 52 bytes of name, 55 of
+// issue time and MAC, 3 of separators and the target as base64url, so 2 × (110 + ⌈1300 × 4/3⌉) + 91 = 3779 ≤ 3800.
+const RETURN_LABEL = 'clearcase sign-in return v2', MARKER_LABEL = 'clearcase sign-in multi-tab v1';
+const RETURN_MAX_BYTES = 1300, RETURN_STATE_MAX = 3800, RETURN_SCAN = 2 * SIGN_IN_RETURN_LIMIT;
+const MARKER_BYTES = Math.max(...Object.values(SIGN_IN_RETURN_MARKER).map((n) => n.length)) + 3 + 12 + 1 + 43;
 const RETURN_ID = /^[A-Za-z0-9_-]{22}$/;
 const RETURN_STATE = /^([A-Za-z0-9_-]{2,2731})\.(\d{1,12})\.([A-Za-z0-9_-]{43})$/;
+const MARKER_STATE = /^(\d{1,12})\.([A-Za-z0-9_-]{43})$/;
 const returnParts = (config: ClerkIdentityConfig, kind: InstanceKind, id: string, issued: string, to: string) => [kind, config[kind].issuer, id, issued, to];
+const markerParts = (config: ClerkIdentityConfig, kind: InstanceKind, expires: string) => [kind, config[kind].issuer, expires];
 const returnOptions = { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: SIGN_IN_RETURN_TTL } as const;
+type ReturnCookieOptions = Omit<typeof returnOptions, 'maxAge'> & { maxAge: number };
 type Attempt = { name: string; id: string; to: string; issued: number; bytes: number };
-/** The cookies a route changes for the return targets: at most one attempt to set, and the attempt cookies to delete. */
-export type SignInReturnChange = { set: { name: string; value: string; options: typeof returnOptions } | null; delete: string[] };
+/** The cookies a route changes for the return targets: at most one cookie to set (an attempt or the marker), and those to delete. */
+export type SignInReturnChange = { set: { name: string; value: string; options: ReturnCookieOptions } | null; delete: string[] };
 
 /** A new attempt's cookie for a target exactly as given (signInReturnCookie validates it first), or null on an http origin. */
 export async function sealSignInReturn(config: ClerkIdentityConfig, kind: InstanceKind, returnTo: string): Promise<{ name: string; value: string } | null> {
@@ -243,8 +257,22 @@ async function signInAttempts(config: ClerkIdentityConfig, request: Request, kin
 	attempts.sort((a, b) => a.issued - b.issued || (a.name < b.name ? -1 : 1));
 	const count = () => attempts.length + (adding ? 1 : 0), bytes = () => attempts.reduce((n, a) => n + a.bytes, adding?.bytes ?? 0);
 	// Bound writes, not callback classification: evicting here on a read could turn two attempts into a false singleton.
-	while (adding && attempts.length && (count() > SIGN_IN_RETURN_LIMIT || bytes() > RETURN_STATE_MAX)) drop.push(attempts.shift()!.name);
+	while (adding && attempts.length && (count() > SIGN_IN_RETURN_LIMIT || bytes() > RETURN_STATE_MAX - MARKER_BYTES)) drop.push(attempts.shift()!.name);
 	return { attempts, drop };
+}
+/** This flow's marker in `request`: its expiry when exactly one verifies and has not passed, and whether any is present. */
+async function multiTabMarker(config: ClerkIdentityConfig, request: Request, kind: InstanceKind): Promise<{ expires: number | null; present: boolean }> {
+	const values = cookiePairs(request).filter((c) => c.name === SIGN_IN_RETURN_MARKER[kind]);
+	const m = values.length === 1 ? MARKER_STATE.exec(values[0]!.value) : null;
+	if (!m) return { expires: null, present: values.length > 0 };
+	const expires = Number(m[1]), left = expires - Math.floor(Date.now() / 1000);
+	const valid = left >= 0 && left <= SIGN_IN_RETURN_TTL + 60 && (await macVerifies(MARKER_LABEL, config, markerParts(config, kind, m[1]!), m[2]!, config[kind]));
+	return { expires: valid ? expires : null, present: true };
+}
+async function sealMultiTabMarker(config: ClerkIdentityConfig, kind: InstanceKind, expires: number): Promise<NonNullable<SignInReturnChange['set']>> {
+	const mac = await macOf(MARKER_LABEL, config, markerParts(config, kind, String(expires)), config[kind]);
+	const maxAge = Math.max(1, expires - Math.floor(Date.now() / 1000));
+	return { name: SIGN_IN_RETURN_MARKER[kind], value: `${expires}.${mac}`, options: { ...returnOptions, maxAge } };
 }
 /** A callback may consume return hints only on a real document GET, never on Kit's unmarked data preloads. */
 const documentNavigation = (request: Request, url: URL, isDataRequest: boolean) => request.method === 'GET'
@@ -269,22 +297,27 @@ export async function signInReturnCookie(env: Readonly<Record<string, unknown>>,
 export const MULTI_TAB_RETURN = `${DEFAULT_RETURN}?signIn=multiple-tabs`;
 /**
  * A verified callback consumes only on document navigation. One valid, fresh attempt goes to its signed target;
- * several clear every cookie for this flow and land home, never on another tab's target. No chooser or consumed-id
+ * several, or any under a valid marker, clear every cookie for this flow and land home, never on another tab's target,
+ * and leave the marker (SIGN_IN_RETURN_MARKER) until the newest of them would have lapsed. No chooser or consumed-id
  * store exists. With none, retain the explicit safe returnTo fallback or DEFAULT_RETURN.
  */
 export async function signInReturn(env: Readonly<Record<string, unknown>>, request: Request, url: URL, kind: InstanceKind, isDataRequest = false): Promise<{ location: string; change: SignInReturnChange }> {
 	const fallback = url.searchParams.has('returnTo') ? signInReturnTarget(url.searchParams.get('returnTo')) : DEFAULT_RETURN;
 	if (!documentNavigation(request, url, isDataRequest)) return { location: fallback, change: { set: null, delete: [] } };
 	const read = readClerkIdentityConfig(env, { keys: 'optional' });
-	const names = read.ok && hostCookies(read.config)
-		? [...new Set(cookiePairs(request).filter((c) => c.name.startsWith(SIGN_IN_RETURN_PREFIX[kind])).map((c) => c.name))] : [];
-	const { attempts } = read.ok ? await signInAttempts(read.config, request, kind) : { attempts: [] };
+	if (!read.ok || !hostCookies(read.config)) return { location: fallback, change: { set: null, delete: [] } };
+	const names = [...new Set(cookiePairs(request).filter((c) => c.name.startsWith(SIGN_IN_RETURN_PREFIX[kind])).map((c) => c.name))];
+	const { attempts } = await signInAttempts(read.config, request, kind), marker = await multiTabMarker(read.config, request, kind);
+	const stale = marker.present && marker.expires === null ? [SIGN_IN_RETURN_MARKER[kind]] : [];
 	// Beyond the validation cap we cannot establish a singleton; fail safely and clear even the unscanned names.
-	const multiple = attempts.length > 1 || names.length > RETURN_SCAN;
-	return { location: multiple ? MULTI_TAB_RETURN : attempts[0]?.to ?? fallback, change: { set: null, delete: names } };
+	const multiple = attempts.length > 1 || names.length > RETURN_SCAN || (marker.expires !== null && attempts.length > 0);
+	if (!multiple) return { location: attempts[0]?.to ?? fallback, change: { set: null, delete: [...names, ...stale] } };
+	if (!attempts.length) return { location: MULTI_TAB_RETURN, change: { set: null, delete: [...names, ...stale] } };
+	const expires = Math.max(marker.expires ?? 0, ...attempts.map((a) => a.issued + SIGN_IN_RETURN_TTL));
+	return { location: MULTI_TAB_RETURN, change: { set: await sealMultiTabMarker(read.config, kind, expires), delete: names } };
 }
 /** Applies a SignInReturnChange to a route's cookies. */
-export function applySignInReturnChange(cookies: { set(name: string, value: string, options: typeof returnOptions): void; delete(name: string, options: { path: string; secure: boolean }): void }, change: SignInReturnChange): void {
+export function applySignInReturnChange(cookies: { set(name: string, value: string, options: ReturnCookieOptions): void; delete(name: string, options: { path: string; secure: boolean }): void }, change: SignInReturnChange): void {
 	for (const name of new Set(change.delete)) cookies.delete(name, { path: '/', secure: true });
 	if (change.set) cookies.set(change.set.name, change.set.value, change.set.options);
 }

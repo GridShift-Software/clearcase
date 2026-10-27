@@ -1,7 +1,7 @@
 // The SDK-free half of the first-party browser contract (GRS-113): the sign-in identity switch, return-target allowlist,
 // cookie clears and sign-out, as pure functions of a Request, the deployment config and fetch. The hosted routes import
-// this module (the hosted import allowlist keeps @clerk/backend out of routes); the handshake that needs the SDK is
-// browser.ts, which re-exports this. Nothing here is wired into hooks, locals, CSP or wrangler, and nothing has run
+// this module (the hosted import allowlist keeps @clerk/backend out of routes); the handshake and the session refresh,
+// which need the SDK, are browser.ts, which re-exports this. Nothing here is wired into hooks, locals, CSP or wrangler, and nothing has run
 // against a real Clerk instance or browser.
 import type { Identity, Principal, SessionId } from '../../server/runtime/contracts.ts';
 import { contractError } from '../../server/runtime/errors.ts';
@@ -22,8 +22,12 @@ export type HandshakeOutcome =
 	| { kind: 'redirect'; location: string; setCookies: string[] }
 	/** Answer `status` and stop: a handshake that must not be followed. */
 	| { kind: 'refuse'; status: 400 | 502; code: 'wrong-origin' | 'handshake-invalid' | 'handshake-format-unsupported' | 'handshake-cookie-refused' };
+/** A renewed session for one request: the credential the provider verifies in place of the request's, and the cookies to set. */
+export interface SessionRefresh { credential: Request; setCookies: string[] }
 export interface ClerkBrowserHandshake {
 	handle(request: Request): Promise<HandshakeOutcome>;
+	/** The request's expired session renewed at its instance (browser.ts), or null to treat the request as it is. */
+	refresh(request: Request): Promise<SessionRefresh | null>;
 }
 
 /**

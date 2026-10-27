@@ -203,12 +203,12 @@ describe('a handshake with base64url-suffixed cookies', () => {
 		`__refresh_${s}=${REFRESH}; Path=/; Domain=clearcase.test; Max-Age=315360000; HttpOnly; SameSite=Lax; Secure`,
 		`__clerk_db_jwt_${s}=dvb_synthetic0123456789abcdef; Path=/; Max-Age=315360000; SameSite=Lax; Secure`,
 	];
-	it.each([['an underscore', U, SU, tokenU], ['a hyphen', H, SH, tokenH]] as const)('signs a browser in whose cookie suffix has %s, storing the session and never the refresh token', async (_name, client, s, token) => {
+	it.each([['an underscore', U, SU, tokenU], ['a hyphen', H, SH, tokenH]] as const)('signs a browser in whose cookie suffix has %s, storing the session and its instance refresh token HttpOnly', async (_name, client, s, token) => {
 		const session = token();
 		const o = redirectOf(await handshake(client).handle(page(`/cases?__clerk_handshake=${client.sign({ handshake: suffixed(s, session) })}`)));
 		expect(o.location).toBe(`${ORIGIN}/cases`);
-		expect(o.setCookies.map((c) => c.split('=')[0])).toEqual([`__client_uat_${s}`, `__client_uat_${s}`, `__session_${s}`, `__clerk_db_jwt_${s}`]);
-		expect(o.setCookies.join('\n')).not.toContain(REFRESH);
+		expect(o.setCookies.map((c) => c.split('=')[0])).toEqual([`__client_uat_${s}`, `__client_uat_${s}`, `__session_${s}`, `__refresh_${s}`, `__clerk_db_jwt_${s}`]);
+		expect(o.setCookies[3]).toBe(`__refresh_${s}=${REFRESH}; Path=/; Max-Age=315360000; SameSite=Lax; HttpOnly; Secure`);
 		for (const c of o.setCookies) expect(c).not.toMatch(/Domain=/i);
 		expect(o.setCookies[2]).toBe(`__session_${s}=${session}; Path=/; Max-Age=60; SameSite=Lax; HttpOnly; Secure`);
 		const jar = o.setCookies.slice(1).map((c) => c.split(';')[0]).join('; ');

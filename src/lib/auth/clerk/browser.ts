@@ -11,10 +11,11 @@
 //     configured key, no network) and an incoming nonce is refused;
 //   - the redirect must go to the picked instance's own Frontend API handshake and come back to this origin;
 //   - the cookies a verified handshake returns are an allowlist of Clerk's names with checked values, rewritten host-only
-//     (no Domain), Path=/, SameSite=Lax, Secure on https and HttpOnly for the session; anything else refuses the request.
-//     Clerk's refresh token (`__refresh_<suffix>`) is never stored and a presented one never reaches the SDK: with it the
-//     SDK refreshes an expired session through the Backend API on each request, without it the SDK hands the browser to
-//     the handshake (its no-refresh-cookie path), as before;
+//     (no Domain), Path=/, SameSite=Lax, Secure on https and HttpOnly for the session and the refresh token; anything else
+//     refuses the request. Clerk's refresh token is stored only under the exact suffixed name of the instance that signed a
+//     signed-in handshake (`__refresh_<suffix>`, HttpOnly); every other refresh name is dropped. A presented one never
+//     reaches the SDK: with it the SDK refreshes an expired session through the Backend API on each GET, without it the
+//     SDK hands a document to the handshake (its no-refresh-cookie path), as before;
 //   - a returning handshake belongs to the instance whose configured key verifies its signature, so a first staff sign-in
 //     back on /cases is not resolved with the client key;
 //   - a development staff handshake this browser starts on an https origin carries a correlation (flow.ts
@@ -22,24 +23,36 @@
 //     from a start that could vouch for the dev browser it handed the Frontend API (none, or the one already tied here),
 //     ties the dev browser to the staff instance, again in a `__Host-` cookie. A signature shows which instance signed a
 //     handshake, not which browser asked for it. An http origin starts no correlation and ties nothing.
+// A request that is not a document (a fetch, a form post, a `__data.json` load) never reaches the handshake, and this app
+// runs no clerk-js, so nothing renews the 60-second session token between page loads. `refresh` renews it on the Worker
+// instead (Clerk's `POST /v1/sessions/{sid}/refresh`, the call the SDK makes for a GET) for a request that passed the
+// handshake: only for a session cookie that is a genuine, recently expired, active token of one configured instance
+// (revocation.ts), with that instance's one stored refresh token, at that instance's Backend API with its own secret key.
+// The answer must set a session token of the same instance, subject and session; anything else sets nothing and the
+// request is refused as before. One call per presented token per isolate: a concurrent or repeated request shares the
+// answer, and a refused token is remembered, so a replayed token costs no further Backend API call.
 // The SDK-free half (sign-in plan, return targets, cookie clears, sign-out) is flow.ts, which the hosted routes import
 // directly (the hosted import allowlist keeps @clerk/backend out of routes); it is re-exported here.
 // One browser session per origin: the client and staff instances share the cookie names `__session` and `__client_uat`
 // on a client origin, so signing in as the other identity first signs the current one out, and an ambiguous credential
 // is refused (planSignIn). Staff reach this origin only through the operator route (OPERATOR_PATH), never a third host.
 import { createClerkClient } from '@clerk/backend';
-import { readClerkIdentityConfig, rsaJwkOf, type ClerkIdentityConfig, type InstanceKind } from './config.ts';
+import { isSignInFlowPage, readClerkIdentityConfig, rsaJwkOf, type ClerkIdentityConfig, type InstanceKind } from './config.ts';
 import {
 	OPERATOR_PATH, STAFF_DEV_BROWSER_TIE, STAFF_HANDSHAKE_CLEAR, STAFF_HANDSHAKE_COOKIE, STAFF_HANDSHAKE_PARAM, cookiePairs, sdkCookieHeader, staffDevBrowserTie, staffHandshakeOf, startStaffHandshake, tiedDevBrowser,
-	type ClerkBrowserHandshake, type HandshakeOutcome,
+	type ClerkBrowserHandshake, type HandshakeOutcome, type SessionRefresh,
 } from './flow.ts';
+import { revocationEvidenceOf } from './revocation.ts';
 import { CLERK_COOKIE_NAME, REFRESH_COOKIE_NAME, SESSION_COOKIE_NAME, inspectToken, presentedToken } from './session.ts';
 
 const HANDSHAKE_PARAMS = ['__clerk_handshake', '__clerk_handshake_nonce', '__clerk_help', '__clerk_db_jwt', STAFF_HANDSHAKE_PARAM];
 const TOKEN = /^[A-Za-z0-9._-]{16,8192}$/;
 const DEV_BROWSER = /^[A-Za-z0-9._-]{16,4096}$/;
 const DEV_BROWSER_COOKIE = /^__clerk_db_jwt(?:_[A-Za-z0-9_-]{1,32})?$/;
+// A refresh token value: the standard-base64 class a real handshake returned, plus base64url and JWT characters.
+const REFRESH_VALUE = /^[A-Za-z0-9+/=._-]{16,4096}$/;
 const RS256 = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
+const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const fromB64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
 
 function issuerOf(token: string): string | null {
@@ -71,16 +84,24 @@ const setsSession = (directive: string) => {
 	return m !== null && SESSION_COOKIE_NAME.test(m[1]!);
 };
 
-/** One handshake cookie directive, rewritten to what this origin accepts, 'drop' for the refresh token, or null when it must be refused. */
-function sanitizeDirective(directive: string, secure: boolean): string | 'drop' | null {
+/** Whether a sanitised directive sets a refresh token (to any value, a clear included). */
+const setsRefresh = (directive: string) => REFRESH_COOKIE_NAME.test(directive.slice(0, directive.indexOf('=')));
+
+/**
+ * One handshake or refresh cookie directive, rewritten to what this origin accepts, 'drop' for a refresh token this
+ * origin does not keep, or null when it must be refused. `refreshName` is the one refresh cookie name it keeps (the
+ * signing instance's suffixed name), or null to keep none.
+ */
+function sanitizeDirective(directive: string, secure: boolean, refreshName: string | null = null): string | 'drop' | null {
 	const [pair = '', ...attrs] = directive.split(';').map((s) => s.trim());
 	const eq = pair.indexOf('=');
 	if (eq < 1) return null;
 	const name = pair.slice(0, eq), value = pair.slice(eq + 1);
-	if (REFRESH_COOKIE_NAME.test(name)) return 'drop';
-	if (!CLERK_COOKIE_NAME.test(name)) return null;
+	const refresh = REFRESH_COOKIE_NAME.test(name);
+	if (refresh && (name !== refreshName || !(value === '' || REFRESH_VALUE.test(value)))) return 'drop';
+	if (!refresh && !CLERK_COOKIE_NAME.test(name)) return null;
 	const session = name.startsWith('__session');
-	if (session ? !(value === '' || (TOKEN.test(value) && inspectToken(value))) : name.startsWith('__client_uat') ? !/^\d{0,12}$/.test(value) : name.startsWith('__clerk_db_jwt') ? !/^[A-Za-z0-9._-]{0,4096}$/.test(value) : !/^\d{1,2}$/.test(value)) return null;
+	if (!refresh && (session ? !(value === '' || (TOKEN.test(value) && inspectToken(value))) : name.startsWith('__client_uat') ? !/^\d{0,12}$/.test(value) : name.startsWith('__clerk_db_jwt') ? !/^[A-Za-z0-9._-]{0,4096}$/.test(value) : !/^\d{1,2}$/.test(value))) return null;
 	let maxAge: string | null = null, expires: string | null = null;
 	for (const a of attrs) {
 		const age = /^max-age=(-?\d{1,10})$/i.exec(a);
@@ -96,6 +117,20 @@ function sanitizeDirective(directive: string, secure: boolean): string | 'drop' 
 	if (secure) out.push('Secure');
 	return out.join('; ');
 }
+
+/** Clerk's cookie suffix for an instance (@clerk/shared getCookieSuffix): base64url SHA-1 of its publishable key, 8 characters. */
+async function cookieSuffix(publishableKey: string): Promise<string> {
+	const digest = new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(publishableKey)));
+	return btoa(String.fromCharCode(...digest)).replace(/\+/g, '-').replace(/\//g, '_').slice(0, 8);
+}
+/** The payload of a token inspectToken accepted. */
+const tokenClaims = (token: string) => JSON.parse(new TextDecoder().decode(fromB64url(token.split('.')[1]!))) as Record<string, unknown>;
+// What this isolate learned about a presented expired token's refresh: the answer (shared by concurrent and repeated
+// requests until the new token expires) or Clerk's refusal (never retried); a fault is forgotten once it settles. Keyed
+// by the SHA-256 of the issuer and token; bounded, so dropping an entry only costs one more call.
+type Refreshed = { token: string; setCookies: string[]; until: number };
+const refreshes = new Map<string, Promise<Refreshed | null | 'fault'>>();
+const REFRESHES_LIMIT = 4096;
 
 export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }): ClerkBrowserHandshake {
 	const { config } = a;
@@ -146,7 +181,89 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 		return tied !== null && cookies.length === 1 && handed.length <= 1 && handed.every((v) => v === tied.value);
 	};
 
+	const suffixes = new Map<InstanceKind, Promise<string>>();
+	const refreshNameOf = async (kind: InstanceKind) => {
+		let sfx = suffixes.get(kind);
+		if (!sfx) suffixes.set(kind, (sfx = cookieSuffix(config[kind].publishableKey)));
+		return `__refresh_${await sfx}`;
+	};
+	const instanceKindOf = (issuer: string): InstanceKind => (config.staff.issuer === issuer ? 'staff' : 'client');
+
+	/**
+	 * Clerk's answer to one refresh: only a session token of the same instance, subject and session, live now, in
+	 * directives this origin accepts (the instance's own refresh token included). Null for Clerk's refusal or an answer
+	 * this origin refuses; 'fault' for an outage or network fault, which is not remembered.
+	 */
+	async function refreshAt(a: { kind: InstanceKind; token: string; refreshToken: string; suffixed: boolean; subject: string; sessionId: string; userAgent: string | null }): Promise<Refreshed | null | 'fault'> {
+		let cookies: unknown;
+		try {
+			cookies = (await clientFor(a.kind).sessions.refreshSession(a.sessionId, {
+				format: 'cookie', suffixed_cookies: a.suffixed, expired_token: a.token, refresh_token: a.refreshToken, request_origin: config.appOrigin,
+				// only the browser's own agent: never its cookies or forwarded headers
+				request_headers: a.userAgent === null ? {} : { 'user-agent': [a.userAgent] },
+			})).cookies;
+		} catch (e) {
+			// Clerk's own refusal (4xx) settles this token; an outage or a network fault does not
+			const status = typeof e === 'object' && e !== null ? (e as { status?: unknown }).status : undefined;
+			return typeof status === 'number' && status >= 400 && status < 500 ? null : 'fault';
+		}
+		if (!Array.isArray(cookies) || cookies.length === 0 || cookies.length > 16) return null;
+		const setCookies: string[] = [], refreshName = await refreshNameOf(a.kind);
+		let token: string | null = null;
+		for (const d of cookies) {
+			const clean = typeof d === 'string' ? sanitizeDirective(d, secure, refreshName) : null;
+			if (clean === null) return null;
+			if (clean === 'drop') continue;
+			if (setsSession(clean)) {
+				const value = clean.slice(clean.indexOf('=') + 1).split(';')[0]!;
+				if (token !== null && token !== value) return null;
+				token = value;
+			}
+			setCookies.push(clean);
+		}
+		if (token === null) return null;
+		const evidence = await revocationEvidenceOf(token, config).catch(() => null);
+		const exp = tokenClaims(token).exp as number;
+		if (!evidence || evidence.instance !== config[a.kind] || evidence.subject !== a.subject || evidence.sessionId !== a.sessionId || exp * 1000 <= Date.now()) return null;
+		return { token, setCookies, until: exp * 1000 };
+	}
+
 	return {
+		async refresh(request) {
+			let url: URL;
+			try {
+				url = new URL(request.url);
+			} catch {
+				return null;
+			}
+			if (url.origin !== config.appOrigin || isSignInFlowPage(url.pathname) || request.headers.has('authorization')) return null;
+			const token = presentedToken(request);
+			if (token === null || token === 'malformed') return null;
+			const evidence = await revocationEvidenceOf(token, config);
+			if (!evidence) return null;
+			const { exp, sts } = tokenClaims(token);
+			if (typeof exp !== 'number' || exp * 1000 > Date.now() || (sts !== undefined && sts !== 'active')) return null;
+			const kind = instanceKindOf(evidence.instance.issuer), refreshName = await refreshNameOf(kind);
+			const pairs = cookiePairs(request), held = pairs.filter((c) => c.name === refreshName);
+			if (held.length !== 1 || !REFRESH_VALUE.test(held[0]!.value)) return null;
+			const key = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${evidence.instance.issuer}\0${token}`))));
+			let answer = refreshes.get(key);
+			if (!answer) {
+				answer = refreshAt({ kind, token, refreshToken: held[0]!.value, suffixed: pairs.some((c) => SESSION_COOKIE_NAME.test(c.name) && c.name !== '__session'), subject: evidence.subject, sessionId: evidence.sessionId, userAgent: request.headers.get('user-agent') });
+				refreshes.delete(key);
+				if (refreshes.size >= REFRESHES_LIMIT) refreshes.delete(refreshes.keys().next().value!);
+				refreshes.set(key, answer);
+			}
+			const refreshed = await answer;
+			if (refreshed === 'fault' || (refreshed !== null && refreshed.until <= Date.now())) {
+				if (refreshes.get(key) === answer) refreshes.delete(key);
+				return null;
+			}
+			if (refreshed === null) return null;
+			// the credential the provider verifies: the request's own cookies with the new session token in every session cookie
+			const cookie = pairs.map((c) => `${c.name}=${SESSION_COOKIE_NAME.test(c.name) ? refreshed.token : c.value}`).join('; ');
+			return { credential: new Request(url, { headers: { cookie } }), setCookies: refreshed.setCookies };
+		},
 		async handle(request) {
 			let url: URL;
 			try {
@@ -176,8 +293,10 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				return refuse(400, 'handshake-invalid');
 			}
 			const setCookies: string[] = [];
+			// a refresh token is kept only from a verified handshake that signs this browser in, under its instance's name
+			const keepRefresh = hasToken && state.status === 'signed-in' ? await refreshNameOf(kind) : null;
 			for (const d of state.headers.getSetCookie()) {
-				const clean = sanitizeDirective(d, secure);
+				const clean = sanitizeDirective(d, secure, keepRefresh);
 				if (clean === null) return refuse(502, 'handshake-cookie-refused');
 				if (clean !== 'drop') setCookies.push(clean);
 			}
@@ -203,7 +322,7 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				return { kind: 'redirect', location: to.href, setCookies };
 			}
 			if (hasToken) {
-				if (setCookies.length === 0) return refuse(400, 'handshake-invalid');
+				if (!setCookies.some((c) => !setsRefresh(c))) return refuse(400, 'handshake-invalid');
 				const clean = new URL(url);
 				for (const p of HANDSHAKE_PARAMS) clean.searchParams.delete(p);
 				if (state.status !== 'signed-in' && setCookies.some(setsSession)) return refuse(502, 'handshake-cookie-refused');

@@ -10,8 +10,13 @@ installNativeCompositions();
 let browser: ReturnType<typeof clerkBrowserHandshakeFromEnv> | undefined;
 // Bindings come from the Worker's env and post-response work from the runtime's waitUntil, which extends the invocation
 // that calls it: adapter-cloudflare 8 passes no platform, so there is no platform.env or platform.context.
-export const handle = createHandle((request) => hostedServices(request, env, { waitUntil: (work) => waitUntil(work) }), async (request) => {
+// Clerk session tokens live a minute and no clerk-js runs here, so a request that is not a document renews an expired
+// session on the Worker (browser.ts refresh); a document still renews it through the handshake.
+export const handle = createHandle((request, credential) => hostedServices(request, env, { waitUntil: (work) => waitUntil(work) }, credential), async (request) => {
 	browser ??= clerkBrowserHandshakeFromEnv(env);
 	return browser.ok ? handshakeResponse(await browser.handshake.handle(request)) : null;
-}, (path) => signInFormActionOrigins(env, path));
+}, (path) => signInFormActionOrigins(env, path), async (request) => {
+	browser ??= clerkBrowserHandshakeFromEnv(env);
+	return browser.ok ? browser.handshake.refresh(request) : null;
+});
 export { handleError };

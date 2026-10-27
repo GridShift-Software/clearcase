@@ -39,7 +39,7 @@ describe('the per-variable byte cap', () => {
 			throw new Error(`${key} accepted`);
 		}
 	});
-	it('keeps a native config with long valid deployment fields and issuers within the cap', () => {
+	it('leaves headroom under the cap with long valid deployment fields and issuers', () => {
 		const input = exampleInput(), client = input.clients[0]!, manifest = input.manifest.clients[0]!;
 		const host = (letter: string) => [letter.repeat(63), letter.repeat(63), letter.repeat(63), letter.repeat(50), 'test'].join('.');
 		const appHost = host('a'), clientHost = host('b'), staffHost = host('d');

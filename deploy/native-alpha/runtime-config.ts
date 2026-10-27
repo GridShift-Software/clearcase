@@ -2,7 +2,7 @@
 // Offline only: no credentials, environment, Git, subprocess, network or provider access. Staged output is source-only
 // settings: it proves no provider resource, Clerk instance, login, tenant, Browser allocation or running Worker.
 import { createHash } from 'node:crypto';
-import { constants, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { constants, chmodSync, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { types } from 'node:util';
 import { CLERK_ENV, readClerkIdentityConfig } from '../../src/lib/auth/clerk/config.ts';
@@ -337,6 +337,7 @@ export function prepareNativeRuntimeConfig(value: { input: unknown; out: string 
 	try { mkdirSync(out, { mode: PRIVATE_DIRECTORY }); } catch { refuse('prepare.out: must be a new directory'); }
 	const owned = lstatSync(out);
 	try {
+		chmodSync(out, PRIVATE_DIRECTORY);
 		for (const [name, bytes] of plan.files) writeFileSync(path.join(out, name), bytes, { flag: 'wx', mode: PRIVATE_FILE });
 		return readNativeRuntimeConfig({ input: v.input, stage: out });
 	} catch (caught) {

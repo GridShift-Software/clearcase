@@ -88,6 +88,8 @@ export class Durable {
   readonly dep: ReturnType<typeof deployment>;
   readonly events: AuditEvent[] = [];
   readonly clock = { ms: 1_000_000 };
+  /** Milliseconds every bucket call takes on the shared clock: how a test makes wall time pass. */
+  tick = 0;
   readonly counts = { puts: 0, batches: 0, d1: 0, gets: 0, heads: 0, deletes: 0, bytesRead: 0, originalGets: 0, wholeStage: 0 };
   readonly putKeys: string[] = [];
   constructor(caseId: string) {
@@ -106,10 +108,11 @@ class ChaosR2 implements CloudR2 {
   private readonly life: Life;
   constructor(d: Durable, kill: KillAt | null, life: Life) { this.d = d; this.kill = kill; this.life = life; }
   private alive() { if (this.life.dead) throw new Killed('dead'); }
-  head(key: string): Promise<CloudR2Head | null> { this.alive(); this.d.counts.heads++; return this.d.bucket.head(key); }
+  head(key: string): Promise<CloudR2Head | null> { this.alive(); this.d.counts.heads++; this.d.clock.ms += this.d.tick; return this.d.bucket.head(key); }
   async get(key: string): Promise<CloudR2Body | null> {
     this.alive();
     this.d.counts.gets++;
+    this.d.clock.ms += this.d.tick;
     if (key.startsWith('orig/')) this.d.counts.originalGets++;
     const body = await this.d.bucket.get(key);
     return body && { ...body, arrayBuffer: async () => { const b = await body.arrayBuffer(); this.d.counts.bytesRead += b.byteLength; return b; } };
@@ -117,6 +120,7 @@ class ChaosR2 implements CloudR2 {
   async put(key: string, value: Uint8Array, options: { sha256: string; onlyIf?: { etagDoesNotMatch: '*' } }) {
     this.alive();
     this.d.counts.puts++;
+    this.d.clock.ms += this.d.tick;
     const nth = ++this.puts;
     const hit = this.kill?.op === 'put' && nth === this.kill.nth;
     if (hit && !this.kill!.after) { this.life.dead = true; throw new Killed('before-put'); }
@@ -207,7 +211,7 @@ export async function importWhole(p: Process, pkg: RealPackage, revisionId: stri
   return p.service.importPackage(p.token, { operationId: OP, submissionRevisionId: revisionId, files: pkg.files });
 }
 
-export interface StepRecord { phase: string; d1: number; r2Gets: number; bytesRead: number; puts: number; heads: number }
+export interface StepRecord { phase: string; ms: number; originalGets: number; d1: number; r2Gets: number; bytesRead: number; puts: number; heads: number }
 /** What a client does: open with the manifest, send every file in planned batches, then call complete until it answers. */
 export async function driveStaged(p: Process, d: Durable, pkg: RealPackage, revisionId: string, o: { steps?: StepRecord[]; maxCalls?: number; mark?: { puts: number; batches: number } } = {}) {
   const manifest = pkg.files.get('manifest.json')!;
@@ -230,9 +234,9 @@ export async function driveStaged(p: Process, d: Durable, pkg: RealPackage, revi
 /** Calls complete until it stops saying it is staging. */
 export async function completeAll(p: Process, d: Durable, o: { steps?: StepRecord[]; maxCalls?: number } = {}) {
   for (let calls = 0; calls < (o.maxCalls ?? 5000); calls++) {
-    const before = { ...d.counts };
+    const before = { ...d.counts }, startMs = d.clock.ms;
     const out = await p.staged.complete(p.token, { operationId: OP });
-    if (o.steps) o.steps.push({ phase: out.kind === 'staging' ? out.phase : out.kind, d1: d.counts.d1 - before.d1, r2Gets: d.counts.gets - before.gets, bytesRead: d.counts.bytesRead - before.bytesRead, puts: d.counts.puts - before.puts, heads: d.counts.heads - before.heads });
+    if (o.steps) o.steps.push({ phase: out.kind === 'staging' ? out.phase : out.kind, ms: d.clock.ms - startMs, originalGets: d.counts.originalGets - before.originalGets, d1: d.counts.d1 - before.d1, r2Gets: d.counts.gets - before.gets, bytesRead: d.counts.bytesRead - before.bytesRead, puts: d.counts.puts - before.puts, heads: d.counts.heads - before.heads });
     if (out.kind !== 'staging') return out;
   }
   throw new Error('complete never finished');

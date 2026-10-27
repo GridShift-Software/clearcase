@@ -41,11 +41,11 @@ export function planBatches(entries: readonly (readonly [path: string, size: num
 }
 
 /**
- * The most one batch of `files` may call, as a bound the tests hold the real counts to: the session, the progress and the
+ * The most one batch of `files` may call, as a bound the tests hold the real counts to: the session, the sweep record, the progress and the
  * candidate reads, the row batches, the readback, and the operator checks; R2 is the manifest read and, per fresh file, a head, a
  * put and the look after a lost race. Every R2 call and each session check is a subrequest.
  */
 export function stagedBatchCost(files: number, rowsPerBatch: number): { d1: number; r2: number; external: number } {
   const r2 = 1 + 3 * files;
-  return { d1: 9 + Math.ceil(files / rowsPerBatch), r2, external: r2 + 6 };
+  return { d1: 10 + Math.ceil(files / rowsPerBatch), r2, external: r2 + 6 };
 }

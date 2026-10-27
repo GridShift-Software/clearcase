@@ -139,10 +139,12 @@ interface Ctx {
 class LostLease extends Error {}
 
 export function createSteppedStager(t: SteppedToolkit): SteppedStager {
-  const b = t.budgets, q = t.quotas, bounds = t.bounds;
+  const b = t.budgets, q = t.quotas;
+  // A step's verification work is admitted against the case's window as one call, so it may not exceed what one call may plan.
+  const bounds: StepBounds = { ...t.bounds, objectsPerStep: Math.min(t.bounds.objectsPerStep, b.maxVerifyObjects), bytesPerStep: Math.min(t.bounds.bytesPerStep, b.maxVerifyBytes) };
   const pageRows = Math.max(1, b.maxRowsPerBatch);
   // A fact row rides with its step's commit, which is one batch: a slice never carries more originals than a batch carries rows.
-  const originalsPerStep = Math.max(1, Math.min(bounds.originalsPerStep, pageRows - 4));
+  const originalsPerStep = Math.max(1, Math.min(bounds.originalsPerStep, pageRows - 4, b.maxVerifyObjects));
   const READ_CONCURRENCY = 6;
 
   async function pool<T, R>(items: readonly T[], f: (item: T) => Promise<R>): Promise<R[]> {
@@ -317,20 +319,26 @@ export function createSteppedStager(t: SteppedToolkit): SteppedStager {
       if (!reads.has(sha)) reads.set(sha, verifiedRead(s.bucket, String(r.value.objectKey), { size: Number(r.value.size), sha256: sha }, b.maxBufferedObjectBytes));
       return reads.get(sha)!;
     };
-    const facts = await pool(sl.taken, async (r) => {
-      const got = await read(r);
-      if (got.kind === 'unreachable') unavailable();
-      if (got.kind !== 'ok') return refuse(got.kind === 'over-budget' ? 'over-budget' : 'integrity', 'selected original is missing or changed');
-      const claim = claimOf(r);
-      return [r.key, { path: String(r.value.path), sha256: String(r.value.sha256), size: Number(r.value.size), mediaType: claim.mediaType, status: String(r.value.path) === claim.path ? 'verified' : 'case-mismatch',
-        downloadOnly: contentContradictsType(claim.mediaType, got.bytes.subarray(0, 1024)) }] as const;
-    });
-    const bad = facts.find((f): f is Out => !Array.isArray(f));
-    if (bad) return bad;
-    const last = sl.taken[sl.taken.length - 1]!.key;
-    const n = sl.n + sl.taken.length;
-    await c.commit(sl.more ? { phase: 'originals-a', cursor: { after: last, n } } : { phase: 'validate-a', cursor: {} },
-      (facts as readonly (readonly [string, Json])[]).map(([k, v]) => putFact(s.db, c.id, c.run.epoch, 'a', k, v)));
+    const done: [string, Json][] = [];
+    // A group of reads at a time, so the step can stop at its wall time with every original it reached recorded.
+    for (let i = 0; i < sl.taken.length && (i === 0 || t.clock() - c.started < bounds.wallMsPerStep); i += READ_CONCURRENCY) {
+      const group = sl.taken.slice(i, i + READ_CONCURRENCY);
+      const facts = await pool(group, async (r) => {
+        const got = await read(r);
+        if (got.kind === 'unreachable') unavailable();
+        if (got.kind !== 'ok') return refuse(got.kind === 'over-budget' ? 'over-budget' : 'integrity', 'selected original is missing or changed');
+        const claim = claimOf(r);
+        return [r.key, { path: String(r.value.path), sha256: String(r.value.sha256), size: Number(r.value.size), mediaType: claim.mediaType, status: String(r.value.path) === claim.path ? 'verified' : 'case-mismatch',
+          downloadOnly: contentContradictsType(claim.mediaType, got.bytes.subarray(0, 1024)) }] as const;
+      });
+      const bad = facts.find((f): f is Out => !Array.isArray(f));
+      if (bad) return bad;
+      done.push(...(facts as readonly (readonly [string, Json])[]).map(([k, v]) => [k, v] as [string, Json]));
+    }
+    const more = sl.more || done.length < sl.taken.length;
+    const last = done[done.length - 1]![0];
+    const n = sl.n + done.length;
+    await c.commit(more ? { phase: 'originals-a', cursor: { after: last, n } } : { phase: 'validate-a', cursor: {} }, done.map(([k, v]) => putFact(s.db, c.id, c.run.epoch, 'a', k, v)));
     return advance(n, sl.assets);
   }
 
@@ -360,28 +368,38 @@ export function createSteppedStager(t: SteppedToolkit): SteppedStager {
     if (sl.taken.length === 0) { await c.commit({ phase: after, cursor: {} }); return advance(0, sl.assets); }
     const denied = await admit(c, new Set(sl.taken.map((r) => String(r.value.sha256))).size, sl.bytes);
     if (denied) return denied;
-    const keys = new Set(sl.taken.map((r) => r.key));
-    // The links of this slice: every link that names one of its keys, narrowed to those keys.
-    const linkRows = await factsAt(s.db, c.id, c.run.epoch, 'links', [...keys]);
-    const byLink = new Map<string, RequiredOriginalLink>();
-    for (const r of linkRows) {
-      const link = r.value as unknown as RequiredOriginalLink;
-      byLink.set(canonicalText(link), { ...link, packageRefs: link.packageRefs.filter((ref) => keys.has(ref)) as RequiredOriginalLink['packageRefs'] });
+    const statements: CloudD1Statement[] = [];
+    const refusals: { reason: string; problems: string[] }[] = [];
+    let handled = 0;
+    // A group of originals at a time, so the step can stop at its wall time with every original it reached recorded.
+    for (let i = 0; i < sl.taken.length && (i === 0 || t.clock() - c.started < bounds.wallMsPerStep); i += READ_CONCURRENCY) {
+      const group = sl.taken.slice(i, i + READ_CONCURRENCY), keys = new Set(group.map((r) => r.key));
+      // The links of this group: every link that names one of its keys, narrowed to those keys.
+      const linkRows = await factsAt(s.db, c.id, c.run.epoch, 'links', [...keys]);
+      const byLink = new Map<string, RequiredOriginalLink>();
+      for (const r of linkRows) {
+        const link = r.value as unknown as RequiredOriginalLink;
+        byLink.set(canonicalText(link), { ...link, packageRefs: link.packageRefs.filter((ref) => keys.has(ref)) as RequiredOriginalLink['packageRefs'] });
+      }
+      const got = await readOriginalFacts(s, c.req.caseId, group.map(claimOf), [...byLink.values()]);
+      if (got.kind === 'ok') statements.push(...[...got.facts].map(([k, v]) => putFact(s.db, c.id, c.run.epoch, pass, k, v)));
+      else refusals.push({ reason: got.reason, problems: got.problems });
+      handled += group.length;
     }
-    const got = await readOriginalFacts(s, c.req.caseId, sl.taken.map(claimOf), [...byLink.values()]);
-    const last = sl.taken[sl.taken.length - 1]!.key;
-    const n = sl.n + sl.taken.length;
-    const statements = got.kind === 'ok'
-      ? [...got.facts].map(([k, v]) => putFact(s.db, c.id, c.run.epoch, pass, k, v))
-      : [putFact(s.db, c.id, c.run.epoch, `refused-${pass}`, `${String(sl.n).padStart(9, '0')}`, { reason: got.reason, problems: got.problems })];
-    if (sl.more) { await c.commit({ phase: again, cursor: { after: last, n } }, statements); return advance(n, sl.assets); }
-    // End of the pass: a refusal anywhere in it refuses the pass, with the reason and the first problems readOriginalFacts would have given for the whole.
-    const refusals = [...(await allFacts(s.db, c.id, c.run.epoch, `refused-${pass}`)), ...(got.kind === 'refused' ? [{ key: '~', value: { reason: got.reason, problems: got.problems } as Json }] : [])];
-    if (refusals.length > 0) {
-      const reasons = refusals.map((r) => String(r.value.reason));
+    const last = sl.taken[handled - 1]!.key;
+    const n = sl.n + handled;
+    const more = sl.more || handled < sl.taken.length;
+    // A pass's refusals are kept as facts and merged at its end, so a refusal anywhere refuses the pass with the reason and the first
+    // problems `readOriginalFacts` would have given for the whole.
+    if (refusals.length > 0) statements.push(...refusals.map((r, k) => putFact(s.db, c.id, c.run.epoch, `refused-${pass}`, `${String(sl.n).padStart(9, '0')}-${k}`, r)));
+    if (more) { await c.commit({ phase: again, cursor: { after: last, n } }, statements); return advance(n, sl.assets); }
+    const kept = [...(await allFacts(s.db, c.id, c.run.epoch, `refused-${pass}`)).map((r) => r.value as unknown as { reason: string; problems: string[] }), ...refusals];
+    const unique = [...new Map(kept.map((r) => [canonicalText(r), r] as const)).values()];
+    if (unique.length > 0) {
+      const reasons = unique.map((r) => r.reason);
       const reason = reasons.includes('integrity') ? 'integrity' : reasons.includes('original-link-required') ? 'original-link-required' : 'over-budget';
       const seen = new Set<string>();
-      const problems = refusals.flatMap((r) => (r.value.problems as string[])).filter((p) => !seen.has(p) && seen.add(p)).slice(0, 20);
+      const problems = unique.flatMap((r) => r.problems).filter((p) => !seen.has(p) && seen.add(p)).slice(0, 20);
       return refuse(reason, ...problems);
     }
     await c.commit({ phase: after, cursor: {} }, statements);

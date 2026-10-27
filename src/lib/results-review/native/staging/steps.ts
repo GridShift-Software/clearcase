@@ -37,7 +37,11 @@ export interface StepBounds {
   readonly wallMsPerStep: number;
   /** How long a step holds its lease: longer than any step can run, so a live step is never taken over. */
   readonly leaseMs: number;
-  /** Bytes of the non-preview files held in memory together (the manifest, the datasets and the asset index). */
+  /**
+   * Bytes of the non-preview files held in memory together (the manifest, the datasets and the asset index). Validating one copies it
+   * several times and parses it to many times its size, so this is a share of a Worker's 128 MB, not the whole of it. The poc package's
+   * are 4.5 MB; a real export's have not been measured.
+   */
   readonly structuredBytes: number;
   /** Steps one request runs before it answers that the import is still staging. */
   readonly stepsPerRequest: number;
@@ -45,8 +49,8 @@ export interface StepBounds {
   readonly wallMsPerRequest: number;
 }
 export const DEFAULT_STEP_BOUNDS: StepBounds = Object.freeze({
-  originalsPerStep: 40, bytesPerStep: 24 * 1024 * 1024, objectsPerStep: 100, rowsPerStep: 2000, wallMsPerStep: 20_000, leaseMs: 120_000,
-  structuredBytes: 32 * 1024 * 1024, stepsPerRequest: 4, wallMsPerRequest: 25_000,
+  originalsPerStep: 40, bytesPerStep: 24 * 1024 * 1024, objectsPerStep: 100, rowsPerStep: 2000, wallMsPerStep: 20_000, leaseMs: 60_000,
+  structuredBytes: 16 * 1024 * 1024, stepsPerRequest: 4, wallMsPerRequest: 25_000,
 });
 
 /** Non-preview files of a package: the manifest, up to 512 datasets and the asset index. */

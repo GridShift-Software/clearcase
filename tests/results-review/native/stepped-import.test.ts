@@ -155,6 +155,26 @@ describe('the stepped import equals the one-request import', () => {
     expect(dump(durable)).toEqual(reference.dump);
   }, 600_000);
 
+  it('stops a step at its wall time, with everything it reached recorded, and still equals the one-request import', async () => {
+    const { durable, revisionId } = await uploaded(pkg);
+    durable.tick = 10;
+    const bounds = { wallMsPerStep: 50, objectsPerStep: 1000, bytesPerStep: 64 << 20, originalsPerStep: 1000 };
+    const p = await startProcess(durable, { bounds });
+    const steps: StepRecord[] = [];
+    const out = linked(await driveStaged(p, durable, pkg, revisionId, { steps }));
+    expect(JSON.stringify(out)).toBe(JSON.stringify(reference.candidate));
+    expect(dump(durable)).toEqual(reference.dump);
+    // Without the wall bound a step would take every object and original it is allowed; with it, a step ends once 50 ms have passed.
+    for (const s of steps) {
+      expect(s.puts).toBeLessThanOrEqual(3);
+      // The wall time, a group of six reads past it, and the two loads of the package's non-preview files (36 reads each) a last request makes.
+      expect(s.ms).toBeLessThanOrEqual(50 + 6 * 10 * 2 + 2 * 36 * 10);
+      expect(s.originalGets).toBeLessThanOrEqual(12);
+    }
+    expect(steps.length).toBeGreaterThan(stepped.steps.length);
+    expect(Math.max(...steps.map((s) => s.ms))).toBeGreaterThan(50);
+  }, 600_000);
+
   it('sweeps the staged objects of the finished import and leaves every object the candidate references, still readable', async () => {
     const { durable, revisionId } = await uploaded(pkg);
     const p = await startProcess(durable, { sweepObjects: 25 });

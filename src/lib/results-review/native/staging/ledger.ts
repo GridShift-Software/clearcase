@@ -105,20 +105,25 @@ export function d1StagingLedger(db: NativeD1, o: { rowsPerBatch: number }): Stag
     },
 
     async neededElsewhere(a) {
-      if (a.sha256s.length === 0) return new Set();
-      const marks = a.sha256s.map(() => '?').join(', ');
-      // Live: not swept, no candidate, and either opened recently or running recently. Its files, and its manifest, are what it still needs.
-      const live = `NOT EXISTS (SELECT 1 FROM native_import_cleanup c WHERE c.client_id = s.client_id AND c.case_id = s.case_id AND c.operation_id = s.operation_id)
-        AND NOT EXISTS (SELECT 1 FROM native_candidate k WHERE k.client_id = s.client_id AND k.case_id = s.case_id AND k.operation_id = s.operation_id)
-        AND (s.opened_at >= ? OR EXISTS (SELECT 1 FROM native_import_stage_run r WHERE r.client_id = s.client_id AND r.case_id = s.case_id AND r.operation_id = s.operation_id AND r.phase <> 'done' AND r.updated_at >= ?))`;
-      const { results } = await db.prepare(`SELECT DISTINCT sha256 FROM (
-          SELECT f.sha256 AS sha256 FROM native_import_staged_file f JOIN native_import_session s ON s.client_id = f.client_id AND s.case_id = f.case_id AND s.operation_id = f.operation_id
-            WHERE f.client_id = ? AND f.case_id = ? AND f.operation_id <> ? AND ${live}
-          UNION ALL
-          SELECT s.manifest_sha256 FROM native_import_session s WHERE s.client_id = ? AND s.case_id = ? AND s.operation_id <> ? AND ${live}
-        ) WHERE sha256 IN (${marks})`)
-        .bind(a.clientId, a.caseId, a.operationId, a.liveFrom, a.liveFrom, a.clientId, a.caseId, a.operationId, a.liveFrom, a.liveFrom, ...a.sha256s).all<{ sha256: string }>().catch(unavailable);
-      return new Set(results.map((r) => r.sha256));
+      const needed = new Set<string>();
+      // D1 binds at most 100 parameters to a statement: ten are the case, the operation and the cutoffs, the rest are digests.
+      for (let i = 0; i < a.sha256s.length; i += 40) {
+        const chunk = a.sha256s.slice(i, i + 40);
+        const marks = chunk.map(() => '?').join(', ');
+        // Live: not swept, no candidate, and either opened recently or running recently. Its files, and its manifest, are what it still needs.
+        const live = `NOT EXISTS (SELECT 1 FROM native_import_cleanup c WHERE c.client_id = s.client_id AND c.case_id = s.case_id AND c.operation_id = s.operation_id)
+          AND NOT EXISTS (SELECT 1 FROM native_candidate k WHERE k.client_id = s.client_id AND k.case_id = s.case_id AND k.operation_id = s.operation_id)
+          AND (s.opened_at >= ? OR EXISTS (SELECT 1 FROM native_import_stage_run r WHERE r.client_id = s.client_id AND r.case_id = s.case_id AND r.operation_id = s.operation_id AND r.phase <> 'done' AND r.updated_at >= ?))`;
+        const { results } = await db.prepare(`SELECT DISTINCT sha256 FROM (
+            SELECT f.sha256 AS sha256 FROM native_import_staged_file f JOIN native_import_session s ON s.client_id = f.client_id AND s.case_id = f.case_id AND s.operation_id = f.operation_id
+              WHERE f.client_id = ? AND f.case_id = ? AND f.operation_id <> ? AND ${live}
+            UNION ALL
+            SELECT s.manifest_sha256 FROM native_import_session s WHERE s.client_id = ? AND s.case_id = ? AND s.operation_id <> ? AND ${live}
+          ) WHERE sha256 IN (${marks})`)
+          .bind(a.clientId, a.caseId, a.operationId, a.liveFrom, a.liveFrom, a.clientId, a.caseId, a.operationId, a.liveFrom, a.liveFrom, ...chunk).all<{ sha256: string }>().catch(unavailable);
+        for (const r of results) needed.add(r.sha256);
+      }
+      return needed;
     },
 
     async advanceCleanup(a) {

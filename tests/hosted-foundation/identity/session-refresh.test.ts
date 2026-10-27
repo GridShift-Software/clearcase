@@ -71,6 +71,8 @@ beforeAll(async () => {
 				if (!row || row.status !== 'active' || body?.refresh_token !== row.refresh || expired?.sid !== sid || calls.at(-1)!.bearer !== row.instance.secretKey)
 					return send(401, { errors: [{ code: 'authentication_invalid', message: 'synthetic refresh refused' }] });
 				const token = row.instance.token({ sub: row.user_id, sid, azp: ORIGIN });
+				// a refresh token renews once, as live Clerk's does, and the answer carries no new one (astra-renewal-7614)
+				row.refresh = `${row.refresh}#used`;
 				const s = url.searchParams.get('suffixed_cookies') === 'true' ? `_${suffix(row.instance.publishableKey)}` : '';
 				return send(200, { object: 'cookies', cookies: [`__session${s}=${token}; Path=/; Domain=clearcase.test; Max-Age=60; SameSite=Lax; Secure`, `__client_uat${s}=1761400000; Path=/; Domain=clearcase.test; Max-Age=315360000; SameSite=Lax; Secure`] });
 			}
@@ -370,7 +372,7 @@ describe('a browser that drops each cookie at its Max-Age', () => {
 	beforeEach(() => void vi.useFakeTimers({ toFake: ['Date'] }));
 	afterEach(() => void vi.useRealTimers());
 
-	it('saves the note after the browser dropped the expired session cookie, and again a minute later (review M1)', async () => {
+	it('saves the note after the browser dropped the expired session cookie; a minute later the spent hold asks the page to sign in again (review M1, heavy review)', async () => {
 		const s = session(), b = browser();
 		await signIn(b, s);
 		later(61_000);
@@ -378,8 +380,13 @@ describe('a browser that drops each cookie at its Max-Age', () => {
 		expect(b.take(await invoke(saveNote(b.cookie()))).status).toBe(201);
 		later(61_000);
 		expect(b.names()).not.toContain('__session');
-		expect(b.take(await invoke(saveNote(b.cookie()))).status).toBe(201);
+		// a refresh token renews once: the second save is refused, marked so the page reloads through the handshake
+		const second = b.take(await invoke(saveNote(b.cookie())));
+		expect(second.status).toBe(401);
+		expect(second.headers.get('x-clearcase-reauth')).toBe('1');
 		expect(refreshCalls()).toHaveLength(2);
+		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
+		expect(b.take(await invoke(saveNote(b.cookie()))).status).toBe(201);
 		expect(trap.blocked).toEqual([]);
 	});
 	it('keeps nothing that renews a session past the longest a Clerk session lives (review M1)', async () => {
@@ -491,6 +498,15 @@ const liveRefreshAnswer = (s: ReturnType<typeof session>) => (sid: string) => si
 	: { status: 200, body: { object: 'cookies', cookies: [`${SESSION_SFX}=${A.token({ sub: s.user, sid, azp: ORIGIN })}; Path=/; Expires=${YEAR()}; Secure; SameSite=None`] } };
 // A document load as the browser makes it: through Clerk's handshake when the Worker sends it there (Clerk answers for
 // the session it holds, with the live directive set), back to the page; the final answer.
+// The page a same-origin redirect chain ends on, as the browser follows it (a handshake return's clean-up hop included).
+async function settle(b: ReturnType<typeof browser>, r: Response) {
+	for (let i = 0; i < 4 && [303, 307].includes(r.status); i++) {
+		const to = new URL(r.headers.get('location')!, ORIGIN);
+		expect(to.origin).toBe(ORIGIN);
+		r = b.take(await invoke(documentGet(to.pathname + to.search, b.cookie(to.pathname))));
+	}
+	return r;
+}
 // Where a page-load answer sends the browser to Clerk's handshake: a 303 or 307, or a page that refreshes there (round 4c).
 async function handshakeAt(r: Response): Promise<URL | null> {
 	const at = [303, 307].includes(r.status) ? r.headers.get('location') : r.status === 200 && (r.headers.get('content-type') ?? '').startsWith('text/html') ? (/<meta http-equiv="refresh" content="0;url=([^"]+)">/.exec(await r.clone().text())?.[1]?.replaceAll('&amp;', '&') ?? null) : null;
@@ -500,12 +516,12 @@ async function load(b: ReturnType<typeof browser>, s: ReturnType<typeof session>
 	let r = b.take(await invoke(documentGet(path, b.cookie(new URL(path, ORIGIN).pathname))));
 	const at = await handshakeAt(r);
 	if (at) {
-		const back = new URL(at.searchParams.get('redirect_url')!);
-		back.searchParams.set('__clerk_handshake', A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh) }));
+		const back = new URL(at.searchParams.get('redirect_url')!), row = sessions.get(s.sid)!;
+		row.refresh = LIVE_RT(++n);
+		back.searchParams.set('__clerk_handshake', A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), row.refresh) }));
 		r = b.take(await invoke(documentGet(back.pathname + back.search, b.cookie(back.pathname))));
 		expect(r.status).toBe(303);
-		const to = new URL(r.headers.get('location')!, ORIGIN).pathname;
-		r = b.take(await invoke(documentGet(to, b.cookie(to))));
+		r = await settle(b, r);
 	}
 	return r;
 }
@@ -845,9 +861,9 @@ async function navigate(b: ReturnType<typeof browser>, s: ReturnType<typeof sess
 		: ['__client_uat=0; Path=/; Domain=clearcase.test; Max-Age=315360000; Secure; SameSite=None', '__session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; SameSite=None'] }));
 	const returned = b.take(await invoke(documentGet(back.pathname + back.search, b.cookie(back.pathname))));
 	expect(returned.status).toBe(303);
-	const clean = new URL(returned.headers.get('location')!, ORIGIN);
-	expect(clean.pathname + clean.search).toBe('/cases/case-a');
-	return { status: b.take(await invoke(documentGet(clean.pathname, b.cookie(clean.pathname)))).status, handoff: true };
+	expect(new URL(returned.headers.get('location')!, ORIGIN).pathname).toBe('/cases/case-a');
+	const landed = await settle(b, returned);
+	return { status: landed.status, handoff: true };
 }
 const holds = (b: ReturnType<typeof browser>) => b.names().filter((n) => /refresh/.test(n));
 
@@ -949,9 +965,8 @@ async function visit(b: ReturnType<typeof browser>, s: ReturnType<typeof session
 	back.searchParams.set('__clerk_handshake', A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), row.refresh) }));
 	const returned = b.take(await invoke(documentGet(back.pathname + back.search, b.cookie(back.pathname))));
 	expect(returned.status).toBe(303);
-	const to = new URL(returned.headers.get('location')!, ORIGIN).pathname;
-	expect(to).toBe(path);
-	return { status: b.take(await invoke(documentGet(to, b.cookie(to)))).status, handshake: true };
+	expect(new URL(returned.headers.get('location')!, ORIGIN).pathname).toBe(path);
+	return { status: (await settle(b, returned)).status, handshake: true };
 }
 
 describe('a save after an idle, when an earlier renewal spent the refresh token (astra-renewal-7614, round 4b)', () => {
@@ -1060,3 +1075,113 @@ describe('the page a save redirects to, after its renewal spent the hold (astra-
 		}
 	});
 });
+
+// The heavy review of the live head 2ac78940 (session-renewal-heavy-review.md): probes 1-3 ported, plus L1 and M4.
+describe('session renewal heavy review (round 5)', () => {
+	beforeEach(() => void vi.useFakeTimers({ toFake: ['Date'] }));
+	afterEach(() => void vi.useRealTimers());
+	const bridgeHeaders = (r: Response) => ({ csp: r.headers.get('content-security-policy'), frame: r.headers.get('x-frame-options'), cache: r.headers.get('cache-control'), location: r.headers.get('location') });
+	const BRIDGE = { csp: "default-src 'none'; frame-ancestors 'none'", frame: 'DENY', cache: 'no-store', location: null };
+
+	it('M1 (probe 1): a refusal that arrives after the winner and its handshake leaves the fresh hold, and the next idle save is written', async () => {
+		const s = session(), b = carrying(s);
+		refreshAnswer = neverRotating(s);
+		vi.resetModules();
+		const second = (await import('../../../src/lib/server/runtime/hosted/hooks.server.ts')).handle;
+		const request = clientData(b.cookie());
+		const out = await Promise.all([invoke(clientData(b.cookie())), second({ event: { request, url: new URL(request.url), locals: {}, isSubRequest: false }, resolve: route } as never)]);
+		expect(refreshCalls()).toHaveLength(2);
+		const winner = out.find((r) => sessionCookie(r))!, loser = out.find((r) => !sessionCookie(r))!;
+		const to = await dataRedirect(b.take(winner));
+		const back = new URL(to!.searchParams.get('redirect_url')!);
+		sessions.get(s.sid)!.refresh = LIVE_RT(++n);
+		back.searchParams.set('__clerk_handshake', A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh) }));
+		await settle(b, b.take(await invoke(documentGet(back.pathname + back.search, b.cookie()))));
+		expect(holds(b)).toHaveLength(1);
+		b.take(loser);
+		expect(holds(b)).toHaveLength(1);
+		later(90_000);
+		expect((await invoke(saveNote(b.cookie()))).status).toBe(201);
+	});
+	it('M2 (probe 2): a browser that refuses the cookies a handshake sets goes through it once, then gets a session-ended page that says to allow cookies', async () => {
+		const s = session(), token = A.token({ sub: s.user, sid: s.sid, azp: ORIGIN });
+		const cookie = `__clerk_db_jwt=dvb_synthetic0123456789abcdefgh; __client_uat=1761400000; __session=${token}; ${HOLD_A2}=~${token}~${s.refresh}`;
+		let path = CASE_NOTES, bridges = 0, last: Response | null = null;
+		for (let i = 0; i < 8; i++) {
+			last = await invoke(documentGet(path, cookie));
+			const to = await handshakeAt(last);
+			if (to) {
+				bridges++;
+				const back = new URL(to.searchParams.get('redirect_url')!);
+				back.searchParams.set('__clerk_handshake', A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), LIVE_RT(++n)) }));
+				path = back.pathname + back.search;
+			} else if ([303, 307].includes(last.status)) {
+				const u = new URL(last.headers.get('location')!, ORIGIN);
+				path = u.pathname + u.search;
+			} else break;
+		}
+		expect(bridges).toBe(1);
+		expect(last!.status).toBe(401);
+		const body = await last!.text();
+		expect(body).toMatch(/cookies/i);
+		expect(body).toContain('href="/sign-in"');
+		expect(bridgeHeaders(last!)).toEqual(BRIDGE);
+	});
+	it('M2: with cookies kept, the return lands on the clean page, and an old return URL opened later is no stop', async () => {
+		const s = session(), b = browser();
+		sessions.get(s.sid)!.refresh = LIVE_RT(n);
+		refreshAnswer = neverRotating(s);
+		expect((await load(b, s, `/cases?__clerk_handshake=${A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh) })}`)).status).toBe(303);
+		later(90_000);
+		expect(await save(b)).toBe(201);
+		expect(await visit(b, s, CASE_NOTES)).toEqual({ status: 201, handshake: true });
+		later(31_000);
+		const old = await invoke(documentGet(`${CASE_NOTES}?__clearcase_reauth=${Math.floor(Date.now() / 1000) - 31}`, b.cookie(CASE_NOTES)));
+		expect(old.status).toBe(303);
+		expect(old.headers.get('location')).toBe(CASE_NOTES);
+	});
+	it('M3 (probe 3): an expired session\'s page load, as a native GET form submits it, reaches the handshake by the bridge page, not a 303', async () => {
+		const s = session();
+		const r = await invoke(documentGet(`${CASE_NOTES}?q=synthetic`, jar(s)));
+		expect(r.status).toBe(200);
+		expect((await handshakeAt(r))?.origin).toBe(A.iss);
+		expect(new URL((await handshakeAt(r))!.searchParams.get('redirect_url')!).searchParams.get('q')).toBe('synthetic');
+		expect(bridgeHeaders(r)).toEqual(BRIDGE);
+		expect(refreshCalls()).toHaveLength(0);
+	});
+	it('L1: the bridge page of a spent hold cannot be framed and is never stored', async () => {
+		const s = session(), b = browser();
+		sessions.get(s.sid)!.refresh = LIVE_RT(n);
+		refreshAnswer = neverRotating(s);
+		await load(b, s, `/cases?__clerk_handshake=${A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh) })}`);
+		later(90_000);
+		expect(await save(b)).toBe(201);
+		const r = await invoke(documentGet(CASE_NOTES, b.cookie(CASE_NOTES)));
+		expect(r.status).toBe(200);
+		expect(bridgeHeaders(r)).toEqual(BRIDGE);
+	});
+	it('M4 (probe 3): an operator fetch after an idle that spent its hold is answered 401 marked x-clearcase-reauth, never a redirect', async () => {
+		const s = session(B), b = browser();
+		b.set(`__client_uat=1761400000; Path=/; Secure`);
+		b.set(`${hold(s.stale(), s.refresh, HOLD_B)}; Path=/; Secure; HttpOnly`);
+		const readiness = () => new Request(`${ORIGIN}/operator/publication/case-a/readiness`, { headers: { cookie: b.cookie('/operator/publication/case-a/readiness'), 'sec-fetch-dest': 'empty', 'sec-fetch-mode': 'cors', accept: '*/*' } });
+		expect(b.take(await invoke(readiness())).status).toBe(201);
+		later(90_000);
+		const second = b.take(await invoke(readiness()));
+		expect(second.status).toBe(401);
+		expect(second.headers.get('x-clearcase-reauth')).toBe('1');
+		expect(second.headers.get('location')).toBeNull();
+		expect(await dataRedirect(second)).toBeNull();
+	});
+	it('M4: marks no page navigation, no page-data request and no request without a session the handshake could renew', async () => {
+		const s = session();
+		refreshAnswer = () => ({ status: 401, body: { errors: [{ code: 'authentication_invalid', message: 'synthetic' }] } });
+		const native = await invoke(new Request(`${ORIGIN}${NOTES}`, { method: 'POST', body: 'body=x', headers: { origin: ORIGIN, 'content-type': 'application/x-www-form-urlencoded', 'sec-fetch-dest': 'document', 'sec-fetch-mode': 'navigate', cookie: jar(s) } }));
+		expect(native.status).toBe(401);
+		expect(native.headers.get('x-clearcase-reauth')).toBeNull();
+		const none = await invoke(saveNote('__client_uat=0'));
+		expect(none.status).toBe(401);
+		expect(none.headers.get('x-clearcase-reauth')).toBeNull();
+	});
+});
+const save = async (b: ReturnType<typeof browser>) => b.take(await invoke(saveNote(b.cookie(NOTES)))).status;

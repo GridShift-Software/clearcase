@@ -137,6 +137,16 @@ describe('the evidence root is checked again at publish', () => {
     expect(w.receipts()).toEqual([]);
   });
 
+  it('refuses a row swapped for another key, with the count unchanged, after the last recheck', async () => {
+    const w = await world();
+    const signed = await w.signOff();
+    for (const seal of ['pub_evidence_item_update_seal', 'pub_evidence_item_delete_seal']) w.db.exec(`DROP TRIGGER ${seal}`);
+    w.db.beforeBatch = () => w.db.exec("UPDATE pub_evidence_item SET item_key = 'preview/asset-99999' WHERE item_key = 'preview/asset-00007'");
+    expect(await w.publish(signed.body.signoffId as string)).toMatchObject({ status: 409, body: { code: 'signoff-stale' } });
+    expect(w.pointer()).toBeNull();
+    expect(w.receipts()).toEqual([]);
+  });
+
   it('refuses a sign-off whose evidence row names another candidate', async () => {
     const w = await world();
     const signed = await w.signOff();
@@ -183,8 +193,15 @@ describe('at the size of a real export', () => {
     expect(stored.groups).toHaveLength(3);
     expect(stored.groups.flatMap(g => g.fingerprints)).toHaveLength(2400);
     w.db.sql.length = 0;
+    w.db.batches.length = 0;
+    w.db.widest.params = 0; w.db.widest.bytes = 0;
     const done = await w.publish(signed.body.signoffId as string);
     expect(done.status).toBe(200);
+    // The commit holds the 4,192 checked rows in several chunked guards, none near D1's 100 bound parameters or its statement size.
+    const commit = w.db.batches.find(b => b.some(q => q.includes('INSERT INTO pub_apply_receipt')))!;
+    expect(commit.filter(q => q.includes('json_each(?)')).length).toBeGreaterThan(4);
+    expect(w.db.widest.params).toBeLessThan(100);
+    expect(w.db.widest.bytes).toBeLessThan(100_000);
     // 4,192 rows are hashed in pages of 500: nine full reads, one short read, and no more.
     expect(w.db.sql.filter(q => q.includes('FROM pub_evidence_run r JOIN pub_evidence_item i')).length).toBeLessThanOrEqual(10);
     expect(w.pointer()).toMatchObject({ state: 'published' });

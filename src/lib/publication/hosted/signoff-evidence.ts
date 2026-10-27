@@ -37,6 +37,9 @@ export type EvidenceCheck =
   /** A run exists and is not what the claim names or what its own metadata says: another binding, uncovered or added rows, another root. */
   | { readonly ok: false; readonly reason: 'binding-mismatch' | 'uncovered' | 'root' | 'rows' };
 
+/** `checkRows` passed: the run's items and the exact `[key, json]` rows the root was recomputed from, in key order. */
+export type RowsCheck = Exclude<EvidenceCheck, { readonly ok: true }> | { readonly ok: true; readonly items: number; readonly rows: readonly (readonly [string, string])[] };
+
 export async function checkSealed(port: PublicationEvidence, x: EvidenceClaim): Promise<EvidenceCheck> {
   // `inspect` reads by candidate and generation; the run's own binding comes back and is compared with the claim below.
   const facts = await port.store.inspect({ ...x, validatorVersion: '', rendererVersion: '' });
@@ -48,10 +51,10 @@ export async function checkSealed(port: PublicationEvidence, x: EvidenceClaim): 
   return verified.root === x.root ? { ok: true, items: verified.items } : { ok: false, reason: 'root' };
 }
 
-export async function checkRows(port: PublicationEvidence, x: EvidenceClaim): Promise<EvidenceCheck> {
+export async function checkRows(port: PublicationEvidence, x: EvidenceClaim): Promise<RowsCheck> {
   const sealed = await checkSealed(port, x);
   if (!sealed.ok) return sealed;
-  const digests: string[] = [];
+  const digests: string[] = [], kept: (readonly [string, string])[] = [];
   let after: string | null = null, total = 0;
   // One read per page, and one more that finds the end; the bound stops a reader that never ends.
   for (let reads = 0; reads <= Math.ceil(sealed.items / PAGE_SIZE) + 1; reads++) {
@@ -59,11 +62,12 @@ export async function checkRows(port: PublicationEvidence, x: EvidenceClaim): Pr
     if (rows === null) return { ok: false, reason: 'root' };
     if (rows.length === 0) break;
     digests.push(sha256Hex(pageBytes(rows.map(row => ({ key: row.key, json: row.json })))));
+    for (const row of rows) kept.push([row.key, row.json]);
     total += rows.length;
     after = rows[rows.length - 1]!.key;
     if (rows.length < PAGE_SIZE) break;
   }
-  return total === sealed.items && sha256Hex(rootBytes(digests)) === x.root ? sealed : { ok: false, reason: 'rows' };
+  return total === sealed.items && sha256Hex(rootBytes(digests)) === x.root ? { ok: true, items: sealed.items, rows: kept } : { ok: false, reason: 'rows' };
 }
 
 /**

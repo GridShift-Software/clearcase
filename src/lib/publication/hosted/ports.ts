@@ -129,6 +129,12 @@ export type PointerOutcome =
   /** Storage refused for its own reason (unknown or unstored version, another case's version); nothing changed. */
   | { kind: 'refused'; reason: string };
 
+/**
+ * The evidence item rows a v2 publish recheck read and hashed, in key order as `[item_key, item_json]`. The commit must hold exactly
+ * these rows in the sealed generation, so the transaction, not the earlier read, decides whether they are still the rows that were checked.
+ */
+export interface CheckedEvidenceRows { readonly signoffId: string; readonly rows: readonly (readonly [key: string, json: string])[] }
+
 /** An operation-bound receipt, stored atomically with the pointer, never inferred from pointer equality. */
 export interface PublicationApplyReceipt { readonly intent: PublicationIntent }
 export interface AtomicPublicationMutation {
@@ -137,8 +143,10 @@ export interface AtomicPublicationMutation {
   readonly authority: Readonly<{ clientId: ClientId; caseId: CaseId; principal: Principal; sessionId: SessionId; capability: 'publish' }>;
   /** Fresh external-authority reads immediately before the primary D1 transaction, never saved booleans.
    * Clerk cannot participate in a D1 lock: a later external revocation can race commit. The transaction still guards
-   * current D1 grants, candidate/sign-off generation, any local revocation fence, pointer and apply receipt. */
-  recheck(): Promise<void>;
+   * current D1 grants, candidate/sign-off generation, any local revocation fence, pointer and apply receipt. The recheck itself runs
+   * BEFORE that transaction. A publish of a v2 sign-off returns the evidence rows it hashed, and the transaction must refuse unless the
+   * sealed generation still holds exactly those rows. */
+  recheck(): Promise<void | CheckedEvidenceRows>;
 }
 /**
  * REQUIRED parent atomic adapter, not an ordinary GRS-115 CAS wrapper. Before applying, load/compare the durable

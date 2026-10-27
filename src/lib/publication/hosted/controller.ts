@@ -5,7 +5,7 @@ import { readAtMost } from '../../submissions/body.ts';
 import { MAX_SIGNOFF_VALUE_BYTES } from './ledger.ts';
 import { checkSnapshot, checkSnapshotV2, evidenceCount, newWarnings, signoffBlocker, signoffBlockerV2, type Blocker } from './rules.ts';
 import { checkRows, checkSealed, warningsOf, type EvidenceClaim } from './signoff-evidence.ts';
-import type { CandidateSnapshot, CandidateSnapshotV2, NativePublicationPorts, OperationRecord, PointerOutcome, PublicationIntent, PublicationState, SignoffAcknowledgement, SignoffIdentity, SignoffRecord } from './ports.ts';
+import type { CandidateSnapshot, CandidateSnapshotV2, CheckedEvidenceRows, NativePublicationPorts, OperationRecord, PointerOutcome, PublicationIntent, PublicationState, SignoffAcknowledgement, SignoffIdentity, SignoffRecord } from './ports.ts';
 
 /** What one publication request carries: the request, its URL, the route params and the request's identity (the existing contract). */
 export interface PublicationRequest { request: Request; url: URL; params: Partial<Record<'caseId', string>>; identity: Identity }
@@ -163,14 +163,14 @@ export function createNativePublication(ports: NativePublicationPorts | null) {
   }
 
   /** Both early feedback and the adapter's serialized recheck use fresh sign-off/candidate facts. */
-  async function effectiveSignoff(a: Admitted, signoffId: string, signed?: SignoffIdentity): Promise<SignoffRecord> {
+  async function effectiveSignoff(a: Admitted, signoffId: string, signed?: SignoffIdentity, keep?: (checked: CheckedEvidenceRows) => void): Promise<SignoffRecord> {
     const so = await storage(a.p.ledger.signoff({ ...a.scope, signoffId }));
     if (!so) return refuse(404, 'not-found', 'No such sign-off for this case.');
     if (so.state !== 'audited' || so.invalidatedAt || (signed && (differing(so, signed).length || canonical(so.evidence ?? null) !== canonical(signed.evidence ?? null))))
       return refuse(409, 'signoff-not-effective', 'This sign-off is not effective. Sign off the current candidate again.');
     const snap = await candidate(a, so.candidateId);
-    // Only the recheck inside the commit boundary (`signed` is given there) hashes the item rows; the early answer checks the sealed metadata.
-    const why = !snap ? 'candidate-missing' : snap.v === 2 ? await evidenceWhy(a, so, snap.s, signed !== undefined) : v1Why(so, snap.s);
+    // Only the recheck made for the commit (`signed` is given there) hashes the item rows; the early answer checks the sealed metadata.
+    const why = !snap ? 'candidate-missing' : snap.v === 2 ? await evidenceWhy(a, so, snap.s, signed !== undefined, keep) : v1Why(so, snap.s);
     if (why) {
       await storage(a.p.ledger.invalidateSignoff({ ...a.scope, signoffId, at: a.p.now().toISOString(), reason: why }));
       return refuse(409, 'signoff-stale', 'The candidate changed since sign-off. Review and sign off the current candidate.', { reason: why });
@@ -188,9 +188,10 @@ export function createNativePublication(ports: NativePublicationPorts | null) {
   /**
    * Why a v2 sign-off no longer stands, or null. The sign-off must bind exactly the run and root the candidate now reports, for the
    * candidate it names; the counts must still match; and the sealed run must still be what it was: its metadata always, and its item
-   * rows hashed again when `rows` is set. A read that fails is a storage fault (503), never a verdict on the sign-off.
+   * rows hashed again when `rows` is set, in which case `keep` receives the rows that were hashed so the commit can require the same
+   * ones. A read that fails is a storage fault (503), never a verdict on the sign-off.
    */
-  async function evidenceWhy(a: Admitted, so: SignoffRecord, s: CandidateSnapshotV2, rows: boolean): Promise<string | null> {
+  async function evidenceWhy(a: Admitted, so: SignoffRecord, s: CandidateSnapshotV2, rows: boolean, keep?: (checked: CheckedEvidenceRows) => void): Promise<string | null> {
     if (differing(so, identityOf(s)).length) return 'candidate-changed';
     const bound = so.evidence;
     if (!bound || bound.candidateId !== so.candidateId || bound.generation !== s.evidence.generation || bound.root !== s.evidence.root) return 'candidate-changed';
@@ -198,7 +199,10 @@ export function createNativePublication(ports: NativePublicationPorts | null) {
     if (so.acknowledgements.length !== s.evidence.newWarnings || so.warningFingerprints.length !== evidenceCount(s, 'warning')) return 'warnings-changed';
     const port = a.p.signoffEvidence;
     if (!port) return unavailable();
-    const checked = await storage((rows ? checkRows : checkSealed)(port, claimOf(a, so.candidateId, s)));
+    const claim = claimOf(a, so.candidateId, s);
+    if (!rows) return (await storage(checkSealed(port, claim))).ok ? null : 'candidate-changed';
+    const checked = await storage(checkRows(port, claim));
+    if (checked.ok) keep?.({ signoffId: so.signoffId, rows: checked.rows });
     return checked.ok ? null : 'candidate-changed';
   }
 
@@ -359,13 +363,15 @@ export function createNativePublication(ports: NativePublicationPorts | null) {
     if (!applied && (rec.state === 'applied' || rec.state === 'audited')) return unavailable('receipt-missing', 'The applied operation receipt cannot be read. Retry with the same operation id.');
     if (rec.state === 'pending' || rec.state === 'failed') {
       if (!applied) {
-        // The adapter, not this outer function, chooses the atomic commit boundary. These checks MUST run inside it.
+        // The adapter, not this outer function, chooses the atomic commit boundary and runs these checks immediately before it, outside it. A v2
+        // publish hands back the item rows it hashed, and the adapter's transaction must refuse unless the stored rows are still those.
         const recheck = async () => {
           await a.recheckAuthority();
-          if (intent.kind === 'publish') {
-            if (!intent.signoffId || !intent.signedIdentity) return unavailable();
-            await effectiveSignoff(a, intent.signoffId, intent.signedIdentity);
-          }
+          if (intent.kind !== 'publish') return;
+          if (!intent.signoffId || !intent.signedIdentity) return unavailable();
+          let rows: CheckedEvidenceRows | undefined;
+          await effectiveSignoff(a, intent.signoffId, intent.signedIdentity, (checked) => { rows = checked; });
+          return rows;
         };
         let out: PointerOutcome;
         const authority = { ...a.scope, principal: a.principal, sessionId: a.sessionId, capability: 'publish' as const };

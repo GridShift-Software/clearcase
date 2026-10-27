@@ -127,7 +127,7 @@ export function createCaseGrantRenewal(o: CaseGrantProvisioningOptions) {
       if (old.state !== 'active') return { kind: 'stale' };
       const now = o.now().getTime(), until = Date.parse(expiresAt);
       if (until <= now) return { kind: 'invalid', reason: 'expiresAt is not in the future' };
-      if (old.expiresAt === null || until <= Date.parse(old.expiresAt)) return { kind: 'invalid', reason: 'a renewal must expire later than the grant it renews' };
+      if (old.expiresAt === null || !isIso(old.expiresAt) || until <= Date.parse(old.expiresAt)) return { kind: 'invalid', reason: 'a renewal must expire later than the grant it renews' };
       if (until - now > MAX_RENEWAL_MS) return { kind: 'invalid', reason: 'a renewal expires at most 30 days from now' };
       const replacementId = p.newGrantId();
       const operation = await e.record({ operationId, operation: 'update', actor, identity: p.identity(operator), action: CASE_GRANT_RENEW_ACTION, request, grantId: replacementId, caseId });

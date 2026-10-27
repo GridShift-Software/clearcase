@@ -32,7 +32,7 @@ function world(script: Map<string, PdfScript>, budget: Partial<NativePdfEvidence
 }
 function corpus(n: number, totalPages = 3) {
  const pdfs = Array.from({ length: n }, (_, i) => syntheticPdf(`document ${i}`));
- return { pdfs, script: new Map(pdfs.map(p => [p.sha256, { totalPages }] as const)) };
+ return { pdfs, script: new Map<string, PdfScript>(pdfs.map(p => [p.sha256, { totalPages }])) };
 }
 const verdicts = (outcomes: readonly { assetId: string; state: string; pages: number | null; checkedPages: readonly number[]; reason: string | null }[]) =>
  outcomes.map(({ assetId, state, pages, checkedPages, reason }) => ({ assetId, state, pages, checkedPages, reason }));
@@ -242,7 +242,7 @@ describe('U9 untrusted PDFs', () => {
   expect(other.outcomes).toEqual([expect.objectContaining({ state: 'failed', reason: 'invalid-render-input' })]);
   const documents = [doc('asset-a', pdf, [2])];
   const pending = checker.step(step('candidate-1', 'a', documents));
-  (documents[0] as { citedPages: number[] }).citedPages.push(3);
+  (documents[0]!.citedPages as number[]).push(3);
   documents[0] = doc('asset-swapped', pdf, [3]);
   expect((await pending).outcomes).toEqual([expect.objectContaining({ assetId: 'asset-a', checkedPages: [1, 2] })]);
   expect(w.boundary.inspected).toEqual([{ sha256: pdf.sha256, pages: [1, 2] }]);

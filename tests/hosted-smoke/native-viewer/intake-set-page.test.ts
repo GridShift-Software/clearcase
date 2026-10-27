@@ -37,7 +37,7 @@ beforeEach(() => {
     const set = { setId: 'x', state: 'open', fileCount: 3, totalBytes: 0, declared: 0, stored: stored.size, finalized: 0, filesSha256: null, revision: null };
     if (method === 'POST' && url === SETS) return reply(201, { set });
     if (method === 'GET' && url.startsWith(`${SETS}/`)) return reply(200, { set, files: [], next: null });
-    if (method === 'POST' && url.endsWith('/files')) return reply(201, { stage: 'received' });
+    if (method === 'POST' && (url.endsWith('/files') || url.endsWith('/submissions'))) return reply(201, { stage: 'received' });
     if (method === 'PUT') {
       const op = url.split('/').pop()!;
       if (failPut.delete(op)) return reply(503, { code: 'storage-unavailable', message: 'File storage is unavailable. Try again with the same upload.' });
@@ -77,7 +77,7 @@ it('shows a failed file with its own error, keeps the set open, and retries only
   const fs = [pdfFile('a.pdf'), pdfFile('b.pdf'), pdfFile('c.pdf')];
   pick(fs.map((f) => f.file));
   // Fail b.pdf's first store: its operation id is only known once declared, so fail by path through the declaration.
-  const realFetch = fetch as unknown as ReturnType<typeof vi.fn>, inner = realFetch.getMockImplementation()!;
+  const realFetch = fetch as unknown as ReturnType<typeof vi.fn>, inner = realFetch.getMockImplementation()! as (url: string, init: RequestInit) => Promise<Response>;
   let failed = false;
   realFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
     if (init.method === 'PUT' && !failed) {

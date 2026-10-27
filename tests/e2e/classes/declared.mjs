@@ -240,7 +240,7 @@ export const HOSTED_FORMS = {
 	'/cases/[caseId]/notes': 'the hosted case notes route (add and delete note forms) is not the local pilot work store and the suite does not drive it; the case-overview unit tests call its load and actions over doubles, with no browser or workerd run',
 	'/cases/[caseId]/views/[resultsVersion]/chronology': 'the only form is a GET filter (search, bundle, type, text status); it saves no user work, and the case-overview unit tests call its load over doubles, with no browser or workerd run',
 	'/operator/cases/[caseId]/preview/[candidateId]': 'the private candidate page has only a GET chronology filter and saves no user work; the preview route unit tests call its exact-request load over doubles, with no browser or workerd run',
-	'/client/intake/[caseId]': 'the intake form picks one PDF and uploads it through the submissions API (no <form> POST, no typed field); the intake component tests dispatch the real submissions route handlers over doubles for the upload and its adverse cases, and the page itself is not driven',
+	'/client/intake/[caseId]': 'the intake form picks one PDF, or several sent as one sealed set, and uploads them through the submissions and sets APIs (no <form> POST, no typed field); the intake component tests dispatch the real route handlers over doubles for the uploads and their adverse cases, and the page itself is not driven',
 };
 
 /**

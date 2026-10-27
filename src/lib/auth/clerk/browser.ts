@@ -43,7 +43,7 @@
 import { createClerkClient } from '@clerk/backend';
 import { isSignInFlowPage, readClerkIdentityConfig, rsaJwkOf, type ClerkIdentityConfig, type InstanceKind } from './config.ts';
 import {
-	MAX_SESSION_LIFETIME_MS, OPERATOR_PATH, REFRESH_TOKEN_VALUE, cookieDomains, cookieSuffix, ownedCookieNames, sessionClears, SESSION_HOLD_COOKIE, STAFF_DEV_BROWSER_TIE, STAFF_HANDSHAKE_CLEAR, STAFF_HANDSHAKE_COOKIE, STAFF_HANDSHAKE_PARAM, cookiePairs, sdkCookieHeader, sessionHoldClear,
+	MAX_SESSION_LIFETIME_MS, OPERATOR_PATH, nextHoldName, REFRESH_TOKEN_VALUE, cookieDomains, cookieSuffix, ownedCookieNames, sessionClears, SESSION_HOLD_COOKIE, STAFF_DEV_BROWSER_TIE, STAFF_HANDSHAKE_CLEAR, STAFF_HANDSHAKE_COOKIE, STAFF_HANDSHAKE_PARAM, cookiePairs, sdkCookieHeader, sessionHoldClear,
 	sessionHoldCookie, sessionHoldNames, sessionHoldOf, staffDevBrowserTie, staffHandshakeOf, startStaffHandshake, tiedDevBrowser,
 	type ClerkBrowserHandshake, type HandshakeOutcome, type SessionHold, type SessionRefresh,
 } from './flow.ts';
@@ -140,10 +140,14 @@ const tokenClaims = (token: string) => JSON.parse(new TextDecoder().decode(fromB
 // by the SHA-256 of the deployment (origin and Backend API), the issuer, the expired token and the refresh token, so only
 // a request holding both the token and its refresh token meets an entry; bounded, so dropping one only costs a call.
 // `session` and `uat` are Clerk's directives for those cookies without their name: refresh() sets them under the names
-// this browser keeps, never the ones Clerk answered with.
-type Refreshed = { token: string; session: string; uat: string | null; setCookies: string[]; until: number };
-const refreshes = new Map<string, Promise<Refreshed | null | 'fault'>>();
+// this browser keeps, never the ones Clerk answered with, and the hold under the name the request's hold does not use.
+// 'refused' is Clerk's own refusal of the refresh token (spent, wrong or revoked), remembered like null.
+type Refreshed = { token: string; session: string; uat: string | null; hold: SessionHold; setCookies: string[]; until: number };
+const refreshes = new Map<string, Promise<Refreshed | null | 'refused' | 'fault'>>();
 const REFRESHES_LIMIT = 4096;
+// The expired tokens this isolate renewed, keyed like `refreshes` without the refresh token: a browser may already hold
+// that renewal, so a refusal of the same token with another refresh token clears nothing (review H1 sets nothing).
+const renewed = new Set<string>();
 /**
  * The directives that expire every copy of the plain `__clerk_db_jwt` a browser can send with a request for `url`:
  * host-only, and with each Domain from the host up to its two-label parent, at each Path that path-matches the URL's path
@@ -234,10 +238,11 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 
 	/**
 	 * Clerk's answer to one refresh: only a session token of the same instance, subject and session, live now, in
-	 * directives this origin accepts (the instance's own refresh token included). Null for Clerk's refusal or an answer
-	 * this origin refuses; 'fault' for an outage or network fault, which is not remembered.
+	 * directives this origin accepts (the instance's own refresh token included). 'refused' for Clerk's refusal of the
+	 * credential, null for an answer this origin refuses or Clerk's rate limit (429), both remembered; 'fault' for an
+	 * outage or network fault, which is not.
 	 */
-	async function refreshAt(a: SessionHold & { suffixed: boolean; subject: string; sessionId: string; userAgent: string | null }): Promise<Refreshed | null | 'fault'> {
+	async function refreshAt(a: SessionHold & { suffixed: boolean; subject: string; sessionId: string; userAgent: string | null }): Promise<Refreshed | null | 'refused' | 'fault'> {
 		let cookies: unknown;
 		try {
 			cookies = (await clientFor(a.kind).sessions.refreshSession(a.sessionId, {
@@ -246,9 +251,10 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				request_headers: a.userAgent === null ? {} : { 'user-agent': [a.userAgent] },
 			})).cookies;
 		} catch (e) {
-			// Clerk's own refusal (4xx) settles this token; an outage or a network fault does not
+			// Clerk's own refusal (4xx) settles this token; an outage or a network fault does not. A rate limit says nothing
+			// about the credential, so it is no refusal of it.
 			const status = typeof e === 'object' && e !== null ? (e as { status?: unknown }).status : undefined;
-			return typeof status === 'number' && status >= 400 && status < 500 ? null : 'fault';
+			return typeof status === 'number' && status >= 400 && status < 500 ? (status === 429 ? null : 'refused') : 'fault';
 		}
 		if (!Array.isArray(cookies) || cookies.length === 0 || cookies.length > 16) return null;
 		const setCookies: string[] = [];
@@ -277,8 +283,7 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 		// instance's, the suffixed one first as the SDK reads it. Keeping the spent token refused the next renewal
 		// (session-renewal-live-3).
 		const hold = { kind: a.kind, token, refreshToken: clerkRefreshOf(cookies, await refreshNameOf(a.kind)) ?? clerkRefreshOf(cookies, '__refresh') ?? a.refreshToken };
-		setCookies.push(sessionHoldCookie(hold, exp) ?? sessionHoldClear(SESSION_HOLD_COOKIE[a.kind]));
-		return { token, session, uat, setCookies, until: exp * 1000 };
+		return { token, session, uat, hold, setCookies, until: exp * 1000 };
 	}
 	/**
 	 * The session-hold directives of a handshake answer: the hold of the session it signs in when given (https only), and
@@ -320,8 +325,9 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			const evidence = await revocationEvidenceOf(token, config);
 			if (!evidence || evidence.instance !== config[kind]) return null;
 			const pairs = cookiePairs(request);
-			const credential = [config.appOrigin, config.apiUrl ?? '', evidence.instance.issuer, token, hold.refreshToken].join('\0');
-			const key = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(credential))));
+			const digest = async (parts: string[]) => b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(parts.join('\0')))));
+			const expired = [config.appOrigin, config.apiUrl ?? '', evidence.instance.issuer, token];
+			const key = await digest([...expired, hold.refreshToken]), tokenKey = await digest(expired);
 			let answer = refreshes.get(key);
 			if (!answer) {
 				answer = refreshAt({ ...hold, suffixed: pairs.some((c) => SESSION_COOKIE_NAME.test(c.name) && c.name !== '__session'), subject: evidence.subject, sessionId: evidence.sessionId, userAgent: request.headers.get('user-agent') });
@@ -330,11 +336,20 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				refreshes.set(key, answer);
 			}
 			const refreshed = await answer;
-			if (refreshed === 'fault' || (refreshed !== null && refreshed.until <= Date.now())) {
+			if (refreshed === 'fault' || (typeof refreshed === 'object' && refreshed !== null && refreshed.until <= Date.now())) {
 				if (refreshes.get(key) === answer) refreshes.delete(key);
 				return null;
 			}
 			if (refreshed === null) return null;
+			// Clerk refused this hold's refresh token, which then renews nothing again, here or in another isolate: the hold
+			// goes, under the one name this request sent it, and nothing else does (an expired `__session` authenticates
+			// nothing, and a document load still meets the handshake). A sibling isolate that won the same token has moved the
+			// hold to the other name (nextHoldName), so this clear never reaches it. Unless this isolate renewed the same
+			// expired token with another refresh token: then this browser may hold that renewal, and nothing is cleared.
+			if (refreshed === 'refused') return renewed.has(tokenKey) ? null : { setCookies: [sessionHoldClear(hold.name)] };
+			renewed.delete(tokenKey);
+			if (renewed.size >= REFRESHES_LIMIT) renewed.delete(renewed.values().next().value!);
+			renewed.add(tokenKey);
 			// the credential the provider verifies: the request's own cookies with the new session token in every session cookie,
 			// or in `__session` when the browser has already dropped it
 			const cookie = [...pairs.map((c) => `${c.name}=${SESSION_COOKIE_NAME.test(c.name) ? refreshed.token : c.value}`), ...(presented === null ? [`__session=${refreshed.token}`] : [])].join('; ');
@@ -349,7 +364,9 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				...(sessions.length ? sessions : ['__session']).flatMap((n) => [...sessionClears(n, url, secure), `${n}${refreshed.session}`]),
 				...(refreshed.uat === null ? [] : (uats.length ? uats : ['__client_uat']).map((n) => `${n}${refreshed.uat}`)),
 			];
-			return { credential: new Request(url, { headers: { cookie } }), setCookies: [...readdressed, ...refreshed.setCookies] };
+			// the hold moves to its other name and leaves this one (nextHoldName)
+			const next = nextHoldName(hold.name), holdSet = sessionHoldCookie(refreshed.hold, refreshed.until / 1000, next);
+			return { credential: new Request(url, { headers: { cookie } }), setCookies: [...readdressed, ...refreshed.setCookies, sessionHoldClear(hold.name), ...(holdSet === null ? [] : [holdSet])] };
 		},
 		async handle(request) {
 			let url: URL;

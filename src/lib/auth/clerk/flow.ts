@@ -22,8 +22,12 @@ export type HandshakeOutcome =
 	| { kind: 'redirect'; location: string; setCookies: string[] }
 	/** Answer `status` and stop: a handshake that must not be followed. */
 	| { kind: 'refuse'; status: 400 | 502; code: 'wrong-origin' | 'handshake-invalid' | 'handshake-format-unsupported' | 'handshake-cookie-refused' };
-/** A renewed session for one request: the credential the provider verifies in place of the request's, and the cookies to set. */
-export interface SessionRefresh { credential: Request; setCookies: string[] }
+/**
+ * A refresh outcome for one request: a renewed session (the credential the provider verifies in place of the request's,
+ * and the cookies to set), or, with no credential, only cookies to set on the request as it is (a refused renewal's
+ * clear of its spent hold).
+ */
+export interface SessionRefresh { credential?: Request; setCookies: string[] }
 export interface ClerkBrowserHandshake {
 	handle(request: Request): Promise<HandshakeOutcome>;
 	/** The request's expired session renewed at its instance (browser.ts), or null to treat the request as it is. */
@@ -51,7 +55,20 @@ export const MAX_SESSION_LIFETIME_MS = 7 * 86_400_000;
  * provider reads only `__session`, and a refresh must still succeed at Clerk.
  */
 export const SESSION_HOLD_COOKIE: Readonly<Record<InstanceKind, string>> = { client: '__Host-clearcase_refresh', staff: '__Host-clearcase_staff_refresh' };
-const HOLD_NAMES: ReadonlySet<string> = new Set(Object.values(SESSION_HOLD_COOKIE));
+/**
+ * Each kind's hold has two names, the handshake's (SESSION_HOLD_COOKIE) and its alternate, and a renewal moves the hold
+ * to the other one. A Clerk refresh token renews once, so of two isolates renewing one hold at once, one is refused; it
+ * clears the name it was sent, which the winner has already left, so the winner's hold survives in either arrival order
+ * (session-renewal-live-3 fix 1).
+ */
+const HOLD_SLOTS: Readonly<Record<InstanceKind, readonly [string, string]>> = {
+	client: [SESSION_HOLD_COOKIE.client, `${SESSION_HOLD_COOKIE.client}_2`],
+	staff: [SESSION_HOLD_COOKIE.staff, `${SESSION_HOLD_COOKIE.staff}_2`],
+};
+const HOLD_KIND: ReadonlyMap<string, InstanceKind> = new Map((Object.entries(HOLD_SLOTS) as Array<[InstanceKind, readonly string[]]>).flatMap(([kind, names]) => names.map((n) => [n, kind] as const)));
+const HOLD_NAMES: ReadonlySet<string> = new Set(HOLD_KIND.keys());
+/** The other name of a hold's kind: where a renewal of the hold under `name` sets the next one. */
+export const nextHoldName = (name: string) => { const [first, second] = HOLD_SLOTS[HOLD_KIND.get(name)!]; return name === first ? second : first; };
 /**
  * A Clerk refresh token value: any RFC 6265 cookie-octet, which is all a value Clerk sets as a cookie can hold and all the
  * hold can carry back. Its format is Clerk's: the live development handshake of 27 October set letters, digits and `:`,
@@ -60,19 +77,24 @@ const HOLD_NAMES: ReadonlySet<string> = new Set(Object.values(SESSION_HOLD_COOKI
 export const REFRESH_TOKEN_VALUE = /^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]{16,4096}$/;
 const HOLD_TOKEN = /^[A-Za-z0-9._-]{16,8192}$/, COOKIE_MAX_BYTES = 4096;
 export interface SessionHold { kind: InstanceKind; token: string; refreshToken: string }
+/** A hold a request carries, with the name it carries it under. */
+export interface CarriedHold extends SessionHold { name: string }
 
 /** The one session hold a request carries, or null when it carries none, more than one, or one that does not parse. */
-export function sessionHoldOf(request: Request): SessionHold | null {
+export function sessionHoldOf(request: Request): CarriedHold | null {
 	const holds = cookiePairs(request).filter((c) => HOLD_NAMES.has(c.name));
 	if (holds.length !== 1) return null;
 	const { name, value } = holds[0]!, sep = value.indexOf('~');
 	const token = value.slice(0, sep), refreshToken = value.slice(sep + 1);
 	if (sep < 0 || !HOLD_TOKEN.test(token) || !inspectToken(token) || !REFRESH_TOKEN_VALUE.test(refreshToken)) return null;
-	return { kind: name === SESSION_HOLD_COOKIE.staff ? 'staff' : 'client', token, refreshToken };
+	return { kind: HOLD_KIND.get(name)!, token, refreshToken, name };
 }
-/** The directive that sets a hold for a token expiring at `exp` (seconds), or null when it is already useless or too big. */
-export function sessionHoldCookie(hold: SessionHold, exp: number): string | null {
-	const maxAge = Math.floor((exp * 1000 + MAX_SESSION_LIFETIME_MS - Date.now()) / 1000), pair = `${SESSION_HOLD_COOKIE[hold.kind]}=${hold.token}~${hold.refreshToken}`;
+/**
+ * The directive that sets a hold for a token expiring at `exp` (seconds), under `name` (the kind's handshake name by
+ * default), or null when it is already useless or too big.
+ */
+export function sessionHoldCookie(hold: SessionHold, exp: number, name = SESSION_HOLD_COOKIE[hold.kind]): string | null {
+	const maxAge = Math.floor((exp * 1000 + MAX_SESSION_LIFETIME_MS - Date.now()) / 1000), pair = `${name}=${hold.token}~${hold.refreshToken}`;
 	return maxAge > 0 && pair.length <= COOKIE_MAX_BYTES ? `${pair}; Path=/; Max-Age=${maxAge}; SameSite=Lax; HttpOnly; Secure` : null;
 }
 /** The directive that deletes a hold. */

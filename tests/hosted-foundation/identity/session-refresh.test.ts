@@ -143,9 +143,10 @@ describe('a signed-in user whose session token expired between page loads', () =
 		expect(refreshCalls()).toHaveLength(1);
 		expect(refreshCalls()[0]).toMatchObject({ path: `/v1/sessions/${s.sid}/refresh`, bearer: A.secretKey, body: { refresh_token: s.refresh, request_origin: ORIGIN, format: 'cookie' } });
 		expect(trap.blocked).toEqual([]);
-		// the hold moves on to the refreshed token
+		// the hold moves on to the refreshed token, under the other name of its kind (session-renewal-live-3 fix 1)
 		const token = set!.split(';')[0]!.slice('__session='.length);
-		expect(r.headers.getSetCookie().find((c) => c.startsWith(`${HOLD_A}=`))).toMatch(new RegExp(`^${HOLD_A}=${token}~${s.refresh.replace(/[+/=]/g, '\\$&')}; Path=/; Max-Age=\\d+; SameSite=Lax; HttpOnly; Secure$`));
+		expect(r.headers.getSetCookie().find((c) => c.startsWith(`${HOLD_A}_2=`))).toMatch(new RegExp(`^${HOLD_A}_2=${token}~${s.refresh.replace(/[+/=]/g, '\\$&')}; Path=/; Max-Age=\\d+; SameSite=Lax; HttpOnly; Secure$`));
+		expect(r.headers.getSetCookie()).toContain(`${HOLD_A}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly; Secure`);
 		// the refreshed cookie alone is a verified session at this origin
 		const again = await invoke(saveNote(`__client_uat=1761400000; ${set!.split(';')[0]}`));
 		expect(again.status).toBe(201);
@@ -687,5 +688,96 @@ describe('a refresh token Clerk rotates on every renewal (session-renewal-live-3
 			expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(201);
 		}
 		expect(refreshCalls()).toHaveLength(3);
+	});
+});
+
+// The Sol review of f0486bab (session-renewal-live-3-review.md, M1), probes 2 and 3 ported. Clerk's refusal of a refresh
+// token (spent, wrong or revoked) left the hold behind: every later request was refused, and each other isolate asked
+// Clerk again with the same spent token. A refusal now clears the hold under the name the request sent, and nothing else;
+// an outage clears nothing and is asked again. A refresh token renews once, so of two isolates renewing one hold at once,
+// one is refused: the winner moves the hold to the other of its kind's two names, and the loser's clear never reaches it,
+// in either arrival order.
+const HOLD_A2 = `${HOLD_A}_2`;
+const HOLD_CLEAR = (name: string) => `${name}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly; Secure`;
+// a browser that already carries the cookies a sign-in left (the session token expired, the hold of it)
+const carrying = (s: ReturnType<typeof session>) => {
+	const b = browser();
+	b.set(`__client_uat=1761400000; Path=/; Secure`);
+	b.set(`__session=${s.stale()}; Path=/; Secure; HttpOnly`);
+	b.set(`${held(s)}; Path=/; Secure; HttpOnly`);
+	return b;
+};
+
+describe('a renewal Clerk refuses, and two isolates renewing one hold (session-renewal-live-3 review M1)', () => {
+	beforeEach(() => void vi.useFakeTimers({ toFake: ['Date'] }));
+	afterEach(() => void vi.useRealTimers());
+
+	it('clears the hold of a spent refresh token once, so no later request asks Clerk again (probe 2)', async () => {
+		const s = session(), b = browser();
+		b.set(`${HOLD_A}=${s.stale()}~${s.refresh}; Path=/; Secure; HttpOnly`);
+		sessions.get(s.sid)!.refresh = LIVE_RT(9998);
+		const out = [];
+		for (let i = 0; i < 3; i++) out.push(b.take(await invoke(clientData(b.cookie()))));
+		expect(out.map((r) => r.status)).toEqual([401, 401, 401]);
+		expect(refreshCalls()).toHaveLength(1);
+		expect(out[0]!.headers.getSetCookie()).toEqual([HOLD_CLEAR(HOLD_A)]);
+		expect(b.names()).not.toContain(HOLD_A);
+	});
+	it('after a refusal, the next page load signs the browser in again through the handshake, with one hold', async () => {
+		const s = session(), b = carrying(s);
+		sessions.get(s.sid)!.refresh = LIVE_RT(9997);
+		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(401);
+		expect(b.names().filter((n) => /refresh/.test(n))).toEqual([]);
+		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
+		expect(b.names().filter((n) => /refresh/.test(n))).toEqual([HOLD_A]);
+	});
+	it.each([['an outage', 503], ['a rate limit', 429]])('clears nothing when Clerk answers %s', async (_name, status) => {
+		const s = session(), b = carrying(s);
+		refreshAnswer = () => ({ status, body: { errors: [{ code: 'synthetic', message: 'synthetic' }] } });
+		const r = b.take(await invoke(clientData(b.cookie())));
+		expect(r.status).toBe(401);
+		expect(r.headers.getSetCookie()).toEqual([]);
+		expect(b.names()).toContain(HOLD_A);
+	});
+	it('asks Clerk again after an outage, and renews once it is over', async () => {
+		const s = session(), b = carrying(s);
+		refreshAnswer = () => ({ status: 503, body: { errors: [{ code: 'service_unavailable', message: 'synthetic outage' }] } });
+		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(401);
+		refreshAnswer = null;
+		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(201);
+		expect(refreshCalls()).toHaveLength(2);
+	});
+	it.each([['the winner first', [0, 1]], ['the loser first', [1, 0]]])('two isolates race one single-use refresh token, the browser applying %s: it stays signed in and renews again (probe 3)', async (_order, order) => {
+		const s = session();
+		refreshAnswer = rotatingRefreshAnswer(s);
+		vi.resetModules();
+		const second = (await import('../../../src/lib/server/runtime/hosted/hooks.server.ts')).handle;
+		const b = carrying(s), request = clientData(b.cookie());
+		const out = await Promise.all([
+			invoke(clientData(b.cookie())),
+			second({ event: { request, url: new URL(request.url), locals: {}, isSubRequest: false }, resolve: route } as never),
+		]);
+		expect(out.map((r) => r.status).sort()).toEqual([201, 401]);
+		expect(refreshCalls()).toHaveLength(2);
+		const ranked = [out.find((r) => r.status === 201)!, out.find((r) => r.status === 401)!];
+		expect(ranked[1]!.headers.get('location')).toBeNull();
+		expect(sessionCookie(ranked[1]!)).toBeUndefined();
+		for (const i of order) b.take(ranked[i]!);
+		expect(b.names().filter((n) => /refresh/.test(n))).toEqual([HOLD_A2]);
+		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(201);
+		later(90_000);
+		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(201);
+		expect(refreshCalls()).toHaveLength(3);
+		expect(b.names().filter((n) => /refresh/.test(n))).toEqual([HOLD_A]);
+		expect(sessionValues(b).size).toBe(1);
+	});
+	it('sign-out after a renewal clears the hold under either name', async () => {
+		const s = session(), b = browser();
+		await signIn(b, s);
+		later(61_000);
+		expect(b.take(await invoke(saveNote(b.cookie()))).status).toBe(201);
+		expect(b.names().filter((n) => /refresh/.test(n))).toEqual([HOLD_A2]);
+		expect(await act(signOut.actions.default!, '/sign-out', b)).toMatchObject({ status: 303, location: '/sign-in' });
+		expect(b.names().filter((n) => /__session|__client_uat|refresh/.test(n))).toEqual([]);
 	});
 });

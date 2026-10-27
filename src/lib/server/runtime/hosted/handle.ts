@@ -32,8 +32,11 @@ export function withFormActions(csp: string, origins: readonly string[]): string
 	return csp.replace(FORM_ACTION_SELF, `$1form-action 'self' ${origins.join(' ')}`);
 }
 
-/** A request's renewed session: the credential its identity is read from instead, and the cookies its answer sets. */
-export type Refreshed = { credential: Request; setCookies: readonly string[] };
+/**
+ * A request's renewed session: the credential its identity is read from instead, and the cookies its answer sets. With no
+ * credential the request keeps its own identity and only the cookies are set (a refused renewal clears its spent hold).
+ */
+export type Refreshed = { credential?: Request; setCookies: readonly string[] };
 
 /**
  * The hosted `handle`. It builds the six request services, refuses a protected request with 503 before resolving any

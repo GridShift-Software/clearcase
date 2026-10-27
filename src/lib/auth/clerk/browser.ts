@@ -40,7 +40,9 @@ const HANDSHAKE_PARAMS = ['__clerk_handshake', '__clerk_handshake_nonce', '__cle
 const TOKEN = /^[A-Za-z0-9._-]{16,8192}$/;
 const DEV_BROWSER = /^[A-Za-z0-9._-]{16,4096}$/;
 const DEV_BROWSER_COOKIE = /^__clerk_db_jwt(?:_[A-Za-z0-9_-]{1,32})?$/;
-const MAX_CLEAR_PATHS = 8;
+const MAX_CLEAR_PATHS = 32;
+// Hosting suffixes browsers refuse as a Domain, so a clear for one would never match a cookie.
+const PUBLIC_SUFFIXES = new Set(['workers.dev', 'pages.dev']);
 const RS256 = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
 const fromB64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
 
@@ -102,15 +104,17 @@ function sanitizeDirective(directive: string, secure: boolean): string | 'drop' 
 /**
  * The directives that expire every copy of the plain `__clerk_db_jwt` a browser can send with a request for `url`:
  * host-only, and with each Domain from the host up to its two-label parent, at each Path that path-matches the URL's path
- * (RFC 6265 5.1.4): the MAX_CLEAR_PATHS nearest the root, and none that could end the attribute. A sibling origin under
- * the same parent domain can plant one with Domain=<parent> or a narrower Path beside this origin's host-only cookie, and
+ * (RFC 6265 5.1.4), each bare and with a trailing slash: up to MAX_CLEAR_PATHS, a safety cap above any app route, and none
+ * that could end the attribute. A Domain on a hosting public suffix (`workers.dev`) is one browsers refuse, so it is not
+ * emitted: the preview URL on a sandbox `*.workers.dev` host takes 3 Domains x 10 paths = 30 directives. A sibling origin
+ * under the same parent domain can plant one with Domain=<parent> or a narrower Path beside this origin's host-only cookie, and
  * a repeated cookie never ties (flow.ts tiedDevBrowser), so a clear at Path=/ alone would leave the staff handshake
  * starting again on every return (carryover review, finding 3).
  */
 function devBrowserClears(url: URL): string[] {
 	const labels = url.hostname.split('.'), path = url.pathname, paths = new Set(['/']);
 	for (let i = 1; i <= path.length; i++) if (i === path.length || path[i] === '/') paths.add(path.slice(0, i)).add(path.slice(0, i + 1));
-	const domains = [null, ...(labels.length > 1 ? labels.slice(0, -1).map((_, i) => labels.slice(i).join('.')) : [])];
+	const domains = [null, ...(labels.length > 1 ? labels.slice(0, -1).map((_, i) => labels.slice(i).join('.')).filter((d) => !PUBLIC_SUFFIXES.has(d)) : [])];
 	const safe = [...paths].filter((p) => !/[;\u0000-\u0020\u007f]/.test(p)).slice(0, MAX_CLEAR_PATHS);
 	return domains.flatMap((d) => safe.map((p) => `__clerk_db_jwt=; ${d === null ? '' : `Domain=${d}; `}Path=${p}; Max-Age=0; SameSite=Lax; Secure`));
 }

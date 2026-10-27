@@ -5,7 +5,7 @@
 // against a real Clerk instance or browser.
 import type { Identity, Principal, SessionId } from '../../server/runtime/contracts.ts';
 import { contractError } from '../../server/runtime/errors.ts';
-import { SIGN_IN_PAGE, isSignInFlowPage, readClerkIdentityConfig, type ClerkIdentityConfig, type ClerkInstanceConfig, type InstanceKind, type StaffDevBrowser } from './config.ts';
+import { isSignInFlowPage, readClerkIdentityConfig, type ClerkIdentityConfig, type ClerkInstanceConfig, type InstanceKind, type StaffDevBrowser } from './config.ts';
 import { revocationEvidenceOf, type RevocationEvidence } from './revocation.ts';
 import { CLEARABLE_COOKIE_NAME, REFRESH_COOKIE_NAME, cookiePairs, inspectToken, presentedToken } from './session.ts';
 
@@ -179,9 +179,9 @@ export function signInReturnTarget(value: unknown): string {
  * DEFAULT_RETURN.
  *
  * Two tabs of one browser share the cookies and come back to the same callback with the same cookies, so a callback
- * cannot tell which attempt is its own. It never guesses: one pending target is followed, and several are offered as
- * POST choices (chooseSignInReturn). Only those two consume an attempt; a GET nobody clicked (a hover preload of a
- * link, a speculative prefetch, a returnTo in the URL) consumes none.
+ * cannot tell which attempt is its own. It never guesses: a document navigation follows one fresh attempt, but
+ * several are all cleared and land on the flow's safe home with a plain notice. Data requests, preloads and fetches
+ * change no cookies. Deletion consumes a browser hint, not a credential: replay remains possible until its expiry.
  */
 export const SIGN_IN_RETURN_PREFIX: Readonly<Record<InstanceKind, string>> = { client: '__Host-clearcase_return-', staff: '__Host-clearcase_staff_return-' };
 /** How long a sign-in may take at the portal before its return target lapses, in seconds. */
@@ -199,8 +199,6 @@ const returnOptions = { path: '/', httpOnly: true, secure: true, sameSite: 'lax'
 type Attempt = { name: string; id: string; to: string; issued: number; bytes: number };
 /** The cookies a route changes for the return targets: at most one attempt to set, and the attempt cookies to delete. */
 export type SignInReturnChange = { set: { name: string; value: string; options: typeof returnOptions } | null; delete: string[] };
-/** One sign-in's choice on the callback page: its target and the attempt a choice consumes. */
-export type PendingSignInReturn = { to: string; attempt: string };
 
 /** A new attempt's cookie for a target exactly as given (signInReturnCookie validates it first), or null on an http origin. */
 export async function sealSignInReturn(config: ClerkIdentityConfig, kind: InstanceKind, returnTo: string): Promise<{ name: string; value: string } | null> {
@@ -228,8 +226,8 @@ async function openSignInReturn(config: ClerkIdentityConfig, kind: InstanceKind,
 	return signInReturnTarget(to) === to ? { to, issued } : null;
 }
 /**
- * This flow's attempts in `request`, oldest first, within SIGN_IN_RETURN_LIMIT and RETURN_STATE_MAX bytes together with
- * the attempt a POST is `adding`, and the names to delete: each cookie openSignInReturn refuses or the request repeats,
+ * This flow's attempts in `request`, oldest first. When a POST is `adding`, bound the retained attempts plus the new
+ * one by SIGN_IN_RETURN_LIMIT and RETURN_STATE_MAX. Names to delete: each cookie openSignInReturn refuses or repeats,
  * those for the target being added, and the oldest valid ones beyond the bounds. None on an http origin.
  */
 async function signInAttempts(config: ClerkIdentityConfig, request: Request, kind: InstanceKind, adding?: { to: string; bytes: number }): Promise<{ attempts: Attempt[]; drop: string[] }> {
@@ -244,13 +242,15 @@ async function signInAttempts(config: ClerkIdentityConfig, request: Request, kin
 	}
 	attempts.sort((a, b) => a.issued - b.issued || (a.name < b.name ? -1 : 1));
 	const count = () => attempts.length + (adding ? 1 : 0), bytes = () => attempts.reduce((n, a) => n + a.bytes, adding?.bytes ?? 0);
-	while (attempts.length && (count() > SIGN_IN_RETURN_LIMIT || bytes() > RETURN_STATE_MAX)) drop.push(attempts.shift()!.name);
+	// Bound writes, not callback classification: evicting here on a read could turn two attempts into a false singleton.
+	while (adding && attempts.length && (count() > SIGN_IN_RETURN_LIMIT || bytes() > RETURN_STATE_MAX)) drop.push(attempts.shift()!.name);
 	return { attempts, drop };
 }
-/** The targets of these attempts, oldest first, each once, with the oldest attempt for it. */
-const choicesOf = (attempts: readonly Attempt[]): PendingSignInReturn[] => attempts.filter((a, i) => attempts.findIndex((b) => b.to === a.to) === i).map((a) => ({ to: a.to, attempt: a.id }));
-/** Whether the browser marked this GET as speculative (a prefetch or prerender), so nobody has asked for it yet. */
-const speculative = (request: Request) => ['sec-purpose', 'purpose'].some((h) => /\bprefetch\b/i.test(request.headers.get(h) ?? ''));
+/** A callback may consume return hints only on a real document GET, never on Kit's unmarked data preloads. */
+const documentNavigation = (request: Request, url: URL, isDataRequest: boolean) => request.method === 'GET'
+	&& !isDataRequest && ![url.pathname, new URL(request.url).pathname].some((p) => /\/__data\.json\/?$/.test(p))
+	&& !['sec-purpose', 'purpose'].some((h) => /\b(prefetch|preload|prerender)\b/i.test(request.headers.get(h) ?? ''))
+	&& (!request.headers.has('sec-fetch-mode') || request.headers.get('sec-fetch-mode') === 'navigate');
 /**
  * The cookies a sign-in POST changes: a new attempt for the asked `returnTo`, validated by signInReturnTarget (a target
  * too long for a cookie is DEFAULT_RETURN), and deletes for this flow's refused attempts, those for the same target and
@@ -265,33 +265,23 @@ export async function signInReturnCookie(env: Readonly<Record<string, unknown>>,
 	const { drop } = await signInAttempts(read.config, request, kind, { to, bytes: sealed.name.length + sealed.value.length + 3 });
 	return { set: { ...sealed, options: returnOptions }, delete: drop };
 }
+/** Safe home for either flow on this per-client Worker; the query carries only a fixed, non-sensitive notice. */
+export const MULTI_TAB_RETURN = `${DEFAULT_RETURN}?signIn=multiple-tabs`;
 /**
- * Where a sign-in page sends a session already verified for its flow, on a GET. An explicit `returnTo` in the page URL
- * goes there. Otherwise one pending target goes there and consumes one attempt for it, none goes to DEFAULT_RETURN, and
- * several are returned as `pending` choices, unconsumed: the page cannot tell which tab it is, so the user chooses
- * (chooseSignInReturn), and the other tab still finds its own. A speculative GET consumes nothing and changes no cookie:
- * one or more pending targets are offered as choices instead.
+ * A verified callback consumes only on document navigation. One valid, fresh attempt goes to its signed target;
+ * several clear every cookie for this flow and land home, never on another tab's target. No chooser or consumed-id
+ * store exists. With none, retain the explicit safe returnTo fallback or DEFAULT_RETURN.
  */
-export async function signInReturn(env: Readonly<Record<string, unknown>>, request: Request, url: URL, kind: InstanceKind): Promise<{ location: string; change: SignInReturnChange } | { pending: PendingSignInReturn[]; change: SignInReturnChange }> {
+export async function signInReturn(env: Readonly<Record<string, unknown>>, request: Request, url: URL, kind: InstanceKind, isDataRequest = false): Promise<{ location: string; change: SignInReturnChange }> {
+	const fallback = url.searchParams.has('returnTo') ? signInReturnTarget(url.searchParams.get('returnTo')) : DEFAULT_RETURN;
+	if (!documentNavigation(request, url, isDataRequest)) return { location: fallback, change: { set: null, delete: [] } };
 	const read = readClerkIdentityConfig(env, { keys: 'optional' });
-	const { attempts, drop } = read.ok ? await signInAttempts(read.config, request, kind) : { attempts: [], drop: [] };
-	const choices = choicesOf(attempts), unchanged = { set: null, delete: [] }, tidy = { set: null, delete: drop };
-	if (url.searchParams.has('returnTo')) return { location: signInReturnTarget(url.searchParams.get('returnTo')), change: speculative(request) ? unchanged : tidy };
-	if (speculative(request)) return choices.length ? { pending: choices, change: unchanged } : { location: DEFAULT_RETURN, change: unchanged };
-	if (choices.length > 1) return { pending: choices, change: tidy };
-	const one = attempts.find((a) => a.id === choices[0]?.attempt);
-	return { location: one?.to ?? DEFAULT_RETURN, change: { set: null, delete: one ? [...drop, one.name] : drop } };
-}
-/**
- * The callback page's POST choice for a verified session of this flow: the target of the chosen `attempt`, consuming
- * only that attempt. An attempt that is no longer pending sends the browser back to the callback page, which offers
- * what is left.
- */
-export async function chooseSignInReturn(env: Readonly<Record<string, unknown>>, request: Request, kind: InstanceKind, attempt: unknown): Promise<{ location: string; change: SignInReturnChange }> {
-	const read = readClerkIdentityConfig(env, { keys: 'optional' });
-	const { attempts, drop } = read.ok ? await signInAttempts(read.config, request, kind) : { attempts: [], drop: [] };
-	const chosen = attempts.find((a) => a.id === attempt);
-	return chosen ? { location: chosen.to, change: { set: null, delete: [...drop, chosen.name] } } : { location: SIGN_IN_PAGE[kind], change: { set: null, delete: drop } };
+	const names = read.ok && hostCookies(read.config)
+		? [...new Set(cookiePairs(request).filter((c) => c.name.startsWith(SIGN_IN_RETURN_PREFIX[kind])).map((c) => c.name))] : [];
+	const { attempts } = read.ok ? await signInAttempts(read.config, request, kind) : { attempts: [] };
+	// Beyond the validation cap we cannot establish a singleton; fail safely and clear even the unscanned names.
+	const multiple = attempts.length > 1 || names.length > RETURN_SCAN;
+	return { location: multiple ? MULTI_TAB_RETURN : attempts[0]?.to ?? fallback, change: { set: null, delete: names } };
 }
 /** Applies a SignInReturnChange to a route's cookies. */
 export function applySignInReturnChange(cookies: { set(name: string, value: string, options: typeof returnOptions): void; delete(name: string, options: { path: string; secure: boolean }): void }, change: SignInReturnChange): void {

@@ -144,7 +144,7 @@ describe('returnTo survives the round trip in a short-lived __Host- state cookie
 	});
 });
 
-/** The verified callback page on `origin` at `search` with this jar: a 303 location, or the pending targets it offers. */
+/** The verified callback page on `origin` at `search` with this jar: its redirect location. */
 async function land(kind: InstanceKind, origin: Origin, jar: Jar, search = '') {
 	workers.env = app(origin);
 	const url = new URL(`${callbackUrl(kind, origin)}${search}`);
@@ -153,35 +153,17 @@ async function land(kind: InstanceKind, origin: Origin, jar: Jar, search = '') {
 		expect(r.thrown, `${kind} callback on ${origin}${search}`).toMatchObject({ status: 303 });
 		return { location: r.thrown.location! };
 	}
-	return { pending: (r.value as { pending?: { to: string; attempt: string }[] }).pending };
+	throw new Error('verified callback did not redirect');
 }
-/** The callback page's POST choice of one attempt, from this origin, with this jar: where it sends the browser. */
-async function choose(kind: InstanceKind, origin: Origin, jar: Jar, attempt: string) {
-	workers.env = app(origin);
-	const url = new URL(callbackUrl(kind, origin));
-	const request = new Request(url, { method: 'POST', headers: { origin, cookie: header(jar), 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ attempt }) });
-	const r = await outcome(() => flows[kind].route.actions.default!({ locals: locals(verified(kind)), url, request, cookies: cookiesOf(jar, []) } as never));
-	expect(r.thrown, `${kind} choice on ${origin}`).toMatchObject({ status: 303 });
-	return { location: r.thrown!.location! };
-}
-
-describe('two tabs signing in through the same flow each reach their own target (review M1)', () => {
-	// Clerk returns both tabs to the same fixed callback with the same cookies, so the callback cannot tell them apart.
-	// It never sends one tab to the other's target: one pending target goes straight there; several are offered as
-	// POST choices, each of which consumes only its own attempt, so the other tab still finds its own.
+describe('two tabs signing in through the same flow land home without guessing (alpha redesign)', () => {
 	const ORDERS = [['A', 'B'], ['B', 'A']] as const;
 	it.each(KINDS.flatMap((kind) => ORDERS.map((order) => [kind, order.join(' then ')] as const)))('%s: callbacks in order %s', async (kind, order) => {
 		const jar: Jar = new Map(), target = (tab: string) => `/cases/tab-${tab}`, tick = ticking();
 		await post(kind, ORIGIN_A, target('A'), jar);
 		tick();
 		await post(kind, ORIGIN_A, target('B'), jar);
-		const [first, second] = order.split(' then ');
-		const offered = await land(kind, ORIGIN_A, jar);
-		expect(offered.location, 'the first callback must not guess a tab').toBeUndefined();
-		expect(offered.pending?.map((p) => p.to)).toEqual([target('A'), target('B')]);
-		const own = offered.pending!.find((p) => p.to === target(first!))!;
-		expect(await choose(kind, ORIGIN_A, jar, own.attempt)).toEqual({ location: target(first!) });
-		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: target(second!) });
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: '/cases?signIn=multiple-tabs' });
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: '/cases' });
 		expect(attemptsOf(kind, jar)).toEqual([]);
 	});
 	it.each(KINDS)('%s: a second POST for the same target keeps one entry and returns straight there', async (kind) => {
@@ -196,7 +178,9 @@ describe('two tabs signing in through the same flow each reach their own target 
 		for (const n of [1, 2, 3, 4, 5, 6]) { await post(kind, ORIGIN_A, `/cases/case-${n}`, jar); tick(); }
 		expect(attemptsOf(kind, jar)).toHaveLength(4);
 		expect(attemptBytes(kind, jar)).toBeLessThanOrEqual(3800);
-		expect((await land(kind, ORIGIN_A, jar)).pending?.map((p) => p.to)).toEqual(['/cases/case-3', '/cases/case-4', '/cases/case-5', '/cases/case-6']);
+		expect(attemptsOf(kind, jar).map(([, value]) => atob(value.split('.')[0]!.replace(/-/g, '+').replace(/_/g, '/')))).toEqual(['/cases/case-3', '/cases/case-4', '/cases/case-5', '/cases/case-6']);
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: '/cases?signIn=multiple-tabs' });
+		expect(attemptsOf(kind, jar)).toEqual([]);
 		const big = (c: string) => `/cases/${c.repeat(2000)}`;
 		await post(kind, ORIGIN_A, big('x'), jar);
 		tick();
@@ -225,16 +209,18 @@ describe('two tabs signing in through the same flow each reach their own target 
 		tick();
 		await post('staff', ORIGIN_A, '/cases/staff-B', jar);
 		expect(await land('client', ORIGIN_A, jar)).toEqual({ location: '/cases/client-A' });
-		expect((await land('staff', ORIGIN_A, jar)).pending?.map((p) => p.to)).toEqual(['/cases/staff-A', '/cases/staff-B']);
+		expect(await land('staff', ORIGIN_A, jar)).toEqual({ location: '/cases?signIn=multiple-tabs' });
+		expect(attemptsOf('staff', jar)).toEqual([]);
 	});
-	it.each(KINDS)('%s: an explicit returnTo on the callback consumes only its own entry', async (kind) => {
+	it.each(KINDS)('%s: an explicit returnTo cannot choose among multiple attempts; none retains the existing fallback', async (kind) => {
 		const jar: Jar = new Map(), tick = ticking();
 		await post(kind, ORIGIN_A, '/cases/tab-A', jar);
 		tick();
 		await post(kind, ORIGIN_A, '/cases/tab-B', jar);
+		expect(await land(kind, ORIGIN_A, jar, query('/cases/elsewhere'))).toEqual({ location: '/cases?signIn=multiple-tabs' });
+		expect(attemptsOf(kind, jar)).toEqual([]);
 		expect(await land(kind, ORIGIN_A, jar, query('/cases/elsewhere'))).toEqual({ location: '/cases/elsewhere' });
 		expect(await land(kind, ORIGIN_A, jar, query('//attacker.example.test'))).toEqual({ location: '/cases' });
-		expect((await land(kind, ORIGIN_A, jar)).pending?.map((p) => p.to)).toEqual(['/cases/tab-A', '/cases/tab-B']);
 	});
 });
 

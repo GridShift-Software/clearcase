@@ -5,7 +5,7 @@ import { refuse } from '$lib/server/runtime/hosted/http';
 import { codeOf } from '$lib/server/runtime/errors';
 import { id } from '$lib/server/runtime/ids';
 import { clerkSignInTarget } from '$lib/auth/clerk/config';
-import { applySignInReturnChange, chooseSignInReturn, devBrowserOf, prepareSignIn, signInReturn, signInReturnCookie } from '$lib/auth/clerk/flow';
+import { applySignInReturnChange, devBrowserOf, prepareSignIn, signInReturn, signInReturnCookie } from '$lib/auth/clerk/flow';
 
 const IDENTITY = /^([a-z0-9][a-z0-9-]{0,62})\/([A-Za-z0-9._-]{1,64})$/;
 const unconfigured = () => error(503, { message: 'No sign-in provider is configured for this deployment.', code: 'identity-unavailable' });
@@ -15,17 +15,15 @@ const unconfigured = () => error(503, { message: 'No sign-in provider is configu
 // in its attempt cookie. The page data never carries the dev browser; only the POST's redirect hands it to the portal.
 const clerk = (request?: Request) => clerkSignInTarget(env, 'client', request ? devBrowserOf(request) : null);
 
-export async function load({ locals, url, request, cookies }: RequestEvent) {
+export async function load({ locals, url, request, cookies, isDataRequest }: RequestEvent) {
 	const double = locals.runtime.testIdentity;
 	if (double) {
 		const options = await double.options().catch((e) => refuse(e));
 		return { provider: double.provider, href: null, options: options.map((o) => ({ value: `${o.clientId}/${o.subject}`, label: o.label })) };
 	}
 	if (locals.identity.kind === 'verified' && locals.identity.principal.kind === 'client') {
-		const back = await signInReturn(env, request, url, 'client');
+		const back = await signInReturn(env, request, url, 'client', isDataRequest);
 		applySignInReturnChange(cookies, back.change);
-		// Several sign-ins of this flow in flight (other tabs): offer their targets as POST choices rather than guess.
-		if ('pending' in back) return { provider: 'clerk', href: null, options: [], pending: back.pending };
 		redirect(303, back.location);
 	}
 	const target = clerk();
@@ -38,12 +36,6 @@ export const actions: Actions = {
 		const double = locals.runtime.testIdentity;
 		const form = await request.formData().catch(() => null);
 		if (!double) {
-			// A choice on the callback page for a verified session: go to that attempt's target, consuming only it.
-			if (locals.identity.kind === 'verified' && locals.identity.principal.kind === 'client' && form?.has('attempt')) {
-				const chosen = await chooseSignInReturn(env, request, 'client', form.get('attempt'));
-				applySignInReturnChange(cookies, chosen.change);
-				redirect(303, chosen.location);
-			}
 			const target = clerk(request);
 			if (!target) unconfigured();
 			// One browser session per origin: a session of the other identity is signed out first, an ambiguous one refused.

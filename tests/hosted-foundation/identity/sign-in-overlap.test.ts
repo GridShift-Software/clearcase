@@ -123,6 +123,31 @@ describe('two overlapping sign-in POSTs never misroute a tab (M1, simplified alp
 });
 
 describe('a GET nobody clicked never consumes an attempt (M2)', () => {
+	it.each(KINDS)('%s: a speculative data request preserves multiple and invalid cookies, including the other flow', async (kind) => {
+		const jar = await twoInFlight(kind), other = kind === 'staff' ? 'client' : 'staff';
+		apply(jar, await post(other, target('other'), ''));
+		jar.set(`${STATE[kind]}-invalid`, 'invalid');
+		const before = new Map(jar);
+		expect((await land(kind, jar, { isDataRequest: true })).reply).toEqual({ sets: [], deletes: [] });
+		expect(jar).toEqual(before);
+		expect((await land(kind, jar)).location).toBe(HOME);
+		expect(stateOf(kind, jar)).toEqual([]);
+		expect((await land(other, jar)).location).toBe(target('other'));
+	});
+	it.each(KINDS)('%s: a singleton follows its signed target, not a callback query', async (kind) => {
+		const jar: Jar = new Map();
+		apply(jar, await post(kind, target('A'), ''));
+		expect((await land(kind, jar, { search: '?returnTo=/cases/elsewhere' })).location).toBe(target('A'));
+		expect(stateOf(kind, jar)).toEqual([]);
+	});
+	it.each(KINDS)('%s: replaying a consumed return hint stays a signed same-origin hint (accepted M4 Low)', async (kind) => {
+		const jar: Jar = new Map();
+		apply(jar, await post(kind, target('A'), ''));
+		const replay = new Map(jar);
+		expect((await land(kind, jar)).location).toBe(target('A'));
+		expect(stateOf(kind, jar)).toEqual([]);
+		expect((await land(kind, replay)).location).toBe(target('A'));
+	});
 	it.each(KINDS)('%s: no chooser remains; home shows the plain notice', async (kind) => {
 		const landing = await land(kind, await twoInFlight(kind));
 		expect(landing.location).toBe(HOME);

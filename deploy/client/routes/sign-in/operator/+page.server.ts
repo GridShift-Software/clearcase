@@ -2,7 +2,7 @@ import { error, fail, redirect, type Actions, type RequestEvent } from '@sveltej
 import { env } from 'cloudflare:workers';
 import { refuse } from '$lib/server/runtime/hosted/http';
 import { clerkSignInTarget, type StaffDevBrowser } from '$lib/auth/clerk/config';
-import { applySignInReturnChange, chooseSignInReturn, prepareSignIn, signInReturn, signInReturnCookie, staffDevBrowserOf } from '$lib/auth/clerk/flow';
+import { applySignInReturnChange, prepareSignIn, signInReturn, signInReturnCookie, staffDevBrowserOf } from '$lib/auth/clerk/flow';
 
 // The per-client operator sign-in (GRS-113): ClearCase staff reach this client's origin through the internal staff Clerk
 // instance, on the client's own Worker. There is no staff host and no third Worker. A staff session still reaches a case
@@ -13,13 +13,11 @@ const unconfigured = () => error(503, { message: 'No operator sign-in is configu
 // The page data never carries the dev browser; only the POST's redirect hands the staff one to the portal.
 const staff = (devBrowser: StaffDevBrowser | null = null) => clerkSignInTarget(env, 'staff', devBrowser);
 
-export async function load({ locals, url, request, cookies }: RequestEvent) {
+export async function load({ locals, url, request, cookies, isDataRequest }: RequestEvent) {
 	if (locals.runtime.testIdentity) error(404, { message: 'Not found.' });
 	if (locals.identity.kind === 'verified' && locals.identity.principal.kind === 'staff') {
-		const back = await signInReturn(env, request, url, 'staff');
+		const back = await signInReturn(env, request, url, 'staff', isDataRequest);
 		applySignInReturnChange(cookies, back.change);
-		// Several sign-ins of this flow in flight (other tabs): offer their targets as POST choices rather than guess.
-		if ('pending' in back) return { provider: 'clerk-staff', href: null, options: [], pending: back.pending };
 		redirect(303, back.location);
 	}
 	const target = staff();
@@ -30,15 +28,6 @@ export async function load({ locals, url, request, cookies }: RequestEvent) {
 export const actions: Actions = {
 	default: async ({ request, locals, cookies, url }: RequestEvent) => {
 		if (locals.runtime.testIdentity) error(404, { message: 'Not found.' });
-		// A choice on the callback page for a verified session: go to that attempt's target, consuming only it.
-		if (locals.identity.kind === 'verified' && locals.identity.principal.kind === 'staff') {
-			const form = await request.formData().catch(() => null);
-			if (form?.has('attempt')) {
-				const chosen = await chooseSignInReturn(env, request, 'staff', form.get('attempt'));
-				applySignInReturnChange(cookies, chosen.change);
-				redirect(303, chosen.location);
-			}
-		}
 		const target = staff(await staffDevBrowserOf(request, env));
 		if (!target) unconfigured();
 		const prepared = await prepareSignIn({ env, request, identity: locals.identity, target: 'staff' }).catch((e) => refuse(e));

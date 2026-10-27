@@ -9,6 +9,11 @@ const parent = join(root, '.local/native-viewer-pdf');
 export function generatePdfAssets() {
   mkdirSync(parent, { recursive: true });
   const publicRoot = mkdtempSync(join(parent, 'run-'));
-  const inventory = prepareHostedPdfAssets({ root, publicRoot });
-  return { inventory, dir: join(publicRoot, 'pdfjs'), dispose: () => rmSync(publicRoot, { recursive: true, force: true }) };
+  try {
+    const inventory = prepareHostedPdfAssets({ root, publicRoot });
+    return { inventory, dir: join(publicRoot, 'pdfjs'), dispose: () => rmSync(publicRoot, { recursive: true, force: true }) };
+  } catch (error) {
+    rmSync(publicRoot, { recursive: true, force: true });
+    throw error;
+  }
 }

@@ -3,6 +3,7 @@ import type { EvidenceProducer } from '../../../src/lib/publication/hosted/evide
 import { createEvidenceEngine, d1EvidenceStore } from '../../../src/lib/publication/hosted/evidence/index.ts';
 import { d1EvidenceReader } from '../../../src/lib/publication/hosted/readiness-evidence.ts';
 import { d1, database } from '../evidence/harness.ts';
+import { snapshot } from '../../hosted-smoke/operator-workbench/fixtures.ts';
 import { binding as readinessBinding, type Built } from '../readiness-v2/harness.ts';
 import { CASE, RV, hash, world, type World } from '../signoff-root/harness.ts';
 
@@ -46,7 +47,11 @@ export const freshOf = (w: World): string[] => w.db.rows<{ f: string }>(`SELECT 
 
 // Readiness reads the same run through U4's real reader. `Built` is what the readiness harness takes from `buildEvidence`; this builds one over
 // these assets' items instead of the generic ones, by the same real engine into the same real tables.
-export async function buildAssetEvidence(inputs: readonly AssetPolicyInput[], binding = BOUND) {
+// The readiness snapshot is the operator-workbench fixture's, so its policy fingerprints are bound to that candidate and validation.
+const fixture = snapshot();
+export const FIXTURE_BOUND = { resultsVersion: fixture.link.candidate.resultsVersion as string, manifestSha256: fixture.link.candidate.manifestSha256, validatorVersion: fixture.validation.validatorVersion,
+  diagnosticsSha256: fixture.validation.diagnosticsSha256 };
+export async function buildAssetEvidence(inputs: readonly AssetPolicyInput[], binding: typeof BOUND | typeof FIXTURE_BOUND = FIXTURE_BOUND) {
   const items = runItems(inputs, binding);
   const db = database(); db.exec('PRAGMA foreign_keys=OFF');
   const adapter = d1(db), b = readinessBinding;

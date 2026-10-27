@@ -2,6 +2,7 @@
 // session before it clears cookies, and signing in as the other identity signs the first out or refuses ambiguity.
 // SYNTHETIC keys and a loopback Backend API. Route-handler unit evidence only: no browser, no hook, no real Clerk.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SIGN_IN_RETURN_COOKIE } from '../../../src/lib/auth/clerk/flow.ts';
 import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
 
@@ -33,7 +34,10 @@ async function locals(token: string | null) {
 	return { runtime: { testIdentity: null }, identity } as unknown as App.Locals;
 }
 const outcome = async (f: () => unknown) => { try { return { value: await f() }; } catch (e) { return { thrown: e as { status?: number; location?: string; body?: { code?: string } } }; } };
-const jar = () => { const deleted: string[] = []; return { deleted, cookies: { delete: (name: string) => deleted.push(name) } }; };
+const jar = () => {
+	const deleted: string[] = [], set = new Map<string, string>();
+	return { deleted, set, cookies: { delete: (name: string) => deleted.push(name), set: (name: string, value: string) => set.set(name, value) } };
+};
 const post = (cookie: string) => new Request(`${ORIGIN}/sign-out`, { method: 'POST', headers: { cookie } });
 
 describe('/sign-out with a Clerk session', () => {
@@ -83,11 +87,14 @@ describe('/sign-in as one browser session per origin', () => {
 		expect(c.deleted.sort()).toEqual(['__session', '__session_AbCd1234']);
 	});
 	it('sends an anonymous browser straight to the client instance, returning to a safe path only', async () => {
-		const l = await locals(null);
+		const l = await locals(null), verified = await locals(A.token({ sub: 'user_a1', sid: 'sess_a1', azp: ORIGIN }));
 		for (const [returnTo, back] of [['/cases/case-a1', '/cases/case-a1'], ['//attacker.example.test', '/cases'], ['https://attacker.example.test', '/cases']] as const) {
-			const url = new URL(`${ORIGIN}/sign-in?returnTo=${encodeURIComponent(returnTo)}`);
-			const r = await outcome(() => signIn.actions.default!({ locals: l, request: new Request(url, { method: 'POST' }), url, cookies: jar().cookies } as never));
-			expect(new URL(r.thrown!.location!).searchParams.get('redirect_url'), returnTo).toBe(`${ORIGIN}${back}`);
+			const url = new URL(`${ORIGIN}/sign-in?returnTo=${encodeURIComponent(returnTo)}`), c = jar();
+			const r = await outcome(() => signIn.actions.default!({ locals: l, request: new Request(url, { method: 'POST' }), url, cookies: c.cookies } as never));
+			expect(new URL(r.thrown!.location!).searchParams.get('redirect_url'), returnTo).toBe(`${ORIGIN}/sign-in`);
+			const name = SIGN_IN_RETURN_COOKIE.client, callback = new URL(`${ORIGIN}/sign-in`);
+			const returned = await outcome(() => signIn.load({ locals: verified, url: callback, request: new Request(callback, { headers: { cookie: `${name}=${c.set.get(name)}` } }), cookies: jar().cookies } as never));
+			expect(returned.thrown, returnTo).toMatchObject({ status: 303, location: back });
 		}
 	});
 });

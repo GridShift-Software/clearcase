@@ -67,8 +67,8 @@ const anonymous = { kind: 'anonymous', principal: null, sessionId: null };
 const locals = { runtime: { testIdentity: null }, identity: anonymous } as unknown as App.Locals;
 const outcome = async (f: () => unknown) => { try { return { value: (await f()) as { href?: string } }; } catch (e) { return { thrown: e as { status?: number; location?: string } }; } };
 const operatorUrl = new URL(`${ORIGIN}/sign-in/operator?returnTo=${encodeURIComponent('/cases/case-1')}`);
-const operatorPost = (cookie: string) => outcome(() => operator.actions.default!({ locals, url: operatorUrl, request: new Request(operatorUrl, { method: 'POST', headers: cookie ? { cookie } : {} }), cookies: { delete: () => {} } } as never));
-const callback = `${ORIGIN}/sign-in/operator?returnTo=${encodeURIComponent('/cases/case-1')}`;
+const operatorPost = (cookie: string) => outcome(() => operator.actions.default!({ locals, url: operatorUrl, request: new Request(operatorUrl, { method: 'POST', headers: cookie ? { cookie } : {} }), cookies: { delete: () => {}, set: () => {} } } as never));
+const callback = `${ORIGIN}/sign-in/operator`;
 const plainStaff = `${STAFF_SIGN_IN}?redirect_url=${encodeURIComponent(callback)}`;
 const forwarded = async (cookie: string) => {
 	const r = await operatorPost(cookie);
@@ -155,8 +155,8 @@ describe('the operator sign-in forwards nothing it cannot tie to the staff insta
 
 describe('the client sign-in is unchanged', () => {
 	it('still hands the client portal the plain dev browser, and never the staff tie', async () => {
-		const sdk = createRedirect({ publishableKey: A.publishableKey, baseUrl: ORIGIN, signInUrl: CLIENT_SIGN_IN, devBrowserToken: CLIENT_DVB, redirectAdapter: (u: string) => u }).redirectToSignIn({ returnBackUrl: `${ORIGIN}/cases` });
-		const r = await outcome(() => client.actions.default!({ locals, url: new URL(`${ORIGIN}/sign-in`), request: new Request(`${ORIGIN}/sign-in`, { method: 'POST', headers: { cookie: `__clerk_db_jwt=${CLIENT_DVB}` } }), cookies: { delete: () => {} } } as never));
+		const sdk = createRedirect({ publishableKey: A.publishableKey, baseUrl: ORIGIN, signInUrl: CLIENT_SIGN_IN, devBrowserToken: CLIENT_DVB, redirectAdapter: (u: string) => u }).redirectToSignIn({ returnBackUrl: `${ORIGIN}/sign-in` });
+		const r = await outcome(() => client.actions.default!({ locals, url: new URL(`${ORIGIN}/sign-in`), request: new Request(`${ORIGIN}/sign-in`, { method: 'POST', headers: { cookie: `__clerk_db_jwt=${CLIENT_DVB}` } }), cookies: { delete: () => {}, set: () => {} } } as never));
 		expect(r.thrown).toMatchObject({ status: 303, location: sdk });
 	});
 });

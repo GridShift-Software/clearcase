@@ -78,7 +78,7 @@ const forwarded = async (origin: Origin, jar: Jar): Promise<string | null> => {
 	workers.env = app(origin);
 	const url = new URL(`${origin}/sign-in/operator`);
 	try {
-		await operator.actions.default!({ url, request: new Request(url, { method: 'POST', headers: jar.size ? { cookie: header(jar), origin } : { origin } }), locals: { runtime: { testIdentity: null }, identity: anonymous }, cookies: { delete: () => {} } } as never);
+		await operator.actions.default!({ url, request: new Request(url, { method: 'POST', headers: jar.size ? { cookie: header(jar), origin } : { origin } }), locals: { runtime: { testIdentity: null }, identity: anonymous }, cookies: { delete: () => {}, set: () => {} } } as never);
 	} catch (e) {
 		const location = (e as { location?: string }).location;
 		if (location) return new URL(location).searchParams.get('__clerk_db_jwt');
@@ -185,10 +185,10 @@ describe('the tie and its checked value are bound to the receiving app (M1)', ()
 		const jar = await ownStaffJar(ORIGIN_A);
 		const checked = await staffDevBrowserOf(new Request(`${ORIGIN_A}/sign-in/operator`, { method: 'POST', headers: { cookie: header(jar) } }), app(ORIGIN_A));
 		expect(checked).not.toBeNull();
-		expect(new URL(clerkSignInTarget(app(ORIGIN_A), '/cases', 'staff', checked)!.href).searchParams.get('__clerk_db_jwt')).toBe(OWN_DVB);
-		expect(new URL(clerkSignInTarget(app(ORIGIN_C), '/cases', 'staff', checked)!.href).searchParams.has('__clerk_db_jwt')).toBe(false);
+		expect(new URL(clerkSignInTarget(app(ORIGIN_A), 'staff', checked)!.href).searchParams.get('__clerk_db_jwt')).toBe(OWN_DVB);
+		expect(new URL(clerkSignInTarget(app(ORIGIN_C), 'staff', checked)!.href).searchParams.has('__clerk_db_jwt')).toBe(false);
 		const built = { instance: 'staff', value: OWN_DVB } as unknown as StaffDevBrowser;
-		expect(new URL(clerkSignInTarget(app(ORIGIN_A), '/cases', 'staff', built)!.href).searchParams.has('__clerk_db_jwt')).toBe(false);
+		expect(new URL(clerkSignInTarget(app(ORIGIN_A), 'staff', built)!.href).searchParams.has('__clerk_db_jwt')).toBe(false);
 	});
 });
 

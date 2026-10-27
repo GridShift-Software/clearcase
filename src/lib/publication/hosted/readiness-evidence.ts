@@ -69,7 +69,9 @@ export function d1EvidenceReader(d1: EvidenceD1): D1EvidenceReader {
       const { results } = await session.prepare(
         `SELECT kind, CASE WHEN kind = 'section' THEN item END AS subject, state, reason, count(*) AS count FROM (
            SELECT json_extract(item_json, '$.observation.kind') AS kind, json_extract(item_json, '$.observation.key') AS item,
-             json_extract(item_json, '$.observation.state') AS state, json_extract(item_json, '$.observation.reasonCode') AS reason
+             coalesce(json_extract(item_json, '$.observation.state'),
+               CASE WHEN json_extract(item_json, '$.observation.kind') = 'warning' AND json_type(item_json, '$.observation.missing') = 'object' THEN 'original-not-supplied' END) AS state,
+             json_extract(item_json, '$.observation.reasonCode') AS reason
            FROM pub_evidence_item WHERE candidate_id = ? AND generation = ?)
          GROUP BY kind, subject, state, reason`).bind(a.candidateId, a.generation).all<Row>();
       const groups = results.map((r): EvidenceCountGroup => ({ kind: r.kind as EvidenceKind, subject: r.subject as string | null, state: r.state as string | null, reason: r.reason as string | null, count: r.count as number }))

@@ -1,6 +1,7 @@
 import type { CandidateSnapshot, CandidateSnapshotV2, EvidenceCountGroup, EvidenceItemRow, EvidenceKind, EvidenceObservation, PreviewStateV2, SectionStateV2 } from './ports.ts';
 import { isIntegrityKey } from '../../case-package/registry.ts';
 import { META_DISAGREEMENT_CODE, metaDisagreementFingerprint, type MetaBinding, type MetaCountDetail, type MetaDisagreement } from '../../case-package/meta-integrity.ts';
+import { ASSET_HOLD_REASONS, ORIGINAL_NOT_SUPPLIED, isAssetHoldReason, type MissingOriginal } from './asset-policy.ts';
 import { PREVIEW_REASON_CODES, detachedData, isPreviewNavigationObservation, isPreviewReasonCode, isPreviewRenderStage } from './preview-outcome.ts';
 
 // Pure sign-off rules over a candidate snapshot (ADR-0010, ADR-0011, results-package acknowledgement contract). There
@@ -98,7 +99,9 @@ const SECTION_CLEARING: Readonly<Record<SectionStateV2, Clearing>> = {
 const PREVIEW_CLEARING: Readonly<Record<PreviewStateV2, Exclude<Clearing, 'integrity-key' | 'acknowledged'>>> = { rendered: 'always', failed: 'never', pending: 'never' };
 export const SECTION_STATES_V2 = Object.keys(SECTION_CLEARING) as SectionStateV2[];
 export const PREVIEW_STATES_V2 = Object.keys(PREVIEW_CLEARING) as PreviewStateV2[];
-const PREVIEW_REASONS_V2: ReadonlySet<unknown> = new Set<string>(PREVIEW_REASON_CODES);
+// The asset policy reasons (U10) are v2 only: v1's `previewCheck` keeps its own vocabulary. A policy reason belongs to a `failed` preview and to no other state.
+const PREVIEW_REASONS_V2: ReadonlySet<unknown> = new Set<string>([...PREVIEW_REASON_CODES, ...ASSET_HOLD_REASONS]);
+const reasonFits = (state: unknown, reason: unknown): boolean => PREVIEW_REASONS_V2.has(reason) && state !== 'rendered' && (!isAssetHoldReason(reason) || state === 'failed');
 const sectionState = (v: unknown): v is SectionStateV2 => typeof v === 'string' && Object.hasOwn(SECTION_CLEARING, v);
 const previewState = (v: unknown): v is PreviewStateV2 => typeof v === 'string' && Object.hasOwn(PREVIEW_CLEARING, v);
 const safeCount = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
@@ -107,8 +110,10 @@ function groupOk(g: unknown): g is EvidenceCountGroup {
   if (!plain(g) || !keys(g, ['kind', 'subject', 'state', 'reason', 'count']) || !safeCount(g.count) || g.count < 1) return false;
   switch (g.kind) {
     case 'section': return text(g.subject) && sectionState(g.state) && g.reason === null && g.count === 1;
-    case 'preview': return g.subject === null && previewState(g.state) && (g.reason === null || (g.state !== 'rendered' && PREVIEW_REASONS_V2.has(g.reason)));
-    case 'warning': case 'error': case 'original': return g.subject === null && g.state === null && g.reason === null;
+    case 'preview': return g.subject === null && previewState(g.state) && (g.reason === null || reasonFits(g.state, g.reason));
+    // A warning is grouped as a missing original when its item says so (`readiness-evidence.ts`); no other kind has a state or a reason.
+    case 'warning': return g.subject === null && (g.state === null || g.state === ORIGINAL_NOT_SUPPLIED) && g.reason === null;
+    case 'error': case 'original': return g.subject === null && g.state === null && g.reason === null;
     default: return false;
   }
 }
@@ -199,7 +204,14 @@ export function signoffBlockerV2(s: CandidateSnapshotV2, meta?: MetaEvidence): B
 
 export interface EvidenceBound { readonly clientId: string; readonly caseId: string; readonly resultsVersion: string; readonly manifestSha256: string }
 /** `meta` is present only on a warning that is a META count disagreement (`metaEvidenceItems`). */
-export interface CheckedEvidenceItem { readonly key: string; readonly observation: EvidenceObservation; readonly acknowledgementRequired?: boolean; readonly meta?: MetaCountDetail }
+export interface CheckedEvidenceItem { readonly key: string; readonly observation: EvidenceObservation; readonly acknowledgementRequired?: boolean; readonly meta?: MetaCountDetail;
+  /** Present only on a warning that is the bound acknowledgement of a missing original (U10, `asset-policy.ts`). */
+  readonly missing?: MissingOriginalDetail }
+/** What a missing original's warning carries: the asset and the validator's own `ASSET_MISSING_AT_BUILD` diagnostic for it. */
+export interface MissingOriginalDetail { readonly assetId: string; readonly diagnostic: string }
+const ASSET_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const missingDetail = (m: unknown): m is MissingOriginalDetail => plain(m) && keys(m, ['assetId', 'diagnostic']) && typeof m.assetId === 'string' && ASSET_ID.test(m.assetId)
+  && typeof m.diagnostic === 'string' && FP.test(m.diagnostic);
 
 const metaDetail = (m: unknown): m is MetaCountDetail => plain(m) && keys(m, ['carried', 'derived', 'diagnostic', 'subject']) && (m.carried === null || safeCount(m.carried))
   && safeCount(m.derived) && typeof m.diagnostic === 'string' && FP.test(m.diagnostic) && text(m.subject, 200);
@@ -211,14 +223,22 @@ const disagreementOk = (d: unknown): d is MetaDisagreement => plain(d) && keys(d
 export const metaDisagreementsOf = (items: readonly CheckedEvidenceItem[]): MetaDisagreement[] =>
   items.flatMap((i) => (i.meta && i.observation.kind === 'warning' ? [{ ...i.meta, fingerprint: i.observation.fingerprint }] : []));
 
-function observationOf(o: unknown): { observation: EvidenceObservation; subject: string; meta?: MetaCountDetail } | null {
+/**
+ * The missing originals among checked warning items: the assets whose absence from the `original/` observations is the policy's, because
+ * their warning is in the run (U10). Coverage of the originals (U14) may let these stand in for an observation, and no other asset.
+ * A fingerprint listed twice is returned twice, so a check against the set refuses it.
+ */
+export const missingOriginalsOf = (items: readonly CheckedEvidenceItem[]): MissingOriginal[] =>
+  items.flatMap((i) => (i.missing && i.observation.kind === 'warning' ? [{ ...i.missing, fingerprint: i.observation.fingerprint }] : []));
+
+function observationOf(o: unknown): { observation: EvidenceObservation; subject: string; meta?: MetaCountDetail; missing?: MissingOriginalDetail } | null {
   if (!plain(o)) return null;
   switch (o.kind) {
     case 'section':
       return keys(o, ['kind', 'key', 'state']) && text(o.key) && sectionState(o.state) ? { observation: o as unknown as EvidenceObservation, subject: o.key } : null;
     case 'preview':
       if (!text(o.assetId) || !previewState(o.state) || (o.state === 'rendered' && Object.keys(o).length !== 3)) return null;
-      return Object.keys(o).every((k) => k === 'kind' || k === 'assetId' || k === 'state' || (k === 'reasonCode' && PREVIEW_REASONS_V2.has(o[k])) || (k === 'stage' && isPreviewRenderStage(o[k]))
+      return Object.keys(o).every((k) => k === 'kind' || k === 'assetId' || k === 'state' || (k === 'reasonCode' && reasonFits(o.state, o[k])) || (k === 'stage' && isPreviewRenderStage(o[k]))
         || (k === 'navigation' && isPreviewNavigationObservation(o[k]))) ? { observation: o as unknown as EvidenceObservation, subject: o.assetId } : null;
     case 'warning': case 'error': {
       if (typeof o.fingerprint !== 'string' || !FP.test(o.fingerprint)) return null;
@@ -226,6 +246,10 @@ function observationOf(o: unknown): { observation: EvidenceObservation; subject:
       // A META count disagreement carries its counts. It is a warning only, and never its own diagnostic's fingerprint.
       if (o.kind === 'warning' && keys(o, ['kind', 'fingerprint', 'meta']) && metaDetail(o.meta) && o.meta.diagnostic !== o.fingerprint) {
         return { observation: { kind: 'warning', fingerprint: o.fingerprint }, subject: o.fingerprint, meta: o.meta };
+      }
+      // A missing original's warning carries its asset. It is a warning only, never its own diagnostic's fingerprint, and never also a META count.
+      if (o.kind === 'warning' && keys(o, ['kind', 'fingerprint', 'missing']) && missingDetail(o.missing) && o.missing.diagnostic !== o.fingerprint) {
+        return { observation: { kind: 'warning', fingerprint: o.fingerprint }, subject: o.fingerprint, missing: o.missing };
       }
       return null;
     }
@@ -252,6 +276,6 @@ export function checkEvidenceItem(row: EvidenceItemRow, bound: EvidenceBound): C
     || !text(parsed.input.rendererVersion) || !text(parsed.input.validatorVersion)) return null;
   const found = observationOf(parsed.observation);
   if (!found || row.key !== `${found.observation.kind}/${found.subject}`) return null;
-  if (found.observation.kind === 'warning') return typeof row.baseline === 'boolean' ? { key: row.key, observation: found.observation, acknowledgementRequired: !row.baseline, ...(found.meta && { meta: found.meta }) } : null;
+  if (found.observation.kind === 'warning') return typeof row.baseline === 'boolean' ? { key: row.key, observation: found.observation, acknowledgementRequired: !row.baseline, ...(found.meta && { meta: found.meta }), ...(found.missing && { missing: found.missing }) } : null;
   return row.baseline === null ? { key: row.key, observation: found.observation } : null;
 }

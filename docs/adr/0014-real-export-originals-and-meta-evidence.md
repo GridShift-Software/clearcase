@@ -5,7 +5,7 @@ date: 2026-10-27
 
 # Real-export originals and META evidence policies
 
-These policies are proposed and await the user's decision. They are not accepted by [ADR-0013](0013-real-exports-publish-from-step-built-evidence-and-records-views.md), which covers records views and step-built evidence on Workers Free. They would affect [ADR-0011](0011-originals-and-complete-in-app-file-viewing.md) and the proposed [ADR-0012](0012-integrity-metadata-is-not-a-view.md).
+These policies are proposed and await the user's decision. They are not accepted by [ADR-0013](0013-real-exports-publish-from-step-built-evidence-and-records-views.md), which covers records views and step-built evidence on Workers Paid. They would affect [ADR-0011](0011-originals-and-complete-in-app-file-viewing.md) and the proposed [ADR-0012](0012-integrity-metadata-is-not-a-view.md).
 
 ## Originals and previews
 

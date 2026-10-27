@@ -1187,3 +1187,30 @@ describe('session renewal heavy review (round 5)', () => {
 	});
 });
 const save = async (b: ReturnType<typeof browser>) => b.take(await invoke(saveNote(b.cookie(NOTES)))).status;
+
+// rx27 intake (live on B, 27 Oct): a set-file declare about a minute after sign-in answered 401 with no x-clearcase-reauth,
+// so the page showed "Sign in to continue." instead of reloading. Its token was live when the request arrived, so nothing
+// renewed it, and it expired while the request ran; the handoff then asked Clerk's SDK with it, and the SDK's 5 s clock skew
+// still took the just-expired token as signed in (beside a development browser), so no handshake started and nothing marked
+// the 401. 6 s after expiry it was marked.
+describe('a fetch whose session token expires while the request runs (rx27 intake)', () => {
+	beforeEach(() => void vi.useFakeTimers({ toFake: ['Date'] }));
+	afterEach(() => void vi.useRealTimers());
+	it('is answered 401 marked x-clearcase-reauth, with or without the hold, and never a redirect', async () => {
+		for (const withHold of [true, false]) {
+			// on a whole second, so the token's exp (whole seconds) is exactly one second away
+			vi.setSystemTime(Math.ceil(Date.now() / 1000) * 1000);
+			const s = session(), token = A.token({ sub: s.user, sid: s.sid, azp: ORIGIN, now: Date.now() - 59_000 });
+			route.mockImplementationOnce(async (event) => {
+				later(2_000);
+				try { await event.locals.identity.checkRevocation(); } catch { return new Response(JSON.stringify({ code: 'unauthenticated' }), { status: 401 }); }
+				return new Response('{}', { status: 201 });
+			});
+			const r = await invoke(saveNote(`__clerk_db_jwt=dvb_synthetic0123456789abcdefgh; __client_uat=1761400000; __session=${token}${withHold ? `; ${hold(token, s.refresh)}` : ''}`));
+			expect(r.status).toBe(401);
+			expect(r.headers.get('x-clearcase-reauth')).toBe('1');
+			expect(r.headers.get('location')).toBeNull();
+			expect(refreshCalls()).toHaveLength(0);
+		}
+	});
+});

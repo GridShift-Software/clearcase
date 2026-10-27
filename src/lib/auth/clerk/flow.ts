@@ -18,16 +18,33 @@ export const DEFAULT_RETURN = '/cases';
 
 export type HandshakeOutcome =
 	| { kind: 'continue' }
-	/** Answer 303 to `location` with every `setCookies` entry (a handshake redirect, or the clean URL once cookies are set). */
-	| { kind: 'redirect'; location: string; setCookies: string[] }
+	/**
+	 * Answer 303 to `location` with every `setCookies` entry (a handshake redirect, or the clean URL once cookies are set).
+	 * `refresh`: answer 200 with a declarative refresh there instead (handshakeResponse).
+	 */
+	| { kind: 'redirect'; location: string; setCookies: string[]; refresh?: true }
 	/** Answer `status` and stop: a handshake that must not be followed. */
-	| { kind: 'refuse'; status: 400 | 502; code: 'wrong-origin' | 'handshake-invalid' | 'handshake-format-unsupported' | 'handshake-cookie-refused' };
-/** A renewed session for one request: the credential the provider verifies in place of the request's, and the cookies to set. */
-export interface SessionRefresh { credential: Request; setCookies: string[] }
+	| { kind: 'refuse'; status: 400 | 502; code: 'wrong-origin' | 'handshake-invalid' | 'handshake-format-unsupported' | 'handshake-cookie-refused' }
+	/** Answer the session-ended page for a browser the last handshake could not sign in: it kept none of its cookies. */
+	| { kind: 'stop'; signIn: string };
+/**
+ * A refresh outcome for one request: a renewed session (the credential the provider verifies in place of the request's,
+ * and the cookies to set), or, with no credential, only cookies to set on the request as it is (a refused renewal's
+ * clear of its spent hold). `outage`: Clerk could not be asked (an outage, a network fault or its rate limit), so the
+ * request is answered as it is and never handed to the handshake. `spent`: the renewal left the hold spent (SessionHold).
+ */
+export interface SessionRefresh { credential?: Request; setCookies: string[]; outage?: true; spent?: true }
+/** A page-data request handed to a full page load through Clerk's handshake: where to send the browser, and the cookies to set. */
+export interface SessionHandoff { location: string; setCookies: string[] }
 export interface ClerkBrowserHandshake {
 	handle(request: Request): Promise<HandshakeOutcome>;
 	/** The request's expired session renewed at its instance (browser.ts), or null to treat the request as it is. */
 	refresh(request: Request): Promise<SessionRefresh | null>;
+	/**
+	 * For a page-data request whose expired session was not renewed: the handshake a full load of `page` starts (browser.ts),
+	 * or null when there is none to start.
+	 */
+	handoff(request: Request, page: URL): Promise<SessionHandoff | null>;
 }
 
 /**
@@ -51,7 +68,21 @@ export const MAX_SESSION_LIFETIME_MS = 7 * 86_400_000;
  * provider reads only `__session`, and a refresh must still succeed at Clerk.
  */
 export const SESSION_HOLD_COOKIE: Readonly<Record<InstanceKind, string>> = { client: '__Host-clearcase_refresh', staff: '__Host-clearcase_staff_refresh' };
-const HOLD_NAMES: ReadonlySet<string> = new Set(Object.values(SESSION_HOLD_COOKIE));
+/**
+ * Each kind's hold has three names, the first SESSION_HOLD_COOKIE, and every renewal and every handshake return moves the
+ * hold on to the next one. A Clerk refresh token renews once, so of two isolates renewing one hold at once, one is
+ * refused; it clears the name it was sent, which the winner has already left, so the winner's hold survives in either
+ * arrival order (session-renewal-live-3 fix 1), and so does the hold the winner's handshake moved on to the third name
+ * before the refusal arrived (heavy review M1): two names brought it back to the refused one.
+ */
+const HOLD_SLOTS: Readonly<Record<InstanceKind, readonly [string, string, string]>> = {
+	client: [SESSION_HOLD_COOKIE.client, `${SESSION_HOLD_COOKIE.client}_2`, `${SESSION_HOLD_COOKIE.client}_3`],
+	staff: [SESSION_HOLD_COOKIE.staff, `${SESSION_HOLD_COOKIE.staff}_2`, `${SESSION_HOLD_COOKIE.staff}_3`],
+};
+const HOLD_KIND: ReadonlyMap<string, InstanceKind> = new Map((Object.entries(HOLD_SLOTS) as Array<[InstanceKind, readonly string[]]>).flatMap(([kind, names]) => names.map((n) => [n, kind] as const)));
+const HOLD_NAMES: ReadonlySet<string> = new Set(HOLD_KIND.keys());
+/** The next name of a hold's kind: where a renewal or a handshake return of the hold under `name` sets the next one. */
+export const nextHoldName = (name: string) => { const slots = HOLD_SLOTS[HOLD_KIND.get(name)!]; return slots[(slots.indexOf(name) + 1) % slots.length]!; };
 /**
  * A Clerk refresh token value: any RFC 6265 cookie-octet, which is all a value Clerk sets as a cookie can hold and all the
  * hold can carry back. Its format is Clerk's: the live development handshake of 27 October set letters, digits and `:`,
@@ -59,20 +90,30 @@ const HOLD_NAMES: ReadonlySet<string> = new Set(Object.values(SESSION_HOLD_COOKI
  */
 export const REFRESH_TOKEN_VALUE = /^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]{16,4096}$/;
 const HOLD_TOKEN = /^[A-Za-z0-9._-]{16,8192}$/, COOKIE_MAX_BYTES = 4096;
-export interface SessionHold { kind: InstanceKind; token: string; refreshToken: string }
+/**
+ * `spent`: a renewal used its refresh token and Clerk answered no new one (live Clerk never does, and a refresh token
+ * renews once), so it renews nothing again; the hold keeps it so the next GET goes through the handshake (browser.ts
+ * handoff), whose return holds a fresh one. Its value starts with `~`, which no session token does.
+ */
+export interface SessionHold { kind: InstanceKind; token: string; refreshToken: string; spent?: boolean }
+/** A hold a request carries, with the name it carries it under. */
+export interface CarriedHold extends SessionHold { name: string }
 
 /** The one session hold a request carries, or null when it carries none, more than one, or one that does not parse. */
-export function sessionHoldOf(request: Request): SessionHold | null {
+export function sessionHoldOf(request: Request): CarriedHold | null {
 	const holds = cookiePairs(request).filter((c) => HOLD_NAMES.has(c.name));
 	if (holds.length !== 1) return null;
-	const { name, value } = holds[0]!, sep = value.indexOf('~');
+	const { name } = holds[0]!, spent = holds[0]!.value.startsWith('~'), value = spent ? holds[0]!.value.slice(1) : holds[0]!.value, sep = value.indexOf('~');
 	const token = value.slice(0, sep), refreshToken = value.slice(sep + 1);
 	if (sep < 0 || !HOLD_TOKEN.test(token) || !inspectToken(token) || !REFRESH_TOKEN_VALUE.test(refreshToken)) return null;
-	return { kind: name === SESSION_HOLD_COOKIE.staff ? 'staff' : 'client', token, refreshToken };
+	return { kind: HOLD_KIND.get(name)!, token, refreshToken, name, ...(spent ? { spent } : {}) };
 }
-/** The directive that sets a hold for a token expiring at `exp` (seconds), or null when it is already useless or too big. */
-export function sessionHoldCookie(hold: SessionHold, exp: number): string | null {
-	const maxAge = Math.floor((exp * 1000 + MAX_SESSION_LIFETIME_MS - Date.now()) / 1000), pair = `${SESSION_HOLD_COOKIE[hold.kind]}=${hold.token}~${hold.refreshToken}`;
+/**
+ * The directive that sets a hold for a token expiring at `exp` (seconds), under `name` (the kind's handshake name by
+ * default), or null when it is already useless or too big.
+ */
+export function sessionHoldCookie(hold: SessionHold, exp: number, name = SESSION_HOLD_COOKIE[hold.kind]): string | null {
+	const maxAge = Math.floor((exp * 1000 + MAX_SESSION_LIFETIME_MS - Date.now()) / 1000), pair = `${name}=${hold.spent ? '~' : ''}${hold.token}~${hold.refreshToken}`;
 	return maxAge > 0 && pair.length <= COOKIE_MAX_BYTES ? `${pair}; Path=/; Max-Age=${maxAge}; SameSite=Lax; HttpOnly; Secure` : null;
 }
 /** The directive that deletes a hold. */
@@ -231,13 +272,27 @@ export function clearableNames(request: Request): string[] {
 }
 
 
-/** A no-store 303 for a redirect outcome, a bare error for a refusal, null to let the request continue. */
+const HTML_ESCAPES: Readonly<Record<string, string>> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+/**
+ * A no-store 303 for a redirect outcome, a bare error for a refusal, null to let the request continue. A `refresh`
+ * redirect is a 200 page that refreshes to its location: a browser checks every HTTP redirect of a form submission
+ * against the page's `form-action 'self'`, so a 303 from the page a save redirects to, on to the Frontend API, never left
+ * the page (astra-renewal-bb20); a refresh is a navigation of its own, which form-action does not cover.
+ */
 export function handshakeResponse(o: HandshakeOutcome): Response | null {
 	if (o.kind === 'continue') return null;
 	if (o.kind === 'refuse') return new Response(null, { status: o.status, headers: { 'cache-control': 'no-store', 'x-clearcase-auth': o.code } });
-	const headers = new Headers({ location: o.location, 'cache-control': 'no-store' });
+	// the bridge and stop pages render outside SvelteKit: no script, style or frame, and never stored (heavy review L1)
+	const page = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'none'; frame-ancestors 'none'", 'x-frame-options': 'DENY' };
+	if (o.kind === 'stop') {
+		const href = o.signIn.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]!);
+		return new Response(`<!doctype html><title>Your session has ended</title><h1>Your session has ended</h1><p>ClearCase could not keep you signed in: this browser did not keep the cookies sign-in sets. Allow cookies for this site, then sign in again.</p><p><a href="${href}">Sign in</a></p>`, { status: 401, headers: { ...page, 'x-clearcase-auth': 'cookies-refused' } });
+	}
+	const headers = new Headers(o.refresh ? page : { location: o.location, 'cache-control': 'no-store' });
 	for (const c of o.setCookies) headers.append('set-cookie', c);
-	return new Response(null, { status: 303, headers });
+	if (!o.refresh) return new Response(null, { status: 303, headers });
+	const href = o.location.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]!);
+	return new Response(`<!doctype html><meta http-equiv="refresh" content="0;url=${href}"><title>Signing in</title><p><a href="${href}">Continue to sign in</a></p>`, { status: 200, headers });
 }
 
 export type SignInPlan = { action: 'proceed' } | { action: 'sign-out-first'; current: InstanceKind } | { action: 'refuse'; reason: 'ambiguous-credential' };

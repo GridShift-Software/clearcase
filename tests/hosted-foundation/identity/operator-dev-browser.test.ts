@@ -137,7 +137,7 @@ describe('the operator sign-in forwards nothing it cannot tie to the staff insta
 	});
 	it('sends no dev browser for a repeated, malformed or mismatched cookie beside the staff tie', async () => {
 		const jar = await staffJar();
-		const tie = [...jar].filter(([n]) => !n.startsWith('__clerk_') && n !== '__client_uat');
+		const tie = [...jar].filter(([n]) => !n.startsWith('__clerk_') && n !== '__client_uat' && n !== '__Host-clearcase_reauth');
 		expect(tie).toHaveLength(1);
 		const [tieName, tieValue] = tie[0]!;
 		for (const cookie of [

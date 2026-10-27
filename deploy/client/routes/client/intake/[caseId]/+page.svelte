@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import { signInHref } from '$lib/auth/sign-in-link';
+	import { reloadForSignIn } from '$lib/views/hosted/reauth';
 	import type { SetView, SubmissionView } from '$lib/submissions';
 	import { fileSetDigest } from '$lib/submissions/file-set';
 	// `canUpload` is the server's advisory answer for this reader; absent means unknown, and the audited send decides.
@@ -67,10 +68,12 @@
 			const bytes = await chosen.arrayBuffer();
 			const meta = { operationId, path: name, size: bytes.byteLength, sha256: await sha256(bytes), mediaType: 'application/pdf' };
 			const d = await fetch(base(), { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(meta) });
+			if (reloadForSignIn(d)) { status = 'Your session ended while the page was idle. The page is reloading to sign you in again; send the file again once it has loaded.'; return; }
 			if (!d.ok) { signInNeeded = d.status === 401; status = about(((await d.json()) as { message?: string }).message ?? `Refused (${d.status}).`); return; }
 			status = `Sending ${name}…`;
 			const u = await fetch(`${base()}/${operationId}`, { method: 'PUT', credentials: 'same-origin', headers: { 'content-type': 'application/pdf' }, body: bytes });
 			const body = (await u.json()) as { message?: string; stage?: string };
+			if (reloadForSignIn(u)) { status = 'Your session ended while the page was idle. The page is reloading to sign you in again; send the file again once it has loaded.'; return; }
 			if (!u.ok) { signInNeeded = u.status === 401; status = about(body.message ?? `Refused (${u.status}).`); return; }
 			if (pending === attempt) pending = null;
 			status = `Finalized ${name}. No results yet.`;
@@ -97,6 +100,7 @@
 			for (const r of chosen) if (!r.operationId) r.operationId = `fs-${(await sha256(new TextEncoder().encode(`${setId}\n${r.path}`))).slice(0, 40)}`;
 			const opened = await post(sets(), { setId, fileCount: chosen.length, totalBytes: chosen.reduce((n, r) => n + r.size, 0) });
 			if (!live()) return;
+			if (reloadForSignIn(opened)) { status = 'Your session ended while the page was idle. The page is reloading to sign you in again; choose the same files again once it has loaded.'; return; }
 			if (!opened.ok) { const text = await message(opened); if (live()) { signInNeeded = opened.status === 401; status = text; } return; }
 			const first = ((await opened.json()) as { set: SetView }).set;
 			if (!live()) return;

@@ -300,10 +300,9 @@ export async function prepareSignIn(a: { env: Readonly<Record<string, unknown>>;
 
 /**
  * The revoke-only evidence of a request's session token when its caller is not verified (typically: expired, or
- * pending), with the config it was checked against; null for no credential, an ambiguous one, anything that is not a
- * genuine token of a pinned instance, or a token older than any Clerk session lives. Throws identity-unavailable when a
- * token-shaped credential cannot be checked because Clerk is not configured: whether a live session exists is then
- * unknown.
+ * pending), with the config it was checked against; null for no credential, an ambiguous one, or anything that is not a
+ * genuine token of a pinned instance. Throws identity-unavailable when a token-shaped credential cannot be checked
+ * because Clerk is not configured: whether a live session exists is then unknown.
  */
 async function expiredSessionEvidence(a: { env: Readonly<Record<string, unknown>>; request: Request }): Promise<(RevocationEvidence & { config: ClerkIdentityConfig }) | null> {
 	const token = presentedToken(a.request);
@@ -319,10 +318,10 @@ async function expiredSessionEvidence(a: { env: Readonly<Record<string, unknown>
  * session cookies to clear. A verified identity is revoked by its principal. Otherwise a session token that EXPIRED while
  * its Clerk session stayed live, or a PENDING one, is revoked on revoke-only evidence (revocation.ts: a genuine signature
  * of a pinned instance, its own Backend API, and an owner that matches `sub`); that evidence is never an Identity.
- * Anything else (no credential, a forged, key-confused, wrong-issuer, unsigned, ambiguous or too old one) revokes nothing
- * and still clears. It throws identity-unavailable, clearing nothing, when Clerk is not configured or the revocation
- * cannot be confirmed, and invalid-session when the session is not owned by the token's subject: a session still live at
- * Clerk is not reported as ended.
+ * Anything else (no credential, a forged, key-confused, wrong-issuer, unsigned or ambiguous one) revokes nothing and
+ * still clears. It throws identity-unavailable, clearing nothing, when Clerk is not configured or the revocation cannot
+ * be confirmed, and invalid-session when the session is not owned by the token's subject: a session still live at Clerk
+ * is not reported as ended.
  */
 export async function signOutClerkSession(a: { env: Readonly<Record<string, unknown>>; request: Request; identity: Pick<Identity, 'kind' | 'principal' | 'sessionId'> }): Promise<{ revoked: boolean; clear: string[] }> {
 	const { identity } = a;
@@ -374,15 +373,19 @@ async function postRevoke(a: { config: ClerkIdentityConfig; instance: ClerkInsta
 // Session states that need no revoke: Clerk has already ended the session.
 const ENDED = new Set(['revoked', 'ended', 'expired', 'removed', 'abandoned', 'replaced']);
 
-// What this isolate already learned from Clerk about a revoke-only session, so a replayed token causes no further Backend
-// API call: 'done' (gone, ended, or revoked here) or 'not-owner' (the token's subject does not own it); neither changes
-// at Clerk. The key is the signed issuer, subject and session, which only a genuine token of that session names, so no
-// caller can settle or occupy another user's entry. A failure is never remembered. A session being looked up is busy
-// for at most BUSY_MS (a request the runtime cancels mid-lookup never reaches its `finally`), and a concurrent request
-// for it is identity-unavailable (retry) rather than a second lookup. Both maps are bounded; dropping an entry only costs
-// one more lookup.
-const settledSessions = new Map<string, 'done' | 'not-owner'>(), busySessions = new Map<string, number>();
+// What this isolate recently learned from Clerk about a revoke-only session, so a replayed token causes no further
+// Backend API call: 'done' (gone, ended, or revoked here) or 'not-owner' (the token's subject does not own it), each kept
+// for SETTLED_TTL_MS only, never for good. The key is the signed issuer, subject and session, which only a genuine token
+// of that session names, so no caller can settle or occupy another user's entry. A failure is never remembered. A session
+// being looked up is busy for at most BUSY_MS (a request the runtime cancels mid-lookup never reaches its `finally`), and
+// a concurrent request for it is identity-unavailable (retry) rather than a second lookup. Both maps are bounded; dropping
+// an entry only costs one more lookup.
+const settledSessions = new Map<string, { outcome: 'done' | 'not-owner'; at: number }>(), busySessions = new Map<string, number>();
 const SESSIONS_LIMIT = 4096, BUSY_MS = 30_000;
+// No Clerk promise that an ended session stays ended is relied on, so a remembered answer is trusted briefly: 10 minutes
+// caps a replaying token at one lookup and one revoke per session per window, and caps how long a session Clerk
+// reactivated after this isolate settled it can be reported signed out without asking Clerk again.
+export const SETTLED_TTL_MS = 10 * 60_000;
 const remember = <V>(map: Map<string, V>, key: string, value: V) => {
 	map.delete(key);
 	if (map.size >= SESSIONS_LIMIT) map.delete(map.keys().next().value!);
@@ -394,15 +397,19 @@ const remember = <V>(map: Map<string, V>, key: string, value: V) => {
  * instance's Backend API confirms the session belongs to the token's `sub` (GET /v1/sessions/{id}; the session's user_id
  * must equal it, else invalid-session and nothing is revoked). A session already gone (404) or ended is done; a failed or
  * unreadable lookup, or a failed revoke, is identity-unavailable. At most one lookup and one revoke per session and
- * subject per isolate: a settled answer is reused, and a concurrent duplicate is identity-unavailable.
+ * subject per isolate within SETTLED_TTL_MS: a settled answer is reused until then, and a concurrent duplicate is
+ * identity-unavailable. `now` is the clock, injectable for tests.
  */
-export async function revokeOwnedSession(a: { config: ClerkIdentityConfig; evidence: RevocationEvidence; fetcher?: typeof fetch }): Promise<void> {
+export async function revokeOwnedSession(a: { config: ClerkIdentityConfig; evidence: RevocationEvidence; fetcher?: typeof fetch; now?: () => number }): Promise<void> {
 	const { config, evidence } = a;
 	const key = [config.apiUrl ?? CLERK_API, evidence.instance.issuer, evidence.subject, evidence.sessionId].join('\0');
+	const now = a.now?.() ?? Date.now();
 	const settled = settledSessions.get(key);
-	if (settled === 'done') return;
-	if (settled === 'not-owner') throw contractError('invalid-session');
-	const now = Date.now();
+	if (settled && now - settled.at < SETTLED_TTL_MS) {
+		if (settled.outcome === 'not-owner') throw contractError('invalid-session');
+		return;
+	}
+	settledSessions.delete(key);
 	if (now - (busySessions.get(key) ?? -Infinity) < BUSY_MS) throw contractError('identity-unavailable', true);
 	remember(busySessions, key, now);
 	let outcome: 'done' | 'not-owner';
@@ -411,7 +418,7 @@ export async function revokeOwnedSession(a: { config: ClerkIdentityConfig; evide
 	} finally {
 		if (busySessions.get(key) === now) busySessions.delete(key);
 	}
-	remember(settledSessions, key, outcome);
+	remember(settledSessions, key, { outcome, at: now });
 	if (outcome === 'not-owner') throw contractError('invalid-session');
 }
 

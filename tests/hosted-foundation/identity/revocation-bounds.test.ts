@@ -3,10 +3,11 @@
 //    session tasks" (@clerk/shared SessionStatus; tasks choose-organization, reset-password, setup-mfa), and finishing a
 //    task makes the SAME session active without a new sign-in. A pending token never authenticates here, but its session
 //    can become one that does, so sign-out and a cross-kind switch revoke it through the same revoke-only path.
-//  - L-rev-2: the Backend API calls an old genuine token can cause. A token whose session cannot still be live (issued
-//    longer ago than Clerk's maximum session lifetime), or that carries no `exp`, causes none; a token that is not ours
-//    causes none; and one session already settled in this isolate (gone, ended, revoked or not the token's subject's) is
-//    not looked up again, so replaying a token costs nothing, and no caller can occupy another user's session.
+//  - L-rev-2: the Backend API calls an old genuine token can cause. A token that carries no `exp`, or that is not ours,
+//    causes none. A genuine token of any age gets one revoke attempt (no assumed Clerk session lifetime), and one session
+//    settled in this isolate (gone, ended, revoked or not the token's subject's) is not looked up again for
+//    SETTLED_TTL_MS, so replaying a token costs nothing in that window, a session Clerk reactivates is revoked again
+//    after it, and no caller can occupy another user's session.
 // SYNTHETIC keys and hosts; the Backend API is the loopback double, and every other outbound fetch is trapped.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -27,7 +28,7 @@ const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
 vi.mock('cloudflare:workers', () => workers);
 
 import { readClerkIdentityConfig } from '../../../src/lib/auth/clerk/config.ts';
-import { prepareSignIn, revokeOwnedSession, signOutClerkSession } from '../../../src/lib/auth/clerk/flow.ts';
+import { prepareSignIn, revokeOwnedSession, SETTLED_TTL_MS, signOutClerkSession } from '../../../src/lib/auth/clerk/flow.ts';
 import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
 
@@ -140,15 +141,22 @@ describe('sign-out revokes a pending session through the revoke-only path', () =
 });
 
 describe('the Backend API calls an old or foreign token can cause are bounded', () => {
-	it('makes no Backend API call for a genuine token issued longer ago than any Clerk session can live (8 days), and clears its cookies', async () => {
-		status.set('sess_old', 'user_a1');
-		const r = await signOutClerkSession({ env: env(), request: post(`__session=${clientToken('sess_old', { now: Date.now() - 8 * DAY })}; __client_uat=1`), identity: anonymous });
-		expect(r).toEqual({ revoked: false, clear: ['__session', '__client_uat'] });
-		expect(callsFor('sess_old')).toEqual([]);
-		const switched = staffToken('sess_old_sw', { now: Date.now() - 30 * DAY });
-		status.set('sess_old_sw', 'user_b1');
-		await expect(prepareSignIn({ env: env(), request: post(`__session=${switched}`, '/sign-in'), identity: anonymous, target: 'client' })).resolves.toEqual({ action: 'proceed', clear: [] });
-		expect(callsFor('sess_old_sw')).toEqual([]);
+	it('an 8-day-old genuine token of a session Clerk still holds gets exactly one revoke, reported only once Clerk confirms it', async () => {
+		status.set('sess_8d', 'user_a1');
+		const token = clientToken('sess_8d', { now: Date.now() - 8 * DAY });
+		status.failRevoke(true);
+		await expect(signOutClerkSession({ env: env(), request: post(`__session=${token}; __client_uat=1`), identity: anonymous })).rejects.toMatchObject({ code: 'identity-unavailable' });
+		expect(status.statusOf('sess_8d')).toBe('active');
+		status.failRevoke(false);
+		const before = callsFor('sess_8d').length;
+		await expect(signOutClerkSession({ env: env(), request: post(`__session=${token}; __client_uat=1`), identity: anonymous })).resolves.toEqual({ revoked: true, clear: ['__session', '__client_uat'] });
+		expect(callsFor('sess_8d').slice(before)).toEqual(['GET /v1/sessions/sess_8d auth', 'POST /v1/sessions/sess_8d/revoke auth']);
+		expect(status.statusOf('sess_8d')).toBe('revoked');
+		const switched = staffToken('sess_30d_sw', { now: Date.now() - 30 * DAY });
+		status.set('sess_30d_sw', 'user_b1');
+		await expect(prepareSignIn({ env: env(), request: post(`__session=${switched}`, '/sign-in'), identity: anonymous, target: 'client' })).resolves.toEqual({ action: 'proceed', clear: ['__session'] });
+		expect(callsFor('sess_30d_sw')).toEqual(['GET /v1/sessions/sess_30d_sw auth', 'POST /v1/sessions/sess_30d_sw/revoke auth']);
+		expect(status.statusOf('sess_30d_sw')).toBe('revoked');
 	});
 	it('still revokes a genuine token issued within that lifetime (6 days ago)', async () => {
 		status.set('sess_6d', 'user_a1');
@@ -235,6 +243,49 @@ describe('the Backend API calls an old or foreign token can cause are bounded', 
 		}
 		expect(status.statusOf('sess_hung')).toBe('revoked');
 		expect(callsFor('sess_hung')).toHaveLength(2);
+	});
+	it('a settled answer is reused for at most SETTLED_TTL_MS (10 minutes), then Clerk is asked again', async () => {
+		const read = readClerkIdentityConfig(env());
+		if (!read.ok) throw new Error(read.reason);
+		const t0 = Date.now(), at = (ms: number) => () => t0 + ms;
+		const revoke = (sid: string, subject: string, now: () => number) => revokeOwnedSession({ config: read.config, evidence: { instance: read.config.client, subject, sessionId: sid as never }, now });
+		status.set('sess_ttl_done', 'user_a1');
+		await revoke('sess_ttl_done', 'user_a1', at(0));
+		await revoke('sess_ttl_done', 'user_a1', at(SETTLED_TTL_MS - 1));
+		expect(callsFor('sess_ttl_done')).toHaveLength(2);
+		await revoke('sess_ttl_done', 'user_a1', at(SETTLED_TTL_MS));
+		expect(callsFor('sess_ttl_done')).toEqual(['GET /v1/sessions/sess_ttl_done auth', 'POST /v1/sessions/sess_ttl_done/revoke auth', 'GET /v1/sessions/sess_ttl_done auth']);
+		status.set('sess_ttl_own', 'user_someone_else');
+		await expect(revoke('sess_ttl_own', 'user_a1', at(0))).rejects.toMatchObject({ code: 'invalid-session' });
+		await expect(revoke('sess_ttl_own', 'user_a1', at(SETTLED_TTL_MS - 1))).rejects.toMatchObject({ code: 'invalid-session' });
+		expect(callsFor('sess_ttl_own')).toHaveLength(1);
+		await expect(revoke('sess_ttl_own', 'user_a1', at(SETTLED_TTL_MS))).rejects.toMatchObject({ code: 'invalid-session' });
+		expect(callsFor('sess_ttl_own')).toHaveLength(2);
+	});
+	it('a session Clerk reactivates (ended, then active, same sid) is revoked again by the first sign-out after the TTL', async () => {
+		const read = readClerkIdentityConfig(env());
+		if (!read.ok) throw new Error(read.reason);
+		const t0 = Date.now(), evidence = { instance: read.config.client, subject: 'user_a1', sessionId: 'sess_react' as never };
+		const revoke = (ms: number) => revokeOwnedSession({ config: read.config, evidence, now: () => t0 + ms });
+		status.set('sess_react', 'user_a1', 'ended');
+		await expect(revoke(0)).resolves.toBeUndefined();
+		expect(callsFor('sess_react')).toEqual(['GET /v1/sessions/sess_react auth']);
+		status.set('sess_react', 'user_a1', 'active');
+		await expect(revoke(SETTLED_TTL_MS)).resolves.toBeUndefined();
+		expect(status.statusOf('sess_react')).toBe('revoked');
+		expect(callsFor('sess_react')).toEqual(['GET /v1/sessions/sess_react auth', 'GET /v1/sessions/sess_react auth', 'POST /v1/sessions/sess_react/revoke auth']);
+		const token = clientToken('sess_react_route');
+		status.set('sess_react_route', 'user_a1', 'ended');
+		await expect(signOutWith(token)).resolves.toMatchObject({ revoked: true });
+		status.set('sess_react_route', 'user_a1', 'active');
+		const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + SETTLED_TTL_MS);
+		try {
+			await expect(signOutWith(token)).resolves.toMatchObject({ revoked: true });
+		} finally {
+			clock.mockRestore();
+		}
+		expect(status.statusOf('sess_react_route')).toBe('revoked');
+		expect(callsFor('sess_react_route')).toHaveLength(3);
 	});
 	it("no caller can occupy another user's session: another user's replays, a forged token naming the victim's session, and a settled foreign entry leave the victim's sign-out untouched", async () => {
 		status.set('sess_attacker', 'user_x');

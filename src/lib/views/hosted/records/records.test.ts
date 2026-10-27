@@ -5,6 +5,7 @@ import path from 'node:path';
 import { generateCorpus } from '../../../../../scripts/fixtures/synthetic/corpus.ts';
 import { KNOWN_SCHEMAS } from '../../../case-package/registry.ts';
 import { sha256Hex } from '../../../case-package/hash.ts';
+import { canonicalJson } from '../../../case-package/canonical.ts';
 import type { ManifestFile } from '../../../case-package/schema.ts';
 import { renderRecords, recordsSectionState, verifyDatasetBytes } from './index.ts';
 
@@ -40,7 +41,15 @@ describe('source records', () => {
       expect(recordsSectionState(dataset, rendered), entry.key).toBe('records-rendered');
       const expectedLeaves = [...new Set(leaves(KNOWN_SCHEMAS.get(dataset.schemaId)!.data as Shape))].map(sha256Hex);
       expect(rendered.markers.leaves).toEqual(expectedLeaves);
-      if (Array.isArray(dataset.value.data)) expect(rendered.markers.records.length).toBeGreaterThanOrEqual(dataset.value.data.length);
+      if (Array.isArray(dataset.value.data)) {
+        const seen = new Map<string, number>();
+        for (const item of dataset.value.data) {
+          const digest = sha256Hex(canonicalJson(item)).slice(0, 12);
+          const n = (seen.get(digest) ?? 0) + 1; seen.set(digest, n);
+          const identity = dataset.key === 'chronology' && item && typeof item === 'object' && typeof item.ref === 'string' && item.ref ? `ref:${item.ref}` : `#${digest}${n === 1 ? '' : `~${n}`}`;
+          expect(rendered.markers.records).toContain(sha256Hex(`/data/${identity}`));
+        }
+      }
       for (const marker of rendered.markers.records) expect(rendered.html).toContain(`data-record="${marker}"`);
       for (const marker of expectedLeaves) expect(rendered.html).toContain(`data-leaf="${marker}"`);
       if (rendered.markers.records.length) {

@@ -6,6 +6,10 @@
 	const REASON = { missing: 'This original is no longer available.', changed: 'This original failed its integrity check, so it is not shown.', embedded: 'This original is part of another file.' } as const;
 </script>
 
+<style>
+	h1, p { overflow-wrap: anywhere; }
+</style>
+
 <h1 data-asset-id={data.assetId}>{data.view.filename ?? 'Original'}</h1>
 {#if data.view.state === 'unavailable'}
 	<p role="alert" data-viewer-state="unavailable" data-reason={data.view.reason}>{REASON[data.view.reason]}</p>

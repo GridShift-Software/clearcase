@@ -524,7 +524,9 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			const doc = new URL(page);
 			doc.searchParams.set(REAUTH_PARAM, '1');
 			const headers = new Headers({ 'sec-fetch-dest': 'document', accept: 'text/html' });
-			const cookie = live ? cookiePairs(request).filter((c) => !SESSION_COOKIE_NAME.test(c.name)).map((c) => `${c.name}=${c.value}`).join('; ') : request.headers.get('cookie');
+			// The handshake is asked without the session token, live or not: Clerk's SDK takes a token up to 5 s past its expiry
+			// as signed in, so a fetch whose token expired while it ran would start no handshake and its 401 go unmarked (rx27).
+			const cookie = cookiePairs(request).filter((c) => !SESSION_COOKIE_NAME.test(c.name)).map((c) => `${c.name}=${c.value}`).join('; ');
 			if (cookie) headers.set('cookie', cookie);
 			const start = new Request(doc, { method: 'GET', headers });
 			handoffKind.set(start, evidence.instance === config.staff ? 'staff' : 'client');

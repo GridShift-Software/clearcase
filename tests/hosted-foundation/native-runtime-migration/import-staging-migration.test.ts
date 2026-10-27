@@ -45,7 +45,7 @@ describe('0006 chunked-import staging increment', () => {
     migrate(db, sql);
     const after = snapshot(db);
     expect(after.tables.filter((t) => before.tables.some((b) => b.name === t.name))).toEqual(before.tables);
-    expect(after.tables.map((t) => t.name).filter((n) => !before.tables.some((b) => b.name === n))).toEqual(['native_import_session', 'native_import_staged_file']);
+    expect(after.tables.map((t) => t.name).filter((n) => !before.tables.some((b) => b.name === n))).toEqual(['native_import_cleanup', 'native_import_session', 'native_import_stage_fact', 'native_import_stage_run', 'native_import_staged_file']);
     expect(after.triggers.filter((t) => before.triggers.some((b) => (b as { name: string }).name === (t as { name: string }).name))).toEqual(before.triggers);
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     expect(db.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' });
@@ -63,6 +63,37 @@ describe('0006 chunked-import staging increment', () => {
     const sealed = snapshot(db);
     try { migrate(db, sql); } catch { /* the ledger or CREATE can refuse replay */ }
     expect(snapshot(db)).toEqual(sealed);
+    db.close();
+  });
+  it('keeps a stepped run\'s facts write-once, lets its run row move, and never deletes a run, a fact or a cleanup record', () => {
+    const db = world();
+    migrate(db, assembleNativeImportStagingMigration(sources(NATIVE_IMPORT_STAGING_MIGRATION_INPUTS)).sql);
+    db.exec(session('op1'));
+    db.exec(`INSERT INTO native_import_stage_run (client_id,case_id,operation_id,epoch,phase,cursor,meta,steps,lease_id,lease_until_ms,updated_at)
+      VALUES ('client','case','op1',0,'plan','{}','{}',0,'lease-a',100,'2026-10-27T00:00:00Z')`);
+    db.exec(`UPDATE native_import_stage_run SET phase='originals-a', cursor='{"after":"k"}', steps=1, lease_until_ms=0 WHERE operation_id='op1'`);
+    expect(db.prepare("SELECT phase, steps FROM native_import_stage_run WHERE operation_id='op1'").get()).toEqual({ phase: 'originals-a', steps: 1 });
+    // A run cannot be moved to a phase the machine does not have, nor given to another operation, nor go back an epoch.
+    expect(() => db.exec(`UPDATE native_import_stage_run SET phase='nonsense' WHERE operation_id='op1'`)).toThrow();
+    expect(() => db.exec(`UPDATE native_import_stage_run SET operation_id='op2' WHERE operation_id='op1'`)).toThrow();
+    db.exec(`UPDATE native_import_stage_run SET epoch=1 WHERE operation_id='op1'`);
+    expect(() => db.exec(`UPDATE native_import_stage_run SET epoch=0 WHERE operation_id='op1'`)).toThrow();
+    expect(() => db.exec(`DELETE FROM native_import_stage_run`)).toThrow();
+    expect(() => db.exec(`INSERT INTO native_import_stage_run (client_id,case_id,operation_id,epoch,phase,cursor,meta,steps,lease_id,lease_until_ms,updated_at)
+      VALUES ('client','case','missing-session',0,'plan','{}','{}',0,NULL,0,'t')`)).toThrow();
+    const fact = (key: string, value = '{}') => `INSERT INTO native_import_stage_fact (client_id,case_id,operation_id,epoch,pass,key,value) VALUES ('client','case','op1',1,'a','${key}','${value}')`;
+    db.exec(fact('K1'));
+    expect(() => db.exec(fact('K1', '{"x":1}'))).toThrow();
+    expect(() => db.exec(`INSERT OR REPLACE INTO native_import_stage_fact (client_id,case_id,operation_id,epoch,pass,key,value) VALUES ('client','case','op1',1,'a','K1','{"x":2}')`)).toThrow();
+    expect(() => db.exec(`UPDATE native_import_stage_fact SET value='{}'`)).toThrow();
+    expect(() => db.exec(`DELETE FROM native_import_stage_fact`)).toThrow();
+    db.exec(`INSERT INTO native_import_cleanup (client_id,case_id,operation_id,reason,after_path,swept,state,started_at,finished_at) VALUES ('client','case','op1','complete','',0,'sweeping','2026-10-27T00:00:00Z',NULL)`);
+    db.exec(`UPDATE native_import_cleanup SET after_path='datasets/a.json', swept=3 WHERE operation_id='op1'`);
+    db.exec(`UPDATE native_import_cleanup SET state='done', finished_at='2026-10-27T00:01:00Z' WHERE operation_id='op1'`);
+    expect(() => db.exec(`UPDATE native_import_cleanup SET state='sweeping' WHERE operation_id='op1'`)).toThrow();
+    expect(() => db.exec(`DELETE FROM native_import_cleanup`)).toThrow();
+    expect(() => db.exec(`INSERT INTO native_import_cleanup (client_id,case_id,operation_id,reason,after_path,swept,state,started_at,finished_at) VALUES ('client','case','op1','abandoned','',0,'sweeping','t',NULL)`)).toThrow();
+    expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     db.close();
   });
   it('rolls back the whole increment on a mid-migration failure', () => {

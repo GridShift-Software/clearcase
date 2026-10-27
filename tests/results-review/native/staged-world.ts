@@ -25,10 +25,14 @@ export const STAGED_MIGRATIONS: readonly string[] = [...MIGRATIONS, STAGING_MIGR
  * documents (the same 37 package files, a smaller chronology); the acceptance run sets CLEARCASE_POC_DOCUMENTS=1689 for the full
  * v5-sized corpus, optionally with CLEARCASE_POC_DIR for where it lives (the corpus is about 1.8 GB).
  */
-export async function pocPackage(): Promise<{ caseId: string; files: Map<string, Uint8Array> }> {
+export function pocDirectory(): string {
   const documents = Number(process.env.CLEARCASE_POC_DOCUMENTS ?? 60);
   const cache = path.join(process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), '.cache'), 'clearcase-rx27');
-  const dir = process.env.CLEARCASE_POC_DIR ?? path.join(cache, `poc-${documents}`);
+  return process.env.CLEARCASE_POC_DIR ?? path.join(cache, `poc-${documents}`);
+}
+export async function pocPackage(): Promise<{ caseId: string; files: Map<string, Uint8Array> }> {
+  const documents = Number(process.env.CLEARCASE_POC_DOCUMENTS ?? 60);
+  const dir = pocDirectory();
   try { statSync(path.join(dir, 'pkg', 'manifest.json')); } catch {
     mkdirSync(path.dirname(dir), { recursive: true });
     await generateCorpus({ out: dir, seed: '20261017', documents, profile: 'poc' });
@@ -71,7 +75,7 @@ export async function submissionOf(caseId: string, files: readonly { path: strin
 }
 
 export class Killed extends Error { readonly where: string; constructor(where: string) { super(`killed ${where}`); this.where = where; } }
-export type KillPhase = 'before-r2-put' | 'after-r2-put' | 'before-d1-rows' | 'after-d1-rows';
+export type KillPhase = 'before-r2-put' | 'after-r2-put' | 'before-d1-rows' | 'after-d1-rows' | 'before-r2-delete' | 'after-r2-delete';
 export const KILL_PHASES: readonly KillPhase[] = ['before-r2-put', 'after-r2-put', 'before-d1-rows', 'after-d1-rows'];
 export interface Kill { phase: KillPhase; nth: number }
 
@@ -82,6 +86,8 @@ export class Durable {
   readonly audit = new AuditRecorder();
   /** Every R2 put to a staged key, in order. */
   readonly stagedPuts: string[] = [];
+  /** Every R2 delete, in order. */
+  readonly deletes: string[] = [];
   readonly counts = { r2: 0, d1: 0, rowBatches: 0 };
 }
 
@@ -93,6 +99,15 @@ class ChaosR2 implements CloudR2 {
   constructor(d: Durable, kill: Kill | null) { this.d = d; this.kill = kill; }
   head(key: string): Promise<CloudR2Head | null> { this.d.counts.r2++; return this.d.r2.head(key); }
   get(key: string): Promise<CloudR2Body | null> { this.d.counts.r2++; return this.d.r2.get(key); }
+  async delete(key: string): Promise<void> {
+    this.d.counts.r2++;
+    this.d.deletes.push(key);
+    const nth = this.d.deletes.length;
+    const hit = this.kill && (this.kill.phase === 'before-r2-delete' || this.kill.phase === 'after-r2-delete') && nth === this.kill.nth;
+    if (hit && this.kill!.phase === 'before-r2-delete') throw new Killed('before-r2-delete');
+    await this.d.r2.delete(key);
+    if (hit) throw new Killed('after-r2-delete');
+  }
   async put(key: string, value: Uint8Array, options: { sha256: string; onlyIf?: { etagDoesNotMatch: '*' } }) {
     this.d.counts.r2++;
     const nth = ++this.seen;
@@ -148,7 +163,7 @@ export interface Process {
 export interface ProcessOptions {
   durable: Durable; caseId: string; submissions: FinalizedSubmissionReader; stager: CandidateStager; kill?: Kill | null;
   budget?: Partial<NativeImportPorts['budget'] & object>; rowsPerBatch?: number; maxBatchFiles?: number; requestBudget?: NativeImportPorts['requestBudget'];
-  operate?: boolean; staging?: boolean;
+  operate?: boolean; staging?: boolean; now?: () => Date; sweepObjects?: number; sessionTtlMs?: number;
 }
 export const BUDGET = { maxRequestBytes: 6 << 20, maxFiles: 8192, maxFileBytes: 64 << 20, maxPackageBytes: 512 << 20 };
 
@@ -160,8 +175,8 @@ export function stagedPorts(o: ProcessOptions): NativeImportPorts {
   const stager = o.stager;
   const ports: NativeImportPorts = {
     clientId: CLIENT, budget: { ...BUDGET, ...o.budget }, authorizeOperate: operateAuthority(o.operate === false ? [] : [caseRef]), requestBudget: o.requestBudget ?? null,
-    submissions: o.submissions, stager, packages: new StoredPackages(stager as unknown as ValidatingStager), repository: d1NativeCandidateRepository(db), audit: o.durable.audit, now: () => new Date(NOW),
-    ...(o.staging === false ? {} : { staging: { ledger: d1StagingLedger(db, { rowsPerBatch: o.rowsPerBatch ?? 3 }), store: r2StagingStore(bucket), rowsPerBatch: o.rowsPerBatch ?? 3, ...(o.maxBatchFiles ? { maxBatchFiles: o.maxBatchFiles } : {}) } }),
+    submissions: o.submissions, stager, packages: new StoredPackages(stager as unknown as ValidatingStager), repository: d1NativeCandidateRepository(db), audit: o.durable.audit, now: o.now ?? (() => new Date(NOW)),
+    ...(o.staging === false ? {} : { staging: { ledger: d1StagingLedger(db, { rowsPerBatch: o.rowsPerBatch ?? 3 }), store: r2StagingStore(bucket), rowsPerBatch: o.rowsPerBatch ?? 3, ...(o.maxBatchFiles ? { maxBatchFiles: o.maxBatchFiles } : {}), ...(o.sweepObjects ? { sweepObjects: o.sweepObjects } : {}), ...(o.sessionTtlMs ? { sessionTtlMs: o.sessionTtlMs } : {}) } }),
   };
   return ports;
 }

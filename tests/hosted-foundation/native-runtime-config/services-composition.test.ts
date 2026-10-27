@@ -73,6 +73,15 @@ describe('hostedServices accepts the emitted settings', () => {
 			expect(created.options.browser).not.toBeNull();
 		});
 	}
+	it('composes the import and staging routes on the Workers Paid request budget, with the stepped stager', async () => {
+		const { ports, file } = await compose('client-a');
+		const imports = ports!.imports!;
+		const storage = nativeConfigOf(file) as { storageBudgets: { maxRowsPerBatch: number } };
+		expect(imports.requestBudget).toEqual({ d1: 900, external: 4500, rowsPerBatch: storage.storageBudgets.maxRowsPerBatch });
+		expect(imports.staging).not.toBeNull();
+		expect(imports.stepped).not.toBeNull();
+		expect(imports.stepped!.bounds.stepsPerRequest).toBeGreaterThanOrEqual(1);
+	});
 	it('a client with no render budget composes publication with no checker (previews stay pending) and no BROWSER binding is planned', async () => {
 		const noBrowser = planNativeRuntimeConfig(exampleInput()).clients[1]!;
 		expect(noBrowser.bindings.browser).toBeNull();

@@ -410,7 +410,12 @@ describe('no untied dev browser reaches staff Clerk by any transport the SDK rea
 		expect(handedBy(started)).toBeNull();
 		accept(browser, started);
 		if (started.kind !== 'redirect') throw new Error('expected a handshake redirect');
-		accept(browser, await h.handle(request(browser, handedBack(new URL(new URL(started.location).searchParams.get('redirect_url')!), OWN_DVB))));
+		// host-only plus two parent Domains, at each of the ten path-matching prefixes of the preview URL
+		expect(started.setCookies.filter((d) => d.startsWith('__clerk_db_jwt=;'))).toHaveLength(30);
+		// the signed-out return: the staff instance ends the session cookie the browser still holds
+		const out = new URL(new URL(started.location).searchParams.get('redirect_url')!);
+		out.searchParams.set('__clerk_handshake', B.sign({ handshake: [...directives(OWN_DVB), '__session=; Path=/; Max-Age=0; SameSite=Lax; Secure'] }));
+		accept(browser, await h.handle(request(browser, out)));
 		settle(browser);
 		expect(await h.handle(request(browser, PREVIEW))).toEqual({ kind: 'continue' });
 		expect(devBrowsers(browser)).toEqual([OWN_DVB]);
@@ -419,6 +424,17 @@ describe('no untied dev browser reaches staff Clerk by any transport the SDK rea
 		browser.setCookieSync('__client_uat=1700000000; Path=/; Secure', ORIGIN_A);
 		settle(browser);
 		expect(await handshake().handle(request(browser, PREVIEW))).toEqual({ kind: 'continue' });
+	});
+	it('expires a preview dev browser with 30 directives on the sandbox workers.dev host, none for a Domain on the public suffix', async () => {
+		const SANDBOX = 'https://cc-sbx-a-20261023.shiny-sunset-211d.workers.dev';
+		const made = clerkBrowserHandshakeFromEnv({ ...app(ORIGIN_A), CLEARCASE_APP_ORIGIN: SANDBOX });
+		if (!made.ok) throw new Error(made.reason);
+		const o = await made.handshake.handle(new Request(`${SANDBOX}/operator/cases/case-a/preview/candidate-a`, { headers: { ...doc, cookie: `__clerk_db_jwt=${ATTACKER_DVB}` } }));
+		if (o.kind !== 'redirect') throw new Error(`expected a handshake redirect, got ${JSON.stringify(o)}`);
+		const clears = o.setCookies.filter((d) => d.startsWith('__clerk_db_jwt=;'));
+		expect(clears).toHaveLength(30);
+		expect(clears.filter((d) => /Domain=workers\.dev;/.test(d))).toEqual([]);
+		expect(clears.filter((d) => d.includes('Domain=shiny-sunset-211d.workers.dev; Path=/operator/cases/case-a/preview/;'))).toHaveLength(1);
 	});
 	it('still hands staff Clerk the tied dev browser the staff portal returns in the query, beside a parent-Domain duplicate too', async () => {
 		for (const plants of [[], [parentPlant]]) {

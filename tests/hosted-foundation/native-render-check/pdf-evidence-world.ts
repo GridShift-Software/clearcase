@@ -125,7 +125,7 @@ export function evidenceOptions(db: ReturnType<typeof pdfDatabase>, pins: Native
  return {
   db, clientId, browser: { fetch: vi.fn(async () => { throw Error('inert BROWSER double: no provider call'); }) } as BrowserWorker,
   assets: { fetch: vi.fn(async (request: Request) => new Response(readFileSync(join(root, new URL(request.url).pathname)))) },
-  appOrigin: 'https://app.example', pins: structuredClone(pins), budget: base && { ...base, ...budget }, now: () => new Date(clock()),
+  appOrigin: 'https://app.example', pins: structuredClone(pins), budget: base ? { ...base, ...budget } : null, now: () => new Date(clock()),
  };
 }
 

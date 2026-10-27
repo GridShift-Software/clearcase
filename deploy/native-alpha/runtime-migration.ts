@@ -51,6 +51,13 @@ export const NATIVE_INTAKE_FILE_SETS_MIGRATION_INPUTS = freeze([
 // The already applied increment this one runs after: a dependency record only, never emitted, rewritten or replayed.
 export const NATIVE_INTAKE_FILE_SETS_APPLIED_IMPORT_STAGING = freeze({ path: 'migrations/0006_native_import_staging.sql', bytes: 8735,
 	sha256: 'sha256:a5ff09a1db8dc2abc890d7734b9744b4186baf4ddf84d86241bb4c23b6690b18' });
+export const NATIVE_PDF_SESSIONS_MIGRATION_MODE = 'pdf-sessions-0008';
+export const NATIVE_PDF_SESSIONS_MIGRATION_INPUTS = freeze([
+	{ path: 'src/lib/viewer/hosted/migrations/0004_pdf_evidence_sessions.sql', bytes: 4930, sha256: 'sha256:777a00c3e4a7e5d63f151ec29621fc39f7b84611a876485ae266d196da52ae5b' },
+]);
+// The already applied increment this one runs after: a dependency record only, never emitted, rewritten or replayed.
+export const NATIVE_PDF_SESSIONS_APPLIED_INTAKE_FILE_SETS = freeze({ path: 'migrations/0007_native_intake_file_sets.sql', bytes: 15914,
+	sha256: 'sha256:e90183aa1663336a1eaa8c3032fa6a239bba3c9323517003b48a6fd1c9a27871' });
 const CLIENTS = freeze([
 	{ slot: 'client-a', name: 'cc-sbx-a-20261023-db', id: 'cd257736-7bf3-49f6-8544-ac58c2207802' },
 	{ slot: 'client-b', name: 'cc-sbx-b-20261025-r1-db', id: '7c340891-9fcc-4398-8128-68abe726f130' },
@@ -162,6 +169,16 @@ const INTAKE_FILE_SETS_PACKET = {
 		inputs: NATIVE_INTAKE_FILE_SETS_MIGRATION_INPUTS, output, targets, providerProof: false, provisioned: false }),
 };
 
+const PDF_SESSIONS_PACKET = {
+	tag: NATIVE_PDF_SESSIONS_MIGRATION_MODE, inputs: NATIVE_PDF_SESSIONS_MIGRATION_INPUTS, sqlFile: 'migrations/0008_native_pdf_sessions.sql', manifestFile: 'pdf-sessions-migration.json', privateStage: true,
+	header: '-- ClearCase native scaled PDF evidence sessions increment 0008. Requires applied 0001, 0002, 0004, 0005, 0006 and 0007; 0003 remains reserved.\n'
+		+ '-- Additive: the viewer\'s 0004 session admission tables and their seals; viewer 0003 (content receipts) arrived in 0005.\n',
+	manifest: (output: Output, targets: Target[]) => ({ schema: 'clearcase.native-pdf-sessions-migration/1', mode: NATIVE_PDF_SESSIONS_MIGRATION_MODE,
+		initialSchemaDependency: NATIVE_RUNTIME_INITIAL_SCHEMA, appliedRuntimeDependency: NATIVE_RENDER_CASE_LIMIT_APPLIED_RUNTIME, appliedRenderCaseLimitDependency: NATIVE_EVIDENCE_APPLIED_RENDER_CASE_LIMIT,
+		appliedEvidenceDependency: NATIVE_IMPORT_STAGING_APPLIED_EVIDENCE, appliedImportStagingDependency: NATIVE_INTAKE_FILE_SETS_APPLIED_IMPORT_STAGING,
+		appliedIntakeFileSetsDependency: NATIVE_PDF_SESSIONS_APPLIED_INTAKE_FILE_SETS, inputs: NATIVE_PDF_SESSIONS_MIGRATION_INPUTS, output, targets, providerProof: false, provisioned: false }),
+};
+
 function assemble<M extends { readonly targets: readonly Target[] }>(packet: Packet<M>, inputs: readonly { path: string; bytes: Uint8Array }[]) {
 	const items = dense(inputs, packet.inputs.length, 'inputs');
 	const chunks: string[] = [];
@@ -199,6 +216,11 @@ export function assembleNativeImportStagingMigration(inputs: readonly { path: st
 /** The two pinned multi-file intake inputs only, in order, under the same one-copy capture. Emits a separately named 0007 after the applied 0006. */
 export function assembleNativeIntakeFileSetsMigration(inputs: readonly { path: string; bytes: Uint8Array }[]) {
 	return assemble(INTAKE_FILE_SETS_PACKET, inputs);
+}
+
+/** The single pinned viewer PDF-session input only, under the same one-copy capture. Emits a separately named 0008 after the applied 0007. */
+export function assembleNativePdfSessionsMigration(inputs: readonly { path: string; bytes: Uint8Array }[]) {
+	return assemble(PDF_SESSIONS_PACKET, inputs);
 }
 
 function realPath(file: string, directory: boolean) {
@@ -327,3 +349,6 @@ export const checkNativeImportStagingMigrationInvocation = (value: { root: strin
 export const prepareNativeIntakeFileSetsMigration = (value: { root: string; out: string }) => prepare(INTAKE_FILE_SETS_PACKET, value);
 export const readNativeIntakeFileSetsMigration = (value: { root: string; stage: string }) => read(INTAKE_FILE_SETS_PACKET, value);
 export const checkNativeIntakeFileSetsMigrationInvocation = (value: { root: string; stage: string; cwd: string; slot: NativeRuntimeMigrationSlot; argv: readonly string[] }) => checkInvocation(INTAKE_FILE_SETS_PACKET, value);
+export const prepareNativePdfSessionsMigration = (value: { root: string; out: string }) => prepare(PDF_SESSIONS_PACKET, value);
+export const readNativePdfSessionsMigration = (value: { root: string; stage: string }) => read(PDF_SESSIONS_PACKET, value);
+export const checkNativePdfSessionsMigrationInvocation = (value: { root: string; stage: string; cwd: string; slot: NativeRuntimeMigrationSlot; argv: readonly string[] }) => checkInvocation(PDF_SESSIONS_PACKET, value);

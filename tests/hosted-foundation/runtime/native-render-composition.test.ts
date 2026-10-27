@@ -153,7 +153,7 @@ describe('hostedServices native renderer wiring (unit-only composition: real con
   const w = world(); worlds.push(w);
   for (const path of ['tenancy/migrations/0001_tenant_case_grants.sql', 'tenancy/migrations/0002_tenant_grant_operations.sql',
    'publication/hosted/migrations/0001_publication_ledger.sql', 'publication/hosted/migrations/0002_atomic_publication.sql',
-   'publication/hosted/migrations/0003_provenance_generation.sql', 'audit/migrations/0001_native_audit.sql']) {
+   'publication/hosted/migrations/0003_provenance_generation.sql', 'publication/hosted/migrations/0004_publication_evidence.sql', 'audit/migrations/0001_native_audit.sql']) {
    w.db.sqlite.exec(readFileSync(`src/lib/${path}`, 'utf8'));
   }
   // Every session is a distinct object so a session can never be mistaken for the raw primary binding.

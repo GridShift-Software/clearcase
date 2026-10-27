@@ -168,9 +168,11 @@ describe('vitest includes', () => {
 		const viewer = prefixed('native-viewer').map((f) => resolve(tree, f)).sort(), viewerDir = join(REPO, 'tests', 'hosted-smoke', 'native-viewer');
 		expect(viewer).toEqual(readdirSync(viewerDir).filter((f) => f.endsWith('.test.ts')).map((f) => join(viewerDir, f)).sort());
 		expect(viewer).toContain(join(viewerDir, 'intake-page.test.ts'));
-		expect(viewer).toHaveLength(8);
-		expect(listed).toHaveLength(17);
-		expect(prefixed('root').length + viewer.length).toBe(17);
+		expect(viewer).toContain(join(viewerDir, 'pdf-assets.test.ts'));
+		expect(viewer).toContain(join(viewerDir, 'intake-set-page.test.ts'));
+		expect(viewer).toHaveLength(9);
+		expect(listed).toHaveLength(18);
+		expect(prefixed('root').length + viewer.length).toBe(18);
 	});
 	test('the existing includes are kept', async () => {
 		const { default: config } = await import('../../vitest.config');

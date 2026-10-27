@@ -15,7 +15,7 @@ import { d1NativeCandidateRepository } from '../../../results-review/native/repo
 import { inspectPackage } from '../../../results-review/native/package.ts';
 import { buildCoverage } from '../../../results-review/native/coverage.ts';
 import { submissionSnapshotReader } from '../../../results-review/native/submission-reader.ts';
-import { GRANT_ROLES, permits } from '../../../tenancy/grants.ts';
+import { previewGrantCondition, previewGrantRoles } from '../../../tenancy/preview-observation.ts';
 import { LAYOUT } from '../../../storage/cloud/gate.ts';
 import { preparePackage } from '../../../results/hosted/project.ts';
 import { loadVerifiedModel } from '../../../results/hosted/model.ts';
@@ -56,7 +56,6 @@ function fingerprints(value: unknown): string[] {
   return [...value].sort();
 }
 type Primary = ReturnType<PublicationD1Database['withSession']>;
-const PREVIEWERS = GRANT_ROLES.filter((r) => permits(r, 'read-preview'));
 type FileRow = { path: string; sha256: string; size: number; object_key: string };
 type StoredVersion = {
   version_id: ResultsVersion; case_id: CaseId; state: string; manifest_sha256: string; input_revision_id: string;
@@ -90,10 +89,8 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
     await identity.checkRevocation();
     const { issuer, subject, kind } = identity.principal;
     const row = await primary.prepare(`SELECT (EXISTS (SELECT 1 FROM rs_storage_identity i JOIN rs_case c ON c.case_id = ? WHERE i.singleton = 1 AND i.client_id = ? AND i.layout = ?)
-      AND EXISTS (SELECT 1 FROM tenant_case_grants g WHERE g.client_id = ? AND g.scope = 'case' AND g.case_id = ? AND g.issuer = ? AND g.subject = ?
-        AND g.principal_kind = ? AND g.state = 'active' AND g.revoked_at IS NULL AND g.role IN (${PREVIEWERS.map(() => '?').join(', ')})
-        AND (g.expires_at IS NULL OR julianday(g.expires_at) > julianday(?)))) AS ok`)
-      .bind(caseId, clientId, LAYOUT, clientId, caseId, issuer, subject, kind, ...PREVIEWERS, now().toISOString())
+      AND ${previewGrantCondition('bound')}) AS ok`)
+      .bind(caseId, clientId, LAYOUT, clientId, caseId, issuer, subject, kind, ...previewGrantRoles, now().toISOString())
       .first<{ ok: number }>().catch(() => { throw contractError('identity-unavailable', true); });
     if (row?.ok !== 1) throw contractError('forbidden');
   }
@@ -322,7 +319,7 @@ export function createPublicationMaterialReader(options: PublicationMaterialOpti
 
 /** Canonical validation already bounded and checked these values. Page assertions additionally require actual renderer
  * page counts. No clamp, renumbering, generated pagination or mutation of supplied references is permitted. */
-function referencePages(candidate: Candidate): ReadonlyMap<string, readonly number[]> {
+export function referencePages(candidate: Candidate): ReadonlyMap<string, readonly number[]> {
   const pages = new Map<string, Set<number>>();
   const visit = (value: unknown): void => {
     if (typeof value === 'string') {

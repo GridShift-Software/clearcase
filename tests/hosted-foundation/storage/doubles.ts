@@ -23,6 +23,8 @@ export class SqliteD1 implements CloudD1 {
   failNext: RegExp | null = null;
   constructor() {
     this.sqlite.exec('PRAGMA foreign_keys = ON');
+    // Cloudflare D1 refuses a LIKE or GLOB pattern over 50 bytes ("pattern too complex"); node:sqlite allows 50,000.
+    this.sqlite.limits.likePatternLength = 50;
     for (const m of MIGRATIONS) this.sqlite.exec(readFileSync(m, 'utf8'));
   }
   prepare(sql: string): CloudD1Statement {

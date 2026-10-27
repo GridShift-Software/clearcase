@@ -42,7 +42,8 @@ const OPERATION_COLUMNS = ['operation_id', 'request_sha256', 'client_id', 'case_
 const GROUPED = 'clearcase.signoff-acknowledgements/2';
 export const MAX_SIGNOFF_VALUE_BYTES = 1024 * 1024;
 const byFingerprint = (a: { fingerprint: string }, b: { fingerprint: string }) => (a.fingerprint < b.fingerprint ? -1 : a.fingerprint > b.fingerprint ? 1 : 0);
-function acknowledgementsJson(acks: readonly SignoffAcknowledgement[]): string {
+/** The acknowledgements as `pub_signoff.acknowledgements` stores them: a v1 list, or v2 groups by code and reason. */
+export function acknowledgementsJson(acks: readonly SignoffAcknowledgement[]): string {
   if (!acks.some((a) => a.code !== undefined)) return JSON.stringify(acks.map((a) => ({ fingerprint: a.fingerprint, reason: a.reason })));
   if (acks.some((a) => a.code === undefined)) return unavailable();
   const groups = new Map<string, { code: string; reason: string; fingerprints: string[] }>();

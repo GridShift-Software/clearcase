@@ -27,6 +27,14 @@ export function recordsContext(caseId: string, originals: ReadonlyMap<string, st
     return asset ? `${originalHref(caseId, asset)}/view${page ? `?page=${page}` : ''}` : null;
   } };
 }
+/**
+ * The ref-to-original map a records view links citations through: each attributed ref whose original is still one of the case's own
+ * originals. The client route and the publication gate both build it here, so the gate checks the exact page the route serves.
+ */
+export function recordsOriginals(attribution: readonly { ref: string; assetId: string }[], caseOriginals: Iterable<string>): Map<string, string> {
+  const assets = new Set(caseOriginals);
+  return new Map(attribution.filter(a => assets.has(a.assetId)).map(a => [a.ref, a.assetId]));
+}
 export interface RecordsRender { html: string; markers: { records: string[]; leaves: string[] } }
 
 const verifiedDatasets = new WeakSet<object>();

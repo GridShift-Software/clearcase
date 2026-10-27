@@ -437,13 +437,13 @@
 </main>
 
 <style>
-  main { max-width: 70rem; margin: 1rem auto; padding: 1rem; font-family: system-ui, sans-serif; }
-  fieldset { margin-block: 1rem; border: 1px solid #8b93a0; border-radius: .4rem; padding: 1rem; min-width: 0; }
-  legend { font-weight: 700; }
+  main { max-width: 70rem; margin: 1rem auto; padding: 1rem; }
+  fieldset { margin-block: 1rem; border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 1rem; min-width: 0; }
+  legend { font-weight: 600; }
   label { display: block; margin-block: .8rem; }
   input:not([type='checkbox']), select, textarea { display: block; width: 100%; box-sizing: border-box; padding: .5rem; }
   button, a { margin: .5rem .5rem .5rem 0; }
   button { padding: .6rem; }
   pre, code { white-space: pre-wrap; overflow-wrap: anywhere; }
-  p[role='alert'] { border-left: .3rem solid #b91c1c; padding-left: .7rem; }
+  p[role='alert'] { border-left: .3rem solid var(--danger); padding-left: .7rem; }
 </style>

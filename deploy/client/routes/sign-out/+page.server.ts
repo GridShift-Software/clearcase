@@ -1,8 +1,8 @@
-import { redirect, type Actions, type RequestEvent } from '@sveltejs/kit';
+import { error, redirect, type Actions, type RequestEvent } from '@sveltejs/kit';
 import { env } from 'cloudflare:workers';
 import { SESSION_COOKIE } from '$lib/server/runtime/hosted/session';
 import { refuse } from '$lib/server/runtime/hosted/http';
-import { signOutClerkSession } from '$lib/auth/clerk/flow';
+import { signOutClerkSession, signOutScopes } from '$lib/auth/clerk/flow';
 import { SESSION_COOKIE as CLERK_SESSION_COOKIE } from '$lib/auth/clerk/session';
 
 export function load() {
@@ -21,6 +21,14 @@ export const actions: Actions = {
 		if (!double) clear = await signOutClerkSession({ env, request: request ?? new Request(url), identity: locals.identity }).then((r) => r.clear, (e) => refuse(e));
 		const secure = url.protocol === 'https:';
 		for (const name of new Set([SESSION_COOKIE, CLERK_SESSION_COOKIE, ...clear])) cookies.delete(name, { path: '/', secure });
+		if (!double) {
+			// and every Clerk session name this deployment owns on each parent domain, where a live copy would otherwise sign the
+			// browser back in once the host-only one is gone; a session cookie of another instance it may not clear means
+			// sign-out has not finished, so it is never reported as done (session-renewal-live-2 re-check M3)
+			const scopes = await signOutScopes({ env, request: request ?? new Request(url), url }).catch((e) => refuse(e));
+			for (const { name, domain } of scopes.parents) cookies.delete(name, { path: '/', domain, secure });
+			if (scopes.unowned.length) error(409, "Sign-out may not have finished: this browser holds a sign-in cookie ClearCase may not remove. Sign out again, and if this repeats, clear this site's cookies.");
+		}
 		redirect(303, '/sign-in');
 	},
 };

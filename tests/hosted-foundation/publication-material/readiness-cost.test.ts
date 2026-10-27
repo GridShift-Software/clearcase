@@ -129,7 +129,9 @@ function meter(p: Awaited<ReturnType<typeof production>>, limit: number | null =
   return n;
 }
 
-/** A cold real render adds a receipt read, a reservation batch and a receipt batch, apart from its Browser subrequests. */
+/** This checker double has no D1 calls. Separate synthetic measurements with the real runtime budgets found warm 43 and
+ * cold 45 D1 calls, including the success-receipt read; Browser and ASSETS subrequests are excluded. These are not
+ * native platform measurements. A cold real render adds a receipt read, a reservation batch and a receipt batch. */
 const RENDER_D1 = 3;
 
 describe('exact readiness after one real native import on Workers Free', () => {

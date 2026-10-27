@@ -1,4 +1,5 @@
 import { decodeUtf8Strict, isObject, parseStrictJson, type JsonObject, type JsonValue } from '../../case-package/strict-json.ts';
+import { LIMITS } from '../../case-package/limits.ts';
 import type { CaseId, Identity } from '../../server/runtime/contracts.ts';
 import { codeOf } from '../../server/runtime/errors.ts';
 import { id } from '../../server/runtime/ids.ts';
@@ -92,13 +93,17 @@ export function createNativeImportController(service: NativeResultsImport | null
     return fail(503, 'storage-unavailable', 'Storage is unavailable. Try again with the same operation id.');
   });
 
-  /** One bounded JSON object, strictly parsed (duplicate keys, nesting and bad UTF-8 are refused). */
-  async function body(r: NativeRequest, svc: NativeResultsImport, keys: string): Promise<JsonObject> {
+  /**
+   * One bounded JSON object, strictly parsed (duplicate keys, nesting and bad UTF-8 are refused). `stringChars` is the longest string the
+   * body may carry when one holds a whole package file (its text, or a batch's base64): the request bound still caps the body, so a file
+   * the budget admits is never refused by the parser's default 1 Mi-character string limit (U14: a v5 chronology is about 3 MB).
+   */
+  async function body(r: NativeRequest, svc: NativeResultsImport, keys: string, stringChars = 0): Promise<JsonObject> {
     const b = await readAtMost(r.request.body, svc.budget.maxRequestBytes);
     if (b.kind === 'incomplete') return refuse(400, 'incomplete-body', 'The request was interrupted. Send it again.');
     if (b.kind !== 'ok') return refuse(413, 'too-large', 'The request is larger than this deployment accepts.');
     let v: JsonValue;
-    try { v = parseStrictJson(decodeUtf8Strict(b.bytes)); } catch { return refuse(422, 'invalid-request', 'Send one strict JSON object.'); }
+    try { v = parseStrictJson(decodeUtf8Strict(b.bytes), { stringChars: Math.max(LIMITS.stringChars, stringChars) }); } catch { return refuse(422, 'invalid-request', 'Send one strict JSON object.'); }
     if (!isObject(v) || Object.keys(v).sort().join() !== keys) return refuse(422, 'invalid-request', 'The request has missing or unknown fields.');
     return v;
   }
@@ -127,7 +132,7 @@ export function createNativeImportController(service: NativeResultsImport | null
      */
     openStaged: (r: NativeRequest) => handle(async () => {
       const a = await admit(r, 'write', 'application/json');
-      const b = await body(r, a.service, 'manifest,operationId,submissionRevisionId');
+      const b = await body(r, a.service, 'manifest,operationId,submissionRevisionId', a.service.budget.maxFileBytes);
       const operationId = opId(b.operationId);
       const rev = b.submissionRevisionId;
       if (typeof rev !== 'string' || !PART.test(rev)) return refuse(422, 'invalid-request', 'The submission revision id is invalid.');
@@ -139,7 +144,7 @@ export function createNativeImportController(service: NativeResultsImport | null
       const a = await admit(r, 'write', 'application/json');
       const svc = staged(a.service);
       const operationId = operationParam(r);
-      const b = await body(r, a.service, 'files');
+      const b = await body(r, a.service, 'files', 4 * Math.ceil(svc.bounds.maxBatchBytes / 3));
       if (!isObject(b.files)) return refuse(422, 'invalid-request', 'files must be an object of path to base64.');
       const entries = Object.entries(b.files);
       if (entries.length < 1 || entries.length > svc.bounds.maxBatchFiles) return refuse(413, 'too-large', 'A batch carries between one and the stated number of files.');
@@ -200,7 +205,7 @@ export function createNativeImportController(service: NativeResultsImport | null
     importPackage: (r: NativeRequest) => handle(async () => {
       const a = await admit(r, 'write', 'application/json');
       const svc = a.service, budget = svc.budget;
-      const b = await body(r, svc, 'files,operationId,submissionRevisionId');
+      const b = await body(r, svc, 'files,operationId,submissionRevisionId', budget.maxFileBytes);
       const operationId = opId(b.operationId);
       const rev = b.submissionRevisionId;
       if (typeof rev !== 'string' || !PART.test(rev)) return refuse(422, 'invalid-request', 'The submission revision id is invalid.');

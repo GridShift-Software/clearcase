@@ -10,11 +10,19 @@ import { VIEWS } from '../../../src/lib/components/view-registry.ts';
 import { pdf, png, originalSize, sizeSummary, type Profile } from './originals.ts';
 import { seededRandom } from './random.ts';
 
-export interface CorpusOptions { out: string; seed: string; documents: number; profile: Profile }
+export interface CorpusOptions {
+  out: string; seed: string; documents: number; profile: Profile;
+  /** Image documents at the end of the corpus (default min(8, documents / 6)). */
+  images?: number;
+  /** Document indexes whose original is not written to the case folder, so the converter records each as a missing original. */
+  withhold?: readonly number[];
+  /** Added to META.docCount, so a non-zero value makes META disagree with the records it summarises. */
+  metaDocCountOffset?: number;
+}
 const enc = (s: string) => new TextEncoder().encode(s);
 export const words = ['Amber', 'Acorn', 'Birch', 'Cedar', 'Coral', 'Fern', 'Flint', 'Grove', 'Hazel', 'Iris', 'Jade', 'Juniper', 'Kestrel', 'Larch', 'Maple', 'Moss', 'Opal', 'Pebble', 'Quartz', 'Reed', 'Sage', 'Spruce', 'Thistle', 'Willow'];
 
-export async function generateCorpus({ out, seed, documents: count, profile }: CorpusOptions) {
+export async function generateCorpus({ out, seed, documents: count, profile, images, withhold = [], metaDocCountOffset = 0 }: CorpusOptions) {
   const parent = await realpath(path.dirname(path.resolve(out)));
   const repository = await realpath(path.resolve(import.meta.dirname, '../../..'));
   const destination = path.join(parent, path.basename(path.resolve(out)));
@@ -41,7 +49,8 @@ export async function generateCorpus({ out, seed, documents: count, profile }: C
     await putOriginal(caseDir, relative, bytes);
     originalFiles.push({ path: relative, sha256: sha256Hex(bytes), size: bytes.length });
   };
-  const imageCount = Math.min(8, Math.floor(count / 6));
+  const imageCount = images ?? Math.min(8, Math.floor(count / 6));
+  const withheld = new Set(withhold);
   const docTypes = ['SLA', 'invoice', 'email', 'statement', 'filing', 'other'];
   const pageCounts = new Map<string, number>();
   async function makeDocument(i: number) {
@@ -52,7 +61,7 @@ export async function generateCorpus({ out, seed, documents: count, profile }: C
     const rel = `SYNTHETIC-${String(i % 8 + 1).padStart(2, '0')}/${filename}`;
     const targetBytes = originalSize(profile, random);
     const bytes = image ? png(integer, targetBytes) : pdf(`SYNTHETIC ${ref} seed ${seedHash} ${pair()}`, pages, targetBytes);
-    await save(rel, bytes);
+    if (!withheld.has(i)) await save(rel, bytes);
     pageCounts.set(ref, image ? 1 : pages);
     const base = {
       ref, date: date(), filename,
@@ -148,7 +157,7 @@ export async function generateCorpus({ out, seed, documents: count, profile }: C
         list: [{ no: '1', name: 'Synthetic bundle', slug: 'synthetic-bundle', title: 'SYNTHETIC ONLY', note: 'Invented', file: './SYNTHETIC-BUNDLES/bundle.pdf', indexFile: './SYNTHETIC-BUNDLES/index.pdf', planFile: '', pages: totalPages, bundlePages: totalPages, filePages: totalPages, indexPages: 2, nDocs: bundleRows.length, nItems: bundleRows.length, nMissing: 0, nNeedsExtent: 0, nReview: 0, items: Object.keys(catalogue), rows: bundleRows }],
       },
     };
-    roots.META = { builtAt, docCount: docs.length, dataFolderName: 'SYNTHETIC ONLY', bundles, emails: types.email ?? 0, invoices: invoices.length, people: people.length, textNone: imageCount, textPending: 0, dateSpan: [...docs.map(d => d.date)].sort().filter((_, i) => i === 0 || i === docs.length - 1), docTypes: types };
+    roots.META = { builtAt, docCount: docs.length + metaDocCountOffset, dataFolderName: 'SYNTHETIC ONLY', bundles, emails: types.email ?? 0, invoices: invoices.length, people: people.length, textNone: imageCount, textPending: 0, dateSpan: [...docs.map(d => d.date)].sort().filter((_, i) => i === 0 || i === docs.length - 1), docTypes: types };
     roots.SCHED = { discovery: schedule(docs.slice(0, 96)), supplementary: schedule(docs.slice(96, 120)) };
     roots.CASELINES = { file: 'SYNTHETIC-BUNDLES/bundle.pdf', pages: totalPages, index: Array.from({ length: totalPages }, (_, i): [number, string] => [i + 1, `SYNTHETIC page ${i + 1}: ${pair()} invented text`]) };
   } });

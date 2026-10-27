@@ -43,6 +43,8 @@ const same = (a: PublicationIntent, b: PublicationIntent) => canonical(a) === ca
 // manifest, carries the signed root, and holds exactly the rows its pages cover with the greatest key its build ended on. The
 // recomputation of the root from the rows themselves is the controller's recheck, made BEFORE this batch and outside it; the batch
 // therefore also carries the rows that recheck hashed and compares them with the stored ones (`rowGuards`), in the same transaction.
+// The signed generation must also still be the candidate's latest: a restart that begins after the recheck writes a newer run row
+// (building or sealed), and from then on readiness serves only that one, so the older sign-off is stale here too (U14 review H1).
 const EVIDENCE_GUARD = `WHERE EXISTS (
   SELECT 1 FROM pub_signoff s
   JOIN pub_signoff_evidence e ON e.signoff_id = s.signoff_id AND e.candidate_id = s.candidate_id
@@ -54,7 +56,9 @@ const EVIDENCE_GUARD = `WHERE EXISTS (
     AND json_extract(r.cursor, '$.pages') = (SELECT count(*) FROM pub_evidence_page p WHERE p.candidate_id = r.candidate_id AND p.generation = r.generation)
     AND (SELECT count(*) FROM pub_evidence_item i WHERE i.candidate_id = r.candidate_id AND i.generation = r.generation)
       = (SELECT coalesce(sum(p.item_count), 0) FROM pub_evidence_page p WHERE p.candidate_id = r.candidate_id AND p.generation = r.generation)
-    AND (SELECT max(i.item_key) FROM pub_evidence_item i WHERE i.candidate_id = r.candidate_id AND i.generation = r.generation) IS json_extract(r.cursor, '$.last'))`;
+    AND (SELECT max(i.item_key) FROM pub_evidence_item i WHERE i.candidate_id = r.candidate_id AND i.generation = r.generation) IS json_extract(r.cursor, '$.last')
+    AND NOT EXISTS (SELECT 1 FROM pub_evidence_run n WHERE n.candidate_id = r.candidate_id AND n.generation <> r.generation
+      AND CAST(n.generation AS INTEGER) >= CAST(r.generation AS INTEGER)))`;
 
 
 // SQLite has no digest function, so the commit cannot rehash the rows. It compares them instead: the recheck's exact [key, json] pairs

@@ -7,6 +7,7 @@ import { id } from '../../../src/lib/server/runtime/ids.ts';
 import { checkSnapshot, signoffBlocker } from '../../../src/lib/publication/hosted/rules.ts';
 import { d1PublicationLedger } from '../../../src/lib/publication/hosted/ledger.ts';
 import { d1PublicationPublisher } from '../../../src/lib/publication/hosted/d1-publisher.ts';
+import { d1ReadinessFence } from '../../../src/lib/publication/hosted/readiness-fence.ts';
 
 const worlds: Awaited<ReturnType<typeof world>>[] = [];
 async function setup(o?: Parameters<typeof world>[0]) { const w = await world(o); worlds.push(w); return w; }
@@ -33,6 +34,23 @@ describe('primary D1 publication material (synthetic component evidence, NOT nat
     expect(w.db.sessions.every((c) => c === 'first-primary')).toBe(true);
     expect(w.events.at(-1)?.outcome).toBe('succeeded');
     expect(Object.isFrozen(s)).toBe(true);
+  });
+
+  it('refuses foreign-client and expired preview grants at both material and readiness observations', async () => {
+    for (const mutation of ["client_id = 'foreign-client'", "expires_at = '2000-01-01T00:00:00.000Z'"]) {
+      const w = await setup();
+      const snapshot = await snap(w);
+      const identity = w.options.identity;
+      if (identity.kind !== 'verified') throw new Error('fixture identity');
+      w.db.exec(`INSERT INTO tenant_case_grants (grant_id, client_id, scope, case_id, issuer, subject, principal_kind, role, slot, state, version, created_operation_id, request, created_by_issuer, created_by_subject, created_at)
+        VALUES ('g-publisher', ?, 'case', ?, 'synthetic', 'distinct-reviewer', 'staff', 'publisher', 'publisher', 'active', 1, 'op-publisher', '{}', 'synthetic', 'provisioner', ?)`, CLIENT, CASE, NOW);
+      const fence = d1ReadinessFence({ db: w.db, clientId: CLIENT });
+      const observation = { clientId: CLIENT, caseId: CASE, principal: identity.principal, sessionId: identity.sessionId, snapshot, signoff: null };
+      expect(await fence.check(observation)).toBe('current');
+      w.db.exec(`UPDATE tenant_case_grants SET ${mutation} WHERE grant_id = 'g-reviewer'`);
+      await expect(w.read()).rejects.toMatchObject({ code: 'forbidden' });
+      expect(await fence.check(observation)).toBe('forbidden');
+    }
   });
 
   it('uses genuine case-fold warnings without inventing original status or an empty warning list', async () => {

@@ -24,7 +24,7 @@ import {
 
 const SOURCE = path.join(import.meta.dirname, '../../../../deploy/native-alpha/controls.ts');
 const ACCOUNT = 'fb4c31b91c5d89b7a54afbdc34823170';
-const ZONE = 'db7c322907320aba562d64015ee7d673';
+const ZONE = '1c82369e826ebe0afded65c295198fcd';
 const hex = (c: string, n = 32) => c.repeat(n);
 const uuid = (c: string) => `${c.repeat(8)}-${c.repeat(4)}-4${c.repeat(3)}-8${c.repeat(3)}-${c.repeat(12)}`;
 
@@ -33,7 +33,7 @@ function manifest(): NativeManifest {
 	const client = (letter: 'a' | 'b', c: string, d: string) => ({
 		client: `client-${letter}`,
 		worker: `cc-sbx-${letter}-20261023`,
-		domain: { id: hex(c), hostname: `${letter}.sandbox.gridshift.co.za`, zoneId: ZONE, service: `cc-sbx-${letter}-20261023`, environment: 'production' },
+		domain: { id: hex(c), hostname: `sbx-${letter}.clearcase.co.za`, zoneId: ZONE, service: `cc-sbx-${letter}-20261023`, environment: 'production' },
 		versionIds: [uuid(c), uuid(d)],
 		secretNames: ['CLERK_SECRET_KEY', 'CLERK_PUBLISHABLE_KEY'],
 		d1: { binding: 'DB', name: `cc-sbx-${letter}-20261023-db`, id: uuid(c === '1' ? '5' : '6'), jurisdiction: 'eu' },
@@ -41,7 +41,7 @@ function manifest(): NativeManifest {
 		release: { sourceSha: hex(c, 40), artifactSha256: `sha256:${hex(c, 64)}`, profileRevision: hex(d, 40) },
 		canary: { appPath: '/', assetPath: '/_app/immutable/start.js', assetSha256: `sha256:${hex(d, 64)}` },
 	});
-	return { schema: NATIVE_CONTROLS_SCHEMA, accountId: ACCOUNT, zone: { id: ZONE, name: 'gridshift.co.za' }, clients: [client('a', '1', '2'), client('b', '3', '4')] } as NativeManifest;
+	return { schema: NATIVE_CONTROLS_SCHEMA, accountId: ACCOUNT, zone: { id: ZONE, name: 'clearcase.co.za' }, clients: [client('a', '1', '2'), client('b', '3', '4')] } as NativeManifest;
 }
 
 function readback(m: NativeManifest, observedAt: number, phase: 'before' | 'after'): ProviderReadback {
@@ -108,7 +108,7 @@ function harness(opts: { after?: (s: ProviderReadback) => void; before?: (s: Pro
 describe('the reviewed native manifest', () => {
 	test('accepts the exact approved native scope and returns a frozen copy', () => {
 		const m = parseNativeManifest(manifest());
-		expect(m.clients.map((c) => c.domain.hostname)).toEqual(['a.sandbox.gridshift.co.za', 'b.sandbox.gridshift.co.za']);
+		expect(m.clients.map((c) => c.domain.hostname)).toEqual(['sbx-a.clearcase.co.za', 'sbx-b.clearcase.co.za']);
 		expect(Object.isFrozen(m.clients[0]!.domain)).toBe(true);
 		expect(APPROVED_NATIVE_SCOPE.accountId).toBe(ACCOUNT);
 		expect(APPROVED_NATIVE_SCOPE.zone.id).toBe(ZONE);
@@ -123,9 +123,9 @@ describe('the reviewed native manifest', () => {
 	const refusals: [string, (m: any) => void, RegExp][] = [
 		['a foreign account', (m) => (m.accountId = hex('9')), /account/],
 		['a foreign zone', (m) => (m.zone.id = hex('8')), /zone/],
-		['a wildcard hostname', (m) => (m.clients[0].domain.hostname = '*.sandbox.gridshift.co.za'), /hostname/],
-		['a foreign hostname', (m) => (m.clients[0].domain.hostname = 'a.sandbox.example.com'), /hostname/],
-		["another client's hostname", (m) => (m.clients[0].domain.hostname = 'b.sandbox.gridshift.co.za'), /hostname/],
+		['a wildcard hostname', (m) => (m.clients[0].domain.hostname = '*.clearcase.co.za'), /hostname/],
+		['a foreign hostname', (m) => (m.clients[0].domain.hostname = 'sbx-a.example.com'), /hostname/],
+		["another client's hostname", (m) => (m.clients[0].domain.hostname = 'sbx-b.clearcase.co.za'), /hostname/],
 		['an unapproved client', (m) => (m.clients[0].client = 'client-z'), /client-z/],
 		['a domain bound to another Worker', (m) => (m.clients[0].domain.service = 'cc-sbx-b-20261023'), /service/],
 		['a domain in another zone', (m) => (m.clients[0].domain.zoneId = hex('7')), /zone/],
@@ -223,15 +223,15 @@ describe('readback checks', () => {
 		['future-dated', (s) => (s.observedAt = 10_000), /stale|future/],
 		['an unread key', (s) => (s.cached = true), /cached/],
 		['a missing Worker', (s) => s.workers.pop(), /cc-sbx-b-20261023/],
-		['an extra unreviewed domain on an owned Worker', (s) => s.domains.push({ id: hex('c'), hostname: 'x.sandbox.gridshift.co.za', zoneId: ZONE, service: 'cc-sbx-a-20261023', environment: 'production' }), /x\.sandbox/],
+		['an extra unreviewed domain on an owned Worker', (s) => s.domains.push({ id: hex('c'), hostname: 'x.clearcase.co.za', zoneId: ZONE, service: 'cc-sbx-a-20261023', environment: 'production' }), /x\.clearcase/],
 		['an owned hostname bound to a foreign Worker', (s) => (s.domains[0].service = 'someone-else'), /someone-else/],
-		['a route on an owned Worker', (s) => s.routes.push({ id: hex('d'), pattern: 'gridshift.co.za/a/*', script: 'cc-sbx-a-20261023' }), /route/],
-		['a wildcard route covering an owned hostname', (s) => s.routes.push({ id: hex('d'), pattern: '*.sandbox.gridshift.co.za/*', script: 'other' }), /route/],
+		['a route on an owned Worker', (s) => s.routes.push({ id: hex('d'), pattern: 'clearcase.co.za/a/*', script: 'cc-sbx-a-20261023' }), /route/],
+		['a wildcard route covering an owned hostname', (s) => s.routes.push({ id: hex('d'), pattern: '*.clearcase.co.za/*', script: 'other' }), /route/],
 		['changed retained versions', (s) => s.workers[0].versionIds.pop(), /version/],
 		['changed secret names', (s) => s.workers[0].secretNames.push('NEW'), /secret/],
 		['a non-EU R2', (s) => (s.r2[0].jurisdiction = 'default'), /R2|jurisdiction/],
 		['a public R2 dev URL', (s) => (s.r2[0].managedDomainEnabled = true), /public|R2/],
-		['an R2 custom domain', (s) => s.r2[0].customDomains.push('files.gridshift.co.za'), /public|R2/],
+		['an R2 custom domain', (s) => s.r2[0].customDomains.push('files.clearcase.co.za'), /public|R2/],
 		['a changed D1 identity', (s) => (s.d1[0].id = uuid('7')), /D1/],
 		['a foreign account', (s) => (s.accountId = hex('9')), /account/],
 	];
@@ -280,7 +280,7 @@ describe('the injected stop orchestration', () => {
 	});
 
 	test('extra unreviewed route exposure HOLDs before any dispatch', async () => {
-		const { t, dispatched } = harness({ before: (s) => s.routes.push({ id: hex('d'), pattern: 'a.sandbox.gridshift.co.za/*', script: 'cc-sbx-a-20261023' }) });
+		const { t, dispatched } = harness({ before: (s) => s.routes.push({ id: hex('d'), pattern: 'sbx-a.clearcase.co.za/*', script: 'cc-sbx-a-20261023' }) });
 		expect((await stopNativeAlpha(t)).state).toBe('HOLD');
 		expect(dispatched).toEqual([]);
 	});
@@ -311,7 +311,7 @@ describe('the injected stop orchestration', () => {
 		expect(r.state).toBe('HOLD');
 		expect(dispatched).toHaveLength(4);
 		expect(new Set(dispatched.map((op) => op.path)).size).toBe(4);
-		expect(r.problems.join('\n')).toMatch(/b\.sandbox|partial|failed/);
+		expect(r.problems.join('\n')).toMatch(/sbx-b|partial|failed/);
 	});
 
 	test('the app still served on a custom domain after dispatch HOLDs', async () => {
@@ -404,7 +404,7 @@ describe('the post-stop negative proof contract', () => {
 
 	const fakes: [string, (o: CanaryObservation[], m: NativeManifest) => void, RegExp][] = [
 		['a missing after canary on one domain', (o) => o.splice(o.findIndex((x) => x.phase === 'after' && x.client === 'client-b'), 1), /client-b/],
-		['a nonexistent host 404', (o) => o.push({ ...o[1]!, hostname: 'nope.sandbox.gridshift.co.za', outcome: { type: 'response', status: 404, tlsHostname: 'nope.sandbox.gridshift.co.za', servedSourceSha: null, bodySha256: `sha256:${hex('b', 64)}`, cache: 'miss' } }), /nope/],
+		['a nonexistent host 404', (o) => o.push({ ...o[1]!, hostname: 'nope.clearcase.co.za', outcome: { type: 'response', status: 404, tlsHostname: 'nope.clearcase.co.za', servedSourceSha: null, bodySha256: `sha256:${hex('b', 64)}`, cache: 'miss' } }), /nope/],
 		['an anonymous request', (o) => (o[1]!.identity = { authenticated: false, client: null }), /authenticated/],
 		['host-header emulation', (o) => (o[1]!.route = 'host-header' as never), /emulat|public-dns/],
 		['a foreign build in the positive canary', (o) => ((o[0]!.outcome as any).servedSourceSha = hex('f', 40)), /build|source/],

@@ -21,7 +21,7 @@ mkdirSync(SCRATCH, { recursive: true });
 afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
 
 const ACCOUNT = 'fb4c31b91c5d89b7a54afbdc34823170';
-const ZONE = 'db7c322907320aba562d64015ee7d673';
+const ZONE = '1c82369e826ebe0afded65c295198fcd';
 const PROFILE = 'c'.repeat(40);
 const NOW = 2_000_000;
 const OBSERVED_AT = NOW - 1_000;
@@ -83,7 +83,7 @@ function manifestFor(clients: string, artifact: string): NativeManifest {
 			canary: { appPath: '/', assetPath: '/_app/version.json', assetSha256: version },
 		};
 	};
-	return { schema: NATIVE_CONTROLS_SCHEMA, accountId: ACCOUNT, zone: { id: ZONE, name: 'gridshift.co.za' }, clients: [entry('a', '1', '2'), entry('b', '3', '4')] } as NativeManifest;
+	return { schema: NATIVE_CONTROLS_SCHEMA, accountId: ACCOUNT, zone: { id: ZONE, name: 'clearcase.co.za' }, clients: [entry('a', '1', '2'), entry('b', '3', '4')] } as NativeManifest;
 }
 
 function readbackFor(m: NativeManifest): ProviderReadback {
@@ -407,7 +407,7 @@ describe('foreign client and shared identifiers', () => {
 	});
 
 	test("client-a's config naming client-b's Worker, hostname, D1 or R2 is refused even if the reader reports no problems", () => {
-		for (const [from, to] of [['cc-sbx-a-20261023"', 'cc-sbx-b-20261023"'], ['a.sandbox.gridshift.co.za', 'b.sandbox.gridshift.co.za'], ['cc-sbx-a-20261023-files', 'cc-sbx-b-20261023-files']] as const) {
+		for (const [from, to] of [['cc-sbx-a-20261023"', 'cc-sbx-b-20261023"'], ['sbx-a.clearcase.co.za', 'sbx-b.clearcase.co.za'], ['cc-sbx-a-20261023-files', 'cc-sbx-b-20261023-files']] as const) {
 			const f = forge(w, 'client-a', { config: (t) => t.replace(from, to) });
 			hold(bind(w, lying(w, 'client-a', f)), /belongs to client-b|wrangler|config|worker|hostname|r2/i);
 		}
@@ -580,7 +580,7 @@ describe('dropped upload record', () => {
 describe('observed manifest drift (domain and version IDs only come from the observation)', () => {
 	const w = world();
 	const drift: [string, (c: any) => void, RegExp][] = [
-		['hostname', (c) => (c.domain.hostname = 'b.sandbox.gridshift.co.za'), /hostname|manifest/i],
+		['hostname', (c) => (c.domain.hostname = 'sbx-b.clearcase.co.za'), /hostname|manifest/i],
 		['D1 id', (c) => (c.d1.id = OTHER_UUID), /d1/i],
 		['R2 bucket', (c) => (c.r2.bucket = 'cc-sbx-b-20261023-files'), /r2|bucket|manifest/i],
 		['extra secret', (c) => c.secretNames.push('CLERK_PUBLISHABLE_KEY'), /secret/i],

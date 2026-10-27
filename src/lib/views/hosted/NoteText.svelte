@@ -9,5 +9,6 @@
 <p class="note-body">{revealInvisible(note.body)}</p>
 
 <style>
-	.note-body { white-space: pre-wrap; }
+	.note-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+	.note-meta { overflow-wrap: anywhere; }
 </style>

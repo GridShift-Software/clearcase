@@ -51,7 +51,7 @@ beforeEach(() => {
     }
     return reply(404, { code: 'not-found' });
   }));
-  component = mount(Page, { target: document.body, props: { data: { caseId: CASE, available: true, submissions: [], sets: [] } } });
+  component = mount(Page, { target: document.body, props: { data: { caseId: CASE, available: true, canUpload: true, submissions: [], sets: [] } } });
   flushSync();
 });
 afterEach(async () => { if (component) await unmount(component); component = null; dom.window.close(); vi.unstubAllGlobals(); });

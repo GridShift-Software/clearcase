@@ -11,7 +11,7 @@ import type { D1, D1Statement } from '../../../src/lib/server/runtime/hosted/bin
 import { id } from '../../../src/lib/server/runtime/ids.ts';
 import { d1CaseDirectory } from '../../../src/lib/tenancy/case-directory.ts';
 import { createCaseProvisioning } from '../../../src/lib/tenancy/case-provisioning.ts';
-import { createCaseGrantProvisioning, type CaseGrantProvisioningOptions } from '../../../src/lib/tenancy/case-grant-provisioning.ts';
+import { createCaseGrantProvisioning, createCaseGrantRenewal, type CaseGrantProvisioningOptions } from '../../../src/lib/tenancy/case-grant-provisioning.ts';
 import { d1GrantRepository } from '../../../src/lib/tenancy/d1-grants.ts';
 import { resolveExactDeployment, validateClientManifest } from '../../../src/lib/tenancy/manifest.ts';
 
@@ -87,11 +87,13 @@ export async function world(n: 'a' | 'c' = 'a') {
   }
   const options: CaseGrantProvisioningOptions = { deployment, grants, cases, audit, now };
   const make = (over: Partial<CaseGrantProvisioningOptions> = {}) => createCaseGrantProvisioning({ ...options, ...over });
+  const renewal = (over: Partial<CaseGrantProvisioningOptions> = {}) => createCaseGrantRenewal({ ...options, ...over });
   hooks.sql.length = 0;
   return {
-    get sqlite() { return sqlite; }, db, hooks, deployment, grants, cases, audit, now, options, make,
+    get sqlite() { return sqlite; }, db, hooks, deployment, grants, cases, audit, now, options, make, renewal,
     advance: (ms: number) => { clock = new Date(clock.getTime() + ms); },
     restart: () => { sqlite.close(); sqlite = new DatabaseSync(join(dir, 'synthetic.sqlite')); sqlite.exec('PRAGMA foreign_keys = ON'); return make({ audit: provisioningAuditPort({ db, config, now }) }); },
+    restartRenewal: () => { sqlite.close(); sqlite = new DatabaseSync(join(dir, 'synthetic.sqlite')); sqlite.exec('PRAGMA foreign_keys = ON'); return renewal({ audit: provisioningAuditPort({ db, config, now }) }); },
     grantRows: () => sqlite.prepare('SELECT * FROM tenant_case_grants').all(),
     operationRows: () => sqlite.prepare('SELECT * FROM tenant_grant_operations').all(),
     auditRows: () => sqlite.prepare("SELECT * FROM native_audit_events WHERE event_id LIKE 'grant-op:%'").all(),

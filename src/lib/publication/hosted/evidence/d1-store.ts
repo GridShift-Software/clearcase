@@ -88,6 +88,11 @@ export function d1EvidenceStore(d1: EvidenceD1): EvidenceStore {
       return holding ? 'uncovered' : 'lost';
     },
 
+    async release(b, leaseId) {
+      await db().prepare(`UPDATE pub_evidence_run SET lease_until_ms = 0 WHERE candidate_id = ? AND generation = ? AND state = 'building' AND lease_token = ?`)
+        .bind(b.candidateId, b.generation, leaseId).run();
+    },
+
     async inspect(b) {
       const run = await db().prepare(
         `SELECT client_id, case_id, results_version, manifest_sha256, validator_version, renderer_version, state, cursor, evidence_root,

@@ -186,4 +186,15 @@ describe('the stepped completion and the sweep over HTTP', () => {
     expect(await call('sweepExpired', 'POST', `${root}/sweep`, { caseId: 'case-a' })).toMatchObject({ status: 200, json: { kind: 'swept', operationId: null, deleted: 0 } });
     expect((await call('status', 'GET', step(), { caseId: 'case-a', operationId: OP })).json).toMatchObject({ state: 'complete', missingFiles: 0 });
   });
+
+  // U14: a v5 chronology is about 3 MB, so its base64 is a string longer than the strict parser's default 1 Mi characters. The body bound
+  // (maxRequestBytes) already caps it; the parser must not refuse a file the batch bound admits before the manifest check sees it.
+  it('parses a batch whose one file is over 1 MiB of base64, then judges the file against the manifest', async () => {
+    const { fx } = await world();
+    expect((await call('open', 'POST', root, { caseId: 'case-a' }, { body: { operationId: OP, submissionRevisionId: REVISION, manifest: text(fx.files.get('manifest.json')!) } })).status).toBe(201);
+    const big = encodeBase64(new Uint8Array(900 * 1024).fill(0x41));
+    expect(big.length).toBeGreaterThan(1024 * 1024);
+    const put = await call('files', 'POST', step('/files'), { caseId: 'case-a', operationId: OP }, { body: { files: { 'datasets/unlisted.json': big } } });
+    expect(put).toMatchObject({ status: 422, json: { code: 'file-not-in-manifest' } });
+  });
 });

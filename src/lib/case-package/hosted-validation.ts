@@ -26,6 +26,11 @@ export interface HostedValidation {
   result: ImportResult;
   /** Uncapped canonical ORIG_CASE_MISMATCH identities, for exact original lineage. */
   caseMismatch: readonly { ref: string; fingerprint: string }[];
+  /**
+   * Every indexed asset some citation of the package resolves to: the cited ref itself and each asset on its `parentRef` chain, by the
+   * same rule `CITE_TARGET_NO_ORIGINAL` applies. Uncapped, from all structured and inline citations; empty when validation stopped early.
+   */
+  cited: ReadonlySet<string>;
 }
 
 export function validateHostedPackage({ files, originals, limits, held }: HostedValidationInput): HostedValidation {
@@ -35,12 +40,14 @@ export function validateHostedPackage({ files, originals, limits, held }: Hosted
   const mapping = new Map<string, OriginalMapping>();
   const unavailable = new Set<string>();
   const caseMismatch: { ref: string; fingerprint: string }[] = [];
+  const cited = new Set<string>();
   try {
     const snap = snapshotMemory(files, L, sink, held);
     if (snap) pkg = validateSnapshot(snap, sink, L);
     if (pkg && sink.errors === 0) {
       applyOriginalFacts(pkg.assets, originals, L, sink, mapping, unavailable, caseMismatch);
       flagCitedUnavailable(pkg, unavailable, sink);
+      for (const ref of citedAssets(pkg)) cited.add(ref);
     }
   } catch (e) {
     pkg = null;
@@ -57,6 +64,7 @@ export function validateHostedPackage({ files, originals, limits, held }: Hosted
     failed.add('PKG_UNPROCESSABLE', `unexpected failure: ${String((e as Error)?.message ?? 'error').slice(0, 200)}`);
     result = { ...summarise(failed), verdict: 'reject', candidate: null };
     caseMismatch.length = 0;
+    cited.clear();
   }
   for (const d of result.diagnostics) Object.freeze(d);
   Object.freeze(result.diagnostics);
@@ -66,6 +74,7 @@ export function validateHostedPackage({ files, originals, limits, held }: Hosted
   return Object.freeze({
     result: Object.freeze(result),
     caseMismatch: Object.freeze(caseMismatch.sort((a, b) => a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0).map((x) => Object.freeze(x))),
+    cited: Object.freeze(cited) as ReadonlySet<string>,
   });
 }
 
@@ -170,11 +179,7 @@ function applyOriginalFacts(
 
 // Keep import.ts's citation/root policy, including embedded descendants and deduplication.
 function flagCitedUnavailable(pkg: ValidatedPackage, unavailable: Set<string>, sink: DiagSink): void {
-  const rootOf = (ref: string): string => {
-    let r = ref;
-    for (let d = 0; d <= 4; d++) { const a: Asset | undefined = pkg.assets[r]; if (!a?.parentRef) return r; r = a.parentRef; }
-    return r;
-  };
+  const rootOf = (ref: string): string => chainOf(pkg, ref).at(-1)!;
   const seen = new Set<string>();
   for (const c of pkg.citations) {
     if (seen.has(c.ref) || !pkg.assets[c.ref]) continue;
@@ -183,6 +188,20 @@ function flagCitedUnavailable(pkg: ValidatedPackage, unavailable: Set<string>, s
       sink.add('CITE_TARGET_NO_ORIGINAL', `${c.ref} is cited but its original is unavailable`, { subject: c.ref });
     }
   }
+}
+
+/** The ref and the assets above it through `parentRef`, nearest first, as far as the citation/root policy follows them (four levels). */
+function chainOf(pkg: ValidatedPackage, ref: string): string[] {
+  const chain = [ref];
+  let r = ref;
+  for (let d = 0; d <= 4; d++) { const a: Asset | undefined = pkg.assets[r]; if (!a?.parentRef) return chain; r = a.parentRef; chain.push(r); }
+  return chain;
+}
+/** Every indexed asset a citation resolves to: the cited asset and the assets its bytes come from. */
+function citedAssets(pkg: ValidatedPackage): Set<string> {
+  const out = new Set<string>();
+  for (const c of pkg.citations) if (pkg.assets[c.ref]) for (const r of chainOf(pkg, c.ref)) if (pkg.assets[r]) out.add(r);
+  return out;
 }
 
 function summarise(sink: DiagSink) {

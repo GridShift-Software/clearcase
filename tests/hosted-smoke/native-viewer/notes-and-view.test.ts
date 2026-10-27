@@ -150,7 +150,15 @@ describe('page notes persist through user work and stay on their own original', 
 });
 
 describe('the viewer page load', () => {
-  const run = (w: World, work: AsyncUserWork, caseId = 'case-a', assetId = 'a1') => load({ params: params(caseId, assetId), locals: { assets: w.assets, userWork: work } } as never).catch((e: unknown) => (isHttpError(e) ? { status: e.status } : Promise.reject(e)));
+  const run = (w: World, work: AsyncUserWork, caseId = 'case-a', assetId = 'a1') => load({ params: params(caseId, assetId), url: new URL('https://case.test/view'), locals: { assets: w.assets, userWork: work } } as never).catch((e: unknown) => (isHttpError(e) ? { status: e.status } : Promise.reject(e)));
+
+  it('passes the requested page from the URL to the viewer, including invalid values', async () => {
+    const { w, work } = await fixture();
+    for (const page of ['2', '0', '-1', '1.5', '41']) {
+      const result = await load({ params: params('case-a', 'a1'), url: new URL(`https://case.test/view?page=${page}`), locals: { assets: w.assets, userWork: work } } as never);
+      expect(result.requestedPage).toBe(page);
+    }
+  });
 
   it('offers the PDF viewer with only case/asset links: no object key, hash or storage id leaves the server', async () => {
     const { w, work } = await fixture();

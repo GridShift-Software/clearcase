@@ -1,5 +1,5 @@
 // Native alpha custom-domain controls: a new native capability, not a repair of GRS-203. GRS-203's stop disables only
-// workers.dev/previews and refuses any public route, so it proves closed ingress, not a stop of the a/b.sandbox custom
+// workers.dev/previews and refuses any public route, so it proves closed ingress, not a stop of the sbx-a/sbx-b custom
 // domains. This module adds a data-only, exact native target, a non-destructive custom-domain-aware stop plan, an
 // orchestrator over an INJECTED transport and a post-stop negative-proof contract.
 //
@@ -28,10 +28,10 @@ export const READBACK_MAX_AGE_MS = 60_000;
 /** The approved account, zone and per-client names. Adding a client is a reviewed change here, not a request field. */
 export const APPROVED_NATIVE_SCOPE = deepFreeze({
 	accountId: 'fb4c31b91c5d89b7a54afbdc34823170',
-	zone: { id: 'db7c322907320aba562d64015ee7d673', name: 'gridshift.co.za' },
+	zone: { id: '1c82369e826ebe0afded65c295198fcd', name: 'clearcase.co.za' },
 	clients: [
-		{ client: 'client-a', worker: 'cc-sbx-a-20261023', hostname: 'a.sandbox.gridshift.co.za', d1Name: 'cc-sbx-a-20261023-db', r2Bucket: 'cc-sbx-a-20261023-files' },
-		{ client: 'client-b', worker: 'cc-sbx-b-20261023', hostname: 'b.sandbox.gridshift.co.za', d1Name: 'cc-sbx-b-20261023-db', r2Bucket: 'cc-sbx-b-20261023-files' },
+		{ client: 'client-a', worker: 'cc-sbx-a-20261023', hostname: 'sbx-a.clearcase.co.za', d1Name: 'cc-sbx-a-20261023-db', r2Bucket: 'cc-sbx-a-20261023-files' },
+		{ client: 'client-b', worker: 'cc-sbx-b-20261023', hostname: 'sbx-b.clearcase.co.za', d1Name: 'cc-sbx-b-20261023-db', r2Bucket: 'cc-sbx-b-20261023-files' },
 	],
 });
 

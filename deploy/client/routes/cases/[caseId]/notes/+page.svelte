@@ -12,6 +12,10 @@
 	const draftRef = $derived(form?.op === 'add' ? (form.ref ?? '') : '');
 </script>
 
+<style>
+	textarea { max-width: 100%; }
+</style>
+
 <main id="main" tabindex="-1" data-view="notes" data-user-work-state={data.notes.state}>
 	<p><a href={data.caseHref}>{displayFilename(data.label)}</a> › Your notes</p>
 	<h1>Your notes</h1>

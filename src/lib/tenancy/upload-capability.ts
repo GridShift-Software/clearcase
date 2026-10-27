@@ -133,6 +133,24 @@ export function createUploadAuthorizer(o: UploadAuthorizerOptions | null): Uploa
   };
 }
 
+/** Whether a principal holds an effective upload grant for a case: the intake page's question, with no audit and no session or case-access check. */
+export type UploadHolding = (a: { principal: Principal; clientId: ClientId; caseId: CaseId }) => Promise<boolean>;
+
+/**
+ * An ADVISORY answer for the intake page, so a reader without an upload grant is told so instead of being offered a form.
+ * It applies the authorizer's own grant predicate (uploadEffective) to the same reader and decides nothing: it writes no
+ * audit event, so a page view never records an upload success or denial, and the caller has already admitted the reader to
+ * the case. Every send still runs the audited authorizer. A fault rejects; the caller treats that as "unknown".
+ */
+export function createUploadHolding(o: { deployment: ClientResourceIdentity; uploads: UploadGrantReader; now: () => Date }): UploadHolding {
+  if (typeof o?.deployment?.clientId !== 'string' || !fn(o.uploads?.heldBy) || !fn(o.now)) throw new TypeError('the upload holding check needs the deployment, upload grants and a clock');
+  return async ({ principal, clientId, caseId }) => {
+    if (clientId !== o.deployment.clientId || !belongs(o.deployment, principal) || !validCaseId(caseId)) return false;
+    const held = await o.uploads.heldBy({ clientId, caseId, principal }), now = o.now();
+    return held.some((g) => uploadEffective(g, { clientId, caseId, principal, now }));
+  };
+}
+
 // ---- The D1 reader and the pin both adapters share ------------------------------------------------------------------
 
 export type UploadRow = {

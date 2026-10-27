@@ -1,5 +1,5 @@
 <script lang="ts">
-	let { data }: { data: { subject: string | null; cases: { caseId: string; label: string; href: string; published: boolean }[] } } = $props();
+	let { data }: { data: { multipleSignIns?: boolean; subject: string | null; cases: { caseId: string; label: string; href: string; published: boolean }[] } } = $props();
 </script>
 
 <div data-auth-state="signed-in">
@@ -7,6 +7,7 @@
 	<form method="POST" action="/sign-out"><button id="sign-out" type="submit">Sign out</button></form>
 </div>
 <h1>Cases</h1>
+{#if data.multipleSignIns}<p>You started sign-in in more than one tab, so we brought you here.</p>{/if}
 {#if data.cases.length}
 	<ul>
 		{#each data.cases as c (c.caseId)}

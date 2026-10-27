@@ -52,7 +52,7 @@ describe('native profile: refusals name the native reason', () => {
 		expect(r.stderr).toContain(reason);
 	};
 	test("client B's custom-domain hostname in client A's native config is refused, naming client B", () =>
-		refused(['check', 'client-a', '--profile', 'native', '--clients', CLIENTS, '--config', variant('swap-host.jsonc', wrangler('client-a').replace('"pattern": "a.sandbox.gridshift.co.za"', '"pattern": "b.sandbox.gridshift.co.za"'))], 'b.sandbox.gridshift.co.za belongs to client-b'));
+		refused(['check', 'client-a', '--profile', 'native', '--clients', CLIENTS, '--config', variant('swap-host.jsonc', wrangler('client-a').replace('"pattern": "sbx-a.clearcase.co.za"', '"pattern": "sbx-b.clearcase.co.za"'))], 'sbx-b.clearcase.co.za belongs to client-b'));
 	test('workers_dev true is refused', () =>
 		refused(['check', 'client-a', '--profile', 'native', '--clients', CLIENTS, '--config', variant('dev.jsonc', wrangler('client-a').replace('"workers_dev": false', '"workers_dev": true'))], 'workers_dev is true, not false'));
 	test('preview_urls true is refused', () =>

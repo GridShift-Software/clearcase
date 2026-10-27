@@ -21,7 +21,7 @@ import { serveModeOf } from '../../case-package/media.ts';
 import { escapePointer } from '../../case-package/strict-json.ts';
 import type { EvidenceCountGroup } from './ports.ts';
 import type { PreviewNavigationObservation, PreviewReasonCode, PreviewRenderStage } from './preview-outcome.ts';
-import type { AcknowledgementGroup } from './rules.ts';
+import type { AcknowledgementGroup, CheckedEvidenceItem } from './rules.ts';
 
 /** The reasons an asset is held. They are preview reasons of a `failed` preview, and only of one. */
 export const ASSET_HOLD_REASONS = ['preview-required', 'embedded-not-extracted', 'supplied-references'] as const;
@@ -96,6 +96,17 @@ export const missingOriginalFingerprint = (b: AssetBinding, assetId: string, dia
 export interface EvidenceItemDraft { readonly key: string; readonly observation: Record<string, unknown> }
 
 /**
+ * The one definition of a missing-original exception for an asset under a candidate and validation: the validator's own diagnostic for it, and
+ * the fingerprint recomputed from the binding. The build, the extractor and the sign-off and readiness reads all ask this, so none accepts
+ * what another would refuse. With `warned` it also requires the validation to have reported that diagnostic; null when it did not.
+ */
+export function expectedMissingOriginal(binding: AssetBinding, assetId: string, warned?: ReadonlySet<string>): { diagnostic: string; fingerprint: string } | null {
+  const diagnostic = missingAssetDiagnostic(assetId);
+  if (warned && !warned.has(diagnostic)) return null;
+  return { diagnostic, fingerprint: missingOriginalFingerprint(binding, assetId, diagnostic) };
+}
+
+/**
  * The evidence items the asset step contributes, in ascending key order. One `preview/<assetId>` item for every asset that is shown or held,
  * and one `warning/<fingerprint>` item for every asset that is not supplied, carrying the asset and the validator's diagnostic. The
  * validation must have reported that diagnostic (`warningFingerprints`): a missing original the validation did not warn about is not
@@ -119,10 +130,9 @@ export function assetPolicyItems(inputs: readonly AssetPolicyInput[], context: {
         break;
       }
       case 'not-supplied': {
-        const diagnostic = missingAssetDiagnostic(d.assetId);
-        if (!warned.has(diagnostic)) throw new AssetPolicyError(`the validation reported no ASSET_MISSING_AT_BUILD for ${d.assetId}`);
-        const fingerprint = missingOriginalFingerprint(context.binding, d.assetId, diagnostic);
-        items.push({ key: `warning/${fingerprint}`, observation: { kind: 'warning', fingerprint, missing: { assetId: d.assetId, diagnostic } } });
+        const e = expectedMissingOriginal(context.binding, d.assetId, warned);
+        if (!e) throw new AssetPolicyError(`the validation reported no ASSET_MISSING_AT_BUILD for ${d.assetId}`);
+        items.push({ key: `warning/${e.fingerprint}`, observation: { kind: 'warning', fingerprint: e.fingerprint, missing: { assetId: d.assetId, diagnostic: e.diagnostic } } });
         break;
       }
     }
@@ -132,6 +142,30 @@ export function assetPolicyItems(inputs: readonly AssetPolicyInput[], context: {
 
 /** One missing original the run holds: the asset, the validator's diagnostic for it and the bound fingerprint a sign-off acknowledges. */
 export interface MissingOriginal { readonly assetId: string; readonly diagnostic: string; readonly fingerprint: string }
+
+/** Whether one checked warning is a genuine missing-original exception for this candidate and validation: its diagnostic and its fingerprint are the recomputed ones. */
+export function isAuthenticMissingOriginal(item: CheckedEvidenceItem, binding: AssetBinding): boolean {
+  if (!item.missing || item.observation.kind !== 'warning') return false;
+  const e = expectedMissingOriginal(binding, item.missing.assetId);
+  return e !== null && item.missing.diagnostic === e.diagnostic && item.observation.fingerprint === e.fingerprint;
+}
+
+/**
+ * The missing originals among the checked warnings of a whole run, or null when any exception is not genuine. Each must be the recomputed one
+ * for the current candidate and validation, the validator's own warning for that exact asset must be in the run, and no asset or fingerprint
+ * may appear twice. Anything else fails closed: a run with one doubtful exception has none. `items` must be every warning of the run.
+ */
+export function authenticMissingOriginals(items: readonly CheckedEvidenceItem[], binding: AssetBinding): MissingOriginal[] | null {
+  const warnings = new Set(items.flatMap((i) => (i.observation.kind === 'warning' ? [i.observation.fingerprint] : []))), assets = new Set<string>(), found = new Set<string>(), out: MissingOriginal[] = [];
+  for (const item of items) {
+    if (!item.missing) continue;
+    const fingerprint = item.observation.kind === 'warning' ? item.observation.fingerprint : '';
+    if (!isAuthenticMissingOriginal(item, binding) || !warnings.has(item.missing.diagnostic) || assets.has(item.missing.assetId) || found.has(fingerprint)) return null;
+    assets.add(item.missing.assetId); found.add(fingerprint);
+    out.push({ ...item.missing, fingerprint });
+  }
+  return out;
+}
 
 /**
  * The acknowledgement a publisher gives for the missing originals of a candidate, as the sign-off route takes it: one group under the
@@ -165,8 +199,8 @@ const WORDING: Readonly<Record<AssetPolicyKey, AssetPolicyWording>> = {
     detail: 'This file cannot be opened in the viewer as it is, and the export supplies no PDF preview of it. The processing step must supply a preview built from the original. This cannot be acknowledged.' },
   'embedded-not-extracted': { key: 'embedded-not-extracted', title: 'Attachment not extracted', clearsBy: 'upstream-fix',
     detail: 'This attachment is still inside the file that holds it and has no bytes of its own, so the client could not open it. The processing step must extract it as a file. This cannot be acknowledged.' },
-  'supplied-references': { key: 'supplied-references', title: 'Cited original not supplied', clearsBy: 'upstream-fix',
-    detail: 'A citation in the results points at an original that was not supplied. Supply the original and convert again. This cannot be acknowledged, because the client would follow the citation to nothing.' },
+  'supplied-references': { key: 'supplied-references', title: 'Required original not available', clearsBy: 'upstream-fix',
+    detail: 'The original for this asset is not available. A citation in the results may point at it, and the client would follow that citation to nothing. Supply the original and convert again. This cannot be acknowledged.' },
 };
 export const assetPolicyWording = (key: AssetPolicyKey): AssetPolicyWording => WORDING[key];
 export const isAssetPolicyKey = (v: unknown): v is AssetPolicyKey => typeof v === 'string' && Object.hasOwn(WORDING, v);

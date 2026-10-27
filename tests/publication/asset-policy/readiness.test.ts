@@ -24,12 +24,13 @@ describe('the readiness view says what each policy state means', () => {
     const body = await read([UNCITED_MISSING, CITED_MISSING, EMBEDDED, DOCX_NO_PREVIEW, PDF_RENDERED]);
     expect(body.assets.map((l) => [l.key, l.count, l.clearsBy])).toEqual([
       ['original-not-supplied', 1, 'acknowledgement'], ['preview-required', 1, 'upstream-fix'], ['embedded-not-extracted', 1, 'upstream-fix'], ['supplied-references', 1, 'upstream-fix']]);
-    expect(body.assets.map((l) => l.title)).toEqual(['Original not supplied', 'Preview required', 'Attachment not extracted', 'Cited original not supplied']);
+    expect(body.assets.map((l) => l.title)).toEqual(['Original not supplied', 'Preview required', 'Attachment not extracted', 'Required original not available']);
     for (const line of body.assets) expect(line).toMatchObject({ detail: assetPolicyWording(line.key as never).detail });
     expect(body.assets[0]!.detail).toBe('The converter found no original for this document and nothing in the results cites it. The client will not be able to open it. Acknowledge each with a reason to publish without it.');
     expect(body.assets[1]!.detail).toContain('cannot be acknowledged');
     expect(body.assets[2]!.detail).toContain('extract it as a file');
-    expect(body.assets[3]!.detail).toContain('follow the citation to nothing');
+    expect(body.assets[3]!.detail).toContain('The original for this asset is not available');
+    expect(body.assets[3]!.detail).toContain('may point at it');
   });
 
   it('holds with the three reasons named, and does not hold for the uncited missing original', async () => {

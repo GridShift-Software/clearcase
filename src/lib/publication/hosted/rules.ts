@@ -1,7 +1,7 @@
 import type { CandidateSnapshot, CandidateSnapshotV2, EvidenceCountGroup, EvidenceItemRow, EvidenceKind, EvidenceObservation, PreviewStateV2, SectionStateV2 } from './ports.ts';
 import { isIntegrityKey } from '../../case-package/registry.ts';
 import { META_DISAGREEMENT_CODE, metaDisagreementFingerprint, type MetaBinding, type MetaCountDetail, type MetaDisagreement } from '../../case-package/meta-integrity.ts';
-import { ASSET_HOLD_REASONS, ORIGINAL_NOT_SUPPLIED, isAssetHoldReason, type MissingOriginal } from './asset-policy.ts';
+import { ASSET_HOLD_REASONS, ORIGINAL_NOT_SUPPLIED, authenticMissingOriginals, isAssetHoldReason, type AssetBinding, type MissingOriginal } from './asset-policy.ts';
 import { PREVIEW_REASON_CODES, detachedData, isPreviewNavigationObservation, isPreviewReasonCode, isPreviewRenderStage } from './preview-outcome.ts';
 
 // Pure sign-off rules over a candidate snapshot (ADR-0010, ADR-0011, results-package acknowledgement contract). There
@@ -156,16 +156,16 @@ const MAX_ACK_REASON = 1000;
  * Whether the acknowledgements are exactly the META disagreements this snapshot's run holds. Each disagreement's fingerprint must
  * recompute from this snapshot's candidate and validation and its own values, so evidence derived for another candidate or validation,
  * or an acknowledgement of an earlier value, never matches. Every group of the META code needs a reason; each fingerprint is named
- * once; none is missing and none is extra. Groups of any other code are not about META and are ignored.
+ * once; every derived fingerprint is named, and the only others a group may name are the validator's own warnings for them. Groups of any other code are not about META and are ignored.
  */
 function metaAcknowledged(s: CandidateSnapshotV2, meta: MetaEvidence | undefined): boolean {
   if (!meta || meta.disagreements.length === 0) return false;
   const bound: MetaBinding = { resultsVersion: s.link.candidate.resultsVersion, manifestSha256: s.link.candidate.manifestSha256,
     validatorVersion: s.validation.validatorVersion, diagnosticsSha256: s.validation.diagnosticsSha256 };
-  const derived = new Set<string>();
+  const derived = new Set<string>(), diagnostics = new Set<string>();
   for (const d of meta.disagreements) {
     if (!disagreementOk(d) || d.fingerprint !== metaDisagreementFingerprint(bound, d)) return false;
-    derived.add(d.fingerprint);
+    derived.add(d.fingerprint); diagnostics.add(d.diagnostic);
   }
   if (derived.size !== meta.disagreements.length) return false;
   const groups = meta.acknowledgements.filter((g) => plain(g) && g.code === META_DISAGREEMENT_CODE);
@@ -173,9 +173,13 @@ function metaAcknowledged(s: CandidateSnapshotV2, meta: MetaEvidence | undefined
   const named = new Set<string>();
   for (const g of groups) {
     if (typeof g.reason !== 'string' || g.reason.trim() === '' || g.reason.length > MAX_ACK_REASON || !Array.isArray(g.fingerprints)) return false;
-    for (const f of g.fingerprints) { if (typeof f !== 'string' || !derived.has(f) || named.has(f)) return false; named.add(f); }
+    for (const f of g.fingerprints) {
+      // The group may name a derived disagreement or the validator's own warning for one (ADR-0014: each disagreement has a matching diagnostic), and nothing else.
+      if (typeof f !== 'string' || (!derived.has(f) && !diagnostics.has(f)) || named.has(f)) return false;
+      named.add(f);
+    }
   }
-  return named.size === derived.size;
+  return [...derived].every((f) => named.has(f));
 }
 
 /**
@@ -224,12 +228,30 @@ export const metaDisagreementsOf = (items: readonly CheckedEvidenceItem[]): Meta
   items.flatMap((i) => (i.meta && i.observation.kind === 'warning' ? [{ ...i.meta, fingerprint: i.observation.fingerprint }] : []));
 
 /**
- * The missing originals among checked warning items: the assets whose absence from the `original/` observations is the policy's, because
- * their warning is in the run (U10). Coverage of the originals (U14) may let these stand in for an observation, and no other asset.
- * A fingerprint listed twice is returned twice, so a check against the set refuses it.
+ * The missing originals among the checked warnings of a whole run (U10), or null when any exception is not genuine: its diagnostic must be
+ * `ASSET_MISSING_AT_BUILD` for exactly that asset, the validator's own warning must be in the run, and its fingerprint must be the one
+ * recomputed from `binding`, the current candidate and validation (`authenticMissingOriginals`). Coverage of the originals (U14) may let
+ * these stand in for an `original/` observation, and no other asset.
  */
-export const missingOriginalsOf = (items: readonly CheckedEvidenceItem[]): MissingOriginal[] =>
-  items.flatMap((i) => (i.missing && i.observation.kind === 'warning' ? [{ ...i.missing, fingerprint: i.observation.fingerprint }] : []));
+export const missingOriginalsOf = (items: readonly CheckedEvidenceItem[], binding: AssetBinding): MissingOriginal[] | null => authenticMissingOriginals(items, binding);
+
+/** The binding a snapshot gives the fingerprints of its candidate: the candidate's pin and the current validation. */
+export const assetBindingOf = (s: CandidateSnapshotV2): AssetBinding => ({ resultsVersion: s.link.candidate.resultsVersion, manifestSha256: s.link.candidate.manifestSha256,
+  validatorVersion: s.validation.validatorVersion, diagnosticsSha256: s.validation.diagnosticsSha256 });
+
+/** A sign-off's recorded acknowledgements as groups, one per code and reason, as `signoffBlockerV2` takes them. An entry without a code is not about any section. */
+export function acknowledgementGroups(acks: readonly { readonly fingerprint: string; readonly reason: string; readonly code?: string }[]): AcknowledgementGroup[] {
+  const by = new Map<string, { code: string; reason: string; fingerprints: string[] }>();
+  for (const a of acks) {
+    if (a.code === undefined) continue;
+    const key = JSON.stringify([a.code, a.reason]), g = by.get(key) ?? { code: a.code, reason: a.reason, fingerprints: [] };
+    g.fingerprints.push(a.fingerprint); by.set(key, g);
+  }
+  return [...by.values()];
+}
+
+/** Whether the only thing between a candidate and sign-off is the acknowledgement of its META disagreements, which the sign-off itself supplies. */
+export const awaitsMetaAcknowledgement = (b: Blocker | null): boolean => b !== null && b.code === 'required-section' && b.detail.length > 0 && b.detail.every((d) => d === 'meta:disagrees');
 
 function observationOf(o: unknown): { observation: EvidenceObservation; subject: string; meta?: MetaCountDetail; missing?: MissingOriginalDetail } | null {
   if (!plain(o)) return null;

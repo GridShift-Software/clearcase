@@ -99,10 +99,11 @@ describe('an acknowledgement does not carry over to a changed candidate', () => 
     expect(missingOriginalFingerprint(BOUND, 'SY-0009', diagnostic)).not.toBe(missingOriginalFingerprint(BOUND, UNCITED_MISSING.assetId, diagnostic));
   });
 
-  it('the old acknowledgement names fingerprints the new candidate does not hold, so sign-off refuses it', async () => {
-    const old = await assetWorld([UNCITED_MISSING]);
+  it('the old acknowledgement names fingerprints the current candidate does not hold, so sign-off refuses it', async () => {
+    // The acknowledgement was made for a run bound to an earlier validation; the candidate now in force is the one the snapshot describes.
+    const old = await assetWorld([UNCITED_MISSING], { ...BOUND, diagnosticsSha256: hash('4') });
     const stale = ackFor(old.items, freshOf(old));
-    const now = await assetWorld([UNCITED_MISSING], { ...BOUND, diagnosticsSha256: hash('4') });
+    const now = await assetWorld([UNCITED_MISSING]);
     const fresh = freshOf(now);
     const carried = await now.signOff({ acknowledgements: [stale] });
     expect(carried).toMatchObject({ status: 422, body: { code: 'ack-not-exact' } });
@@ -167,7 +168,7 @@ describe('the rows the step writes are checked as the readiness and sign-off pat
     const items = runItems([UNCITED_MISSING, EMBEDDED]);
     const checked = items.flatMap((i) => { const c = checkEvidenceItem(row(i, i.key.startsWith('warning/') ? false : null), bound); return c ? [c] : []; });
     expect(checked).toHaveLength(items.length);
-    const missing = missingOriginalsOf(checked as CheckedEvidenceItem[]);
+    const missing = missingOriginalsOf(checked as CheckedEvidenceItem[], BOUND);
     expect(missing).toEqual([{ assetId: 'SY-0001', diagnostic: missingAssetDiagnostic('SY-0001'), fingerprint: missingOriginalFingerprint(BOUND, 'SY-0001', missingAssetDiagnostic('SY-0001')) }]);
     expect(checked.find((c) => c.key === 'preview/SY-0003.a1')!.observation).toMatchObject({ state: 'failed', reasonCode: 'embedded-not-extracted' });
   });

@@ -83,10 +83,11 @@ describe('one exact acknowledgement covers the derived disagreements and their v
     expect(signed.status).toBe(201);
     const stored = w.db.rows<{ acknowledgements: string }>('SELECT acknowledgements FROM pub_signoff')[0]!;
     expect(JSON.parse(stored.acknowledgements).groups.some((g: { code: string }) => g.code === META_DISAGREEMENT_CODE)).toBe(true);
-    // Blank the META group out of the recorded sign-off: publish must see the section is no longer acknowledged.
-    w.db.exec(`UPDATE pub_signoff SET acknowledgements = json_set(acknowledgements, '$.groups', json_array())`);
+    // A sign-off edited behind the application's back (the update trigger removed, as U5's tests do) has its META group recoded as another section's (counts unchanged): publish must see the section is no longer acknowledged.
+    w.db.exec('DROP TRIGGER pub_signoff_update');
+    w.db.exec(`UPDATE pub_signoff SET acknowledgements = replace(acknowledgements, '"${META_DISAGREEMENT_CODE}"', '"DS_OTHER"')`);
     const refused = await w.publish(signed.body.signoffId as string);
-    expect(refused.status).not.toBe(200);
+    expect(refused).toMatchObject({ status: 409, body: { code: 'signoff-stale', reason: 'candidate-blocked' } });
     expect(w.pointer()).toBeNull();
   });
 });

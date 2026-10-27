@@ -1,4 +1,4 @@
-import { assetPolicyItems, missingAssetDiagnostic, type AssetPolicyInput } from '../../../src/lib/publication/hosted/asset-policy.ts';
+import { assetPolicyItems, missingAssetDiagnostic, type AssetBinding, type AssetPolicyInput } from '../../../src/lib/publication/hosted/asset-policy.ts';
 import type { EvidenceProducer } from '../../../src/lib/publication/hosted/evidence/index.ts';
 import { createEvidenceEngine, d1EvidenceStore } from '../../../src/lib/publication/hosted/evidence/index.ts';
 import { d1EvidenceReader } from '../../../src/lib/publication/hosted/readiness-evidence.ts';
@@ -24,7 +24,7 @@ const byKey = (a: Item, b: Item) => (a.key < b.key ? -1 : 1);
 const warnedOf = (inputs: readonly AssetPolicyInput[]) => inputs.filter((i) => i.kind === 'missing').map((i) => missingAssetDiagnostic(i.assetId));
 
 /** Every item of a run for these assets: the step's items, the validator's warning for each missing original, and valid sections. */
-export function runItems(inputs: readonly AssetPolicyInput[], binding = BOUND): Item[] {
+export function runItems(inputs: readonly AssetPolicyInput[], binding: AssetBinding = BOUND): Item[] {
   const warned = warnedOf(inputs);
   return [
     ...assetPolicyItems(inputs, { binding, warningFingerprints: warned }) as Item[],
@@ -36,7 +36,7 @@ export const producerOf = (items: readonly Item[]): EvidenceProducer => async (c
   const n = cursor === null ? 0 : Number(cursor), item = items[n];
   return item ? { done: false, nextCursor: String(n + 1), key: item.key, observation: item.observation } : { done: true };
 };
-export async function assetWorld(inputs: readonly AssetPolicyInput[], binding = BOUND): Promise<World & { items: Item[] }> {
+export async function assetWorld(inputs: readonly AssetPolicyInput[], binding: AssetBinding = BOUND): Promise<World & { items: Item[] }> {
   const items = runItems(inputs, binding);
   const w = await world({ spec: { previews: 0, warnings: 0 }, baseline: 0, producer: producerOf(items) });
   return Object.assign(w, { items });
@@ -49,9 +49,9 @@ export const freshOf = (w: World): string[] => w.db.rows<{ f: string }>(`SELECT 
 // these assets' items instead of the generic ones, by the same real engine into the same real tables.
 // The readiness snapshot is the operator-workbench fixture's, so its policy fingerprints are bound to that candidate and validation.
 const fixture = snapshot();
-export const FIXTURE_BOUND = { resultsVersion: fixture.link.candidate.resultsVersion as string, manifestSha256: fixture.link.candidate.manifestSha256, validatorVersion: fixture.validation.validatorVersion,
+export const FIXTURE_BOUND: AssetBinding = { resultsVersion: fixture.link.candidate.resultsVersion, manifestSha256: fixture.link.candidate.manifestSha256, validatorVersion: fixture.validation.validatorVersion,
   diagnosticsSha256: fixture.validation.diagnosticsSha256 };
-export async function buildAssetEvidence(inputs: readonly AssetPolicyInput[], binding: typeof BOUND | typeof FIXTURE_BOUND = FIXTURE_BOUND) {
+export async function buildAssetEvidence(inputs: readonly AssetPolicyInput[], binding: AssetBinding = FIXTURE_BOUND) {
   const items = runItems(inputs, binding);
   const db = database(); db.exec('PRAGMA foreign_keys=OFF');
   const adapter = d1(db), b = readinessBinding;

@@ -6,8 +6,9 @@ import { sha256Canonical } from '../../results-review/native/digest.ts';
 import type { PublicationRequest } from './controller.ts';
 import type { CandidateSnapshot, CandidateSnapshotV2, EvidenceCountGroup, EvidenceKind, EvidenceObservation, EvidenceReader, NativePublicationPorts, RequiredPreviewState, SignoffIdentity, SignoffRecord } from './ports.ts';
 import type { PreviewNavigationObservation, PreviewReasonCode, PreviewRenderStage } from './preview-outcome.ts';
-import { EVIDENCE_KINDS, checkEvidenceItem, checkSnapshot, checkSnapshotV2, evidenceCount, newWarnings, signoffBlocker, signoffBlockerV2, type Blocker } from './rules.ts';
-import { assetPolicySummary, assetPolicyWording, isAssetHoldReason, type AssetPolicyKey, type AssetPolicyLine, type AssetPolicyWording } from './asset-policy.ts';
+import { EVIDENCE_KINDS, acknowledgementGroups, assetBindingOf, awaitsMetaAcknowledgement, checkEvidenceItem, checkSnapshot, checkSnapshotV2, evidenceCount, newWarnings, signoffBlocker, signoffBlockerV2, type Blocker } from './rules.ts';
+import { assetPolicySummary, assetPolicyWording, isAssetHoldReason, isAuthenticMissingOriginal, type AssetPolicyKey, type AssetPolicyLine, type AssetPolicyWording } from './asset-policy.ts';
+import { warningsOf } from './signoff-evidence.ts';
 import type { ReadinessFence, ReadinessFenceResult, ReadinessObservation } from './readiness-fence.ts';
 
 /** The observation a fence is given for a v2 snapshot. */
@@ -232,6 +233,8 @@ export function createPublicationReadiness(ports: PublicationReadinessPorts | nu
           const item = checkEvidenceItem(row, bound), previous = items.at(-1)?.key ?? cursor?.after ?? null;
           // Served rows are in strictly ascending key order after the cursor, and all of the requested kind.
           if (!item || (previous !== null && item.key <= previous) || (kind !== null && item.observation.kind !== kind)) return unavailable();
+          // A missing original is served only if its diagnostic and fingerprint are the recomputed ones for this candidate and validation.
+          if (item.missing && !isAuthenticMissingOriginal(item, assetBindingOf(s))) return unavailable();
           const o = item.observation, held = o.kind === 'preview' && o.state === 'failed' && isAssetHoldReason(o.reasonCode) ? o : null;
           const policy = item.missing ? { ...assetPolicyWording('original-not-supplied'), assetId: item.missing.assetId } : held ? { ...assetPolicyWording(held.reasonCode as AssetPolicyKey), assetId: held.assetId } : undefined;
           items.push({ key: item.key, observation: o, ...(item.acknowledgementRequired !== undefined && { acknowledgementRequired: item.acknowledgementRequired }), ...(policy && { policy }) });
@@ -239,7 +242,15 @@ export function createPublicationReadiness(ports: PublicationReadinessPorts | nu
         // The whole range fitted in this one page, so it must be exactly as many items as the snapshot counts.
         if (cursor === null && !more && items.length !== (kind ? evidenceCount(s, kind) : s.evidence.items)) return unavailable();
         const next = more ? encodeCursor({ binding: series, root: s.evidence.root, kind, after: items.at(-1)!.key }) : null;
-        const blocker = signoffBlockerV2(s);
+        let blocker = signoffBlockerV2(s);
+        // A named sign-off carries the acknowledgements a META disagreement is cleared by; read what the sealed run derives and apply them.
+        if (so && awaitsMetaAcknowledgement(blocker)) {
+          let facts: Awaited<ReturnType<typeof warningsOf>>;
+          try { facts = await warningsOf({ reader }, { clientId: p.clientId, caseId, candidateId, generation: s.evidence.generation, root: s.evidence.root,
+            resultsVersion: s.link.candidate.resultsVersion, manifestSha256: s.link.candidate.manifestSha256 }, evidenceCount(s, 'warning'), assetBindingOf(s)); } catch { return unavailable(); }
+          if (!facts) return unavailable();
+          blocker = signoffBlockerV2(s, { disagreements: facts.meta, acknowledgements: acknowledgementGroups(so.acknowledgements) });
+        }
         const blockers: NonNullable<ReadinessView['signoff']>['blockers'] = [];
         if (so) {
           if (so.state !== 'audited' || so.invalidatedAt !== null) blockers.push('signoff-not-effective');

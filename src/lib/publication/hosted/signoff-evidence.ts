@@ -13,7 +13,9 @@
 // recheck that guards the pointer write, so none is built.
 import { PAGE_SIZE, pageBytes, rootBytes, sha256Hex, verifyEvidence, type EvidenceStore } from './evidence/index.ts';
 import type { EvidenceReader } from './ports.ts';
-import { checkEvidenceItem } from './rules.ts';
+import type { MetaDisagreement } from '../../case-package/meta-integrity.ts';
+import { authenticMissingOriginals, type AssetBinding, type MissingOriginal } from './asset-policy.ts';
+import { checkEvidenceItem, metaDisagreementsOf, type CheckedEvidenceItem } from './rules.ts';
 import { originalKey } from '../../storage/cloud/keys.ts';
 
 /** What R2 holds for one object right now, as `head` reports it. */
@@ -89,14 +91,18 @@ export async function checkRows(port: PublicationEvidence, x: EvidenceClaim): Pr
   return total === sealed.items && sha256Hex(rootBytes(digests)) === x.root ? { ok: true, items: sealed.items, rows: kept } : { ok: false, reason: 'rows' };
 }
 
+/** What a run's warnings say: every one, the ones the baseline does not hold, the META disagreements and the authenticated missing originals. */
+export interface WarningFacts { all: string[]; fresh: string[]; meta: MetaDisagreement[]; missing: MissingOriginal[] }
 /**
- * Every warning of the run in key order, and the ones the case's baseline does not hold. Null when a row is not one this candidate may
- * serve (`checkEvidenceItem`) or the run holds far more warnings than `expected`, the snapshot's count; the caller compares the counts.
+ * Every warning of the run in key order, and the ones the case's baseline does not hold, with the exceptions the run carries. Null when a row
+ * is not one this candidate may serve (`checkEvidenceItem`), the run holds far more warnings than `expected` (the snapshot's count; the caller
+ * compares the counts), or an exception is not genuine: a missing original must be the recomputed one for `binding` with the validator's own
+ * warning in the run (`authenticMissingOriginals`), and a META disagreement needs the validator's warning for its diagnostic in the run too.
  */
-export async function warningsOf(port: PublicationEvidence, x: EvidenceClaim, expected: number): Promise<{ all: string[]; fresh: string[] } | null> {
-  const all: string[] = [], fresh: string[] = [];
-  let after: string | null = null;
-  for (let reads = 0; reads <= Math.ceil(expected / PAGE_SIZE) + 1; reads++) {
+export async function warningsOf(port: Pick<PublicationEvidence, 'reader'>, x: EvidenceClaim, expected: number, binding: AssetBinding): Promise<WarningFacts | null> {
+  const all: string[] = [], fresh: string[] = [], checked: CheckedEvidenceItem[] = [];
+  let after: string | null = null, done = false;
+  for (let reads = 0; reads <= Math.ceil(expected / PAGE_SIZE) + 1 && !done; reads++) {
     const rows = await port.reader.page({ clientId: x.clientId as never, caseId: x.caseId as never, candidateId: x.candidateId, generation: x.generation, root: x.root, after, kind: 'warning', limit: PAGE_SIZE });
     if (rows === null) return null;
     for (const row of rows) {
@@ -104,11 +110,17 @@ export async function warningsOf(port: PublicationEvidence, x: EvidenceClaim, ex
       if (!item || item.observation.kind !== 'warning') return null;
       all.push(item.observation.fingerprint);
       if (item.acknowledgementRequired) fresh.push(item.observation.fingerprint);
+      checked.push(item);
     }
-    if (rows.length < PAGE_SIZE) return { all, fresh };
-    after = rows[rows.length - 1]!.key;
+    done = rows.length < PAGE_SIZE;
+    if (!done) after = rows[rows.length - 1]!.key;
   }
-  return null;
+  if (!done) return null;
+  const missing = authenticMissingOriginals(checked, binding);
+  if (!missing) return null;
+  const meta = metaDisagreementsOf(checked), present = new Set(all);
+  if (meta.some((d) => !present.has(d.diagnostic))) return null;
+  return { all, fresh, meta, missing };
 }
 
 export type OriginalsCheck =

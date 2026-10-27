@@ -40,6 +40,9 @@ export type Refreshed = { credential?: Request; setCookies: readonly string[]; o
 /** Where a page-data request is handed for a full page load, and the cookies its answer sets. */
 export type Handoff = { location: string; setCookies: readonly string[] };
 
+/** The header that marks a fetch's 401 as one a page load through the identity handshake would renew (views/hosted/reauth.ts). */
+export const REAUTH_HEADER = 'x-clearcase-reauth';
+
 // Kit's page-data request: the page's path with `/__data.json` appended and its own query parameters added.
 const DATA_SUFFIX = '/__data.json', INVALIDATED = 'x-sveltekit-invalidated', TRAILING_SLASH = 'x-sveltekit-trailing-slash';
 /** The page a `__data.json` request loads data for, as Kit resolves it (respond.js), or null for any other request. */
@@ -107,6 +110,14 @@ export function createHandle(servicesFor: (request: Request, credential?: Reques
 		if (!readiness.ready && !PUBLIC(path)) return plain(503, `ClearCase is unavailable: ${readiness.reason}`, { 'retry-after': '2' });
 		const response = await resolve(event);
 		for (const [name, value] of Object.entries(SECURITY)) response.headers.set(name, value);
+		// A fetch refused for a session only the handshake renews (expired, its hold spent or refused) cannot follow it, so
+		// its 401 says so and the page reloads through it (views/hosted/reauth.ts); nothing redirects (heavy review M4).
+		if (response.status === 401 && handoffFor && event.request.headers.get('sec-fetch-mode') !== 'navigate' && !dataRequestPage(event.request.url)) {
+			let handoff: Handoff | null;
+			try { handoff = await handoffFor(event.request, new URL(event.request.url)); }
+			catch { handoff = null; }
+			if (handoff) response.headers.set(REAUTH_HEADER, '1');
+		}
 		for (const c of refreshed?.setCookies ?? []) response.headers.append('set-cookie', c);
 		const csp = formActionsFor ? response.headers.get('content-security-policy') : null;
 		if (csp) response.headers.set('content-security-policy', withFormActions(csp, formActionsFor!(path)));

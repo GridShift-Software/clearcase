@@ -54,6 +54,11 @@ import { CLERK_COOKIE_NAME, CLIENT_UAT_COOKIE_NAME, REFRESH_COOKIE_NAME, SESSION
 // and its return marks the browser with REAUTH_COOKIE for REAUTH_MAX_AGE seconds: a data request carrying the mark is not
 // handed off again, so one handoff costs at most one handshake, and a hover preload of a data redirect marks nothing.
 const REAUTH_PARAM = '__clearcase_reauth', REAUTH_COOKIE = '__Host-clearcase_reauth', REAUTH_MAX_AGE = 30;
+// Every handshake a page load starts carries REAUTH_PARAM in its return URL, and its return keeps it, as the time it
+// returned, on the page it lands on: a page load that would start another handshake within REAUTH_MAX_AGE of a return
+// was not signed in by it (the browser kept none of its cookies, so no cookie can count), and gets the session-ended
+// page instead (heavy review M2). A page that needs no handshake drops the parameter with one same-origin redirect.
+const returnedJustNow = (url: URL) => { const at = url.searchParams.get(REAUTH_PARAM); return at !== null && /^\d{10}$/.test(at) && Math.abs(Date.now() / 1000 - Number(at)) <= REAUTH_MAX_AGE; };
 const HANDSHAKE_PARAMS = ['__clerk_handshake', '__clerk_handshake_nonce', '__clerk_help', '__clerk_db_jwt', STAFF_HANDSHAKE_PARAM, REAUTH_PARAM];
 const TOKEN = /^[A-Za-z0-9._-]{16,8192}$/;
 const DEV_BROWSER = /^[A-Za-z0-9._-]{16,4096}$/;
@@ -305,7 +310,9 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			const evidence = await revocationEvidenceOf(next.token, config).catch(() => null);
 			if (evidence?.instance === config[next.kind]) set = sessionHoldCookie({ kind: next.kind, token: next.token, refreshToken: next.refreshToken }, tokenClaims(next.token).exp as number);
 		}
-		const kept = set === null ? null : SESSION_HOLD_COOKIE[next!.kind];
+		// under the name after the one the request carries (nextHoldName), never back to the first (heavy review M1)
+		const carried = sessionHoldOf(request), kept = set === null ? null : carried?.kind === next!.kind ? nextHoldName(carried.name) : SESSION_HOLD_COOKIE[next!.kind];
+		if (set !== null && kept !== SESSION_HOLD_COOKIE[next!.kind]) set = sessionHoldCookie({ kind: next!.kind, token: next!.token!, refreshToken: next!.refreshToken! }, tokenClaims(next!.token!).exp as number, kept!);
 		return [...(set === null ? [] : [set]), ...sessionHoldNames(request).filter((n) => n !== kept).map(sessionHoldClear)];
 	}
 
@@ -432,7 +439,10 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 					return refuse(502, 'handshake-invalid');
 				}
 				if (to.origin !== instance.issuer || to.pathname !== '/v1/client/handshake' || back.origin !== config.appOrigin) return refuse(502, 'handshake-invalid');
+				if (returnedJustNow(url)) return { kind: 'stop', signIn: kind === 'staff' ? OPERATOR_PATH : '/sign-in' };
 				to.searchParams.delete('format');
+				back.searchParams.set(REAUTH_PARAM, '1');
+				to.searchParams.set('redirect_url', back.href);
 				if (kind === 'staff' && staffDevelopment) {
 					setCookies.unshift(...view.clears);
 					const started = await startStaffHandshake(config, view.vouched);
@@ -442,12 +452,14 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 						setCookies.push(started.setCookie);
 					}
 				}
-				return { kind: 'redirect', location: to.href, setCookies };
+				// by the bridge page, never a 303: this load may be a native form's submission or its redirect (handshakeResponse)
+				return { kind: 'redirect', location: to.href, setCookies, refresh: true };
 			}
 			if (hasToken) {
 				if (setCookies.length === 0) return refuse(400, 'handshake-invalid');
 				const clean = new URL(url);
 				for (const p of HANDSHAKE_PARAMS) clean.searchParams.delete(p);
+				if (url.searchParams.has(REAUTH_PARAM)) clean.searchParams.set(REAUTH_PARAM, String(Math.floor(Date.now() / 1000)));
 				if (state.status !== 'signed-in' && setCookies.some(setsSession)) return refuse(502, 'handshake-cookie-refused');
 				// A session cookie the browser carries beside the ones this handshake sets would make its credential ambiguous, so
 				// each owned one it carries goes, at every scope, before the handshake's own are set: a browser a renewal left with
@@ -472,10 +484,17 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				return { kind: 'redirect', location: clean.href, setCookies };
 			}
 			// a signed-in page load whose hold a renewal spent goes through the handshake for a fresh refresh token (handoff)
-			if (state.status === 'signed-in' && request.headers.get('sec-fetch-dest') === 'document' && sessionHoldOf(request)?.spent) {
+			const document = request.headers.get('sec-fetch-dest') === 'document';
+			if (state.status === 'signed-in' && document && sessionHoldOf(request)?.spent) {
+				if (returnedJustNow(url)) return { kind: 'stop', signIn: kind === 'staff' ? OPERATOR_PATH : '/sign-in' };
 				const handed = await api.handoff(request, url);
 				// a refresh, not a 303: this load may be the redirect of a form submission (handshakeResponse)
 				if (handed) return { kind: 'redirect', location: handed.location, setCookies: handed.setCookies, refresh: true };
+			}
+			if (document && url.searchParams.has(REAUTH_PARAM)) {
+				const clean = new URL(url);
+				clean.searchParams.delete(REAUTH_PARAM);
+				return { kind: 'redirect', location: clean.href, setCookies: [] };
 			}
 			return { kind: 'continue' };
 		},

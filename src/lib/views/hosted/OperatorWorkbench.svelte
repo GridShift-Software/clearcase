@@ -207,6 +207,9 @@
     let r: Response;
     try { r = await fetch(path, { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', headers: body === undefined ? {} : { 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); }
     catch { throw new Error('Network failure. Outcome is unconfirmed; keep the operation id and retry the unchanged request.'); }
+    // a 401 marked x-clearcase-reauth: only a page load through the handshake renews the session (views/hosted/reauth.ts);
+    // reload this page and retry nothing (heavy review M4)
+    if (r.status === 401 && r.headers.get('x-clearcase-reauth') === '1') { location.assign(location.href); throw new Error('Your session ended while the page was idle. The page is reloading to sign you in again; the request was refused and not sent again, so repeat it once the page has loaded.'); }
     let value;
     try { value = await r.json(); } catch { throw new Error(`HTTP ${r.status}: invalid JSON response. Outcome is unconfirmed.`); }
     if (!r.ok) {

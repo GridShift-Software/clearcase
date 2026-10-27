@@ -47,7 +47,8 @@ describe('the handshake that returns a session cookie to this origin', () => {
 		const o = redirectOf(await handshake().handle(page('/cases?tab=1')));
 		const to = new URL(o.location);
 		expect(`${to.origin}${to.pathname}`).toBe('https://client-a.clerk.test/v1/client/handshake');
-		expect(to.searchParams.get('redirect_url')).toBe(`${ORIGIN}/cases?tab=1`);
+		// marked, so a return the browser kept no cookies of stops (heavy review M2)
+		expect(to.searchParams.get('redirect_url')).toBe(`${ORIGIN}/cases?tab=1&__clearcase_reauth=1`);
 		expect(to.searchParams.has('format')).toBe(false);
 		expect(o.location).not.toContain(A.secretKey);
 		expect(o.setCookies.every((c) => /^__clerk_redirect_count=\d+; Path=\/; /.test(c) && /HttpOnly/.test(c) && /Secure/.test(c) && !/Domain=/i.test(c))).toBe(true);
@@ -96,7 +97,7 @@ describe('the handshake that returns a session cookie to this origin', () => {
 		expect(await handshake().handle(new Request('https://attacker.example.test/cases', { headers: doc }))).toMatchObject({ kind: 'refuse' });
 		expect(await handshake().handle(page('/cases', undefined, { 'x-forwarded-host': 'attacker.example.test', 'x-forwarded-proto': 'https' }))).toMatchObject({ kind: 'redirect' });
 		const o = redirectOf(await handshake().handle(page('/cases', undefined, { 'x-forwarded-host': 'attacker.example.test' })));
-		expect(new URL(o.location).searchParams.get('redirect_url')).toBe(`${ORIGIN}/cases`);
+		expect(new URL(o.location).searchParams.get('redirect_url')).toBe(`${ORIGIN}/cases?__clearcase_reauth=1`);
 	});
 	it('continues without a redirect for a browser that holds a live session', async () => {
 		expect(await handshake().handle(page('/cases', `__clerk_db_jwt=abc; __client_uat=1700000000; __session=${tokenA()}`))).toEqual({ kind: 'continue' });

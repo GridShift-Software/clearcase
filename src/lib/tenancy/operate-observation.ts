@@ -33,7 +33,8 @@ export function d1OperateObservation(o: { db: D1; deployment: ClientResourceIden
       sql: `(EXISTS (SELECT 1 FROM rs_storage_identity i JOIN rs_case c ON c.case_id = ? WHERE i.singleton = 1 AND i.client_id = ? AND i.layout = ?)
         AND EXISTS (SELECT 1 FROM tenant_case_grants g WHERE g.client_id = ? AND g.scope = 'case' AND g.case_id = ? AND g.issuer = ? AND g.subject = ?
           AND g.principal_kind = ? AND g.state = 'active' AND g.role IN (${OPERATORS.map(() => '?').join(', ')})
-          AND (g.expires_at IS NULL OR julianday(g.expires_at) > julianday(?))))`,
+          AND (g.expires_at IS NULL OR (g.expires_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'
+            AND julianday(g.expires_at) > julianday(?)))))`,
       values: [a.caseId, deployment.clientId, LAYOUT, deployment.clientId, a.caseId, a.principal.issuer, a.principal.subject, a.principal.kind, ...OPERATORS, o.now().toISOString()],
     };
   }

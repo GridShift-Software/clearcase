@@ -260,9 +260,12 @@ export function createPublicationReadiness(ports: PublicationReadinessPorts | nu
         const blockers: NonNullable<ReadinessView['signoff']>['blockers'] = [];
         if (so) {
           if (so.state !== 'audited' || so.invalidatedAt !== null) blockers.push('signoff-not-effective');
-          // The identity carries the revision, which covers the baseline; U5 additionally binds the evidence root to the sign-off.
+          // The identity carries the revision, which covers the baseline; the sign-off must also bind the run this snapshot names:
+          // its candidate, generation and root (U5 L). A sign-off over another generation is stale even when the root repeats.
+          const run = so.evidence;
           if (canonicalJson(signedIdentity(so)) !== canonicalJson(identityOf(s)) || blocker || !acknowledged
-            || so.acknowledgements.length !== s.evidence.newWarnings || so.warningFingerprints.length !== evidenceCount(s, 'warning')) blockers.push('signoff-stale');
+            || so.acknowledgements.length !== s.evidence.newWarnings || so.warningFingerprints.length !== evidenceCount(s, 'warning')
+            || run?.candidateId !== s.link.candidate.candidateId || run.generation !== s.evidence.generation || run.root !== s.evidence.root) blockers.push('signoff-stale');
         }
         const view: ReadinessViewV2 = {
           format: 'clearcase.readiness/2', caseId, identity: identityOf(s), materialSha256: await sha256Canonical(s), blocker,

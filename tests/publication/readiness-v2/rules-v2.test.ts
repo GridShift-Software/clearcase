@@ -90,3 +90,49 @@ describe('checkEvidenceItem', () => {
     expect(checkEvidenceItem({ ...row('preview/a1', { kind: 'preview', assetId: 'a1', state: 'rendered' }), baseline: true }, bound)).toBeNull();
   });
 });
+
+// REVIEW.md "fail-open on a missing field": every leaf of a good value is deleted, nulled and retyped, and each must be refused.
+function leaves(value: unknown, path: (string | number)[] = []): (string | number)[][] {
+  if (typeof value !== 'object' || value === null) return [path];
+  return [path, ...Object.entries(value).flatMap(([k, v]) => leaves(v, [...path, Array.isArray(value) ? Number(k) : k]))].filter(p => p.length > 0 || false);
+}
+function mutate(value: unknown, path: (string | number)[], how: 'delete' | 'null' | 'retype'): unknown {
+  const copy = structuredClone(value) as Record<string | number, unknown>;
+  let at = copy;
+  for (const key of path.slice(0, -1)) at = at[key] as Record<string | number, unknown>;
+  const last = path.at(-1)!;
+  if (how === 'delete') { if (Array.isArray(at)) at.splice(last as number, 1); else delete at[last]; }
+  else at[last] = how === 'null' ? null : typeof at[last] === 'string' ? 7 : 'x';
+  return copy;
+}
+describe('every field is required and typed', () => {
+  const good = v2([group({ kind: 'preview', state: 'rendered', count: 3 }), group({ kind: 'preview', state: 'failed', reason: 'render-timeout', count: 2 }), section('quantum', 'valid'),
+    group({ kind: 'warning', count: 4 }), group({ kind: 'error', count: 1 })], { newWarnings: 4 });
+  it('refuses a v2 snapshot with any field deleted, nulled or retyped', () => {
+    expect(checkSnapshotV2(good)).not.toBeNull();
+    const paths = leaves(good).filter(p => p.length > 0);
+    expect(paths.length).toBeGreaterThan(40);
+    for (const path of paths) for (const how of ['delete', 'null', 'retype'] as const) {
+      const changed = mutate(good, path, how);
+      if (how === 'null' && JSON.stringify(changed) === JSON.stringify(good)) continue; // nulling a null changes nothing
+      // The one null a group may take where it had a value: a failed or pending preview with no reason code.
+      const nullByDesign = how === 'null' && path[0] === 'evidence' && path[1] === 'groups' && path[3] === 'reason' && (good.evidence.groups[path[2] as number] as EvidenceCountGroup).kind === 'preview'
+        && (good.evidence.groups[path[2] as number] as EvidenceCountGroup).state !== 'rendered';
+      if (nullByDesign) continue;
+      expect(checkSnapshotV2(changed), `${how} ${path.join('.')}`).toBeNull();
+    }
+  });
+  it('refuses an evidence row with any field deleted, nulled or retyped', () => {
+    const bound = { clientId: 'k', caseId: 'c', resultsVersion: 'v', manifestSha256: 'm' };
+    const input = { caseId: 'c', clientId: 'k', manifestSha256: 'm', rendererVersion: 'r', resultsVersion: 'v', validatorVersion: 'x' };
+    const body = { input, observation: { kind: 'preview', assetId: 'a1', state: 'failed', reasonCode: 'render-timeout', stage: 'navigation', navigation: { goto: 'resolved', documentAcknowledged: true } } };
+    const ok = (json: unknown) => checkEvidenceItem({ key: 'preview/a1', json: JSON.stringify(json), baseline: null }, bound);
+    expect(ok(body)).not.toBeNull();
+    for (const path of leaves(body).filter(p => p.length > 0)) for (const how of ['delete', 'null', 'retype'] as const) {
+      // The reason, stage and navigation of a failed preview are optional diagnostics; deleting one is a valid row.
+      const optional = how === 'delete' && path[0] === 'observation' && ['reasonCode', 'stage', 'navigation'].includes(String(path[1]));
+      if (optional) continue;
+      expect(ok(mutate(body, path, how)), `${how} ${path.join('.')}`).toBeNull();
+    }
+  });
+});

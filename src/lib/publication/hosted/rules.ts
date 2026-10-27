@@ -180,7 +180,8 @@ export function checkEvidenceItem(row: EvidenceItemRow, bound: EvidenceBound): C
   if (!plain(parsed) || !keys(parsed, ['input', 'observation']) || !plain(parsed.input)
     || !keys(parsed.input, ['caseId', 'clientId', 'manifestSha256', 'rendererVersion', 'resultsVersion', 'validatorVersion'])
     || parsed.input.caseId !== bound.caseId || parsed.input.clientId !== bound.clientId
-    || parsed.input.resultsVersion !== bound.resultsVersion || parsed.input.manifestSha256 !== bound.manifestSha256) return null;
+    || parsed.input.resultsVersion !== bound.resultsVersion || parsed.input.manifestSha256 !== bound.manifestSha256
+    || !text(parsed.input.rendererVersion) || !text(parsed.input.validatorVersion)) return null;
   const found = observationOf(parsed.observation);
   if (!found || row.key !== `${found.observation.kind}/${found.subject}`) return null;
   if (found.observation.kind === 'warning') return typeof row.baseline === 'boolean' ? { key: row.key, observation: found.observation, acknowledgementRequired: !row.baseline } : null;

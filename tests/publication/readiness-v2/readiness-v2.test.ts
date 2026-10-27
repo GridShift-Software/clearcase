@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createPublicationReadiness } from '../../../src/lib/publication/hosted/readiness.ts';
 import type { EvidenceReader } from '../../../src/lib/publication/hosted/ports.ts';
+import { CASE, CLIENT } from '../../hosted-smoke/operator-workbench/fixtures.ts';
+import { id } from '../../../src/lib/server/runtime/ids.ts';
 import { BASELINE, PREVIEWS, WARNINGS, buildEvidence, expectedGroups, fp, observations, snapshotV2, worldV2, type Built } from './harness.ts';
 
 type Body = { evidence: { root: string; items: number; groups: unknown[]; newWarnings: number }; acknowledgementsRequired: number; blocker: unknown;
@@ -145,6 +147,28 @@ describe('readiness v2 over persisted evidence', () => {
       } } };
       expect((await createPublicationReadiness(ports).read(w.request())).status).toBe(409);
     });
+  });
+});
+describe('the D1 evidence reader is scoped to one sealed run', () => {
+  it('returns nothing for another client, another case, another generation, another root or a run that is still building', async () => {
+    const built = await buildEvidence({ previews: 12, warnings: 3 });
+    const a = { clientId: CLIENT, caseId: CASE, candidateId: built.binding.candidateId, generation: built.binding.generation };
+    const page = (over: object = {}) => built.reader.page({ ...a, root: built.root, after: null, kind: null, limit: 500, ...over });
+    expect((await page())?.length).toBe(18);
+    for (const over of [{ clientId: id('client', 'another-client') }, { caseId: id('case', 'another-case') }, { generation: '2' }, { candidateId: 'cand-other' }, { root: 'e'.repeat(64) }]) expect(await page(over)).toBeNull();
+    expect(await built.reader.summary({ ...a, clientId: id('client', 'another-client') })).toBeNull();
+    expect(await built.reader.summary({ ...a, caseId: id('case', 'another-case') })).toBeNull();
+    expect((await built.reader.summary(a))?.items).toBe(18);
+    built.db.exec("DROP TRIGGER pub_evidence_item_update_seal; UPDATE pub_evidence_run SET state = 'building'");
+    expect(await page()).toBeNull();
+    expect(await built.reader.summary(a)).toBeNull();
+  });
+  it('refuses a summary when a row was added after the run was sealed', async () => {
+    const built = await buildEvidence({ previews: 12, warnings: 3 });
+    const a = { clientId: CLIENT, caseId: CASE, candidateId: built.binding.candidateId, generation: built.binding.generation };
+    expect((await built.reader.summary(a))?.items).toBe(18);
+    built.db.prepare('INSERT INTO pub_evidence_item (candidate_id, generation, item_key, item_json) VALUES (?, ?, ?, ?)').run(a.candidateId, a.generation, 'zzz/late', '{}');
+    expect(await built.reader.summary(a)).toBeNull();
   });
 });
 function rowsOf() { return [] as { key: string; json: string; baseline: boolean | null }[]; }

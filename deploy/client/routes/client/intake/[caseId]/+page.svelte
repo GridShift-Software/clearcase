@@ -26,8 +26,9 @@
 	let set: SetView | null = $state(null);
 	let failed = $derived(rows.filter((r) => r.stage === 'failed').length);
 	const UPLOADS_AT_ONCE = 3;
-	// Each pick is a new selection. A send belongs to the selection it started with and stops writing to the page once another
-	// pick replaces it, so an answer that arrives late never shows its state against files it did not send.
+	// Each pick is a new selection. A set's send belongs to the selection it started with and stops writing to the page once
+	// another pick replaces it, so an answer that arrives late never shows its set state against files it did not send. The
+	// picker is disabled while a set is sent. One file keeps its own behaviour: its send finishes and reports for that file.
 	let selection = 0;
 
 	const base = () => `/client/intake/${encodeURIComponent(data.caseId)}/submissions`;
@@ -52,24 +53,23 @@
 		status = 'Checking the file…';
 		// The picker stays live while the bytes are read: take the file, its name and its upload id before the first await,
 		// so the declaration, the bytes and a retry all describe this file. A later pick is a new send with a new upload id.
-		const chosen = file, { name } = chosen, mine = selection;
-		const say = (text: string) => { if (mine === selection) status = text; };
+		const chosen = file, { name } = chosen;
 		try {
 			if (pending?.file !== chosen) pending = { file: chosen, operationId: crypto.randomUUID() };
 			const attempt = pending, { operationId } = attempt;
 			const bytes = await chosen.arrayBuffer();
 			const meta = { operationId, path: name, size: bytes.byteLength, sha256: await sha256(bytes), mediaType: 'application/pdf' };
 			const d = await fetch(base(), { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(meta) });
-			if (!d.ok) { say(((await d.json()) as { message?: string }).message ?? `Refused (${d.status}).`); return; }
-			say('Sending the file…');
+			if (!d.ok) { status = ((await d.json()) as { message?: string }).message ?? `Refused (${d.status}).`; return; }
+			status = 'Sending the file…';
 			const u = await fetch(`${base()}/${operationId}`, { method: 'PUT', credentials: 'same-origin', headers: { 'content-type': 'application/pdf' }, body: bytes });
 			const body = (await u.json()) as { message?: string; stage?: string };
-			if (!u.ok) { say(body.message ?? `Refused (${u.status}).`); return; }
+			if (!u.ok) { status = body.message ?? `Refused (${u.status}).`; return; }
 			if (pending === attempt) pending = null;
-			say('Finalized. No results yet.');
+			status = 'Finalized. No results yet.';
 			await invalidateAll();
 		} catch {
-			say('The upload did not finish. Try again: the same file keeps the same upload.');
+			status = 'The upload did not finish. Try again: the same file keeps the same upload.';
 		} finally {
 			busy = false;
 		}
@@ -156,7 +156,7 @@
 	<p data-intake-state="unavailable">File intake is not available on this deployment yet.</p>
 {:else}
 	<form data-intake-state="available" onsubmit={(e) => { e.preventDefault(); void (rows.length > 1 ? sendSet() : send()); }}>
-		<label>PDF files (one, or several sent as one submission) <input type="file" multiple accept="application/pdf,.pdf" disabled={busy} onchange={(e) => choose([...((e.currentTarget as HTMLInputElement).files ?? [])])} /></label>
+		<label>PDF files (one, or several sent as one submission) <input type="file" multiple accept="application/pdf,.pdf" disabled={busy && rows.length > 1} onchange={(e) => choose([...((e.currentTarget as HTMLInputElement).files ?? [])])} /></label>
 		<button type="submit" disabled={!(file || rows.length > 1) || busy}>Send</button>
 		<p role="status">{status}</p>
 	</form>

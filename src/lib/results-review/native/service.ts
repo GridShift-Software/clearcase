@@ -206,6 +206,7 @@ export function createNativeResultsImport(ports: NativeImportPorts | null): Nati
       const pkg = inspectPackage(r.files, a.caseId);
       if (!pkg.ok) return refused(pkg.code, ...pkg.detail);
       // Work this request cannot finish is refused before anything is written, not exhausted part way through.
+      // This pre-claim refusal needs no fresh observation: it uses only the caller's package and the plan, not cached permission.
       const originals = new Set(Object.values(pkg.value.assets).flatMap((x) => x.kind === 'file' ? [x.sha256] : [])).size;
       const over = ports!.requestBudget ? overRequestBudget({ files: r.files.size, originals, rows: 0 }, ports!.requestBudget) : null;
       if (over) return refused('over-budget', over);
@@ -261,7 +262,8 @@ export function createNativeResultsImport(ports: NativeImportPorts | null): Nati
       const s = scope(a.caseId);
       if (!ports!.packages) throw contractError('correction-unavailable', true);
       // A correction reads back its whole base package (each file under a fresh observation) and then stages a whole package:
-      // more than the import alone, which already takes most of a request on a budgeted plan.
+      // more than the import alone, which already takes most of a request on a budgeted plan. This early refusal uses
+      // only the plan, not stored case content or cached permission, so it needs no fresh observation.
       if (ports!.requestBudget) return refused('over-budget', `a correction re-reads and re-stages a whole package, more than one request here may make (${ports!.requestBudget.d1} D1 calls, ${ports!.requestBudget.external} subrequests)`);
       const base = await repository.candidate({ ...s, candidateId: r.candidateId });
       if (!base) return answer(a, refused('base-not-found', 'no such candidate in this case'));

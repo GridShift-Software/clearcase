@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
+	import { signInHref } from '$lib/auth/sign-in-link';
 	import type { SetView, SubmissionView } from '$lib/submissions';
 	import { fileSetDigest } from '$lib/submissions/file-set';
-	let { data }: { data: { caseId: string; available: boolean; submissions: SubmissionView[]; sets?: SetView[] } } = $props();
+	// `canUpload` is the server's advisory answer for this reader; absent means unknown, and the audited send decides.
+	let { data }: { data: { caseId: string; available: boolean; canUpload?: boolean; submissions: SubmissionView[]; sets?: SetView[] } } = $props();
 
 	const LABEL: Record<SubmissionView['stage'], string> = {
 		received: 'Received, not finalized: the file has not been stored yet',
@@ -17,6 +19,8 @@
 	let file: File | null = $state(null);
 	let status = $state('');
 	let busy = $state(false);
+	// A send refused as signed out keeps the person on the page with a way back in that returns here.
+	let signInNeeded = $state(false);
 	// One upload id per chosen file, kept across a failed attempt so a retry finishes the same submission.
 	let pending: { file: File; operationId: string } | null = null;
 
@@ -50,6 +54,7 @@
 	async function send() {
 		if (!file || busy) return;
 		busy = true;
+		signInNeeded = false;
 		status = 'Checking the file…';
 		// The picker stays live while the bytes are read: take the file, its name and its upload id before the first await,
 		// so the declaration, the bytes and a retry all describe this file. A later pick is a new send with a new upload id.
@@ -62,11 +67,11 @@
 			const bytes = await chosen.arrayBuffer();
 			const meta = { operationId, path: name, size: bytes.byteLength, sha256: await sha256(bytes), mediaType: 'application/pdf' };
 			const d = await fetch(base(), { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(meta) });
-			if (!d.ok) { status = about(((await d.json()) as { message?: string }).message ?? `Refused (${d.status}).`); return; }
+			if (!d.ok) { signInNeeded = d.status === 401; status = about(((await d.json()) as { message?: string }).message ?? `Refused (${d.status}).`); return; }
 			status = `Sending ${name}…`;
 			const u = await fetch(`${base()}/${operationId}`, { method: 'PUT', credentials: 'same-origin', headers: { 'content-type': 'application/pdf' }, body: bytes });
 			const body = (await u.json()) as { message?: string; stage?: string };
-			if (!u.ok) { status = about(body.message ?? `Refused (${u.status}).`); return; }
+			if (!u.ok) { signInNeeded = u.status === 401; status = about(body.message ?? `Refused (${u.status}).`); return; }
 			if (pending === attempt) pending = null;
 			status = `Finalized ${name}. No results yet.`;
 			await invalidateAll();
@@ -82,6 +87,7 @@
 	async function sendSet() {
 		if (rows.length < 2 || busy) return;
 		busy = true;
+		signInNeeded = false;
 		const chosen = rows, mine = selection, live = () => mine === selection;
 		try {
 			status = 'Checking the files…';
@@ -91,7 +97,7 @@
 			for (const r of chosen) if (!r.operationId) r.operationId = `fs-${(await sha256(new TextEncoder().encode(`${setId}\n${r.path}`))).slice(0, 40)}`;
 			const opened = await post(sets(), { setId, fileCount: chosen.length, totalBytes: chosen.reduce((n, r) => n + r.size, 0) });
 			if (!live()) return;
-			if (!opened.ok) { const text = await message(opened); if (live()) status = text; return; }
+			if (!opened.ok) { const text = await message(opened); if (live()) { signInNeeded = opened.status === 401; status = text; } return; }
 			const first = ((await opened.json()) as { set: SetView }).set;
 			if (!live()) return;
 			set = first;
@@ -142,7 +148,7 @@
 			status = set && set.state === 'sealing' ? `Sealing: ${set.finalized} of ${set.fileCount} files finalized…` : 'Sealing the set…';
 			const r = await post(`${sets()}/${setId}/seal`, { filesSha256: digest });
 			if (!live()) return;
-			if (!r.ok) { const text = await message(r); if (live()) status = text; return; }
+			if (!r.ok) { const text = await message(r); if (live()) { signInNeeded = r.status === 401; status = text; } return; }
 			const next = ((await r.json()) as { set: SetView }).set;
 			if (!live()) return;
 			set = next;
@@ -154,34 +160,7 @@
 </script>
 
 <h1>Supply files for case {data.caseId}</h1>
-{#if !data.available}
-	<p data-intake-state="unavailable">File intake is not available on this deployment yet.</p>
-{:else}
-	<form data-intake-state="available" onsubmit={(e) => { e.preventDefault(); void (rows.length > 1 ? sendSet() : send()); }}>
-		<label>PDF files (one, or several sent as one submission) <input type="file" multiple accept="application/pdf,.pdf" disabled={busy && rows.length > 1} onchange={(e) => choose([...((e.currentTarget as HTMLInputElement).files ?? [])])} /></label>
-		<button type="submit" disabled={!(file || rows.length > 1) || busy}>Send</button>
-		<p role="status">{status}</p>
-	</form>
-	{#if rows.length > 1}
-		<section aria-labelledby="set-title">
-			<h2 id="set-title">{rows.length} files, sent as one submission</h2>
-			{#if set}
-				<p data-set-state={set.state}>
-					{#if set.state === 'sealed' && set.revision}Sealed: {set.fileCount} files as submission {set.revision.sequence}. The set cannot change; a new set is a new submission. No results yet.
-					{:else if set.state === 'sealing'}Sealing: {set.finalized} of {set.fileCount} files finalized.
-					{:else}Open: {set.stored} of {set.fileCount} files stored. The set is sealed once every file is stored.{/if}
-				</p>
-			{/if}
-			<ol>
-				{#each rows as r (r.path)}
-					<li data-file={r.path} data-file-stage={r.stage}>
-						{r.path} ({r.size} bytes): {r.stage === 'stored' ? 'stored' : r.stage === 'sending' ? 'sending…' : r.stage === 'failed' ? `failed: ${r.error}` : 'waiting'}
-					</li>
-				{/each}
-			</ol>
-			{#if failed && !busy}<button type="button" data-retry onclick={() => void sendSet()}>Retry the {failed} failed file{failed === 1 ? '' : 's'}</button>{/if}
-		</section>
-	{/if}
+{#snippet submissions()}
 	<section aria-labelledby="submissions-title">
 		<h2 id="submissions-title">Submissions</h2>
 		{#if data.submissions.length || data.sets?.length}
@@ -203,4 +182,41 @@
 			<p>No files have been supplied for this case.</p>
 		{/if}
 	</section>
+{/snippet}
+{#if !data.available}
+	<p data-intake-state="unavailable">File intake is not available on this deployment yet.</p>
+{:else if data.canUpload === false}
+	<p data-intake-state="no-upload-grant">Your account is not set up to supply files for this case. You can see the files already supplied below. To supply a file, ask the service team to enable uploads for your account.</p>
+	{@render submissions()}
+{:else if data.canUpload !== true}
+	<p data-intake-state="upload-unknown">We could not check whether your account can supply files for this case right now. Reload the page to try again. You can see the files already supplied below.</p>
+	{@render submissions()}
+{:else}
+	<form data-intake-state="available" onsubmit={(e) => { e.preventDefault(); void (rows.length > 1 ? sendSet() : send()); }}>
+		<label>PDF files (one, or several sent as one submission) <input type="file" multiple accept="application/pdf,.pdf" disabled={busy && rows.length > 1} onchange={(e) => choose([...((e.currentTarget as HTMLInputElement).files ?? [])])} /></label>
+		<button type="submit" disabled={!(file || rows.length > 1) || busy}>Send</button>
+		<p role="status">{status}</p>
+		{#if signInNeeded}<p><a data-intake-sign-in href={signInHref(`/client/intake/${encodeURIComponent(data.caseId)}`)} data-sveltekit-reload>Sign in again</a></p>{/if}
+	</form>
+	{#if rows.length > 1}
+		<section aria-labelledby="set-title">
+			<h2 id="set-title">{rows.length} files, sent as one submission</h2>
+			{#if set}
+				<p data-set-state={set.state}>
+					{#if set.state === 'sealed' && set.revision}Sealed: {set.fileCount} files as submission {set.revision.sequence}. The set cannot change; a new set is a new submission. No results yet.
+					{:else if set.state === 'sealing'}Sealing: {set.finalized} of {set.fileCount} files finalized.
+					{:else}Open: {set.stored} of {set.fileCount} files stored. The set is sealed once every file is stored.{/if}
+				</p>
+			{/if}
+			<ol>
+				{#each rows as r (r.path)}
+					<li data-file={r.path} data-file-stage={r.stage}>
+						{r.path} ({r.size} bytes): {r.stage === 'stored' ? 'stored' : r.stage === 'sending' ? 'sending…' : r.stage === 'failed' ? `failed: ${r.error}` : 'waiting'}
+					</li>
+				{/each}
+			</ol>
+			{#if failed && !busy}<button type="button" data-retry onclick={() => void sendSet()}>Retry the {failed} failed file{failed === 1 ? '' : 's'}</button>{/if}
+		</section>
+	{/if}
+	{@render submissions()}
 {/if}

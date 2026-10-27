@@ -20,7 +20,7 @@ The GRS-203 stop sends only `POST /accounts/<account>/workers/scripts/<worker>/s
 
 ## Manifest (`clearcase.native-alpha-controls/1`)
 
-Every client must belong to `APPROVED_NATIVE_SCOPE`: account `fb4c31b91c5d89b7a54afbdc34823170` and zone `gridshift.co.za` / `db7c322907320aba562d64015ee7d673`, with that client's approved Worker, hostname, D1 name and R2 bucket. The current plan has two clients, but that comes from the scope list. The code has no fixed client count. Each client entry has exactly these keys:
+Every client must belong to `APPROVED_NATIVE_SCOPE`: account `fb4c31b91c5d89b7a54afbdc34823170` and zone `clearcase.co.za` / `1c82369e826ebe0afded65c295198fcd` (hostnames `sbx-a.clearcase.co.za` and `sbx-b.clearcase.co.za`; the bind and rollback plan is `deploy/native-alpha/custom-domain-bind.ts`), with that client's approved Worker, hostname, D1 name and R2 bucket. The current plan has two clients, but that comes from the scope list. The code has no fixed client count. Each client entry has exactly these keys:
 
 - `client`, `worker`
 - `domain {id (32 hex), hostname, zoneId, service = worker, environment = production}`

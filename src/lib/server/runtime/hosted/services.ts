@@ -14,7 +14,7 @@ import { cloudBindings } from '../../../storage/cloud/bindings.ts';
 import { storageBudgets } from '../../../storage/cloud/budgets.ts';
 import { createCloudResults } from '../../../results/hosted/index.ts';
 import { createD1UserWork, d1WorkRevision, userWorkConfig } from '../../../user-work/hosted/index.ts';
-import { createUploadAuthorizer, d1UploadGrantReader } from '../../../tenancy/upload-capability.ts';
+import { createUploadAuthorizer, createUploadHolding, d1UploadGrantReader } from '../../../tenancy/upload-capability.ts';
 import { createOriginalIntake } from '../../../storage/cloud/intake.ts';
 import { storageQuotas } from '../../../storage/cloud/quotas.ts';
 import { d1SubmissionRepository } from '../../../submissions/repository.ts';
@@ -75,8 +75,11 @@ function nativeContext(env: Readonly<Record<string, unknown>>, b: Bindings, cler
 /** Keeps work running after the response for the invocation that calls it. */
 export interface RequestScheduler { waitUntil(work: Promise<void>): void }
 
-/** Fresh identity and audit state for this exact request; only immutable deployment configuration is shared. */
-export async function hostedServices(request: Request, env: Readonly<Record<string, unknown>>, scheduler: RequestScheduler | null = null): Promise<Readiness> {
+/**
+ * Fresh identity and audit state for this exact request; only immutable deployment configuration is shared. The identity
+ * is read from `credential` (a renewed session, handle.ts) when given, else from the request itself.
+ */
+export async function hostedServices(request: Request, env: Readonly<Record<string, unknown>>, scheduler: RequestScheduler | null = null, credential: Request = request): Promise<Readiness> {
 	const b = bindings(env), now = () => new Date();
 	const services: RequestServices = createUnavailableServices({ clientId: b.clientId ?? id('client', 'unconfigured'), now });
 	let dataReady = false;
@@ -98,7 +101,7 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 	if (!clerk.ok) return { ready: false, reason: clerk.reason, services };
 	native = nativeContext(env, b, clerk.config);
 	try {
-		services.identity = await clerk.provider.authenticate({ request });
+		services.identity = await clerk.provider.authenticate({ request: credential });
 	} catch {
 		return { ready: false, reason: 'the identity provider is unavailable', services };
 	}
@@ -123,8 +126,10 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 				const identity = services.identity;
 				const authority = caseAuthority({ identity, deployment: context.deployment, db: context.db, audit: services.audit, now });
 				const { session, cases, grants, authorizer, authorizeOperate } = authority;
+				const uploads = d1UploadGrantReader(context.db, context.deployment);
 				const upload = createUploadAuthorizer({ deployment: context.deployment, grants,
-					uploads: d1UploadGrantReader(context.db, context.deployment), cases, session, audit: services.audit, now });
+					uploads, cases, session, audit: services.audit, now });
+				const mayUpload = createUploadHolding({ deployment: context.deployment, uploads, now });
 				const authorizeUpload: NonNullable<typeof upload> = async (a) => {
 					const scoped = { ...a, principal: { ...a.principal } };
 					await session(scoped); await upload!(scoped);
@@ -190,7 +195,7 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 					const preview = createPrivatePreview({ clientId: clerk.config.clientId, identity, db: context.db, audit: services.audit, now,
 						authorizeOperate: (o) => authorizeOperate({ ...o, capability: 'operate' }), operateCondition: (o) => authority.operate.condition(o) });
 					bindNativeRequestCompositions(request, {
-						intake: { clientId: clerk.config.clientId, budget, authorizeUpload, originals, repository, now },
+						intake: { clientId: clerk.config.clientId, budget, authorizeUpload, mayUpload, originals, repository, now },
 						downloads: { clientId: clerk.config.clientId, authorizeOperate, repository, assets: results.assets, audit: services.audit, now,
 							...(scheduler ? { waitUntil: (work: Promise<void>) => scheduler.waitUntil(work) } : {}) },
 						imports, publication, preview,

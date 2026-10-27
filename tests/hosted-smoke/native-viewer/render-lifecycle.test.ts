@@ -33,6 +33,12 @@ beforeEach(() => { Object.assign(controls, { bytes: pdf(), pauseNext: false, pau
 afterEach(async () => { reader?.destroy(); reader = null; await Promise.allSettled(controls.loads.map((t: any) => t.destroy())); });
 const open = (canvas = createCanvas(100, 100), signal?: AbortSignal) => (window as any).clearcasePdfReader.open({ src: '/synthetic.pdf', canvas, signal });
 
+it('fits the page to a narrow container by default and preserves zoom', async () => {
+  const canvas = createCanvas(100, 100); reader = await open(canvas);
+  await reader.draw(1, 1.2, 50); expect(canvas.width).toBe(50);
+  await reader.draw(1, 1.8, 50); expect(canvas.width).toBe(75);
+});
+
 it('cancels and awaits a running RenderTask before rapid page/zoom canvas reuse', async () => {
   const canvas = createCanvas(100, 100); reader = await open(canvas); controls.pauseNext = true;
   const first = reader.draw(1, 1); first.catch(() => {});

@@ -20,12 +20,24 @@ describe('prepare and read', () => {
 		const staged = prepareNativeRuntimeConfig({ input: exampleInput(), out });
 		expect(names(out)).toEqual(['client-a.runtime.json', 'client-b.runtime.json', NATIVE_RUNTIME_CONFIG_MANIFEST]);
 		for (const [name, bytes] of plan.files) expect(readFileSync(path.join(out, name), 'utf8')).toBe(bytes);
-		expect(lstatSync(out).mode & 0o777).toBe(0o700);
-		expect(lstatSync(path.join(out, NATIVE_RUNTIME_CONFIG_MANIFEST)).mode & 0o777).toBe(0o600);
+		expect(lstatSync(out).mode & 0o7777).toBe(0o700);
+		expect(lstatSync(path.join(out, NATIVE_RUNTIME_CONFIG_MANIFEST)).mode & 0o7777).toBe(0o600);
 		expect(staged.stage).toBe(out);
 		expect(staged.manifest).toMatchObject({ providerProof: false, provisioned: false, deployed: false });
 		expect(JSON.parse(readFileSync(path.join(out, NATIVE_RUNTIME_CONFIG_MANIFEST), 'utf8'))).toMatchObject({ providerProof: false, provisioned: false, deployed: false });
 		expect(readNativeRuntimeConfig({ input: exampleInput(), stage: out }).manifestText).toBe(plan.manifestText);
+	});
+	it('stages privately under a setgid parent', ({ skip }) => {
+		const parent = fresh(); mkdirSync(parent);
+		try { chmodSync(parent, 0o2700); } catch (error) {
+			if (error instanceof Error && 'code' in error && ['EPERM', 'ENOTSUP', 'EOPNOTSUPP'].includes(String(error.code))) skip('OS refused the setgid bit on the parent directory');
+			throw error;
+		}
+		if ((lstatSync(parent).mode & 0o2000) === 0) skip('OS did not retain the setgid bit on the parent directory');
+		const out = path.join(parent, 'stage'), input = exampleInput();
+		prepareNativeRuntimeConfig({ input, out });
+		expect(lstatSync(out).mode & 0o7777).toBe(0o700);
+		expect(readNativeRuntimeConfig({ input, stage: out }).manifestText).toBe(planNativeRuntimeConfig(input).manifestText);
 	});
 	it('stages the planned Browser allocation byte for byte', () => {
 		const out = fresh();
@@ -113,6 +125,18 @@ describe('changed stage bytes', () => {
 				const out = stage(); chmodSync(path.join(out, name), mode);
 				expect(refused(() => read(out))).toMatch(/exactly the planned/);
 			}
+		}
+	});
+	it.each([0o1000, 0o2000, 0o4000])('refuses special mode bit %o on the stage directory', (bit) => {
+		const out = stage(); chmodSync(out, 0o700 | bit);
+		expect(lstatSync(out).mode & 0o7777).toBe(0o700 | bit);
+		expect(refused(() => read(out))).toMatch(/exactly the planned/);
+	});
+	it.each([0o1000, 0o2000, 0o4000])('refuses special mode bit %o on every stage file', (bit) => {
+		for (const name of ['client-a.runtime.json', 'client-b.runtime.json', NATIVE_RUNTIME_CONFIG_MANIFEST]) {
+			const out = stage(), file = path.join(out, name); chmodSync(file, 0o600 | bit);
+			expect(lstatSync(file).mode & 0o7777).toBe(0o600 | bit);
+			expect(refused(() => read(out))).toMatch(/exactly the planned/);
 		}
 	});
 	it('does not change a stage it refuses', () => {

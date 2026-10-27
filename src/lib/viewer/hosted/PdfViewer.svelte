@@ -6,19 +6,21 @@
 	// notes endpoint into user work; nothing is kept in the browser.
 	import { onMount, untrack } from 'svelte';
 	import type { PageNote } from './page-notes';
-	let { src, downloadHref, notesHref, notes: initial, notesAvailable }: { src: string; downloadHref: string; notesHref: string; notes: readonly PageNote[]; notesAvailable: boolean } = $props();
+	let { src, downloadHref, notesHref, notes: initial, notesAvailable, requestedPage = null }: { src: string; downloadHref: string; notesHref: string; notes: readonly PageNote[]; notesAvailable: boolean; requestedPage?: string | null } = $props();
 	const READER = '/pdfjs/pdf-reader.mjs';
 	let status = $state<'loading' | 'ready' | 'error'>('loading');
 	let pages = $state(0);
 	let current = $state(1);
+	let pageError = $state('');
 	let scale = $state(1.2);
+	let viewport = $state<HTMLDivElement>();
 	let canvas = $state<HTMLCanvasElement>();
 	let notes = $state<PageNote[]>(untrack(() => [...initial]));
 	let draft = $state('');
 	let noteError = $state('');
 	let pending = $state(false);
 	let draftRevision = 0;
-	type Reader = { pages: number; draw(page: number, scale: number): Promise<void>; destroy(): void };
+	type Reader = { pages: number; draw(page: number, scale: number, fitWidth?: number): Promise<void>; destroy(): void };
 	type Global = { clearcasePdfReader?: { open(a: { src: string; canvas: HTMLCanvasElement; signal: AbortSignal }): Promise<Reader> } };
 	let reader: Reader | null = null;
 	let active = false;
@@ -52,12 +54,15 @@
 	}
 	const draw = () => {
 		const r = reader, generation = ++drawGeneration;
-		return active && r && canvas ? r.draw(current, scale).catch(() => {
+		const width = viewport?.clientWidth;
+		return active && r && canvas ? (width ? r.draw(current, scale, width) : r.draw(current, scale)).catch(() => {
 			if (active && r === reader && generation === drawGeneration) status = 'error';
 		}) : Promise.resolve();
 	};
 	onMount(() => {
 		active = true;
+		const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { if (reader) void draw(); });
+		if (viewport) observer?.observe(viewport);
 		// The route keys this component by its authorized load. Capture the source before any await.
 		const source = src, target = canvas!;
 		adapter()
@@ -67,13 +72,33 @@
 				if (!active) return r.destroy();
 				reader = r;
 				pages = r.pages;
+				if (requestedPage !== null) {
+					const number = parsePage(requestedPage);
+					if (number !== null && number <= pages) current = number;
+					else pageError = pageMessage(requestedPage);
+				}
 				status = 'ready';
 				await draw();
 			})
 			.catch(() => { if (active) status = 'error'; });
-		return () => { active = false; drawGeneration++; lifetime.abort(); reader?.destroy(); reader = null; };
+		return () => { observer?.disconnect(); active = false; drawGeneration++; lifetime.abort(); reader?.destroy(); reader = null; };
 	});
-	const go = (n: number) => { current = Math.min(Math.max(1, Math.trunc(n) || 1), Math.max(pages, 1)); void draw(); };
+	const parsePage = (value: string) => {
+		if (!/^\d+$/.test(value)) return null;
+		const number = Number(value);
+		return Number.isSafeInteger(number) && number > 0 ? number : null;
+	};
+	const pageMessage = (value: string) => `Page ${value || '(empty)'} is invalid or doesn't exist; this document has ${pages} ${pages === 1 ? 'page' : 'pages'}.`;
+	const go = (n: number) => { pageError = ''; current = n; void draw(); };
+	const enterPage = (input: HTMLInputElement) => {
+		const value = input.value, number = parsePage(value);
+		if (number === null || number > pages) {
+			pageError = pageMessage(value);
+			input.value = String(current);
+			return;
+		}
+		go(number);
+	};
 	const zoom = (f: number) => { scale = Math.min(4, Math.max(0.4, scale * f)); void draw(); };
 	const operation = () => `note-${crypto.randomUUID()}`;
 	async function send(method: 'POST' | 'DELETE', body: Record<string, unknown>) {
@@ -124,13 +149,14 @@
 	{:else}
 		<p>
 			<button type="button" onclick={() => go(current - 1)} disabled={status !== 'ready' || current <= 1}>Previous</button>
-			<label>Page <input type="number" min="1" max={pages || 1} value={current} onchange={(e) => go(Number(e.currentTarget.value))} disabled={status !== 'ready'} /></label> of {pages || '…'}
+			<label>Page <input type="number" min="1" max={pages || 1} value={current} onchange={(e) => enterPage(e.currentTarget)} disabled={status !== 'ready'} /></label> of {pages || '…'}
 			<button type="button" onclick={() => go(current + 1)} disabled={status !== 'ready' || current >= pages}>Next</button>
 			<button type="button" onclick={() => zoom(0.8)} disabled={status !== 'ready'}>Zoom out</button>
 			<button type="button" onclick={() => zoom(1.25)} disabled={status !== 'ready'}>Zoom in</button>
 			<a data-action="download-original" href={downloadHref}>Download</a>
 		</p>
-		<canvas bind:this={canvas} aria-label={`Page ${current}`}></canvas>
+		{#if pageError}<p role="alert">{pageError}</p>{/if}
+		<div class="pdf-viewport" bind:this={viewport}><canvas bind:this={canvas} aria-label={`Page ${current}`}></canvas></div>
 	{/if}
 </div>
 
@@ -153,3 +179,9 @@
 		{#if noteError}<p role="alert">{noteError}</p>{/if}
 	{/if}
 </section>
+
+<style>
+	.pdf-viewport { max-width: 100%; overflow-x: auto; }
+	section { overflow-wrap: anywhere; }
+	textarea { max-width: 100%; }
+</style>

@@ -11,6 +11,7 @@ import type { ClientResourceIdentity } from './manifest.ts';
 // rows again: an active, unexpired grant of a role that enables operate, held by this exact principal on this case, in a
 // database bound to this client that holds the case. It is one SQL condition, so a caller can either read it on its own
 // or put it in a guard statement of its own D1 write batch, where it holds atomically with the write.
+// An expiry counts only in its canonical form (the strftime round trip, hour 00 to 23, since SQLite normalises nothing for hour 24); D1 refuses a LIKE or GLOB pattern over 50 bytes.
 
 export type OperateSubject = { principal: Principal; sessionId: SessionId; caseId: CaseId };
 export interface OperateCondition { sql: string; values: (string | number | null)[] }
@@ -33,7 +34,8 @@ export function d1OperateObservation(o: { db: D1; deployment: ClientResourceIden
       sql: `(EXISTS (SELECT 1 FROM rs_storage_identity i JOIN rs_case c ON c.case_id = ? WHERE i.singleton = 1 AND i.client_id = ? AND i.layout = ?)
         AND EXISTS (SELECT 1 FROM tenant_case_grants g WHERE g.client_id = ? AND g.scope = 'case' AND g.case_id = ? AND g.issuer = ? AND g.subject = ?
           AND g.principal_kind = ? AND g.state = 'active' AND g.role IN (${OPERATORS.map(() => '?').join(', ')})
-          AND (g.expires_at IS NULL OR julianday(g.expires_at) > julianday(?))))`,
+          AND (g.expires_at IS NULL OR (strftime('%Y-%m-%dT%H:%M:%fZ', g.expires_at) = g.expires_at AND substr(g.expires_at, 12, 2) < '24'
+            AND julianday(g.expires_at) > julianday(?)))))`,
       values: [a.caseId, deployment.clientId, LAYOUT, deployment.clientId, a.caseId, a.principal.issuer, a.principal.subject, a.principal.kind, ...OPERATORS, o.now().toISOString()],
     };
   }

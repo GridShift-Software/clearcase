@@ -21,7 +21,7 @@ import {
 } from '../../../../deploy/native-alpha/controls.ts';
 
 const ACCOUNT = 'fb4c31b91c5d89b7a54afbdc34823170';
-const ZONE = 'db7c322907320aba562d64015ee7d673';
+const ZONE = '1c82369e826ebe0afded65c295198fcd';
 const OTHER_ZONE = 'e'.repeat(32);
 const hex = (c: string, n = 32) => c.repeat(n);
 const uuid = (c: string) => `${c.repeat(8)}-${c.repeat(4)}-4${c.repeat(3)}-8${c.repeat(3)}-${c.repeat(12)}`;
@@ -30,7 +30,7 @@ function manifest(): NativeManifest {
 	const client = (letter: 'a' | 'b', c: string, d: string) => ({
 		client: `client-${letter}`,
 		worker: `cc-sbx-${letter}-20261023`,
-		domain: { id: hex(c), hostname: `${letter}.sandbox.gridshift.co.za`, zoneId: ZONE, service: `cc-sbx-${letter}-20261023`, environment: 'production' },
+		domain: { id: hex(c), hostname: `sbx-${letter}.clearcase.co.za`, zoneId: ZONE, service: `cc-sbx-${letter}-20261023`, environment: 'production' },
 		versionIds: [uuid(c), uuid(d)],
 		secretNames: ['CLERK_SECRET_KEY', 'CLERK_PUBLISHABLE_KEY'],
 		d1: { binding: 'DB', name: `cc-sbx-${letter}-20261023-db`, id: uuid(c === '1' ? '5' : '6'), jurisdiction: 'eu' },
@@ -38,7 +38,7 @@ function manifest(): NativeManifest {
 		release: { sourceSha: hex(c, 40), artifactSha256: `sha256:${hex(c, 64)}`, profileRevision: hex(d, 40) },
 		canary: { appPath: '/', assetPath: '/_app/immutable/start.js', assetSha256: `sha256:${hex(d, 64)}` },
 	});
-	return { schema: NATIVE_CONTROLS_SCHEMA, accountId: ACCOUNT, zone: { id: ZONE, name: 'gridshift.co.za' }, clients: [client('a', '1', '2'), client('b', '3', '4')] } as NativeManifest;
+	return { schema: NATIVE_CONTROLS_SCHEMA, accountId: ACCOUNT, zone: { id: ZONE, name: 'clearcase.co.za' }, clients: [client('a', '1', '2'), client('b', '3', '4')] } as NativeManifest;
 }
 
 /** The reviewed, KNOWN domain-detach side-effect policy for `m`. Structural data only; it is never owner approval. */
@@ -347,29 +347,29 @@ describe('M2: hostnames and route patterns are matched case-free and fail closed
 		edit(s);
 		return readbackProblems(m(), s, 110, 'after').join('\n');
 	};
-	test.each(['A.sandbox.gridshift.co.za', 'a.SANDBOX.Gridshift.co.ZA', 'a.sandbox.gridshift.co.za.'])('an after-state binding on %s to a foreign service is still an owned binding', (host) => {
+	test.each(['SBX-A.clearcase.co.za', 'sbx-a.Clearcase.co.ZA', 'sbx-a.clearcase.co.za.'])('an after-state binding on %s to a foreign service is still an owned binding', (host) => {
 		expect(after((s) => s.domains.push({ id: hex('c'), hostname: host, zoneId: ZONE, service: 'someone-else', environment: 'production' }))).toMatch(/still bound/);
 	});
-	test.each(['A.sandbox.gridshift.co.za', 'a.sandbox.gridshift.co.za.'])('a before-state domain on %s that is not the reviewed binding HOLDs', (host) => {
+	test.each(['SBX-A.clearcase.co.za', 'sbx-a.clearcase.co.za.'])('a before-state domain on %s that is not the reviewed binding HOLDs', (host) => {
 		expect(before((s) => s.domains.push({ id: hex('c'), hostname: host, zoneId: ZONE, service: 'someone-else', environment: 'production' }))).toMatch(/reviewed binding|extra|exposes/);
 	});
 	test.each([
-		'a.sandbox.gridshift.co.za*',
-		'a.sandbox.gridshift.co.za*/*',
-		'A.SANDBOX.GRIDSHIFT.CO.ZA/*',
-		'HTTPS://a.sandbox.gridshift.co.za/*',
-		'https://A.sandbox.gridshift.co.za/*',
-		'a.sandbox.gridshift.co.za./*',
-		'*.sandbox.gridshift.co.za/*',
-		'a.*.gridshift.co.za/*',
-		'a.sandbox.*/*',
-		'*gridshift.co.za/*',
+		'sbx-a.clearcase.co.za*',
+		'sbx-a.clearcase.co.za*/*',
+		'SBX-A.CLEARCASE.CO.ZA/*',
+		'HTTPS://sbx-a.clearcase.co.za/*',
+		'https://SBX-A.clearcase.co.za/*',
+		'sbx-a.clearcase.co.za./*',
+		'*.clearcase.co.za/*',
+		'sbx-*.clearcase.co.za/*',
+		'sbx-a.*/*',
+		'*clearcase.co.za/*',
 		'*/*',
 		'*',
 	])('a route pattern %s covers the owned hostname', (pattern) => {
 		expect(before((s) => s.routes.push({ id: hex('d'), pattern, script: null }))).toMatch(/route .*exposes/);
 	});
-	test.each(['ftp://a.sandbox.gridshift.co.za/*', 'a.sandbox.gridshift.co.za:8443/*', 'a.sandbox.gridshift.co.za?x=1/*', '', ' a.sandbox.gridshift.co.za/*', '//a.sandbox.gridshift.co.za/*', 'a.sandbox.gridshift.co.za\\*'])(
+	test.each(['ftp://sbx-a.clearcase.co.za/*', 'sbx-a.clearcase.co.za:8443/*', 'sbx-a.clearcase.co.za?x=1/*', '', ' sbx-a.clearcase.co.za/*', '//sbx-a.clearcase.co.za/*', 'sbx-a.clearcase.co.za\\*'])(
 		'an unknown route syntax %j fails closed',
 		(pattern) => {
 			expect(before((s) => s.routes.push({ id: hex('d'), pattern, script: null }))).toMatch(/route .*(unknown syntax|exposes)/);
@@ -384,10 +384,10 @@ describe('M2: hostnames and route patterns are matched case-free and fail closed
 	test('unrelated routes and domains do not HOLD', () => {
 		expect(before((s) => s.routes.push({ id: hex('d'), pattern: 'unrelated.example.com/*', script: null }))).toBe('');
 		expect(before((s) => s.domains.push({ id: hex('c'), hostname: 'elsewhere.example.com', zoneId: ZONE, service: 'someone-else', environment: 'production' }))).toBe('');
-		expect(before((s) => s.routes.push({ id: hex('d'), pattern: 'xa.sandbox.gridshift.co.za/*', script: null }))).toBe('');
+		expect(before((s) => s.routes.push({ id: hex('d'), pattern: 'xa.clearcase.co.za/*', script: null }))).toBe('');
 	});
 	test('a provider domain hostname with a wildcard or an unreadable shape fails closed', () => {
-		for (const hostname of ['*.sandbox.gridshift.co.za', 'a.sandbox.gridshift.co.za/x', 7, '']) {
+		for (const hostname of ['*.clearcase.co.za', 'sbx-a.clearcase.co.za/x', 7, '']) {
 			expect(after((s) => s.domains.push({ id: hex('c'), hostname, zoneId: ZONE, service: 'x', environment: 'production' }))).toMatch(/hostname .*(unreadable|wildcard|still bound)/);
 		}
 	});

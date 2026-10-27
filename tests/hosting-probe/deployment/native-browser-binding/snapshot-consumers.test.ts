@@ -44,9 +44,9 @@ describe('native/1 direct consumers derive every fact from one validated snapsho
 	});
 	it('the checker refuses a config that matches a hostname changed by a browser descriptor trap', () => {
 		const t = optedIn();
-		trapping(t, () => { t.customDomain.hostname = 'other.sandbox.gridshift.co.za'; });
+		trapping(t, () => { t.customDomain.hostname = 'other.clearcase.co.za'; });
 		const config: Record<string, any> = { ...configOf(), browser: { binding: 'BROWSER' } };
-		config.routes[0].pattern = 'other.sandbox.gridshift.co.za';
+		config.routes[0].pattern = 'other.clearcase.co.za';
 		expect(checkNativeWrangler({ client: 'client-a', targets: [t, ...others], text: JSON.stringify(config) }).length).toBeGreaterThan(0);
 	});
 	it('the record never mixes facts read before a browser descriptor trap with live policy after it', () => {

@@ -171,6 +171,30 @@ describe('the rows the step writes are checked as the readiness and sign-off pat
     expect(missing).toEqual([{ assetId: 'SY-0001', diagnostic: missingAssetDiagnostic('SY-0001'), fingerprint: missingOriginalFingerprint(BOUND, 'SY-0001', missingAssetDiagnostic('SY-0001')) }]);
     expect(checked.find((c) => c.key === 'preview/SY-0003.a1')!.observation).toMatchObject({ state: 'failed', reasonCode: 'embedded-not-extracted' });
   });
+  it('refuses a missing original whose every leaf is deleted, nulled or retyped', () => {
+    const good = { kind: 'warning', fingerprint: 'a'.repeat(32), missing: { assetId: 'SY-0001', diagnostic: 'b'.repeat(32) } };
+    const key = `warning/${'a'.repeat(32)}`;
+    expect(checkEvidenceItem(row({ key, observation: good }, false), bound)).toMatchObject({ missing: good.missing });
+    const mutate = (change: (o: typeof good) => unknown) => change(structuredClone(good));
+    const cases: [string, unknown][] = [
+      ['missing deleted from the detail: ordinary warning', mutate((o) => { const { missing: _m, ...rest } = o; return rest; })],
+      ['assetId deleted', mutate((o) => { delete (o.missing as Partial<typeof o.missing>).assetId; return o; })],
+      ['diagnostic deleted', mutate((o) => { delete (o.missing as Partial<typeof o.missing>).diagnostic; return o; })],
+      ['assetId null', mutate((o) => ({ ...o, missing: { ...o.missing, assetId: null } }))],
+      ['assetId a number', mutate((o) => ({ ...o, missing: { ...o.missing, assetId: 1 } }))],
+      ['diagnostic null', mutate((o) => ({ ...o, missing: { ...o.missing, diagnostic: null } }))],
+      ['diagnostic too short', mutate((o) => ({ ...o, missing: { ...o.missing, diagnostic: 'b'.repeat(31) } }))],
+      ['detail null', mutate((o) => ({ ...o, missing: null }))],
+      ['detail an array', mutate((o) => ({ ...o, missing: [o.missing] }))],
+    ];
+    for (const [name, observation] of cases) {
+      const checked = checkEvidenceItem(row({ key, observation: observation as Record<string, unknown> }, false), bound);
+      // Dropping the detail leaves a plain warning, which still has to be acknowledged; every other change makes the row unreadable.
+      if (name.startsWith('missing deleted')) expect(checked && 'missing' in checked).toBe(false);
+      else expect(checked, name).toBeNull();
+    }
+  });
+
   it.each([
     ['a policy reason on a rendered preview', { kind: 'preview', assetId: 'a', state: 'rendered', reasonCode: 'preview-required' }, 'preview/a'],
     ['a policy reason on a pending preview', { kind: 'preview', assetId: 'a', state: 'pending', reasonCode: 'preview-required' }, 'preview/a'],

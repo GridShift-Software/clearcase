@@ -261,7 +261,8 @@ describe('the instance a returning handshake belongs to', () => {
 		if (!made.ok) throw new Error(made.reason);
 		return made.provider.authenticate({ request: new Request(`${ORIGIN}/cases`, { headers: { cookie: jar } }) });
 	};
-	const jarOf = (o: HandshakeOutcome) => redirectOf(o).setCookies.map((c) => c.split(';')[0]).join('; ');
+	// the cookies a browser keeps from the answer: a directive that expires one (Max-Age=0) sets nothing
+	const jarOf = (o: HandshakeOutcome) => redirectOf(o).setCookies.filter((c) => !/;\s*Max-Age=0(;|$)/i.test(c)).map((c) => c.split(';')[0]).join('; ');
 
 	it('applies a staff-signed handshake on /cases for a browser with no session, as a staff session', async () => {
 		const o = await handshake().handle(page(`/cases?__clerk_handshake=${B.sign({ handshake: [`__session=${staffSession()}; Path=/`, '__client_uat=1761400000; Path=/'] })}`));

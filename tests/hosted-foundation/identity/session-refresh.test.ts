@@ -28,7 +28,10 @@ vi.mock('cloudflare:workers', () => workers);
 
 import { MAX_SESSION_LIFETIME_MS } from '../../../src/lib/auth/clerk/flow.ts';
 import { clerkBrowserHandshakeFromEnv } from '../../../src/lib/auth/clerk/browser.ts';
+import { presentedToken } from '../../../src/lib/auth/clerk/session.ts';
 import { handle } from '../../../src/lib/server/runtime/hosted/hooks.server.ts';
+// @ts-expect-error jsdom ships no types and the root pins no @types/jsdom; BrowserJar below types the part used here.
+import { CookieJar } from 'jsdom';
 import { craftedInstance } from './synthetic.ts';
 
 const signOut = await import('../../../deploy/client/routes/sign-out/+page.server.ts');
@@ -124,7 +127,8 @@ const hold = (token: string, refresh: string, name = HOLD_A) => `${name}=${token
 const held = (s: ReturnType<typeof session>, refresh = s.refresh) => hold(s.stale(), refresh);
 const jar = (s: ReturnType<typeof session>, refresh = s.refresh) => `__client_uat=1761400000; __session=${s.stale()}; ${held(s, refresh)}`;
 const refreshCalls = () => calls.filter((c) => c.path.endsWith('/refresh'));
-const sessionCookie = (r: Response) => r.headers.getSetCookie().find((c) => /^__session=/.test(c));
+// the session cookie a response sets (a renewal also expires the old copy at each scope first)
+const sessionCookie = (r: Response) => r.headers.getSetCookie().find((c) => /^__session=[^;]/.test(c));
 
 describe('a signed-in user whose session token expired between page loads', () => {
 	it('saves the note: the Worker refreshes the session with the refresh token the handshake stored, and the write succeeds', async () => {
@@ -133,7 +137,9 @@ describe('a signed-in user whose session token expired between page loads', () =
 		expect(r.status).toBe(201);
 		const set = sessionCookie(r);
 		expect(set).toMatch(/^__session=[^;]+; Path=\/; Max-Age=60; SameSite=Lax; HttpOnly; Secure$/);
-		expect(r.headers.getSetCookie().join('\n')).not.toMatch(/Domain=/i);
+		// no cookie is set with Clerk's Domain: a Domain appears only on the clears of the old copy's other scopes
+		expect(r.headers.getSetCookie().filter((c) => /^[^=]+=[^;]/.test(c)).join('\n')).not.toMatch(/Domain=/i);
+		expect(r.headers.getSetCookie().filter((c) => /Domain=/i.test(c)).every((c) => /^__session=; Domain=[^;]+; Path=\/; Max-Age=0;/.test(c))).toBe(true);
 		expect(refreshCalls()).toHaveLength(1);
 		expect(refreshCalls()[0]).toMatchObject({ path: `/v1/sessions/${s.sid}/refresh`, bearer: A.secretKey, body: { refresh_token: s.refresh, request_origin: ORIGIN, format: 'cookie' } });
 		expect(trap.blocked).toEqual([]);
@@ -296,30 +302,29 @@ describe('the credential a refresh is answered for (review H1)', () => {
 	});
 });
 
-// A browser's cookie jar for this origin on the (faked) clock, as RFC 6265bis has it: a cookie goes when its Max-Age runs
-// out, and a `__Host-` cookie is refused without Secure, with a Domain, or with a Path other than /.
+// A browser's cookie jar on the (faked) clock: tough-cookie's RFC 6265 store (jsdom's CookieJar), so a cookie is one
+// name, domain and path, Max-Age and Expires end it, a `__Host-` cookie without Secure, with a Domain or off Path=/ is
+// refused, and a request carries every cookie whose domain and path match it (review L1, session-renewal-live-2).
+interface BrowserJar {
+	setCookieSync(directive: string, url: string, options: { ignoreError: boolean }): unknown;
+	getCookiesSync(url: string): Array<{ key: string }>;
+	getCookieStringSync(url: string): string;
+}
 function browser() {
-	const kept = new Map<string, { value: string; until: number }>();
-	const live = () => [...kept].filter(([, c]) => c.until > Date.now());
-	const set = (directive: string) => {
-		const [pair = '', ...attrs] = directive.split(';').map((a) => a.trim());
-		const name = pair.slice(0, pair.indexOf('=')), value = pair.slice(pair.indexOf('=') + 1);
-		const attr = (k: string) => attrs.find((a) => a.toLowerCase().startsWith(`${k}=`))?.slice(k.length + 1);
-		if (name.startsWith('__Host-') && (!attrs.some((a) => a.toLowerCase() === 'secure') || attr('domain') !== undefined || attr('path') !== '/')) return;
-		const age = attr('max-age'), until = age === undefined ? Infinity : Date.now() + Number(age) * 1000;
-		if (until <= Date.now()) kept.delete(name);
-		else kept.set(name, { value, until });
-	};
+	const j: BrowserJar = new CookieJar(undefined, { looseMode: false });
+	const set = (directive: string, from = `${ORIGIN}/`) => void j.setCookieSync(directive, from, { ignoreError: true });
 	return {
-		take(r: Response) {
-			for (const d of r.headers.getSetCookie()) set(d);
+		take(r: Response, from = `${ORIGIN}/`) {
+			for (const d of r.headers.getSetCookie()) set(d, from);
 			return r;
 		},
+		/** A cookie set by another response: a sibling origin's, or a planted one. */
+		set,
 		drop(names: string[]) {
-			for (const name of names) kept.delete(name);
+			for (const name of names) set(`${name}=; Path=/; Max-Age=0; Secure`);
 		},
-		names: () => live().map(([name]) => name),
-		cookie: () => live().map(([name, c]) => `${name}=${c.value}`).join('; '),
+		names: (path = '/cases/case-a/notes') => j.getCookiesSync(`${ORIGIN}${path}`).map((c) => c.key),
+		cookie: (path = '/cases/case-a/notes') => j.getCookieStringSync(`${ORIGIN}${path}`),
 	};
 }
 const later = (ms: number) => vi.setSystemTime(Date.now() + ms);
@@ -338,17 +343,19 @@ async function signIn(b: ReturnType<typeof browser>, s: ReturnType<typeof sessio
 }
 // A sign-out or sign-in form action, with the locals the real hook gives its request and the browser applying its clears.
 async function act(action: (event: never) => unknown, path: string, b: ReturnType<typeof browser>) {
-	const request = new Request(`${ORIGIN}${path}`, { method: 'POST', headers: { origin: ORIGIN, cookie: b.cookie() } });
+	const request = new Request(`${ORIGIN}${path}`, { method: 'POST', headers: { origin: ORIGIN, cookie: b.cookie(path) } });
 	let locals: unknown;
 	await handle({ event: { request, url: new URL(request.url), locals: {}, isSubRequest: false }, resolve: async (e: { locals: unknown }) => ((locals = e.locals), new Response(null)) } as never);
+	// SvelteKit's cookies.delete as the browser applies it: at the Path and Domain it names (host-only without one)
 	const deleted: string[] = [];
+	const remove = (name: string, o: { path?: string; domain?: string } = {}) => deleted.push(`${name}=; Path=${o.path ?? '/'}; ${o.domain ? `Domain=${o.domain}; ` : ''}Max-Age=0; Secure`);
 	let thrown: unknown;
 	try {
-		await action({ locals, request, url: new URL(request.url), cookies: { delete: (name: string) => deleted.push(name), set: () => {} } } as never);
+		await action({ locals, request, url: new URL(request.url), cookies: { delete: remove, set: () => {} } } as never);
 	} catch (e) {
 		thrown = e;
 	}
-	b.drop(deleted);
+	for (const d of deleted) b.set(d);
 	return thrown;
 }
 const revoked = (sid: string) => calls.some((c) => c.method === 'POST' && c.path === `/v1/sessions/${sid}/revoke`);
@@ -464,5 +471,167 @@ describe('a refresh token of the shape a live Clerk handshake returns (session-r
 		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(201);
 		expect(refreshCalls()).toHaveLength(2);
 		expect(trap.blocked).toEqual([]);
+	});
+});
+
+// The live refresh answer of 27 October (Astra auth matrix at 939193b1, finding 1; session-renewal-live-2 probe): asked
+// with `suffixed_cookies=false`, Clerk set the renewed token ONLY under the suffixed `__session_<suffix>`, and no
+// `__client_uat`. The handshake keeps this browser on the plain `__session`, so after one renewal it carried two different
+// session tokens: the request presented none (ambiguity is refused), and the handshake on the next document load re-set
+// only `__session`, leaving the suffixed copy behind. A note saved after 90 s idle (303), and the reload straight after it
+// went through the handshake to 401 "Your session has ended", which no later handshake undid.
+const SESSION_SFX = `__session_${suffix(A.publishableKey)}`;
+const liveRefreshAnswer = (s: ReturnType<typeof session>) => (sid: string) => sid !== s.sid ? null
+	: { status: 200, body: { object: 'cookies', cookies: [`${SESSION_SFX}=${A.token({ sub: s.user, sid, azp: ORIGIN })}; Path=/; Expires=${YEAR()}; Secure; SameSite=None`] } };
+// A document load as the browser makes it: through Clerk's handshake when the Worker sends it there (Clerk answers for
+// the session it holds, with the live directive set), back to the page; the final answer.
+async function load(b: ReturnType<typeof browser>, s: ReturnType<typeof session>, path: string) {
+	let r = b.take(await invoke(documentGet(path, b.cookie(new URL(path, ORIGIN).pathname))));
+	if ([303, 307].includes(r.status) && new URL(r.headers.get('location')!, ORIGIN).origin === A.iss) {
+		const back = new URL(new URL(r.headers.get('location')!).searchParams.get('redirect_url')!);
+		back.searchParams.set('__clerk_handshake', A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh) }));
+		r = b.take(await invoke(documentGet(back.pathname + back.search, b.cookie(back.pathname))));
+		expect(r.status).toBe(303);
+		const to = new URL(r.headers.get('location')!, ORIGIN).pathname;
+		r = b.take(await invoke(documentGet(to, b.cookie(to))));
+	}
+	return r;
+}
+const sessionValues = (b: ReturnType<typeof browser>) => new Set(b.cookie().split('; ').filter((c) => /^__session(_|=)/.test(c)).map((c) => c.slice(c.indexOf('=') + 1)));
+const CASE_NOTES = '/cases/case-a/notes';
+
+describe('a session Clerk renews under its suffixed cookie name (session-renewal-live-2)', () => {
+	beforeEach(() => void vi.useFakeTimers({ toFake: ['Date'] }));
+	afterEach(() => void vi.useRealTimers());
+
+	it.each([['straight after the save', 0], ['after the save has settled', 15_000]])('saves a note 90 s after sign-in and reloads %s: still signed in, with one session token', async (_, settle) => {
+		const s = session(), b = browser();
+		sessions.get(s.sid)!.refresh = LIVE_RT(n);
+		refreshAnswer = liveRefreshAnswer(s);
+		expect((await load(b, s, `/cases?__clerk_handshake=${A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh) })}`)).status).toBe(303);
+		later(90_000);
+		expect(b.take(await invoke(saveNote(b.cookie()))).status).toBe(201);
+		expect(refreshCalls()).toHaveLength(1);
+		later(settle);
+		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
+		later(90_000);
+		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(201);
+		expect(sessionValues(b).size).toBe(1);
+		expect(trap.blocked).toEqual([]);
+	});
+	it('signs a browser that a renewal left with two session tokens back in on its next page load', async () => {
+		const s = session(), b = browser();
+		sessions.get(s.sid)!.refresh = LIVE_RT(n);
+		// what the 939193b1 deploy left in a browser: the handshake's plain token and a renewed suffixed one
+		b.take(new Response(null, { headers: [
+			['set-cookie', `__session=${s.stale()}; Path=/; Secure`], ['set-cookie', `${SESSION_SFX}=${A.token({ sub: s.user, sid: s.sid, azp: ORIGIN, now: Date.now() - 30_000 })}; Path=/; Secure`],
+			['set-cookie', `__client_uat=1761400000; Path=/; Secure`], ['set-cookie', `${hold(s.stale(), sessions.get(s.sid)!.refresh)}; Path=/; Secure`],
+		] }));
+		expect(sessionValues(b).size).toBe(2);
+		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
+		expect(sessionValues(b).size).toBe(1);
+	});
+});
+
+// The Sol review of edfb069e (session-renewal-live-2-review.md), probes ported. A server never sees a cookie's Domain or
+// Path, so the handshake and a renewal clear every scope this app or Clerk creates a session cookie at: host-only and each
+// parent domain up to the registrable one, at Path=/ (every session directive the Worker sets is rewritten to Path=/, and
+// each live handshake and refresh directive captured on 27 October was Path=/). A copy at any other scope (a narrower
+// Path, which only a planted cookie has) keeps the ambiguity refusal: no token is ever picked. And only the session cookie
+// names this deployment owns are cleared or written: `__session` and the suffixes of its client and staff instances (M2).
+const SESSION_NAME = /^__session(?:_|$)/;
+const SIBLING = 'https://client-b.clearcase.test/', PARENT = 'Domain=clearcase.test; Path=/', NARROW = 'Path=/cases';
+const SESSION_B = `__session_${suffix(B.publishableKey)}`, SESSION_C = `__session_${suffix(C.publishableKey)}`;
+const plant = (b: ReturnType<typeof browser>, name: string, token: string, scope: string) =>
+	b.set(`${name}=${token}; ${scope}; Secure; HttpOnly; SameSite=Lax`, scope === PARENT ? SIBLING : `${ORIGIN}/cases`);
+const handshakeBack = (s: ReturnType<typeof session>, path = CASE_NOTES) =>
+	documentGet(`${path}?__clerk_handshake=${A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), s.refresh) })}`, '');
+const withCookie = (r: Request, cookie: string) => new Request(r, { headers: { ...Object.fromEntries(r.headers), cookie } });
+
+describe('the scope and ownership of the session cookies a handshake or renewal rewrites (session-renewal-live-2 review)', () => {
+	it.each([[SESSION_SFX], ['__session'], [SESSION_B]])('a handshake removes a stale %s a sibling set on the parent domain, and the page loads (M1)', async (name) => {
+		const s = session(), b = browser();
+		plant(b, name, s.stale(), PARENT);
+		expect(b.take(await invoke(withCookie(handshakeBack(s), b.cookie())))).toHaveProperty('status', 303);
+		expect(presentedToken(documentGet(CASE_NOTES, b.cookie()))).not.toBe('malformed');
+		expect((await invoke(documentGet(CASE_NOTES, b.cookie()))).status).toBe(201);
+	});
+	it('a renewal beside a parent-domain session cookie leaves one session token, and the next request is served (M1)', async () => {
+		const s = session(), b = browser();
+		plant(b, '__session', s.stale(), PARENT);
+		b.set(`${held(s)}; Path=/; Secure; HttpOnly`);
+		b.set('__client_uat=1761400000; Path=/; Secure');
+		expect(b.take(await invoke(saveNote(b.cookie(NOTES)))).status).toBe(201);
+		expect(presentedToken(documentGet(CASE_NOTES, b.cookie()))).not.toBe('malformed');
+		expect((await invoke(saveNote(b.cookie(NOTES)))).status).toBe(201);
+		expect(refreshCalls()).toHaveLength(1);
+	});
+	it('keeps refusing a session cookie at a narrower Path, which nothing here sets: no token is picked (M1 residual)', async () => {
+		const s = session(), b = browser();
+		plant(b, SESSION_SFX, s.stale(), NARROW);
+		b.take(await invoke(withCookie(handshakeBack(s), b.cookie())));
+		expect(presentedToken(documentGet(CASE_NOTES, b.cookie()))).toBe('malformed');
+		expect((await invoke(documentGet(CASE_NOTES, b.cookie()))).status).toBe(401);
+		// outside /cases the browser carries one token, and is served
+		expect((await invoke(documentGet('/sign-in', b.cookie('/sign-in')))).status).not.toBe(401);
+	});
+	it('never clears the session cookie of an instance this deployment does not configure (M2)', async () => {
+		const s = session(), foreign = session(C);
+		const r = await invoke(withCookie(handshakeBack(s, '/cases'), `${SESSION_C}=${foreign.stale()}`));
+		expect(r.status).toBe(303);
+		expect(r.headers.getSetCookie().filter((d) => d.startsWith(`${SESSION_C}=`))).toEqual([]);
+	});
+	it('never renews into the session cookie name of an instance this deployment does not configure (M2)', async () => {
+		const s = session();
+		const r = await invoke(saveNote(`__client_uat=1761400000; ${SESSION_C}=${s.stale()}; ${held(s)}`));
+		expect(r.status).toBe(201);
+		expect(r.headers.getSetCookie().filter((d) => d.startsWith(`${SESSION_C}=`))).toEqual([]);
+	});
+	it('still refuses a conflicting token under an unknown name, with no refresh and no cookies (M2)', async () => {
+		const s = session(), other = session(C);
+		const r = await invoke(saveNote(`${jar(s)}; __session_other=${other.stale()}`));
+		expect(r.status).toBe(401);
+		expect(refreshCalls()).toHaveLength(0);
+		expect(r.headers.getSetCookie()).toEqual([]);
+	});
+});
+
+// The Sol re-check of 059237e0 (session-renewal-live-2-fix1-recheck.md), probes ported. M3: sign-out deleted only the
+// host-only copy of an ambiguous session, so a live parent-Domain `__session` it left behind authorised the next request.
+// Sign-out now clears every owned session name at the scopes the handshake clears, and never reports success while a
+// session cookie it may not clear (another instance's name) survives. L2: a signed handshake never writes such a name.
+describe('sign-out and the handshake against session cookies at other scopes or names (session-renewal-live-2 re-check)', () => {
+	it('sign-out clears a live parent-domain session beside an ambiguous host-only copy, so nothing authorises afterwards (M3)', async () => {
+		const s = session(), b = browser();
+		plant(b, '__session', A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), PARENT);
+		b.set(`__session=${s.stale()}; Path=/; Secure; HttpOnly`);
+		expect(presentedToken(documentGet('/cases', b.cookie()))).toBe('malformed');
+		expect((await invoke(saveNote(b.cookie(NOTES)))).status).toBe(401);
+		expect(await act(signOut.actions.default!, '/sign-out', b)).toMatchObject({ status: 303, location: '/sign-in' });
+		expect((await invoke(saveNote(b.cookie(NOTES)))).status).toBe(401);
+		expect(b.names().filter((n) => SESSION_NAME.test(n))).toEqual([]);
+	});
+	it.each([[SESSION_SFX], [SESSION_B]])('sign-out clears an owned %s on the parent domain (M3)', async (name) => {
+		const s = session(), b = browser();
+		plant(b, name, A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), PARENT);
+		expect(await act(signOut.actions.default!, '/sign-out', b)).toMatchObject({ status: 303, location: '/sign-in' });
+		expect(b.names().filter((n) => SESSION_NAME.test(n))).toEqual([]);
+	});
+	it('sign-out never reports success while another instance\'s session cookie, which it may not clear, survives (M3)', async () => {
+		const s = session(), other = session(), b = browser();
+		b.set(`__session=${s.stale()}; Path=/; Secure; HttpOnly`);
+		// sign-out deletes every host-only session cookie it carries (GRS-113), but another instance's name on the parent
+		// domain is not this deployment's to clear
+		plant(b, SESSION_C, A.token({ sub: other.user, sid: other.sid, azp: ORIGIN }), PARENT);
+		const out = await act(signOut.actions.default!, '/sign-out', b);
+		expect(out).not.toMatchObject({ location: '/sign-in' });
+		expect(out).toMatchObject({ status: 409 });
+		expect(b.names()).not.toContain('__session');
+		expect(b.names()).toContain(SESSION_C);
+	});
+	it('a configured instance\'s signed handshake never writes a session cookie name it does not own (L2)', async () => {
+		const s = session(), token = A.token({ sub: s.user, sid: s.sid, azp: ORIGIN });
+		const r = await invoke(documentGet(`/cases?__clerk_handshake=${A.sign({ handshake: [`${SESSION_C}=${token}; Path=/; Secure`] })}`, ''));
+		expect(r.headers.getSetCookie().filter((d) => d.startsWith(`${SESSION_C}=`))).toEqual([]);
 	});
 });

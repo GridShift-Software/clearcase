@@ -35,8 +35,11 @@ async function locals(token: string | null) {
 }
 const outcome = async (f: () => unknown) => { try { return { value: await f() }; } catch (e) { return { thrown: e as { status?: number; location?: string; body?: { code?: string } } }; } };
 const jar = () => {
-	const deleted: string[] = [], set = new Map<string, string>();
-	return { deleted, set, cookies: { delete: (name: string) => deleted.push(name), set: (name: string, value: string) => set.set(name, value) } };
+	const deleted: string[] = [], all: string[] = [], set = new Map<string, string>();
+	// `all`: every delete, at any scope; `deleted`: the host-only ones (sign-out also deletes the owned session names on
+	// each parent Domain). A refusal or an outage must delete nothing at all, so it asserts on `all`.
+	const remove = (name: string, o?: { domain?: string }) => void (all.push(o?.domain === undefined ? name : `${name}@${o.domain}`), o?.domain === undefined && deleted.push(name));
+	return { deleted, all, set, cookies: { delete: remove, set: (name: string, value: string) => set.set(name, value) } };
 };
 const post = (cookie: string) => new Request(`${ORIGIN}/sign-out`, { method: 'POST', headers: { cookie } });
 
@@ -62,7 +65,7 @@ describe('/sign-out with a Clerk session', () => {
 		try {
 			const r = await outcome(() => signOut.actions.default!({ locals: l, request: post('__session=x'), url: new URL(ORIGIN), cookies: c.cookies } as never));
 			expect(r.thrown).toMatchObject({ status: 503, body: { code: 'identity-unavailable' } });
-			expect(c.deleted).toEqual([]);
+			expect(c.all).toEqual([]);
 		} finally {
 			status.outage(false);
 		}

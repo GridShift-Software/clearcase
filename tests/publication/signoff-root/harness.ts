@@ -177,7 +177,7 @@ export async function world(options: Options = {}) {
   let n = 0;
   const op = (prefix: string) => `${prefix}-operation-${String(++n).padStart(8, '0')}`;
   const signOff = async (over: Record<string, unknown> = {}) => read(await controller.signOff(request('signoffs', {
-    operationId: op('signoff'), candidateId: CANDIDATE, identity: await claimed(), acknowledgements: groups(), selfApproval: false, ...over }) as PublicationRequest));
+    operationId: op('signoff'), candidateId: CANDIDATE, identity: over.identity ?? await claimed(), acknowledgements: groups(), selfApproval: false, ...over }) as PublicationRequest));
   const publish = async (signoffId: string, over: Record<string, unknown> = {}) => read(await controller.publish(request('publish', {
     operationId: op('publish'), signoffId, expected: { kind: 'none' }, ...over }) as PublicationRequest));
   const pointer = () => db.rows('SELECT * FROM rs_publication WHERE case_id = ?', CASE)[0] ?? null;

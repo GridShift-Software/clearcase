@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { verifyEvidence } from '../../../src/lib/publication/hosted/evidence/index.ts';
-import { CANDIDATE, CASE, world } from './harness.ts';
+import { d1PublicationLedger } from '../../../src/lib/publication/hosted/ledger.ts';
+import type { SignoffRecord } from '../../../src/lib/publication/hosted/ports.ts';
+import { SqliteD1 } from '../hosted/doubles.ts';
+import { CANDIDATE, CASE, CLIENT, NOW, PRINCIPAL, RV, hash, world } from './harness.ts';
 
 // U5 (real-export design 2): sign-off binds the evidence root, publish recomputes it from the item rows, and acknowledgements are
 // grouped. The evidence is written by U3's real engine into the real evidence tables; the controller, ledger and publisher are the
@@ -149,5 +152,136 @@ describe('the evidence root is checked again at publish', () => {
     delete (bare.ports as { signoffEvidence?: unknown }).signoffEvidence;
     expect((await bare.signOff()).status).toBe(503);
     expect(CASE).toBeTruthy();
+  });
+});
+
+describe('at the size of a real export', () => {
+  it('signs off and publishes 2,500 warnings and 1,689 previews, every fingerprint listed, in reads of at most 500 rows', async () => {
+    const w = await world({ spec: { previews: 1689, warnings: 2500 }, baseline: 100 });
+    const groups = w.groups(3);
+    expect(groups.flatMap(g => g.fingerprints)).toHaveLength(2400);
+    const body = JSON.stringify(groups);
+    expect(body.length).toBeGreaterThan(64 * 1024);
+    const signed = await w.signOff({ acknowledgements: groups });
+    expect(signed.status).toBe(201);
+    const row = w.signoffRow(signed.body.signoffId as string);
+    expect(JSON.parse(row.warning_fingerprints!)).toHaveLength(2500);
+    const stored = JSON.parse(row.acknowledgements!) as { groups: { reason: string; fingerprints: string[] }[] };
+    expect(stored.groups).toHaveLength(3);
+    expect(stored.groups.flatMap(g => g.fingerprints)).toHaveLength(2400);
+    w.db.sql.length = 0;
+    const done = await w.publish(signed.body.signoffId as string);
+    expect(done.status).toBe(200);
+    // 4,192 rows are hashed in pages of 500: nine full reads, one short read, and no more.
+    expect(w.db.sql.filter(q => q.includes('FROM pub_evidence_run r JOIN pub_evidence_item i')).length).toBeLessThanOrEqual(10);
+    expect(w.pointer()).toMatchObject({ state: 'published' });
+  }, 60_000);
+
+  it('keeps the 64 KiB bound for a candidate that is not v2', async () => {
+    const w = await world(), identity = await w.claimed();
+    w.flipSnapshotToV1();
+    const padded = await w.signOff({ identity, padding: 'x'.repeat(70_000) });
+    expect(padded).toMatchObject({ status: 413, body: { code: 'too-large' } });
+  });
+  it('lets a v2 candidate through that bound only to be judged on its own fields', async () => {
+    const w = await world();
+    expect(await w.signOff({ padding: 'x'.repeat(70_000) })).toMatchObject({ status: 422, body: { code: 'invalid-request' } });
+  });
+});
+
+describe('retries and composition', () => {
+  it('answers the same sign-off request again without a second sign-off', async () => {
+    const w = await world();
+    const first = await w.signOff({ operationId: 'signoff-operation-retry00001' });
+    const again = await w.signOff({ operationId: 'signoff-operation-retry00001' });
+    expect(first.status).toBe(201);
+    expect(again).toMatchObject({ status: 200, body: { signoffId: first.body.signoffId } });
+    expect(w.db.rows('SELECT * FROM pub_signoff')).toHaveLength(1);
+    expect(w.db.rows('SELECT * FROM pub_signoff_evidence')).toHaveLength(1);
+  });
+
+  it('writes nothing when the ledger was not composed for evidence', async () => {
+    const w = await world({ evidence: false });
+    expect((await w.signOff()).status).toBe(503);
+    expect(w.db.rows('SELECT * FROM pub_signoff')).toEqual([]);
+  });
+
+  it('takes the evidence row\'s candidate from the sign-off, and refuses a record that names another', async () => {
+    const w = await world();
+    const signed = await w.signOff();
+    const row = w.db.rows<{ candidate_id: string }>('SELECT candidate_id FROM pub_signoff_evidence')[0]!;
+    expect(row.candidate_id).toBe(w.signoffRow(signed.body.signoffId as string).candidate_id);
+    const record = (await w.ports.ledger!.signoff({ clientId: CLIENT, caseId: CASE, signoffId: signed.body.signoffId as string }))!;
+    const other: SignoffRecord = { ...record, signoffId: 'so-other-operation-00001', operationId: 'other-operation-00001', requestSha256: hash('9'), evidence: { ...record.evidence!, candidateId: 'candidate-other' } };
+    await expect(w.ports.ledger!.recordSignoff(other)).rejects.toMatchObject({ code: 'storage-unavailable' });
+    expect(w.db.rows('SELECT * FROM pub_signoff')).toHaveLength(1);
+  });
+
+  it('does not name the evidence table in any statement of a v1 sign-off', async () => {
+    const db = new SqliteD1(), sql: string[] = [], prepare = db.prepare.bind(db);
+    db.prepare = (q: string) => { sql.push(q); return prepare(q); };
+    const ledger = d1PublicationLedger(db as never);
+    const v1: SignoffRecord = { candidateId: 'cand-1', linkId: 'link-1', submissionRevisionId: 'sub-1', submissionManifestSha256: hash('a'), resultsVersion: RV, manifestSha256: hash('b'),
+      packageInputRevisionId: 'input-1', diagnosticsSha256: hash('d'), validatorVersion: 'validator-1', snapshotRevision: 'd1:1', signoffId: 'so-v1-operation-0000001', operationId: 'v1-operation-0000001',
+      requestSha256: hash('c'), clientId: CLIENT, caseId: CASE, warningFingerprints: ['f'.repeat(32)], acknowledgements: [{ fingerprint: 'f'.repeat(32), reason: 'Seen.' }],
+      signer: PRINCIPAL, preparedBy: { issuer: PRINCIPAL.issuer, subject: 'preparer' }, selfApproval: false, signedAt: NOW,
+      auditEvent: { eventId: 'e1', actor: { kind: 'verified', principal: PRINCIPAL, sessionId: 'sess-publisher-0001' as never }, action: 'publication.signoff', object: { kind: 'publication', id: 'x', caseId: CASE }, version: RV, outcome: 'succeeded', at: NOW },
+      state: 'recorded', invalidatedAt: null, invalidatedReason: null };
+    const out = await ledger.recordSignoff(v1);
+    expect(out).toMatchObject({ kind: 'recorded', repeated: false });
+    await ledger.settleSignoff({ clientId: CLIENT, caseId: CASE, signoffId: v1.signoffId });
+    const read = await ledger.signoff({ clientId: CLIENT, caseId: CASE, signoffId: v1.signoffId });
+    expect(read).toMatchObject({ acknowledgements: [{ fingerprint: 'f'.repeat(32), reason: 'Seen.' }], state: 'audited' });
+    expect(read).not.toHaveProperty('evidence');
+    expect(JSON.parse(db.rows<{ acknowledgements: string }>('SELECT acknowledgements FROM pub_signoff')[0]!.acknowledgements)).toEqual([{ fingerprint: 'f'.repeat(32), reason: 'Seen.' }]);
+    expect(sql.some(q => q.includes('pub_signoff_evidence'))).toBe(false);
+    expect(CANDIDATE).toBeTruthy();
+  });
+});
+
+describe('every field of the binding is load-bearing', () => {
+  it.each([
+    ['the evidence row is gone', "DROP TRIGGER pub_signoff_evidence_delete_seal", 'DELETE FROM pub_signoff_evidence'],
+    ['its root is another', "DROP TRIGGER pub_signoff_evidence_update_seal", "UPDATE pub_signoff_evidence SET evidence_root = '" + 'a'.repeat(64) + "'"],
+    ['its generation is another', "DROP TRIGGER pub_signoff_evidence_update_seal", "UPDATE pub_signoff_evidence SET generation = '2'"],
+  ])('refuses publish when %s', async (_label, drop, change) => {
+    const w = await world();
+    const signed = await w.signOff();
+    w.db.exec(drop); w.db.exec(change);
+    expect(await w.publish(signed.body.signoffId as string)).toMatchObject({ status: 409, body: { code: 'signoff-stale', reason: 'candidate-changed' } });
+    expect(w.pointer()).toBeNull();
+    expect(w.receipts()).toEqual([]);
+  });
+
+  it('refuses a run that is not sealed to the sign-off\'s results version', async () => {
+    const w = await world();
+    const signed = await w.signOff();
+    await w.freezeSnapshot();
+    w.db.exec("UPDATE pub_evidence_run SET results_version = 'sha256:" + 'b'.repeat(64) + "'");
+    expect(await w.publish(signed.body.signoffId as string)).toMatchObject({ status: 409, body: { reason: 'candidate-changed' } });
+    expect(w.pointer()).toBeNull();
+  });
+
+  it.each([
+    ['a numeric evidence root', { identity: (c: Record<string, unknown>) => ({ ...c, evidenceRoot: 7 }) }],
+    ['no evidence root', { identity: (c: Record<string, unknown>) => { const { evidenceRoot: _r, ...rest } = c; return rest; } }],
+    ['a group code in lower case', { groups: (g: { code: string }[]) => g.map(x => ({ ...x, code: x.code.toLowerCase() })) }],
+    ['a group without fingerprints', { groups: (g: object[]) => g.map(x => ({ ...x, fingerprints: [] })) }],
+    ['fingerprints that are not a list', { groups: (g: object[]) => g.map(x => ({ ...x, fingerprints: 'abc' })) }],
+    ['a group with an extra key', { groups: (g: object[]) => g.map(x => ({ ...x, extra: 1 })) }],
+    ['a short fingerprint', { groups: (g: { fingerprints: string[] }[]) => g.map(x => ({ ...x, fingerprints: x.fingerprints.map(f => f.slice(1)) })) }],
+  ])('refuses %s', async (_label, edit) => {
+    const w = await world();
+    const body: Record<string, unknown> = {};
+    if ('identity' in edit) body.identity = edit.identity(await w.claimed());
+    if ('groups' in edit) body.acknowledgements = (edit.groups as (g: never) => unknown)(w.groups() as never);
+    expect(await w.signOff(body)).toMatchObject({ status: 422 });
+    expect(w.db.rows('SELECT * FROM pub_signoff')).toEqual([]);
+  });
+
+  it('refuses a mix of per-warning and grouped acknowledgements', async () => {
+    const w = await world();
+    const [first, ...rest] = w.groups();
+    expect(await w.signOff({ acknowledgements: [...rest, { fingerprint: first!.fingerprints[0], reason: 'x' }] })).toMatchObject({ status: 422, body: { code: 'invalid-request' } });
   });
 });

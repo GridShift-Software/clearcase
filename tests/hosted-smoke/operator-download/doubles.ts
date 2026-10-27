@@ -102,7 +102,7 @@ export interface World {
 }
 /** The ports of one deployment of client-a, with the operator holding the capability and original access on case-a only. */
 export function world(o: { operate?: readonly CaseId[] } = {}): World {
-  const db = new SqliteD1([new URL('../../../src/lib/submissions/migrations/0001_submissions_intake.sql', import.meta.url).pathname]);
+  const db = new SqliteD1(['0001_submissions_intake.sql', '0002_submissions_file_sets.sql'].map((f) => new URL(`../../../src/lib/submissions/migrations/${f}`, import.meta.url).pathname));
   const repo = d1SubmissionRepository(db as unknown as IntakeD1);
   const repoCalls: string[] = [], operateCalls: unknown[] = [];
   const watched = new Proxy(repo, { get: (t, k: string) => (...a: unknown[]) => { repoCalls.push(k); return (t as never as Record<string, (...x: unknown[]) => unknown>)[k](...a); } }) as SubmissionRepository;

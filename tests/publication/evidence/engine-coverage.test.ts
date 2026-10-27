@@ -41,10 +41,10 @@ describe('an expired lease authorizes no write (M1)', () => {
   });
   it('finish refuses when the lease expired between the page read and the seal, and completes nothing', async () => {
     const run = setup(), total = 40;
-    const lapsing: EvidenceStore = { ...run.store, pages: async b => { const pages = await run.store.pages(b); run.advance(101); return pages; } };
+    let lapsed = false;
+    const lapsing: EvidenceStore = { ...run.store, pages: async b => { const pages = await run.store.pages(b); if (!lapsed) { lapsed = true; run.advance(101); } return pages; } };
     const engine = createEvidenceEngine({ binding, store: lapsing, producer: producer(false, total), clock: run.now, leaseId: 'holder', leaseMs: 100, bounds: BOUNDS });
-    expect((await engine.step()).kind).toBe('progress');
-    expect((await engine.step()).kind).toBe('progress');
+    for (let step = 0; step < 3; step++) expect((await engine.step()).kind).toBe('progress');
     expect((await engine.step()).kind).toBe('leased');
     expect(runRow(run.db)).toMatchObject({ state: 'building', evidence_root: null });
     expect(count(run.db, 'pub_evidence_page')).toBe(0);

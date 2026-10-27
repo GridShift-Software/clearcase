@@ -6,7 +6,7 @@ import path from 'node:path';
 import { canonicalBytes } from '../../../src/lib/case-package/canonical.ts';
 import { resultsVersionOf, sha256Hex } from '../../../src/lib/case-package/hash.ts';
 import { createHostedCandidateStager, type HostedCandidateStagerOptions } from '../../../src/lib/server/runtime/hosted/candidate-stager.ts';
-import { createNativeResultsImport, d1NativeCandidateRepository, submissionSnapshotReader, type NativeD1 } from '../../../src/lib/results-review/native/index.ts';
+import { createNativeResultsImport, d1NativeCandidateRepository, submissionSnapshotReader, type NativeD1, type NativeImportPorts } from '../../../src/lib/results-review/native/index.ts';
 import { d1StagingLedger, planBatches, r2StagingStore, type StepBounds } from '../../../src/lib/results-review/native/staging/index.ts';
 import { id, resultsVersion } from '../../../src/lib/server/runtime/ids.ts';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
@@ -170,7 +170,7 @@ class ChaosD1 implements NativeD1, CloudD1 {
   }
 }
 
-export interface ProcessOptions { kill?: KillAt | null; bounds?: Partial<StepBounds>; operate?: boolean; interleave?: () => Promise<void>; sweepObjects?: number }
+export interface ProcessOptions { kill?: KillAt | null; bounds?: Partial<StepBounds>; operate?: boolean; interleave?: () => Promise<void>; sweepObjects?: number; requestBudget?: NativeImportPorts['requestBudget'] }
 const operator = (): Identity => ({
   kind: 'verified', principal: { issuer: 'synthetic', subject: 'staff', kind: 'staff' }, sessionId: 'synthetic-session' as SessionId, clientId: ids.clientA,
   async checkRevocation() {}, async authorize() { throw new Error('client published visibility must not be used'); },
@@ -192,7 +192,7 @@ export async function startProcess(d: Durable, o: ProcessOptions = {}) {
   const stager = createHostedCandidateStager(config);
   const whole = { stage: (a: Parameters<typeof stager.stager.stage>[0]) => { d.counts.wholeStage++; return stager.stager.stage(a); } };
   const service = createNativeResultsImport({ ...stager, stager: whole, clientId: ids.clientA, budget: IMPORT_BUDGET, authorizeOperate, observeOperate: authorizeOperate, operateCondition, submissions: submissionSnapshotReader(db), repository: d1NativeCandidateRepository(db),
-    audit, now: () => NOW, requestBudget: null,
+    audit, now: () => NOW, requestBudget: o.requestBudget ?? null,
     staging: { ledger: d1StagingLedger(db, { rowsPerBatch: BIG_BUDGETS.maxRowsPerBatch }), store: r2StagingStore(bucket, { maxBytes: IMPORT_BUDGET.maxFileBytes }), rowsPerBatch: BIG_BUDGETS.maxRowsPerBatch, ...(o.sweepObjects ? { sweepObjects: o.sweepObjects } : {}) } })!;
   const token = await service.admit({ identity, caseId, access: 'write' });
   return { service, token, staged: service.staged!, bounds, packages: stager.packages };

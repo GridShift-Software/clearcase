@@ -163,7 +163,7 @@ export interface Process {
 export interface ProcessOptions {
   durable: Durable; caseId: string; submissions: FinalizedSubmissionReader; stager: CandidateStager; kill?: Kill | null;
   budget?: Partial<NativeImportPorts['budget'] & object>; rowsPerBatch?: number; maxBatchFiles?: number; requestBudget?: NativeImportPorts['requestBudget'];
-  operate?: boolean; staging?: boolean; now?: () => Date; sweepObjects?: number; sessionTtlMs?: number;
+  operate?: boolean; staging?: boolean; now?: () => Date; sweepObjects?: number; sessionTtlMs?: number; maxStagedBytes?: number;
 }
 export const BUDGET = { maxRequestBytes: 6 << 20, maxFiles: 8192, maxFileBytes: 64 << 20, maxPackageBytes: 512 << 20 };
 
@@ -176,7 +176,7 @@ export function stagedPorts(o: ProcessOptions): NativeImportPorts {
   const ports: NativeImportPorts = {
     clientId: CLIENT, budget: { ...BUDGET, ...o.budget }, authorizeOperate: operateAuthority(o.operate === false ? [] : [caseRef]), requestBudget: o.requestBudget ?? null,
     submissions: o.submissions, stager, packages: new StoredPackages(stager as unknown as ValidatingStager), repository: d1NativeCandidateRepository(db), audit: o.durable.audit, now: o.now ?? (() => new Date(NOW)),
-    ...(o.staging === false ? {} : { staging: { ledger: d1StagingLedger(db, { rowsPerBatch: o.rowsPerBatch ?? 3 }), store: r2StagingStore(bucket), rowsPerBatch: o.rowsPerBatch ?? 3, ...(o.maxBatchFiles ? { maxBatchFiles: o.maxBatchFiles } : {}), ...(o.sweepObjects ? { sweepObjects: o.sweepObjects } : {}), ...(o.sessionTtlMs ? { sessionTtlMs: o.sessionTtlMs } : {}) } }),
+    ...(o.staging === false ? {} : { staging: { ledger: d1StagingLedger(db, { rowsPerBatch: o.rowsPerBatch ?? 3 }), store: r2StagingStore(bucket), rowsPerBatch: o.rowsPerBatch ?? 3, ...(o.maxBatchFiles ? { maxBatchFiles: o.maxBatchFiles } : {}), ...(o.sweepObjects ? { sweepObjects: o.sweepObjects } : {}), ...(o.sessionTtlMs ? { sessionTtlMs: o.sessionTtlMs } : {}), ...(o.maxStagedBytes ? { maxStagedBytes: o.maxStagedBytes } : {}) } }),
   };
   return ports;
 }

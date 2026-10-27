@@ -620,7 +620,9 @@ describe('sign-out and the handshake against session cookies at other scopes or 
 	it('sign-out never reports success while another instance\'s session cookie, which it may not clear, survives (M3)', async () => {
 		const s = session(), other = session(), b = browser();
 		b.set(`__session=${s.stale()}; Path=/; Secure; HttpOnly`);
-		b.set(`${SESSION_C}=${A.token({ sub: other.user, sid: other.sid, azp: ORIGIN })}; Path=/; Secure; HttpOnly`);
+		// sign-out deletes every host-only session cookie it carries (GRS-113), but another instance's name on the parent
+		// domain is not this deployment's to clear
+		plant(b, SESSION_C, A.token({ sub: other.user, sid: other.sid, azp: ORIGIN }), PARENT);
 		const out = await act(signOut.actions.default!, '/sign-out', b);
 		expect(out).not.toMatchObject({ location: '/sign-in' });
 		expect(out).toMatchObject({ status: 409 });

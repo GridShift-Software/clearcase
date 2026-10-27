@@ -36,7 +36,8 @@ async function locals(token: string | null) {
 const outcome = async (f: () => unknown) => { try { return { value: await f() }; } catch (e) { return { thrown: e as { status?: number; location?: string; body?: { code?: string } } }; } };
 const jar = () => {
 	const deleted: string[] = [], set = new Map<string, string>();
-	return { deleted, set, cookies: { delete: (name: string) => deleted.push(name), set: (name: string, value: string) => set.set(name, value) } };
+	// `deleted`: the host-only deletes; sign-out also deletes the owned session names on each parent Domain, which are not these
+	return { deleted, set, cookies: { delete: (name: string, o?: { domain?: string }) => void (o?.domain === undefined && deleted.push(name)), set: (name: string, value: string) => set.set(name, value) } };
 };
 const post = (cookie: string) => new Request(`${ORIGIN}/sign-out`, { method: 'POST', headers: { cookie } });
 

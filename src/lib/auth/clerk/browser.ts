@@ -43,7 +43,7 @@
 import { createClerkClient } from '@clerk/backend';
 import { isSignInFlowPage, readClerkIdentityConfig, rsaJwkOf, type ClerkIdentityConfig, type InstanceKind } from './config.ts';
 import {
-	MAX_SESSION_LIFETIME_MS, OPERATOR_PATH, REFRESH_TOKEN_VALUE, SESSION_HOLD_COOKIE, STAFF_DEV_BROWSER_TIE, STAFF_HANDSHAKE_CLEAR, STAFF_HANDSHAKE_COOKIE, STAFF_HANDSHAKE_PARAM, cookiePairs, sdkCookieHeader, sessionHoldClear,
+	MAX_SESSION_LIFETIME_MS, OPERATOR_PATH, REFRESH_TOKEN_VALUE, cookieDomains, cookieSuffix, ownedCookieNames, sessionClears, SESSION_HOLD_COOKIE, STAFF_DEV_BROWSER_TIE, STAFF_HANDSHAKE_CLEAR, STAFF_HANDSHAKE_COOKIE, STAFF_HANDSHAKE_PARAM, cookiePairs, sdkCookieHeader, sessionHoldClear,
 	sessionHoldCookie, sessionHoldNames, sessionHoldOf, staffDevBrowserTie, staffHandshakeOf, startStaffHandshake, tiedDevBrowser,
 	type ClerkBrowserHandshake, type HandshakeOutcome, type SessionHold, type SessionRefresh,
 } from './flow.ts';
@@ -55,8 +55,6 @@ const TOKEN = /^[A-Za-z0-9._-]{16,8192}$/;
 const DEV_BROWSER = /^[A-Za-z0-9._-]{16,4096}$/;
 const DEV_BROWSER_COOKIE = /^__clerk_db_jwt(?:_[A-Za-z0-9_-]{1,32})?$/;
 const MAX_CLEAR_PATHS = 32;
-// Public suffixes above this app's origins, which browsers refuse as a Domain, so a clear for one would never match a cookie.
-const PUBLIC_SUFFIXES = new Set(['workers.dev', 'pages.dev', 'co.za']);
 const RS256 = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
 const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const fromB64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
@@ -135,11 +133,6 @@ function sanitizeDirective(directive: string, secure: boolean): string | 'drop' 
 	return out.join('; ');
 }
 
-/** Clerk's cookie suffix for an instance (@clerk/shared getCookieSuffix): base64url SHA-1 of its publishable key, 8 characters. */
-async function cookieSuffix(publishableKey: string): Promise<string> {
-	const digest = new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(publishableKey)));
-	return btoa(String.fromCharCode(...digest)).replace(/\+/g, '-').replace(/\//g, '_').slice(0, 8);
-}
 /** The payload of a token inspectToken accepted. */
 const tokenClaims = (token: string) => JSON.parse(new TextDecoder().decode(fromB64url(token.split('.')[1]!))) as Record<string, unknown>;
 // What this isolate learned about one presented refresh credential: the answer (shared by concurrent and repeated
@@ -167,27 +160,6 @@ function devBrowserClears(url: URL): string[] {
 	const safe = [...paths].filter((p) => !/[;\u0000-\u0020\u007f]/.test(p)).slice(0, MAX_CLEAR_PATHS);
 	return cookieDomains(url).flatMap((d) => safe.map((p) => `__clerk_db_jwt=; ${d === null ? '' : `Domain=${d}; `}Path=${p}; Max-Age=0; SameSite=Lax; Secure`));
 }
-/**
- * Every scope a cookie this origin receives can have a Domain at: host-only (null), the host, and each parent up to the
- * registrable domain. No public suffix is listed: browsers refuse one as a Domain. `workers.dev` is on the public suffix
- * list, so no cookie is ever scoped to it, but that makes the account subdomain (`<account>.workers.dev`) registrable,
- * and every Worker of the account, both sandboxes included, sits under it and can scope a cookie to it. On a custom
- * domain (`sbx-a.clearcase.co.za`) the registrable parent is `clearcase.co.za`.
- */
-function cookieDomains(url: URL): (string | null)[] {
-	const labels = url.hostname.split('.');
-	return [null, ...(labels.length > 1 ? labels.slice(0, -1).map((_, i) => labels.slice(i).join('.')).filter((d) => !PUBLIC_SUFFIXES.has(d)) : [])];
-}
-/**
- * The directives that expire the session cookie `name` at every scope this app or Clerk sets one at: host-only and each
- * cookieDomains Domain, at Path=/. Every session directive the Worker sets is rewritten to Path=/ (sanitizeDirective), and
- * Clerk's handshake and refresh answers set Path=/ (each one captured live on 27 October). The server never sees a
- * received cookie's scope, so a copy at another Path, which only a planted cookie has, is not reached: it stays beside
- * the others and the request stays refused as ambiguous (session.ts presentedToken), never resolved by picking one.
- */
-const sessionClears = (name: string, url: URL, secure: boolean) =>
-	cookieDomains(url).map((d) => `${name}=; ${d === null ? '' : `Domain=${d}; `}Path=/; Max-Age=0; SameSite=Lax; HttpOnly${secure ? '; Secure' : ''}`);
-
 export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }): ClerkBrowserHandshake {
 	const { config } = a;
 	const secure = config.appOrigin.startsWith('https://'), staffDevelopment = config.staff.publishableKey.startsWith('pk_test_');
@@ -257,12 +229,8 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 		if (!sfx) suffixes.set(kind, (sfx = cookieSuffix(config[kind].publishableKey)));
 		return `__refresh_${await sfx}`;
 	};
-	/**
-	 * The names of `base` this deployment owns: the plain name and its suffixed form for each configured instance. Only these
-	 * are ever cleared or written for a browser: a suffix of any other instance is not this app's to touch (review M2).
-	 */
-	const ownedNames = async (base: '__session' | '__client_uat') =>
-		new Set([base, ...(await Promise.all((['client', 'staff'] as const).map(async (k) => (await refreshNameOf(k)).replace('__refresh', base))))]);
+	// the session and uat names this deployment owns (flow.ts ownedCookieNames); no other is ever cleared or written
+	const ownedNames = (base: '__session' | '__client_uat') => ownedCookieNames(config, base);
 
 	/**
 	 * Clerk's answer to one refresh: only a session token of the same instance, subject and session, live now, in
@@ -410,11 +378,13 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			} catch {
 				return refuse(400, 'handshake-invalid');
 			}
-			const setCookies: string[] = [];
+			const setCookies: string[] = [], ownedSessions = await ownedNames('__session');
 			for (const d of state.headers.getSetCookie()) {
 				const clean = sanitizeDirective(d, secure);
 				if (clean === null) return refuse(502, 'handshake-cookie-refused');
-				if (clean !== 'drop') setCookies.push(clean);
+				// a session cookie name this deployment does not own is never written, even from a verified payload (review L2)
+				const name = clean === 'drop' ? '' : clean.slice(0, clean.indexOf('='));
+				if (clean !== 'drop' && (!SESSION_COOKIE_NAME.test(name) || ownedSessions.has(name))) setCookies.push(clean);
 			}
 			if (state.status === 'handshake') {
 				if (hasToken) return refuse(400, 'handshake-invalid'); // a handshake token that did not resolve is never retried

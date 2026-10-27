@@ -7,7 +7,7 @@ import type { Identity, Principal, SessionId } from '../../server/runtime/contra
 import { contractError } from '../../server/runtime/errors.ts';
 import { isSignInFlowPage, readClerkIdentityConfig, type ClerkIdentityConfig, type ClerkInstanceConfig, type InstanceKind, type StaffDevBrowser } from './config.ts';
 import { revocationEvidenceOf, type RevocationEvidence } from './revocation.ts';
-import { CLEARABLE_COOKIE_NAME, REFRESH_COOKIE_NAME, cookiePairs, inspectToken, presentedToken } from './session.ts';
+import { CLEARABLE_COOKIE_NAME, REFRESH_COOKIE_NAME, SESSION_COOKIE_NAME, cookiePairs, inspectToken, presentedToken } from './session.ts';
 
 export { cookiePairs, type CookiePair } from './session.ts';
 
@@ -169,6 +169,57 @@ export async function staffHandshakeOf(request: Request, config: ClerkIdentityCo
 }
 /** The directive that deletes the staff handshake correlation (an accepted handshake return consumes it in this browser). */
 export const STAFF_HANDSHAKE_CLEAR = `${STAFF_HANDSHAKE_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly; Secure`;
+
+// Public suffixes above this app's origins, which browsers refuse as a Domain, so a clear for one would never match a cookie.
+const PUBLIC_SUFFIXES = new Set(['workers.dev', 'pages.dev', 'co.za']);
+/** Clerk's cookie suffix for an instance (@clerk/shared getCookieSuffix): base64url SHA-1 of its publishable key, 8 characters. */
+export async function cookieSuffix(publishableKey: string): Promise<string> {
+	const digest = new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(publishableKey)));
+	return btoa(String.fromCharCode(...digest)).replace(/\+/g, '-').replace(/\//g, '_').slice(0, 8);
+}
+/**
+ * Every scope a cookie this origin receives can have a Domain at: host-only (null), the host, and each parent up to the
+ * registrable domain. No public suffix is listed: browsers refuse one as a Domain. `workers.dev` is on the public suffix
+ * list, so no cookie is ever scoped to it, but that makes the account subdomain (`<account>.workers.dev`) registrable,
+ * and every Worker of the account, both sandboxes included, sits under it and can scope a cookie to it. On a custom
+ * domain (`sbx-a.clearcase.co.za`) the registrable parent is `clearcase.co.za`.
+ */
+export function cookieDomains(url: URL): (string | null)[] {
+	const labels = url.hostname.split('.');
+	return [null, ...(labels.length > 1 ? labels.slice(0, -1).map((_, i) => labels.slice(i).join('.')).filter((d) => !PUBLIC_SUFFIXES.has(d)) : [])];
+}
+/**
+ * The directives that expire the session cookie `name` at every scope this app or Clerk sets one at: host-only and each
+ * cookieDomains Domain, at Path=/. Every session directive the Worker sets is rewritten to Path=/ (sanitizeDirective), and
+ * Clerk's handshake and refresh answers set Path=/ (each one captured live on 27 October). The server never sees a
+ * received cookie's scope, so a copy at another Path, which only a planted cookie has, is not reached: it stays beside
+ * the others and the request stays refused as ambiguous (session.ts presentedToken), never resolved by picking one.
+ */
+export const sessionClears = (name: string, url: URL, secure: boolean) =>
+	cookieDomains(url).map((d) => `${name}=; ${d === null ? '' : `Domain=${d}; `}Path=/; Max-Age=0; SameSite=Lax; HttpOnly${secure ? '; Secure' : ''}`);
+
+/**
+ * The names of `base` this deployment owns: the plain name and its suffixed form for each configured instance. Only these
+ * are ever cleared or written for a browser: a suffix of any other instance is not this app's to touch (review M2).
+ */
+export async function ownedCookieNames(config: ClerkIdentityConfig, base: '__session' | '__client_uat'): Promise<Set<string>> {
+	return new Set([base, ...(await Promise.all((['client', 'staff'] as const).map(async (k) => `${base}_${await cookieSuffix(config[k].publishableKey)}`)))]);
+}
+/**
+ * What sign-out clears beyond the host-only cookies it names, and what it may not: every owned session name at each
+ * cookieDomains Domain (Path=/), the scopes the handshake clears, so no live copy a sibling or an earlier answer left on a
+ * parent domain authorises the browser once the host-only one is gone (re-check M3); and the session cookie names it
+ * carries that this deployment does not own, which it never clears, so sign-out must not report success beside them.
+ */
+export function signOutScopes(a: { env: Readonly<Record<string, unknown>>; request: Request; url: URL }): Promise<{ parents: Array<{ name: string; domain: string }>; unowned: string[] }> {
+	// with no Clerk configured no Clerk token authenticates here, so no copy anywhere can sign the browser back in
+	const read = readClerkIdentityConfig(a.env);
+	if (!read.ok) return Promise.resolve({ parents: [], unowned: [] });
+	return ownedCookieNames(read.config, '__session').then((owned) => ({
+		parents: [...owned].flatMap((name) => cookieDomains(a.url).filter((d) => d !== null).map((domain) => ({ name, domain }))),
+		unowned: [...new Set(cookiePairs(a.request).map((c) => c.name).filter((n) => SESSION_COOKIE_NAME.test(n) && !owned.has(n)))],
+	}));
+}
 
 /** The cookie directives that delete exactly the session cookies a request carries (host-only, as they were set). */
 export function clerkCookieClears(request: Request, secure: boolean): string[] {

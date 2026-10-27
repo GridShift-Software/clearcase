@@ -61,7 +61,7 @@ describe('the import budget has no default', () => {
   it('accepts an exact, positive budget as an object or JSON text, and nothing else', () => {
     expect(nativeImportBudget(good)).toEqual(good);
     expect(nativeImportBudget(JSON.stringify(good))).toEqual(good);
-    for (const bad of [undefined, null, '', '{', [], {}, { ...good, extra: 1 }, { ...good, maxFiles: 0 }, { ...good, maxFileBytes: 1.5 }, { ...good, maxFileBytes: good.maxPackageBytes + 1 }, { ...good, maxFiles: 5000 }]) expect(nativeImportBudget(bad)).toBeNull();
+    for (const bad of [undefined, null, '', '{', [], {}, { ...good, extra: 1 }, { ...good, maxFiles: 0 }, { ...good, maxFileBytes: 1.5 }, { ...good, maxFileBytes: good.maxPackageBytes + 1 }, { ...good, maxFiles: 8193 }]) expect(nativeImportBudget(bad)).toBeNull();
     expect(nativeImportBudget(good, { stagerMaxPackageBytes: good.maxPackageBytes - 1 })).toBeNull();
   });
 });

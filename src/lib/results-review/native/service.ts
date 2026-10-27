@@ -8,6 +8,7 @@ import { overRequestBudget } from './budget.ts';
 import { buildCoverage, type UnlinkedReason } from './coverage.ts';
 import { candidateIdOf, linkIdOf, sha256Bytes, sha256Canonical } from './digest.ts';
 import { buildCorrection, inspectPackage, type InspectedPackage } from './package.ts';
+import { createStagedImport, type StagedImport } from './staging/service.ts';
 import type { CandidateReader, CommittedCandidateAudit, CorrectionRecord, LinkedCandidate, NativeImportPorts, Origin, Scoped, SqlCondition, StageOutcome } from './ports.ts';
 
 export type RefusalCode =
@@ -35,6 +36,8 @@ export interface NativeResultsImport {
   readonly budget: NonNullable<NativeImportPorts['budget']>;
   readonly clientId: ClientId;
   readonly correctionsAvailable: boolean;
+  /** The chunked, resumable import; null until its ledger and store are composed. */
+  readonly staged: StagedImport | null;
 }
 
 const refused = (code: RefusalCode, ...detail: string[]): ImportOutcome => ({ kind: 'refused', code, detail });
@@ -104,7 +107,7 @@ export function createNativeResultsImport(ports: NativeImportPorts | null): Nati
     throw e;
   }
   /** Every answer but a link (whose readback is fenced) is given only after a fresh observation. */
-  const answer = async (a: AdmittedOperator, out: ImportOutcome): Promise<ImportOutcome> => { await observe(a); return out; };
+  const answer = async <T>(a: AdmittedOperator, out: T): Promise<T> => { await observe(a); return out; };
 
   /**
    * Delivers the committed intent through the request sink, settles it, and answers the settled candidate. The repository
@@ -171,8 +174,13 @@ export function createNativeResultsImport(ports: NativeImportPorts | null): Nati
     return { kind: 'linked', repeated: false, candidate: await success(a, stored.audit) };
   }
 
-  return {
-    admit, budget, clientId, correctionsAvailable: ports.packages !== null,
+  // The chunked import shares this service's authority, fences and link path; it adds only acceptance in verified batches.
+  let service: NativeResultsImport;
+  const staged = ports.staging ? createStagedImport({ clientId, budget, staging: ports.staging, repository, requestBudget: ports.requestBudget ?? null, now: () => ports.now(),
+    must, observe, fence, fenced, answer, importPackage: (a, r) => service.importPackage(a, r), repeated }) : null;
+
+  return service = {
+    admit, budget, clientId, correctionsAvailable: ports.packages !== null, staged,
 
     async importPackage(a, r) {
       must(a, 'write');

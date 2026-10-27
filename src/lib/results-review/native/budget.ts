@@ -1,3 +1,4 @@
+import { LIMITS } from '../../case-package/limits.ts';
 import type { NativeImportBudget } from './ports.ts';
 
 /**
@@ -14,7 +15,7 @@ export function nativeImportBudget(value: unknown, o: { stagerMaxPackageBytes?: 
   if (Object.keys(b).sort().join() !== 'maxFileBytes,maxFiles,maxPackageBytes,maxRequestBytes') return null;
   const ok = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 1;
   if (!ok(b.maxFileBytes) || !ok(b.maxFiles) || !ok(b.maxPackageBytes) || !ok(b.maxRequestBytes)) return null;
-  if (b.maxFiles > 1023 + 1 || b.maxFileBytes > b.maxPackageBytes) return null;
+  if (b.maxFiles > LIMITS.packageFiles || b.maxFileBytes > b.maxPackageBytes) return null;
   if (o.stagerMaxPackageBytes !== undefined && b.maxPackageBytes > o.stagerMaxPackageBytes) return null;
   return Object.freeze({ maxRequestBytes: b.maxRequestBytes, maxFiles: b.maxFiles, maxFileBytes: b.maxFileBytes, maxPackageBytes: b.maxPackageBytes });
 }

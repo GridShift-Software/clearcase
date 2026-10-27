@@ -225,7 +225,7 @@ describe('a package past the old 1,024-file cap', () => {
         perRequest.push({ files: batch.length, r2: durable.counts.r2 - r2, d1: durable.counts.d1 - d1 });
       }
     }
-    expect(perRequest.length).toBeGreaterThan(Math.floor(files.size / staged.bounds.maxBatchFiles));
+    expect(perRequest.length).toBe(Math.ceil((files.size - 1) / staged.bounds.maxBatchFiles));
     for (const r of perRequest) {
       expect(r.files).toBeLessThanOrEqual(staged.bounds.maxBatchFiles);
       const cost = stagedBatchCost(r.files, 50);

@@ -1,4 +1,5 @@
 import Type, { type Static } from 'typebox';
+import { LIMITS } from './limits.ts';
 import { ASSET_KEY_PATTERN, REF_PATTERN } from './refs.ts';
 
 export const FORMAT = 'clearcase.results-package';
@@ -58,7 +59,7 @@ export const Manifest = Type.Object({
   producer: Type.Object({ name: Slug, version: ShortText }, { additionalProperties: false }),
   /** deterministic: from the input (v5: META.builtAt), never the clock */
   created: DateTime,
-  files: Type.Array(ManifestFile, { minItems: 1, maxItems: 1023 }),
+  files: Type.Array(ManifestFile, { minItems: 1, maxItems: LIMITS.packageFiles - 1 }),
   extensions: Type.Optional(Type.Record(Type.String({ pattern: '^x-[a-z0-9][a-z0-9-]{0,62}$' }), Type.Unknown(), { additionalProperties: false })),
 }, { additionalProperties: false });
 export type Manifest = Static<typeof Manifest>;

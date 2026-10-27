@@ -103,10 +103,19 @@ class ChaosD1 implements NativeD1, CloudD1 {
   private readonly sql = new WeakMap<object, string>();
   constructor(private readonly d: Durable, private readonly kill: Kill | null) {}
   prepare(sql: string) {
-    this.d.counts.d1++;
-    const s = this.d.db.prepare(sql);
-    this.sql.set(s, sql);
-    return s as never;
+    // bind() makes a new statement, so every statement the adapter can pass to batch() is tagged with its SQL. A D1 call is an
+    // execution (first, all, run) or one batch; preparing and binding cost nothing.
+    const tag = (statement: CloudD1Statement): CloudD1Statement => {
+      this.sql.set(statement, sql);
+      const bind = statement.bind.bind(statement);
+      statement.bind = (...values) => tag(bind(...values));
+      for (const run of ['first', 'all', 'run'] as const) {
+        const inner = (statement[run] as () => Promise<unknown>).bind(statement);
+        (statement as unknown as Record<string, unknown>)[run] = () => { this.d.counts.d1++; return inner(); };
+      }
+      return statement;
+    };
+    return tag(this.d.db.prepare(sql)) as never;
   }
   async batch(statements: CloudD1Statement[]) {
     this.d.counts.d1++;
@@ -142,7 +151,7 @@ export async function startProcess(o: ProcessOptions): Promise<Process> {
   const ports: NativeImportPorts = {
     clientId: CLIENT, budget: { ...BUDGET, ...o.budget }, authorizeOperate: operateAuthority(o.operate === false ? [] : [caseRef]), requestBudget: o.requestBudget ?? null,
     submissions: o.submissions, stager, packages: new StoredPackages(stager as unknown as ValidatingStager), repository: d1NativeCandidateRepository(db), audit: o.durable.audit, now: () => new Date(NOW),
-    ...(o.staging === false ? {} : { staging: { ledger: d1StagingLedger(db, { rowsPerBatch: o.rowsPerBatch ?? 3 }), store: r2StagingStore(bucket), ...(o.maxBatchFiles ? { maxBatchFiles: o.maxBatchFiles } : {}) } }),
+    ...(o.staging === false ? {} : { staging: { ledger: d1StagingLedger(db, { rowsPerBatch: o.rowsPerBatch ?? 3 }), store: r2StagingStore(bucket), rowsPerBatch: o.rowsPerBatch ?? 3, ...(o.maxBatchFiles ? { maxBatchFiles: o.maxBatchFiles } : {}) } }),
   };
   const service = createNativeResultsImport(ports)!;
   const token = await service.admit({ identity: who(), caseId: caseRef, access: 'write' });

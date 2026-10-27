@@ -19,10 +19,11 @@
 //     without it the SDK hands a document to the handshake (its no-refresh-cookie path), as before;
 //   - a returning handshake belongs to the instance whose configured key verifies its signature, so a first staff sign-in
 //     back on /cases is not resolved with the client key;
-//   - a development staff handshake this browser starts on an https origin carries a correlation (flow.ts
-//     startStaffHandshake): a `__Host-` cookie and the same random id in the redirect_url. Only a return that proves it,
-//     from a start that could vouch for the dev browser it handed the Frontend API (none, or the one already tied here),
-//     ties the dev browser to the staff instance, again in a `__Host-` cookie. A signature shows which instance signed a
+//   - a development staff handshake on an https origin lets the SDK read no dev browser but the one tied here (staffView):
+//     not the client instance's, which shares the plain name, nor one planted in the URL, a suffixed cookie or a
+//     parent-Domain cookie. One it starts carries a correlation (flow.ts startStaffHandshake): a `__Host-` cookie and the
+//     same random id in the redirect_url. Only a return that proves it, from a start no untied URL value came with, ties
+//     the dev browser to the staff instance, again in a `__Host-` cookie. A signature shows which instance signed a
 //     handshake, not which browser asked for it. An http origin starts no correlation and ties nothing.
 // A request that is not a document (a fetch, a form post, a `__data.json` load) never reaches the handshake, and this app
 // runs no clerk-js, so nothing renews the 60-second session token between page loads. `refresh` renews it on the Worker
@@ -53,6 +54,9 @@ const HANDSHAKE_PARAMS = ['__clerk_handshake', '__clerk_handshake_nonce', '__cle
 const TOKEN = /^[A-Za-z0-9._-]{16,8192}$/;
 const DEV_BROWSER = /^[A-Za-z0-9._-]{16,4096}$/;
 const DEV_BROWSER_COOKIE = /^__clerk_db_jwt(?:_[A-Za-z0-9_-]{1,32})?$/;
+const MAX_CLEAR_PATHS = 32;
+// Hosting suffixes browsers refuse as a Domain, so a clear for one would never match a cookie.
+const PUBLIC_SUFFIXES = new Set(['workers.dev', 'pages.dev']);
 const RS256 = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
 const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const fromB64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
@@ -145,6 +149,23 @@ const tokenClaims = (token: string) => JSON.parse(new TextDecoder().decode(fromB
 type Refreshed = { token: string; setCookies: string[]; until: number };
 const refreshes = new Map<string, Promise<Refreshed | null | 'fault'>>();
 const REFRESHES_LIMIT = 4096;
+/**
+ * The directives that expire every copy of the plain `__clerk_db_jwt` a browser can send with a request for `url`:
+ * host-only, and with each Domain from the host up to its two-label parent, at each Path that path-matches the URL's path
+ * (RFC 6265 5.1.4), each bare and with a trailing slash: up to MAX_CLEAR_PATHS, a safety cap above any app route, and none
+ * that could end the attribute. A Domain on a hosting public suffix (`workers.dev`) is one browsers refuse, so it is not
+ * emitted: the preview URL on a sandbox `*.workers.dev` host takes 3 Domains x 10 paths = 30 directives. A sibling origin
+ * under the same parent domain can plant one with Domain=<parent> or a narrower Path beside this origin's host-only cookie, and
+ * a repeated cookie never ties (flow.ts tiedDevBrowser), so a clear at Path=/ alone would leave the staff handshake
+ * starting again on every return (carryover review, finding 3).
+ */
+function devBrowserClears(url: URL): string[] {
+	const labels = url.hostname.split('.'), path = url.pathname, paths = new Set(['/']);
+	for (let i = 1; i <= path.length; i++) if (i === path.length || path[i] === '/') paths.add(path.slice(0, i)).add(path.slice(0, i + 1));
+	const domains = [null, ...(labels.length > 1 ? labels.slice(0, -1).map((_, i) => labels.slice(i).join('.')).filter((d) => !PUBLIC_SUFFIXES.has(d)) : [])];
+	const safe = [...paths].filter((p) => !/[;\u0000-\u0020\u007f]/.test(p)).slice(0, MAX_CLEAR_PATHS);
+	return domains.flatMap((d) => safe.map((p) => `__clerk_db_jwt=; ${d === null ? '' : `Domain=${d}; `}Path=${p}; Max-Age=0; SameSite=Lax; Secure`));
+}
 
 export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }): ClerkBrowserHandshake {
 	const { config } = a;
@@ -185,14 +206,28 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 		return signers.length === 1 ? signers[0]! : null;
 	};
 	/**
-	 * Whether a staff handshake start can vouch for the dev browser the SDK hands the Frontend API (its query value, else
-	 * its cookie): none at all, or exactly the one plain dev browser already tied here. Anything else may be planted.
+	 * The URL and Cookie header a development staff handshake on an https origin hands the SDK: every dev browser the SDK
+	 * reads (the `__clerk_db_jwt` query value, else the plain or suffixed `__clerk_db_jwt` cookie it picks) is the one tied
+	 * here (flow.ts tiedDevBrowser), or there is none and the SDK asks the staff Frontend API for a fresh one. Anything else
+	 * may be the client instance's, which shares the plain name, or planted, in a link or by a sibling origin's
+	 * parent-Domain cookie, and the Frontend API answers for whichever dev browser it is handed. The staff portal's own
+	 * return carries the tied value in its URL and keeps it. `vouched`: no untied URL value came with this request, so the
+	 * dev browser a correlated return of a handshake it starts sets may be tied; a crafted link's attempt ties nothing,
+	 * and the next clean GET starts one that does. `clears`: an untied plain cookie is expired wherever this request could
+	 * have it from (devBrowserClears) by the handshake it starts, whose return sets the one host-only cookie the tie needs.
 	 */
-	const vouches = async (request: Request, url: URL) => {
-		const handed = url.searchParams.getAll('__clerk_db_jwt'), cookies = cookiePairs(request).filter((c) => DEV_BROWSER_COOKIE.test(c.name));
-		if (handed.length === 0 && cookies.length === 0) return true;
-		const tied = await tiedDevBrowser(request, config);
-		return tied !== null && cookies.length === 1 && handed.length <= 1 && handed.every((v) => v === tied.value);
+	const staffView = async (request: Request, url: URL) => {
+		const tied = (await tiedDevBrowser(request, config))?.value ?? null;
+		const clears = tied === null && cookiePairs(request).some((c) => c.name === '__clerk_db_jwt') ? devBrowserClears(url) : [];
+		const sdkUrl = new URL(url), vouched = sdkUrl.searchParams.getAll('__clerk_db_jwt').every((v) => v === tied);
+		if (!vouched) sdkUrl.searchParams.delete('__clerk_db_jwt');
+		const pairs: string[] = [], named = new Set<string>();
+		for (const pair of sdkCookieHeader(request).split('; ')) {
+			const name = pair.slice(0, pair.indexOf('='));
+			if (!DEV_BROWSER_COOKIE.test(name)) pairs.push(pair);
+			else if (tied !== null && !named.has(name)) pairs.push(`${name}=${tied}`), named.add(name);
+		}
+		return { url: sdkUrl, cookie: pairs.filter((p) => p !== '').join('; '), vouched, clears };
 	};
 
 	const suffixes = new Map<InstanceKind, Promise<string>>();
@@ -320,11 +355,14 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			// only the browser's own hints reach the SDK: no Authorization header, no forwarded host or proto
 			const headers = new Headers();
 			for (const h of ['accept', 'sec-fetch-dest']) if (request.headers.has(h)) headers.set(h, request.headers.get(h)!);
-			const cookie = sdkCookieHeader(request);
-			if (cookie) headers.set('cookie', cookie);
+			// A development staff handshake on an https origin sees no dev browser it cannot tie (staffView). With the client
+			// instance's the SDK answered signed out and started no handshake, the operator POST handed the staff portal no dev
+			// browser, and the portal fell back to its own, signed in for another origin (Astra auth matrix, 27 Oct, finding 2).
+			const view = kind === 'staff' && staffDevelopment && secure ? await staffView(request, url) : { url, cookie: sdkCookieHeader(request), vouched: false, clears: [] };
+			if (view.cookie) headers.set('cookie', view.cookie);
 			let state: Awaited<ReturnType<ReturnType<typeof createClerkClient>['authenticateRequest']>>;
 			try {
-				state = await clientFor(kind).authenticateRequest(new Request(url, { method: 'GET', headers }), {
+				state = await clientFor(kind).authenticateRequest(new Request(view.url, { method: 'GET', headers }), {
 					publishableKey: instance.publishableKey, secretKey: instance.secretKey, jwtKey: instance.jwtKey, authorizedParties: [config.appOrigin],
 					...(config.audience !== null ? { audience: config.audience } : {}),
 				});
@@ -349,7 +387,8 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				if (to.origin !== instance.issuer || to.pathname !== '/v1/client/handshake' || back.origin !== config.appOrigin) return refuse(502, 'handshake-invalid');
 				to.searchParams.delete('format');
 				if (kind === 'staff' && staffDevelopment) {
-					const started = await startStaffHandshake(config, await vouches(request, url));
+					setCookies.unshift(...view.clears);
+					const started = await startStaffHandshake(config, view.vouched);
 					if (started !== null) {
 						back.searchParams.set(STAFF_HANDSHAKE_PARAM, started.id);
 						to.searchParams.set('redirect_url', back.href);
@@ -364,7 +403,7 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				for (const p of HANDSHAKE_PARAMS) clean.searchParams.delete(p);
 				if (state.status !== 'signed-in' && setCookies.some(setsSession)) return refuse(502, 'handshake-cookie-refused');
 				// a dev browser that a token only the staff key verifies set, on the return of a staff handshake this browser
-				// started from a dev browser it could vouch for, is tied to the staff instance (flow.ts tiedDevBrowser)
+				// started with no untied URL value (staffView), is tied to the staff instance (flow.ts tiedDevBrowser)
 				const devBrowser = setCookies.findLast((c) => c.startsWith('__clerk_db_jwt='));
 				const value = devBrowser === undefined ? '' : devBrowser.slice('__clerk_db_jwt='.length).split(';')[0]!;
 				const correlated = kind === 'staff' ? await staffHandshakeOf(request, config) : null;

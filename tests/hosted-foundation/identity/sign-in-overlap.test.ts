@@ -191,7 +191,8 @@ describe('a GET nobody clicked never consumes an attempt (M2)', () => {
 	});
 	it('disables inherited data preloading on the denial sign-in link', () => {
 		const error = readFileSync(new URL('../../../deploy/client/routes/+error.svelte', import.meta.url), 'utf8');
-		expect(error).toMatch(/<a\b[^>]*data-sveltekit-preload-data="off"[^>]*href="\/sign-in"/);
+		// auth-routing sends the link through signInHref, so it names the flow of the page that refused; preload stays off
+		expect(error).toMatch(/<a\b[^>]*id="sign-in-link"[^>]*href=\{signInHref\([^>]*data-sveltekit-preload-data="off"/);
 	});
 });
 

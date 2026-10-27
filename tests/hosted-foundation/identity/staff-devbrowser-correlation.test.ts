@@ -73,12 +73,12 @@ const tied = (jar: Jar) => jar.has(STAFF_DEV_BROWSER_TIE);
 /** The cookies in a jar that are neither Clerk's nor the tie: the handshake correlation, if any. */
 const correlation = (jar: Jar) => [...jar.keys()].filter((n) => !/^__(?:clerk_|client_uat|session)/.test(n) && n !== STAFF_DEV_BROWSER_TIE);
 const anonymous = { kind: 'anonymous', principal: null, sessionId: null };
-/** The dev browser the operator POST on `origin` hands the staff portal for this jar, or null. */
-const forwarded = async (origin: Origin, jar: Jar): Promise<string | null> => {
+/** The dev browser the operator POST on `origin` hands the staff portal for this jar (or raw Cookie header), or null. */
+const forwarded = async (origin: Origin, jar: Jar | string): Promise<string | null> => {
 	workers.env = app(origin);
-	const url = new URL(`${origin}/sign-in/operator`);
+	const url = new URL(`${origin}/sign-in/operator`), cookie = typeof jar === 'string' ? jar : header(jar);
 	try {
-		await operator.actions.default!({ url, request: new Request(url, { method: 'POST', headers: jar.size ? { cookie: header(jar), origin } : { origin } }), locals: { runtime: { testIdentity: null }, identity: anonymous }, cookies: { delete: () => {}, set: () => {} } } as never);
+		await operator.actions.default!({ url, request: new Request(url, { method: 'POST', headers: cookie ? { cookie, origin } : { origin } }), locals: { runtime: { testIdentity: null }, identity: anonymous }, cookies: { delete: () => {}, set: () => {} } } as never);
 	} catch (e) {
 		const location = (e as { location?: string }).location;
 		if (location) return new URL(location).searchParams.get('__clerk_db_jwt');
@@ -117,15 +117,19 @@ describe('the staff tie needs a staff handshake this browser started here (H1)',
 	});
 	it('ties nothing for a dev browser the handshake start was handed in its URL or in a cookie it cannot tie', async () => {
 		const viaUrl = await start(ORIGIN_A, `/sign-in/operator?__clerk_db_jwt=${ATTACKER_DVB}`);
-		expect(viaUrl.handedDvb).toBe(ATTACKER_DVB);
+		// a URL value it cannot tie never reaches the staff Frontend API either (carryover review, finding 1)
+		expect(viaUrl.handedDvb).toBeNull();
 		const afterUrl = apply(viaUrl.jar, await handle(ORIGIN_A, handedBack(viaUrl.back, ATTACKER_DVB), viaUrl.jar));
 		expect(tied(afterUrl)).toBe(false);
 		expect(await forwarded(ORIGIN_A, afterUrl)).toBeNull();
 		const viaCookie = await start(ORIGIN_A, '/sign-in/operator', new Map([['__clerk_db_jwt', ATTACKER_DVB], ['__client_uat', '1700000000']]));
-		expect(viaCookie.handedDvb).toBe(ATTACKER_DVB);
-		const afterCookie = apply(viaCookie.jar, await handle(ORIGIN_A, handedBack(viaCookie.back, ATTACKER_DVB), viaCookie.jar));
-		expect(tied(afterCookie)).toBe(false);
-		expect(await forwarded(ORIGIN_A, afterCookie)).toBeNull();
+		// a cookie it cannot tie never reaches the staff Frontend API (Astra finding 2): the start asks for a fresh dev
+		// browser instead, and only that one is tied and forwarded
+		expect(viaCookie.handedDvb).toBeNull();
+		expect(await forwarded(ORIGIN_A, viaCookie.jar)).toBeNull();
+		const afterCookie = apply(viaCookie.jar, await handle(ORIGIN_A, handedBack(viaCookie.back, OWN_DVB), viaCookie.jar));
+		expect(tied(afterCookie)).toBe(true);
+		expect(await forwarded(ORIGIN_A, afterCookie)).toBe(OWN_DVB);
 	});
 	it('ties nothing for an expired, tampered, missing or repeated correlation, or one another app issued', async () => {
 		const own = await start(ORIGIN_A, '/sign-in/operator');
@@ -265,5 +269,177 @@ describe('a sibling origin under the same parent domain cannot plant the correla
 		expect(jar.get('__clerk_db_jwt')).toBe(OWN_DVB);
 		expect([...jar.keys()].filter((n) => /clearcase/.test(n))).toEqual([]);
 		expect(await forwarded(ORIGIN_L, jar)).toBeNull();
+	});
+});
+
+// Astra auth matrix, 27 Oct, High finding 2: staff signed in on origin B, then opened A's operator sign-in. A already held
+// the client instance's dev browser (its signed-out client handshake after the operator 401), so the staff SDK saw a dev
+// browser with no session, answered signed out and started no staff handshake. Nothing tied, the operator POST handed the
+// staff portal no dev browser, and the portal fell back to the dev browser it keeps for itself, B's signed-in one, and
+// sent the browser to B. A dev browser this origin cannot tie to the staff instance is never handed to the staff Frontend
+// API, so the operator page asks for a fresh one, ties it and forwards it, as a fresh profile does.
+describe('an untied dev browser on this origin does not stop the operator sign-in from tying its own (Astra finding 2)', () => {
+	const CLIENT_DVB = 'dvb_synthetic_client_0123456789abcdef', TARGET = '/sign-in/operator?returnTo=/operator/cases/synthetic-case-a';
+	const clientJars: Array<[string, Jar]> = [
+		['the client instance\'s signed-out handshake', new Map([['__clerk_db_jwt', CLIENT_DVB], ['__client_uat', '0']])],
+		['the same with suffixed client cookies', new Map([['__clerk_db_jwt', CLIENT_DVB], ['__clerk_db_jwt_Cl1entSf', CLIENT_DVB], ['__client_uat', '0'], ['__client_uat_Cl1entSf', '0']])],
+		['a client dev browser that replaced a tied staff one', new Map([['__clerk_db_jwt', CLIENT_DVB], ['__client_uat', '0'], [STAFF_DEV_BROWSER_TIE, 'A'.repeat(43)]])],
+	];
+	for (const [what, jar] of clientJars) {
+		it(`starts a staff handshake that hands nothing, then ties and forwards the fresh staff dev browser: ${what}`, async () => {
+			const s = await start(ORIGIN_A, TARGET, jar);
+			expect(s.handedDvb).toBeNull();
+			const after = apply(s.jar, await handle(ORIGIN_A, handedBack(s.back, OWN_DVB), s.jar));
+			expect(after.get('__clerk_db_jwt')).toBe(OWN_DVB);
+			expect(tied(after)).toBe(true);
+			expect(await forwarded(ORIGIN_A, after)).toBe(OWN_DVB);
+		});
+	}
+	it('leaves a tied staff dev browser alone: the operator page continues and the POST forwards it', async () => {
+		const jar = await ownStaffJar();
+		expect(await handle(ORIGIN_A, `${ORIGIN_A}${TARGET}`, jar)).toEqual({ kind: 'continue' });
+		expect(await forwarded(ORIGIN_A, jar)).toBe(OWN_DVB);
+	});
+});
+
+// Carryover review, 27 Oct, Medium findings 1-3: the first fix kept an untied plain cookie from the SDK only when no
+// plain tie verified, so an untied dev browser still reached staff Clerk in the URL query (1), in a suffixed cookie the
+// SDK prefers over a valid plain tie (2), and a parent-Domain duplicate of the plain cookie left the browser's own fresh
+// one untied on every return, so the operator page restarted the handshake until Clerk's loop guard stopped it and the
+// POST forwarded nothing (3). Every dev browser a staff handshake's SDK can read is the one tied here or none, and the
+// tie names its own value among duplicates. jsdom's CookieJar keeps the duplicates a browser would send.
+describe('no untied dev browser reaches staff Clerk by any transport the SDK reads (carryover review)', () => {
+	interface BrowserJar { setCookieSync(directive: string, url: string): unknown; getCookiesSync(url: string): Array<{ key: string; value: string }> }
+	const OPERATOR = `${ORIGIN_A}/sign-in/operator`;
+	/** The Cookie header the browser sends with a request for `url`: every cookie whose Domain and Path match it. */
+	const cookieOf = (browser: BrowserJar, url: string | URL = OPERATOR) => browser.getCookiesSync(String(url)).map((c) => `${c.key}=${c.value}`).join('; ');
+	const request = (browser: BrowserJar, url: string | URL, extra: Record<string, string> = {}) => new Request(url, { headers: { ...doc, ...extra, cookie: cookieOf(browser, url) } });
+	const accept = (browser: BrowserJar, o: HandshakeOutcome) => { for (const d of o.kind === 'redirect' ? o.setCookies : []) browser.setCookieSync(d, ORIGIN_A); };
+	const handshake = () => {
+		const made = clerkBrowserHandshakeFromEnv(app(ORIGIN_A));
+		if (!made.ok) throw new Error(made.reason);
+		return made.handshake;
+	};
+	/** The dev browser a redirect to the staff Frontend API's handshake hands it, or null for none. */
+	const handedBy = (o: HandshakeOutcome) => {
+		if (o.kind !== 'redirect') throw new Error(`expected a handshake redirect, got ${JSON.stringify(o)}`);
+		const to = new URL(o.location);
+		expect(`${to.origin}${to.pathname}`).toBe(`${B.iss}/v1/client/handshake`);
+		return to.searchParams.get('__clerk_db_jwt');
+	};
+	/** A browser that ran its own fresh staff handshake on the operator route, optionally after a sibling planted `plants`. */
+	const ownBrowser = async (plants: string[] = []) => {
+		const browser: BrowserJar = new CookieJar(), h = handshake();
+		for (const p of plants) browser.setCookieSync(p, 'https://untrusted.clearcase.test/');
+		const started = await h.handle(request(browser, `${ORIGIN_A}/sign-in/operator`));
+		accept(browser, started);
+		if (started.kind !== 'redirect') throw new Error('expected a handshake redirect');
+		accept(browser, await h.handle(request(browser, handedBack(new URL(new URL(started.location).searchParams.get('redirect_url')!), OWN_DVB))));
+		return browser;
+	};
+	const staffSuffix = async () => {
+		const digest = new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(B.publishableKey)));
+		return btoa(String.fromCharCode(...digest)).replace(/\+/g, '-').replace(/\//g, '_').slice(0, 8);
+	};
+	const parentPlant = `__clerk_db_jwt=${ATTACKER_DVB}; Domain=clearcase.test; Path=/; Secure; SameSite=Lax`;
+
+	it('P1: hands staff Clerk no untied dev browser from the URL query, on the operator route or with a staff session elsewhere', async () => {
+		const fresh: BrowserJar = new CookieJar();
+		expect(handedBy(await handshake().handle(request(fresh, `${ORIGIN_A}/sign-in/operator?__clerk_db_jwt=${ATTACKER_DVB}`)))).toBeNull();
+		const staffSession: BrowserJar = new CookieJar();
+		staffSession.setCookieSync(`__session=${B.token({ sub: 'user_synthetic_staff', sid: 'sess_synthetic_staff', azp: ORIGIN_A })}; Path=/; Secure`, ORIGIN_A);
+		expect(handedBy(await handshake().handle(request(staffSession, `${ORIGIN_A}/cases?__clerk_db_jwt=${ATTACKER_DVB}`)))).toBeNull();
+	});
+	it('P2: hands staff Clerk no foreign suffixed dev browser beside a valid plain tie', async () => {
+		const browser = await ownBrowser(), suffix = await staffSuffix();
+		browser.setCookieSync(`__clerk_db_jwt_${suffix}=${ATTACKER_DVB}; Domain=clearcase.test; Path=/; Secure; SameSite=Lax`, 'https://untrusted.clearcase.test/');
+		browser.setCookieSync(`__client_uat_${suffix}=1700000000; Domain=clearcase.test; Path=/; Secure; SameSite=Lax`, 'https://untrusted.clearcase.test/');
+		const o = await handshake().handle(request(browser, `${ORIGIN_A}/sign-in/operator`));
+		if (o.kind === 'redirect') expect(handedBy(o)).not.toBe(ATTACKER_DVB);
+		else expect(o).toEqual({ kind: 'continue' });
+	});
+	it('P3: a parent-Domain dev browser does not restart the handshake after the browser\'s own fresh signed return', async () => {
+		const devBrowsers = (browser: BrowserJar) => browser.getCookiesSync(OPERATOR).filter((c) => c.key === '__clerk_db_jwt').map((c) => c.value);
+		// the review's order: planted before the operator sign-in starts
+		const before = await ownBrowser([parentPlant]);
+		expect(devBrowsers(before)).toEqual([OWN_DVB]);
+		expect(await handshake().handle(request(before, `${ORIGIN_A}/sign-in/operator`))).toEqual({ kind: 'continue' });
+		expect((await staffDevBrowserOf(request(before, `${ORIGIN_A}/sign-in/operator`), app(ORIGIN_A)))?.value).toBe(OWN_DVB);
+		expect(await forwarded(ORIGIN_A, cookieOf(before))).toBe(OWN_DVB);
+		// planted after the tie, at the parent domain and at a narrower path: one more fresh handshake, then it settles
+		const after = await ownBrowser(), h = handshake(), FRESH_DVB = 'dvb_synthetic_fresh_staff_0123456789abcdef';
+		for (const path of ['/', '/sign-in']) after.setCookieSync(`__clerk_db_jwt=${ATTACKER_DVB}; Domain=clearcase.test; Path=${path}; Secure; SameSite=Lax`, 'https://untrusted.clearcase.test/');
+		expect(devBrowsers(after)).toHaveLength(3);
+		const hops: string[] = [];
+		for (let i = 0; i < 3; i++) {
+			const o = await h.handle(request(after, `${ORIGIN_A}/sign-in/operator`));
+			hops.push(o.kind);
+			if (o.kind !== 'redirect') break;
+			expect(handedBy(o)).toBeNull();
+			accept(after, o);
+			accept(after, await h.handle(request(after, handedBack(new URL(new URL(o.location).searchParams.get('redirect_url')!), FRESH_DVB))));
+		}
+		expect(hops).toEqual(['redirect', 'continue']);
+		expect(devBrowsers(after)).toEqual([FRESH_DVB]);
+		expect(await forwarded(ORIGIN_A, cookieOf(after))).toBe(FRESH_DVB);
+	});
+	it('P3b: duplicates planted at the preview route\'s own path prefixes settle after one return, and a later staff sign-in starts no second handshake (carryover re-check, M3)', async () => {
+		const PREVIEW = `${ORIGIN_A}/operator/cases/case-a/preview/candidate-a`, h = handshake();
+		const devBrowsers = (browser: BrowserJar) => browser.getCookiesSync(PREVIEW).filter((c) => c.key === '__clerk_db_jwt').map((c) => c.value);
+		// The SDK's loop guard lasts two seconds; model a browsing session after it expired.
+		const settle = (browser: BrowserJar) => browser.setCookieSync('__clerk_redirect_count=; Path=/; Max-Age=0; Secure', ORIGIN_A);
+		const session = () => B.token({ sub: 'user_synthetic_staff', sid: 'sess_synthetic_staff', azp: ORIGIN_A });
+		// a staff browser signed in as the review's probe has it: the portal's return syncs the tied dev browser (ownBrowser(…, true))
+		const browser = await ownBrowser();
+		const sync = await h.handle(request(browser, `${ORIGIN_A}/cases?__clerk_db_jwt=${OWN_DVB}`));
+		// the unsigned /cases request still picks the client instance, whose Frontend API the redirect names; the return is the staff instance's
+		if (sync.kind !== 'redirect') throw new Error('expected a handshake redirect');
+		expect(new URL(sync.location).searchParams.get('__clerk_db_jwt')).toBe(OWN_DVB);
+		accept(browser, sync);
+		const back = new URL(new URL(sync.location).searchParams.get('redirect_url')!);
+		back.searchParams.set('__clerk_handshake', B.sign({ handshake: [
+			`__clerk_db_jwt=${OWN_DVB}; Path=/; Max-Age=315360000; SameSite=Lax; Secure`, '__client_uat=1700000000; Path=/; Max-Age=315360000; SameSite=Lax; Secure', `__session=${session()}; Path=/; Max-Age=60; SameSite=Lax; Secure`,
+		] }));
+		accept(browser, await h.handle(request(browser, back)));
+		for (const path of ['/operator/cases/case-a/preview/', '/operator/cases/case-a/preview/candidate-a']) {
+			browser.setCookieSync(`__clerk_db_jwt=${ATTACKER_DVB}; Domain=clearcase.test; Path=${path}; Secure; SameSite=Lax`, 'https://untrusted.clearcase.test/');
+		}
+		expect(devBrowsers(browser)).toHaveLength(3);
+		settle(browser);
+		const started = await h.handle(request(browser, PREVIEW));
+		expect(handedBy(started)).toBeNull();
+		accept(browser, started);
+		if (started.kind !== 'redirect') throw new Error('expected a handshake redirect');
+		// host-only plus two parent Domains, at each of the ten path-matching prefixes of the preview URL
+		expect(started.setCookies.filter((d) => d.startsWith('__clerk_db_jwt=;'))).toHaveLength(30);
+		// the signed-out return: the staff instance ends the session cookie the browser still holds
+		const out = new URL(new URL(started.location).searchParams.get('redirect_url')!);
+		out.searchParams.set('__clerk_handshake', B.sign({ handshake: [...directives(OWN_DVB), '__session=; Path=/; Max-Age=0; SameSite=Lax; Secure'] }));
+		accept(browser, await h.handle(request(browser, out)));
+		settle(browser);
+		expect(await h.handle(request(browser, PREVIEW))).toEqual({ kind: 'continue' });
+		expect(devBrowsers(browser)).toEqual([OWN_DVB]);
+		// a later valid staff session
+		browser.setCookieSync(`__session=${session()}; Path=/; Secure`, ORIGIN_A);
+		browser.setCookieSync('__client_uat=1700000000; Path=/; Secure', ORIGIN_A);
+		settle(browser);
+		expect(await handshake().handle(request(browser, PREVIEW))).toEqual({ kind: 'continue' });
+	});
+	it('expires a preview dev browser with 30 directives on the sandbox workers.dev host, none for a Domain on the public suffix', async () => {
+		const SANDBOX = 'https://cc-sbx-a-20261023.shiny-sunset-211d.workers.dev';
+		const made = clerkBrowserHandshakeFromEnv({ ...app(ORIGIN_A), CLEARCASE_APP_ORIGIN: SANDBOX });
+		if (!made.ok) throw new Error(made.reason);
+		const o = await made.handshake.handle(new Request(`${SANDBOX}/operator/cases/case-a/preview/candidate-a`, { headers: { ...doc, cookie: `__clerk_db_jwt=${ATTACKER_DVB}; __client_uat=1700000000; __session=${B.token({ sub: 'user_synthetic_staff', sid: 'sess_synthetic_staff', azp: SANDBOX })}` } }));
+		if (o.kind !== 'redirect') throw new Error(`expected a handshake redirect, got ${JSON.stringify(o)}`);
+		const clears = o.setCookies.filter((d) => d.startsWith('__clerk_db_jwt=;'));
+		expect(clears).toHaveLength(30);
+		expect(clears.filter((d) => /Domain=workers\.dev;/.test(d))).toEqual([]);
+		expect(clears.filter((d) => d.includes('Domain=shiny-sunset-211d.workers.dev; Path=/operator/cases/case-a/preview/;'))).toHaveLength(1);
+	});
+	it('still hands staff Clerk the tied dev browser the staff portal returns in the query, beside a parent-Domain duplicate too', async () => {
+		for (const plants of [[], [parentPlant]]) {
+			const browser = await ownBrowser(plants);
+			expect(handedBy(await handshake().handle(request(browser, `${ORIGIN_A}/sign-in/operator?__clerk_db_jwt=${OWN_DVB}`)))).toBe(OWN_DVB);
+		}
 	});
 });

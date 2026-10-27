@@ -12,13 +12,14 @@
 	let pages = $state(0);
 	let current = $state(1);
 	let scale = $state(1.2);
+	let viewport = $state<HTMLDivElement>();
 	let canvas = $state<HTMLCanvasElement>();
 	let notes = $state<PageNote[]>(untrack(() => [...initial]));
 	let draft = $state('');
 	let noteError = $state('');
 	let pending = $state(false);
 	let draftRevision = 0;
-	type Reader = { pages: number; draw(page: number, scale: number): Promise<void>; destroy(): void };
+	type Reader = { pages: number; draw(page: number, scale: number, fitWidth?: number): Promise<void>; destroy(): void };
 	type Global = { clearcasePdfReader?: { open(a: { src: string; canvas: HTMLCanvasElement; signal: AbortSignal }): Promise<Reader> } };
 	let reader: Reader | null = null;
 	let active = false;
@@ -52,12 +53,15 @@
 	}
 	const draw = () => {
 		const r = reader, generation = ++drawGeneration;
-		return active && r && canvas ? r.draw(current, scale).catch(() => {
+		const width = viewport?.clientWidth;
+		return active && r && canvas ? (width ? r.draw(current, scale, width) : r.draw(current, scale)).catch(() => {
 			if (active && r === reader && generation === drawGeneration) status = 'error';
 		}) : Promise.resolve();
 	};
 	onMount(() => {
 		active = true;
+		const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { if (reader) void draw(); });
+		if (viewport) observer?.observe(viewport);
 		// The route keys this component by its authorized load. Capture the source before any await.
 		const source = src, target = canvas!;
 		adapter()
@@ -71,7 +75,7 @@
 				await draw();
 			})
 			.catch(() => { if (active) status = 'error'; });
-		return () => { active = false; drawGeneration++; lifetime.abort(); reader?.destroy(); reader = null; };
+		return () => { observer?.disconnect(); active = false; drawGeneration++; lifetime.abort(); reader?.destroy(); reader = null; };
 	});
 	const go = (n: number) => { current = Math.min(Math.max(1, Math.trunc(n) || 1), Math.max(pages, 1)); void draw(); };
 	const zoom = (f: number) => { scale = Math.min(4, Math.max(0.4, scale * f)); void draw(); };
@@ -130,7 +134,7 @@
 			<button type="button" onclick={() => zoom(1.25)} disabled={status !== 'ready'}>Zoom in</button>
 			<a data-action="download-original" href={downloadHref}>Download</a>
 		</p>
-		<canvas bind:this={canvas} aria-label={`Page ${current}`}></canvas>
+		<div class="pdf-viewport" bind:this={viewport}><canvas bind:this={canvas} aria-label={`Page ${current}`}></canvas></div>
 	{/if}
 </div>
 
@@ -153,3 +157,9 @@
 		{#if noteError}<p role="alert">{noteError}</p>{/if}
 	{/if}
 </section>
+
+<style>
+	.pdf-viewport { max-width: 100%; overflow-x: auto; }
+	section { overflow-wrap: anywhere; }
+	textarea { max-width: 100%; }
+</style>

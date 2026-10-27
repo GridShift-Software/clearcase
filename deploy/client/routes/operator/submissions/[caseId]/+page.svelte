@@ -3,6 +3,10 @@
 	let { data }: { data: { caseId: string; available: boolean; submissions: OperatorSubmissionView[]; pendingCount: number } } = $props();
 </script>
 
+<style>
+	section, h1 { overflow-wrap: anywhere; }
+</style>
+
 <h1>Finalized submissions of case {data.caseId}</h1>
 {#if !data.available}
 	<p data-operator-download="unavailable">Operator downloads are not available on this deployment yet.</p>

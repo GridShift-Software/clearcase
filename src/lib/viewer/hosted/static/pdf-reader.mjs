@@ -34,7 +34,7 @@ window.clearcasePdfReader = {
 		} catch (error) { destroy(); throw error; }
 		return {
 			pages: doc.numPages,
-			draw(number, scale) {
+			draw(number, scale, fitWidth) {
 				const mine = ++ticket;
 				rendering?.cancel();
 				// Cancel promptly, but do not resize or reuse the canvas until the prior RenderTask settles.
@@ -42,7 +42,9 @@ window.clearcasePdfReader = {
 					if (destroyed || mine !== ticket) return;
 					const page = await doc.getPage(number);
 					if (destroyed || mine !== ticket) return;
-					const viewport = page.getViewport({ scale });
+					const natural = page.getViewport({ scale: 1 });
+					const fit = Number.isFinite(fitWidth) && fitWidth > 0 ? Math.min(1, fitWidth / (natural.width * 1.2)) : 1;
+					const viewport = page.getViewport({ scale: scale * fit });
 					canvas.width = Math.floor(viewport.width);
 					canvas.height = Math.floor(viewport.height);
 					const render = rendering = page.render({ canvas, viewport });

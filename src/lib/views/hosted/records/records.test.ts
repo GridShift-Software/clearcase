@@ -12,6 +12,14 @@ let root: string;
 let pkg: string;
 let files: ManifestFile[];
 const context = { originalHref: (ref: string, page: number | null) => `/original/${ref}${page ? `?page=${page}` : ''}` };
+type Shape = { properties?: Record<string, Shape>; patternProperties?: Record<string, Shape>; items?: Shape; anyOf?: Shape[] };
+function leaves(schema: Shape, prefix = '/data'): string[] {
+  if (schema.properties) return Object.entries(schema.properties).flatMap(([key, child]) => leaves(child, `${prefix}/${key.replaceAll('~', '~0').replaceAll('/', '~1')}`));
+  if (schema.patternProperties) return Object.values(schema.patternProperties).flatMap(child => leaves(child, `${prefix}/*`));
+  if (schema.items) return leaves(schema.items, `${prefix}/*`);
+  if (schema.anyOf) return schema.anyOf.flatMap(child => leaves(child, prefix));
+  return [prefix];
+}
 beforeAll(async () => {
   root = await mkdtemp(path.join(tmpdir(), 'records-test-'));
   pkg = process.env.RECORDS_POC_PACKAGE ?? path.join(root, 'corpus', 'pkg');
@@ -30,10 +38,15 @@ describe('source records', () => {
       const rendered = renderRecords(dataset, context);
       expect(rendered.html).toContain('Source records');
       expect(recordsSectionState(dataset, rendered), entry.key).toBe('records-rendered');
+      const expectedLeaves = [...new Set(leaves(KNOWN_SCHEMAS.get(dataset.schemaId)!.data as Shape))].map(sha256Hex);
+      expect(rendered.markers.leaves).toEqual(expectedLeaves);
+      if (Array.isArray(dataset.value.data)) expect(rendered.markers.records.length).toBeGreaterThanOrEqual(dataset.value.data.length);
       for (const marker of rendered.markers.records) expect(rendered.html).toContain(`data-record="${marker}"`);
-      for (const marker of rendered.markers.leaves) expect(rendered.html).toContain(`data-leaf="${marker}"`);
+      for (const marker of expectedLeaves) expect(rendered.html).toContain(`data-leaf="${marker}"`);
       if (rendered.markers.records.length) {
         expect(recordsSectionState(dataset, { ...rendered, markers: { ...rendered.markers, records: rendered.markers.records.slice(1) } })).toBe('invalid');
+        const marker = rendered.markers.records[0]!;
+        expect(recordsSectionState(dataset, { ...rendered, html: rendered.html.replace(`data-record="${marker}"`, '') })).toBe('invalid');
         mutated = true;
       }
     }
@@ -43,6 +56,9 @@ describe('source records', () => {
     const entry = files.find(f => f.key === 'people')!;
     const bytes = await readFile(path.join(pkg, entry.path));
     expect(() => verifyDatasetBytes({ ...entry, sha256: '0'.repeat(64) }, bytes)).toThrow();
+    expect(() => verifyDatasetBytes({ ...entry, size: entry.size + 1 }, bytes)).toThrow();
+    const malformed = new TextEncoder().encode('{broken');
+    expect(() => verifyDatasetBytes({ ...entry, size: malformed.length, sha256: sha256Hex(malformed) }, malformed)).toThrow();
     const value = JSON.parse(bytes.toString()); value.data = 'not an array';
     const bad = new TextEncoder().encode(JSON.stringify(value));
     expect(() => verifyDatasetBytes({ ...entry, size: bad.length, sha256: sha256Hex(bad) }, bad)).toThrow();

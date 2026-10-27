@@ -6,7 +6,9 @@ import { sha256Canonical } from '../../results-review/native/digest.ts';
 import type { PublicationRequest } from './controller.ts';
 import type { CandidateSnapshot, CandidateSnapshotV2, EvidenceCountGroup, EvidenceKind, EvidenceObservation, EvidenceReader, NativePublicationPorts, RequiredPreviewState, SignoffIdentity, SignoffRecord } from './ports.ts';
 import type { PreviewNavigationObservation, PreviewReasonCode, PreviewRenderStage } from './preview-outcome.ts';
-import { EVIDENCE_KINDS, checkEvidenceItem, checkSnapshot, checkSnapshotV2, evidenceCount, newWarnings, signoffBlocker, signoffBlockerV2, type Blocker } from './rules.ts';
+import { EVIDENCE_KINDS, acknowledgementFault, acknowledgementGroups, assetBindingOf, awaitsMetaAcknowledgement, checkEvidenceItem, checkSnapshot, checkSnapshotV2, evidenceCount, newWarnings, signoffBlocker, signoffBlockerV2, type Blocker } from './rules.ts';
+import { ORIGINAL_WARNED, assetPolicySummary, assetPolicyWording, isAssetHoldReason, isAuthenticMissingOriginal, type AssetPolicyKey, type AssetPolicyLine, type AssetPolicyWording } from './asset-policy.ts';
+import { warningsOf } from './signoff-evidence.ts';
 import type { ReadinessFence, ReadinessFenceResult, ReadinessObservation } from './readiness-fence.ts';
 
 /** The observation a fence is given for a v2 snapshot. */
@@ -60,11 +62,19 @@ export interface ReadinessViewV2 {
   blocker: Blocker | null;
   evidence: { generation: string; root: string; items: number; groups: readonly EvidenceCountGroup[]; newWarnings: number };
   acknowledgementsRequired: number;
+  /**
+   * The asset policy states (U10) the run holds, with how many assets are in each and what the publisher reads for it. From the counts alone;
+   * a state with no assets has no line. A sign-off or its acknowledgements never change a line: an acknowledgement is not an observation.
+   */
+  assets: AssetPolicyLine[];
   selfApprovalRequired: boolean;
   signoff: ReadinessView['signoff'];
   /** `items` are this page, in key order; `next` is the cursor for the page after it, or null at the end of the range. */
-  page: { kind: EvidenceKind | null; size: number; items: { key: string; observation: EvidenceObservation; acknowledgementRequired?: boolean }[]; next: string | null };
+  page: { kind: EvidenceKind | null; size: number; items: ReadinessItemV2[]; next: string | null };
 }
+
+/** One evidence item on a page. `policy` is present on a held asset's preview and on a missing original's warning, and says which asset and what to do. */
+export interface ReadinessItemV2 { key: string; observation: EvidenceObservation; acknowledgementRequired?: boolean; policy?: AssetPolicyWording & { assetId: string } }
 
 const PART = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SIGNOFF = /^so-[A-Za-z0-9][A-Za-z0-9-]{15,63}$/;
@@ -217,29 +227,47 @@ export function createPublicationReadiness(ports: PublicationReadinessPorts | nu
         try { rows = await reader.page({ ...scope, candidateId, generation: s.evidence.generation, root: s.evidence.root, after: cursor?.after ?? null, kind, limit: size + 1 }); } catch { return unavailable(); }
         if (rows === null) return await stale();
         if (!Array.isArray(rows) || rows.length > size + 1) return unavailable();
+        // The run's summary counts a missing original under `ORIGINAL_WARNED` only when the run also holds the validator's warning it names; any
+        // other state, including an older summary's, is one `checkSnapshotV2` refuses. So a page serves one only from a snapshot that counts it
+        // so, and only when it is the recomputed exception.
+        const warned = s.evidence.groups.some((g) => g.kind === 'warning' && g.state === ORIGINAL_WARNED);
         const more = rows.length > size, bound = { clientId: p.clientId, caseId, resultsVersion: s.link.candidate.resultsVersion, manifestSha256: s.link.candidate.manifestSha256 };
-        const items: ReadinessViewV2['page']['items'] = [];
+        const items: ReadinessItemV2[] = [];
         for (const row of rows.slice(0, size)) {
           const item = checkEvidenceItem(row, bound), previous = items.at(-1)?.key ?? cursor?.after ?? null;
           // Served rows are in strictly ascending key order after the cursor, and all of the requested kind.
           if (!item || (previous !== null && item.key <= previous) || (kind !== null && item.observation.kind !== kind)) return unavailable();
-          items.push(item.acknowledgementRequired === undefined ? { key: item.key, observation: item.observation } : { key: item.key, observation: item.observation, acknowledgementRequired: item.acknowledgementRequired });
+          if (item.missing && (!warned || !isAuthenticMissingOriginal(item, assetBindingOf(s)))) return unavailable();
+          const o = item.observation, held = o.kind === 'preview' && o.state === 'failed' && isAssetHoldReason(o.reasonCode) ? o : null;
+          const policy = item.missing ? { ...assetPolicyWording('original-not-supplied'), assetId: item.missing.assetId } : held ? { ...assetPolicyWording(held.reasonCode as AssetPolicyKey), assetId: held.assetId } : undefined;
+          items.push({ key: item.key, observation: o, ...(item.acknowledgementRequired !== undefined && { acknowledgementRequired: item.acknowledgementRequired }), ...(policy && { policy }) });
         }
         // The whole range fitted in this one page, so it must be exactly as many items as the snapshot counts.
         if (cursor === null && !more && items.length !== (kind ? evidenceCount(s, kind) : s.evidence.items)) return unavailable();
         const next = more ? encodeCursor({ binding: series, root: s.evidence.root, kind, after: items.at(-1)!.key }) : null;
-        const blocker = signoffBlockerV2(s);
+        let blocker = signoffBlockerV2(s), acknowledged = true;
+        // A named sign-off carries the acknowledgements a META disagreement is cleared by; read what the sealed run derives and apply them, by
+        // the rule sign-off and publish apply (`acknowledgementFault`).
+        if (so && awaitsMetaAcknowledgement(blocker)) {
+          let facts: Awaited<ReturnType<typeof warningsOf>>;
+          try { facts = await warningsOf({ reader }, { clientId: p.clientId, caseId, candidateId, generation: s.evidence.generation, root: s.evidence.root,
+            resultsVersion: s.link.candidate.resultsVersion, manifestSha256: s.link.candidate.manifestSha256 }, evidenceCount(s, 'warning'), assetBindingOf(s)); } catch { return unavailable(); }
+          if (!facts) return unavailable();
+          const groups = acknowledgementGroups(so.acknowledgements);
+          blocker = signoffBlockerV2(s, { disagreements: facts.meta, acknowledgements: groups });
+          acknowledged = acknowledgementFault(s, facts, groups) === null;
+        }
         const blockers: NonNullable<ReadinessView['signoff']>['blockers'] = [];
         if (so) {
           if (so.state !== 'audited' || so.invalidatedAt !== null) blockers.push('signoff-not-effective');
           // The identity carries the revision, which covers the baseline; U5 additionally binds the evidence root to the sign-off.
-          if (canonicalJson(signedIdentity(so)) !== canonicalJson(identityOf(s)) || blocker
+          if (canonicalJson(signedIdentity(so)) !== canonicalJson(identityOf(s)) || blocker || !acknowledged
             || so.acknowledgements.length !== s.evidence.newWarnings || so.warningFingerprints.length !== evidenceCount(s, 'warning')) blockers.push('signoff-stale');
         }
         const view: ReadinessViewV2 = {
           format: 'clearcase.readiness/2', caseId, identity: identityOf(s), materialSha256: await sha256Canonical(s), blocker,
           evidence: { generation: s.evidence.generation, root: s.evidence.root, items: s.evidence.items, groups: s.evidence.groups, newWarnings: s.evidence.newWarnings },
-          acknowledgementsRequired: s.evidence.newWarnings,
+          acknowledgementsRequired: s.evidence.newWarnings, assets: assetPolicySummary(s.evidence.groups),
           selfApprovalRequired: principal.issuer === s.preparedBy.issuer && principal.subject === s.preparedBy.subject,
           signoff: so ? { signoffId: so.signoffId, identity: signedIdentity(so), state: so.state, invalidated: so.invalidatedAt !== null, blockers } : null,
           page: { kind, size, items, next },

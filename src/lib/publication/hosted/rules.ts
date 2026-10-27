@@ -1,6 +1,7 @@
 import type { CandidateSnapshot, CandidateSnapshotV2, EvidenceCountGroup, EvidenceItemRow, EvidenceKind, EvidenceObservation, PreviewStateV2, SectionStateV2 } from './ports.ts';
 import { isIntegrityKey } from '../../case-package/registry.ts';
 import { META_DISAGREEMENT_CODE, metaDisagreementFingerprint, type MetaBinding, type MetaCountDetail, type MetaDisagreement } from '../../case-package/meta-integrity.ts';
+import { ASSET_ACK_CODE, ASSET_HOLD_REASONS, ORIGINAL_WARNED, authenticMissingOriginals, isAssetHoldReason, type AssetBinding, type MissingOriginal } from './asset-policy.ts';
 import { PREVIEW_REASON_CODES, detachedData, isPreviewNavigationObservation, isPreviewReasonCode, isPreviewRenderStage } from './preview-outcome.ts';
 
 // Pure sign-off rules over a candidate snapshot (ADR-0010, ADR-0011, results-package acknowledgement contract). There
@@ -98,7 +99,9 @@ const SECTION_CLEARING: Readonly<Record<SectionStateV2, Clearing>> = {
 const PREVIEW_CLEARING: Readonly<Record<PreviewStateV2, Exclude<Clearing, 'integrity-key' | 'acknowledged'>>> = { rendered: 'always', failed: 'never', pending: 'never' };
 export const SECTION_STATES_V2 = Object.keys(SECTION_CLEARING) as SectionStateV2[];
 export const PREVIEW_STATES_V2 = Object.keys(PREVIEW_CLEARING) as PreviewStateV2[];
-const PREVIEW_REASONS_V2: ReadonlySet<unknown> = new Set<string>(PREVIEW_REASON_CODES);
+// The asset policy reasons (U10) are v2 only: v1's `previewCheck` keeps its own vocabulary. A policy reason belongs to a `failed` preview and to no other state.
+const PREVIEW_REASONS_V2: ReadonlySet<unknown> = new Set<string>([...PREVIEW_REASON_CODES, ...ASSET_HOLD_REASONS]);
+const reasonFits = (state: unknown, reason: unknown): boolean => PREVIEW_REASONS_V2.has(reason) && state !== 'rendered' && (!isAssetHoldReason(reason) || state === 'failed');
 const sectionState = (v: unknown): v is SectionStateV2 => typeof v === 'string' && Object.hasOwn(SECTION_CLEARING, v);
 const previewState = (v: unknown): v is PreviewStateV2 => typeof v === 'string' && Object.hasOwn(PREVIEW_CLEARING, v);
 const safeCount = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
@@ -107,8 +110,11 @@ function groupOk(g: unknown): g is EvidenceCountGroup {
   if (!plain(g) || !keys(g, ['kind', 'subject', 'state', 'reason', 'count']) || !safeCount(g.count) || g.count < 1) return false;
   switch (g.kind) {
     case 'section': return text(g.subject) && sectionState(g.state) && g.reason === null && g.count === 1;
-    case 'preview': return g.subject === null && previewState(g.state) && (g.reason === null || (g.state !== 'rendered' && PREVIEW_REASONS_V2.has(g.reason)));
-    case 'warning': case 'error': case 'original': return g.subject === null && g.state === null && g.reason === null;
+    case 'preview': return g.subject === null && previewState(g.state) && (g.reason === null || reasonFits(g.state, g.reason));
+    // A warning is grouped as a missing original when its item says so and the run holds its validator warning (`readiness-evidence.ts`). An
+    // older summary's `original-not-supplied` did not check that, so it is refused like any unknown state. No other kind has a state or a reason.
+    case 'warning': return g.subject === null && (g.state === null || g.state === ORIGINAL_WARNED) && g.reason === null;
+    case 'error': case 'original': return g.subject === null && g.state === null && g.reason === null;
     default: return false;
   }
 }
@@ -151,16 +157,16 @@ const MAX_ACK_REASON = 1000;
  * Whether the acknowledgements are exactly the META disagreements this snapshot's run holds. Each disagreement's fingerprint must
  * recompute from this snapshot's candidate and validation and its own values, so evidence derived for another candidate or validation,
  * or an acknowledgement of an earlier value, never matches. Every group of the META code needs a reason; each fingerprint is named
- * once; none is missing and none is extra. Groups of any other code are not about META and are ignored.
+ * once; every derived fingerprint is named, and the only others a group may name are the validator's own warnings for them. Groups of any other code are not about META and are ignored.
  */
 function metaAcknowledged(s: CandidateSnapshotV2, meta: MetaEvidence | undefined): boolean {
   if (!meta || meta.disagreements.length === 0) return false;
   const bound: MetaBinding = { resultsVersion: s.link.candidate.resultsVersion, manifestSha256: s.link.candidate.manifestSha256,
     validatorVersion: s.validation.validatorVersion, diagnosticsSha256: s.validation.diagnosticsSha256 };
-  const derived = new Set<string>();
+  const derived = new Set<string>(), diagnostics = new Set<string>();
   for (const d of meta.disagreements) {
     if (!disagreementOk(d) || d.fingerprint !== metaDisagreementFingerprint(bound, d)) return false;
-    derived.add(d.fingerprint);
+    derived.add(d.fingerprint); diagnostics.add(d.diagnostic);
   }
   if (derived.size !== meta.disagreements.length) return false;
   const groups = meta.acknowledgements.filter((g) => plain(g) && g.code === META_DISAGREEMENT_CODE);
@@ -168,9 +174,13 @@ function metaAcknowledged(s: CandidateSnapshotV2, meta: MetaEvidence | undefined
   const named = new Set<string>();
   for (const g of groups) {
     if (typeof g.reason !== 'string' || g.reason.trim() === '' || g.reason.length > MAX_ACK_REASON || !Array.isArray(g.fingerprints)) return false;
-    for (const f of g.fingerprints) { if (typeof f !== 'string' || !derived.has(f) || named.has(f)) return false; named.add(f); }
+    for (const f of g.fingerprints) {
+      // The group may name a derived disagreement or the validator's own warning for one (ADR-0014: each disagreement has a matching diagnostic), and nothing else.
+      if (typeof f !== 'string' || (!derived.has(f) && !diagnostics.has(f)) || named.has(f)) return false;
+      named.add(f);
+    }
   }
-  return named.size === derived.size;
+  return [...derived].every((f) => named.has(f));
 }
 
 /**
@@ -199,7 +209,14 @@ export function signoffBlockerV2(s: CandidateSnapshotV2, meta?: MetaEvidence): B
 
 export interface EvidenceBound { readonly clientId: string; readonly caseId: string; readonly resultsVersion: string; readonly manifestSha256: string }
 /** `meta` is present only on a warning that is a META count disagreement (`metaEvidenceItems`). */
-export interface CheckedEvidenceItem { readonly key: string; readonly observation: EvidenceObservation; readonly acknowledgementRequired?: boolean; readonly meta?: MetaCountDetail }
+export interface CheckedEvidenceItem { readonly key: string; readonly observation: EvidenceObservation; readonly acknowledgementRequired?: boolean; readonly meta?: MetaCountDetail;
+  /** Present only on a warning that is the bound acknowledgement of a missing original (U10, `asset-policy.ts`). */
+  readonly missing?: MissingOriginalDetail }
+/** What a missing original's warning carries: the asset and the validator's own `ASSET_MISSING_AT_BUILD` diagnostic for it. */
+export interface MissingOriginalDetail { readonly assetId: string; readonly diagnostic: string }
+const ASSET_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const missingDetail = (m: unknown): m is MissingOriginalDetail => plain(m) && keys(m, ['assetId', 'diagnostic']) && typeof m.assetId === 'string' && ASSET_ID.test(m.assetId)
+  && typeof m.diagnostic === 'string' && FP.test(m.diagnostic);
 
 const metaDetail = (m: unknown): m is MetaCountDetail => plain(m) && keys(m, ['carried', 'derived', 'diagnostic', 'subject']) && (m.carried === null || safeCount(m.carried))
   && safeCount(m.derived) && typeof m.diagnostic === 'string' && FP.test(m.diagnostic) && text(m.subject, 200);
@@ -211,14 +228,64 @@ const disagreementOk = (d: unknown): d is MetaDisagreement => plain(d) && keys(d
 export const metaDisagreementsOf = (items: readonly CheckedEvidenceItem[]): MetaDisagreement[] =>
   items.flatMap((i) => (i.meta && i.observation.kind === 'warning' ? [{ ...i.meta, fingerprint: i.observation.fingerprint }] : []));
 
-function observationOf(o: unknown): { observation: EvidenceObservation; subject: string; meta?: MetaCountDetail } | null {
+/**
+ * The missing originals among the checked warnings of a whole run (U10), or null when any exception is not genuine: its diagnostic must be
+ * `ASSET_MISSING_AT_BUILD` for exactly that asset, the validator's own warning must be in the run, and its fingerprint must be the one
+ * recomputed from `binding`, the current candidate and validation (`authenticMissingOriginals`). Coverage of the originals (U14) may let
+ * these stand in for an `original/` observation, and no other asset.
+ */
+export const missingOriginalsOf = (items: readonly CheckedEvidenceItem[], binding: AssetBinding): MissingOriginal[] | null => authenticMissingOriginals(items, binding);
+
+/** The binding a snapshot gives the fingerprints of its candidate: the candidate's pin and the current validation. */
+export const assetBindingOf = (s: CandidateSnapshotV2): AssetBinding => ({ resultsVersion: s.link.candidate.resultsVersion, manifestSha256: s.link.candidate.manifestSha256,
+  validatorVersion: s.validation.validatorVersion, diagnosticsSha256: s.validation.diagnosticsSha256 });
+
+/** A sign-off's recorded acknowledgements as groups, one per code and reason, as `signoffBlockerV2` takes them. An entry without a code is not about any section. */
+export function acknowledgementGroups(acks: readonly { readonly fingerprint: string; readonly reason: string; readonly code?: string }[]): AcknowledgementGroup[] {
+  const by = new Map<string, { code: string; reason: string; fingerprints: string[] }>();
+  for (const a of acks) {
+    if (a.code === undefined) continue;
+    const key = JSON.stringify([a.code, a.reason]), g = by.get(key) ?? { code: a.code, reason: a.reason, fingerprints: [] };
+    g.fingerprints.push(a.fingerprint); by.set(key, g);
+  }
+  return [...by.values()];
+}
+
+/** Whether the only thing between a candidate and sign-off is the acknowledgement of its META disagreements, which the sign-off itself supplies. */
+export const awaitsMetaAcknowledgement = (b: Blocker | null): boolean => b !== null && b.code === 'required-section' && b.detail.length > 0 && b.detail.every((d) => d === 'meta:disagrees');
+
+/** What the sealed run's warnings ask of a sign-off (`warningsOf`): the ones the case's baseline does not hold, and the exceptions among them all. */
+export interface WarningsToAcknowledge { readonly fresh: readonly string[]; readonly meta: readonly MetaDisagreement[]; readonly missing: readonly MissingOriginal[] }
+export type AcknowledgementFault =
+  | { readonly code: 'ack-not-exact' }
+  | { readonly code: 'ack-incomplete'; readonly missing: readonly string[] }
+  | { readonly code: 'blocked'; readonly blocker: Blocker };
+/**
+ * Whether `groups` acknowledge exactly what the run asks, or the first fault. Sign-off applies it to the request's groups and publish to the
+ * recorded ones (`acknowledgementGroups`), so the two cannot decide differently. Every fingerprint named is a fresh warning, named once; a
+ * warning the baseline holds is never named, so a missing original the case already trusts needs nothing. A missing original and the
+ * validator's warning for it are named only under that warning's code. META disagreements clear only as `metaAcknowledged` says. Every fresh
+ * warning is named.
+ */
+export function acknowledgementFault(s: CandidateSnapshotV2, w: WarningsToAcknowledge, groups: readonly AcknowledgementGroup[]): AcknowledgementFault | null {
+  const fresh = new Set(w.fresh), named = groups.flatMap((g) => g.fingerprints), unique = new Set(named);
+  if (unique.size !== named.length || named.some((f) => !fresh.has(f))) return { code: 'ack-not-exact' };
+  const codeOf = new Map(groups.flatMap((g) => g.fingerprints.map((f) => [f, g.code] as const)));
+  if (w.missing.some((m) => [m.fingerprint, m.diagnostic].some((f) => codeOf.has(f) && codeOf.get(f) !== ASSET_ACK_CODE))) return { code: 'ack-not-exact' };
+  const first = signoffBlockerV2(s), still = awaitsMetaAcknowledgement(first) ? signoffBlockerV2(s, { disagreements: w.meta, acknowledgements: groups }) : first;
+  if (still) return { code: 'blocked', blocker: still };
+  const missing = w.fresh.filter((f) => !unique.has(f));
+  return missing.length ? { code: 'ack-incomplete', missing } : null;
+}
+
+function observationOf(o: unknown): { observation: EvidenceObservation; subject: string; meta?: MetaCountDetail; missing?: MissingOriginalDetail } | null {
   if (!plain(o)) return null;
   switch (o.kind) {
     case 'section':
       return keys(o, ['kind', 'key', 'state']) && text(o.key) && sectionState(o.state) ? { observation: o as unknown as EvidenceObservation, subject: o.key } : null;
     case 'preview':
       if (!text(o.assetId) || !previewState(o.state) || (o.state === 'rendered' && Object.keys(o).length !== 3)) return null;
-      return Object.keys(o).every((k) => k === 'kind' || k === 'assetId' || k === 'state' || (k === 'reasonCode' && PREVIEW_REASONS_V2.has(o[k])) || (k === 'stage' && isPreviewRenderStage(o[k]))
+      return Object.keys(o).every((k) => k === 'kind' || k === 'assetId' || k === 'state' || (k === 'reasonCode' && reasonFits(o.state, o[k])) || (k === 'stage' && isPreviewRenderStage(o[k]))
         || (k === 'navigation' && isPreviewNavigationObservation(o[k]))) ? { observation: o as unknown as EvidenceObservation, subject: o.assetId } : null;
     case 'warning': case 'error': {
       if (typeof o.fingerprint !== 'string' || !FP.test(o.fingerprint)) return null;
@@ -226,6 +293,10 @@ function observationOf(o: unknown): { observation: EvidenceObservation; subject:
       // A META count disagreement carries its counts. It is a warning only, and never its own diagnostic's fingerprint.
       if (o.kind === 'warning' && keys(o, ['kind', 'fingerprint', 'meta']) && metaDetail(o.meta) && o.meta.diagnostic !== o.fingerprint) {
         return { observation: { kind: 'warning', fingerprint: o.fingerprint }, subject: o.fingerprint, meta: o.meta };
+      }
+      // A missing original's warning carries its asset. It is a warning only, never its own diagnostic's fingerprint, and never also a META count.
+      if (o.kind === 'warning' && keys(o, ['kind', 'fingerprint', 'missing']) && missingDetail(o.missing) && o.missing.diagnostic !== o.fingerprint) {
+        return { observation: { kind: 'warning', fingerprint: o.fingerprint }, subject: o.fingerprint, missing: o.missing };
       }
       return null;
     }
@@ -252,6 +323,6 @@ export function checkEvidenceItem(row: EvidenceItemRow, bound: EvidenceBound): C
     || !text(parsed.input.rendererVersion) || !text(parsed.input.validatorVersion)) return null;
   const found = observationOf(parsed.observation);
   if (!found || row.key !== `${found.observation.kind}/${found.subject}`) return null;
-  if (found.observation.kind === 'warning') return typeof row.baseline === 'boolean' ? { key: row.key, observation: found.observation, acknowledgementRequired: !row.baseline, ...(found.meta && { meta: found.meta }) } : null;
+  if (found.observation.kind === 'warning') return typeof row.baseline === 'boolean' ? { key: row.key, observation: found.observation, acknowledgementRequired: !row.baseline, ...(found.meta && { meta: found.meta }), ...(found.missing && { missing: found.missing }) } : null;
   return row.baseline === null ? { key: row.key, observation: found.observation } : null;
 }

@@ -143,9 +143,10 @@ describe('a signed-in user whose session token expired between page loads', () =
 		expect(refreshCalls()).toHaveLength(1);
 		expect(refreshCalls()[0]).toMatchObject({ path: `/v1/sessions/${s.sid}/refresh`, bearer: A.secretKey, body: { refresh_token: s.refresh, request_origin: ORIGIN, format: 'cookie' } });
 		expect(trap.blocked).toEqual([]);
-		// the hold moves on to the refreshed token, under the other name of its kind (session-renewal-live-3 fix 1)
+		// the hold moves on to the refreshed token, under the other name of its kind (session-renewal-live-3 fix 1), spent:
+		// this double answers no new refresh token (round 4b)
 		const token = set!.split(';')[0]!.slice('__session='.length);
-		expect(r.headers.getSetCookie().find((c) => c.startsWith(`${HOLD_A}_2=`))).toMatch(new RegExp(`^${HOLD_A}_2=${token}~${s.refresh.replace(/[+/=]/g, '\\$&')}; Path=/; Max-Age=\\d+; SameSite=Lax; HttpOnly; Secure$`));
+		expect(r.headers.getSetCookie().find((c) => c.startsWith(`${HOLD_A}_2=`))).toMatch(new RegExp(`^${HOLD_A}_2=~${token}~${s.refresh.replace(/[+/=]/g, '\\$&')}; Path=/; Max-Age=\\d+; SameSite=Lax; HttpOnly; Secure$`));
 		expect(r.headers.getSetCookie()).toContain(`${HOLD_A}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly; Secure`);
 		// the refreshed cookie alone is a verified session at this origin
 		const again = await invoke(saveNote(`__client_uat=1761400000; ${set!.split(';')[0]}`));
@@ -155,7 +156,9 @@ describe('a signed-in user whose session token expired between page loads', () =
 	it('answers a filtered search (a __data.json request) for the operator, not "your session has ended"', async () => {
 		const s = session(B);
 		const r = await invoke(dataRequest(`__client_uat=1761400000; __session=${s.stale()}; ${hold(s.stale(), s.refresh, HOLD_B)}`));
-		expect(r.status).toBe(201);
+		// renewed, and with no new refresh token (spent) handed to the staff handshake for one (round 4b)
+		expect((await dataRedirect(r))?.origin).toBe(B.iss);
+		expect(sessionCookie(r)).toBeDefined();
 		expect(refreshCalls()).toHaveLength(1);
 		expect(refreshCalls()[0]!.bearer).toBe(B.secretKey);
 	});
@@ -259,7 +262,9 @@ describe('what the refresh never changes', () => {
 	it('makes one refresh for concurrent requests carrying the same expired token', async () => {
 		const s = session();
 		const out = await Promise.all([invoke(saveNote(jar(s))), invoke(dataRequest(jar(s))), invoke(saveNote(jar(s)))]);
-		expect(out.map((r) => r.status)).toEqual([201, 201, 201]);
+		// the data request, renewed with a spent hold, goes on to the handshake (round 4b)
+		expect(out.map((r) => r.status)).toEqual([201, 200, 201]);
+		expect(await dataRedirect(out[1]!)).not.toBeNull();
 		expect(refreshCalls()).toHaveLength(1);
 	});
 	it.each([
@@ -516,7 +521,9 @@ describe('a session Clerk renews under its suffixed cookie name (session-renewal
 		later(settle);
 		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
 		later(90_000);
-		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(201);
+		// renewed, then handed to the handshake: this double answers no new refresh token (round 4b)
+		const data = b.take(await invoke(clientData(b.cookie())));
+		expect(await dataRedirect(data)).not.toBeNull();
 		expect(sessionValues(b).size).toBe(1);
 		expect(trap.blocked).toEqual([]);
 	});
@@ -747,7 +754,10 @@ describe('a renewal Clerk refuses, and two isolates renewing one hold (session-r
 		refreshAnswer = () => ({ status: 503, body: { errors: [{ code: 'service_unavailable', message: 'synthetic outage' }] } });
 		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(401);
 		refreshAnswer = null;
-		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(201);
+		// renewed (and, the hold spent, handed to the handshake: round 4b)
+		const renewed = b.take(await invoke(clientData(b.cookie())));
+		expect(sessionCookie(renewed)).toBeDefined();
+		expect(await dataRedirect(renewed)).not.toBeNull();
 		expect(refreshCalls()).toHaveLength(2);
 	});
 	it.each([['the winner first', [0, 1]], ['the loser first', [1, 0]]])('two isolates race one single-use refresh token, the browser applying %s: it stays signed in and renews again (probe 3)', async (_order, order) => {
@@ -841,7 +851,7 @@ describe('a refresh token Clerk never rotates (astra-renewal-7614, round 4)', ()
 		expect((await load(b, s, `/cases?__clerk_handshake=${A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh) })}`)).status).toBe(303);
 	};
 
-	it('Astra B: three idle breadcrumbs with no saves all render the case; the second goes through the handshake', async () => {
+	it('Astra B: three idle breadcrumbs with no saves all render the case, each through the handshake', async () => {
 		const s = session(), b = browser();
 		await signedIn(b, s);
 		const out = [];
@@ -849,7 +859,9 @@ describe('a refresh token Clerk never rotates (astra-renewal-7614, round 4)', ()
 			later(90_000);
 			out.push(await navigate(b, s));
 		}
-		expect(out).toEqual([{ status: 201, handoff: false }, { status: 201, handoff: true }, { status: 201, handoff: false }]);
+		// each renewal spends the hold, so each goes on to the handshake for a fresh one (round 4b), which the next renews
+		expect(out).toEqual([{ status: 201, handoff: true }, { status: 201, handoff: true }, { status: 201, handoff: true }]);
+		expect(refreshCalls()).toHaveLength(3);
 		expect(sessionValues(b).size).toBe(1);
 		expect(holds(b)).toHaveLength(1);
 		expect(trap.blocked).toEqual([]);
@@ -870,7 +882,7 @@ describe('a refresh token Clerk never rotates (astra-renewal-7614, round 4)', ()
 		const s = session(), b = browser();
 		await signedIn(b, s);
 		later(90_000);
-		expect(await navigate(b, s)).toEqual({ status: 201, handoff: false });
+		expect(await navigate(b, s)).toEqual({ status: 201, handoff: true });
 		later(90_000);
 		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
 	});

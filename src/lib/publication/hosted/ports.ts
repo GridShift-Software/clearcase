@@ -261,7 +261,7 @@ export interface NativePublicationPorts {
   readonly audit: AuditSink | null;
   /**
    * Snapshot v2 only: where sign-off and publish check the sealed evidence run (`signoff-evidence.ts`). Without it a v2 candidate
-   * answers 503. The ledger must be composed with `{ evidence: true }` too, once migration 0005 is applied. (Readiness takes its own
+   * answers 503 (`originals` too, once the run holds original items). The ledger must be composed with `{ evidence: true }` too, once migration 0005 is applied. (Readiness takes its own
    * `evidence` reader; this one also carries the store, so it is a separate port.)
    */
   readonly signoffEvidence?: PublicationEvidence | null;

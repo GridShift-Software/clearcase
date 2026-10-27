@@ -124,6 +124,15 @@ describe('an original that cannot be hashed stops the build instead of being ski
     expect(await over({ bucket: { get: async key => { const o = await fresh.r2.get(key); return o && { ...o, arrayBuffer: async () => { throw new Error('stream reset'); } }; } } })).toBe('storage-unavailable');
   });
 
+  it('does not download an object whose size is not the recorded one', async () => {
+    const s = await seed(3);
+    s.r2.tamper(s.keyOf(s.refs[1]!), b => b.subarray(1));
+    let bodies = 0;
+    const bucket: Pick<CloudR2, 'get'> = { get: async key => { const o = await s.r2.get(key); return o && { ...o, arrayBuffer: async () => { bodies++; return o.arrayBuffer(); } }; } };
+    expect(await failure(drain(createOriginalsProducer(options(s, { bucket, batch: 1 }))))).toBe('size-mismatch');
+    expect(bodies).toBe(1);
+  });
+
   it('refuses refs it cannot key: an unsafe asset id, a repeat, an order the engine would refuse, a malformed digest', async () => {
     const s = await seed(3);
     const run = (refs: OriginalRef[]) => failure(drain(createOriginalsProducer(options(s, { refs: async () => refs }))));

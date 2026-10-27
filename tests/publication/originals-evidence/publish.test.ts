@@ -13,7 +13,7 @@ async function signed(w: OriginalsWorld) {
   return r.body.signoffId as string;
 }
 /** Compose another comparison (or none) for the next request. */
-const compose = (w: OriginalsWorld, originals: OriginalsComparison | undefined) => { const { originals: _o, ...rest } = w.ports.signoffEvidence!; w.ports.signoffEvidence = (originals ? { ...rest, originals } : rest) as never; };
+const compose = (w: OriginalsWorld, originals: OriginalsComparison | undefined) => { const { originals: _o, ...rest } = w.ports.signoffEvidence!; (w.ports as { signoffEvidence?: PublicationEvidence }).signoffEvidence = originals ? { ...rest, originals } : rest; };
 const unchanged = (w: OriginalsWorld) => { expect(w.pointer()).toBeNull(); expect(w.receipts()).toEqual([]); };
 
 describe('the evidence holds the originals', () => {

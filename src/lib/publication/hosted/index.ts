@@ -3,5 +3,6 @@
 export type * from './ports.ts';
 export { createNativePublication, type PublicationController, type PublicationRequest } from './controller.ts';
 export { d1PublicationLedger, type PublicationD1, type PublicationD1Statement, type PublicationD1Value, type PublicationLedgerOptions } from './ledger.ts';
-export type { PublicationEvidence } from './signoff-evidence.ts';
+export type { OriginalHead, OriginalsComparison, PublicationEvidence } from './signoff-evidence.ts';
+export { OriginalsEvidenceError, createOriginalsProducer, originalRefs, r2OriginalsComparison, type OriginalRef, type OriginalsProducerOptions } from './originals-evidence.ts';
 export { publicationControllerFor, setPublicationComposition, type PublicationComposition } from './composition.ts';

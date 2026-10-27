@@ -69,7 +69,7 @@ describe('the intake page load and upload eligibility', () => {
 		expect(w.events.filter((e) => (e as { action?: string }).action === 'case.upload-originals')).toEqual([]);
 	});
 
-	it('leaves the answer out when the grant lookup is down, so the page keeps the form and the audited write path decides', async () => {
+	it('leaves the answer out when the grant lookup is down, so the page explains instead of offering the form, and the audited write path still decides', async () => {
 		const w = await world();
 		w.seedCase(USER, 'viewer', CASE_1);
 		await w.issue(USER, CASE_1, 'op-1');

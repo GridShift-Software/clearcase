@@ -82,10 +82,18 @@ describe('the client intake page', () => {
 		expect(intake({ canUpload: false, submissions: [entry('finalized')] }).querySelector('[data-stage="finalized"]')).not.toBeNull();
 	});
 
-	it.each([[true], [undefined]])('shows the upload form when the grant is held or unknown (%s)', (canUpload) => {
-		const d = intake({ canUpload });
+	it('shows the upload form only when the grant is affirmatively held', () => {
+		const d = intake({ canUpload: true });
 		expect(d.querySelector('form[data-intake-state="available"] input[type=file]')).not.toBeNull();
 		expect(d.querySelector('[data-intake-state="no-upload-grant"]')).toBeNull();
+	});
+
+	it('explains, without a form, when upload eligibility is unknown (lookup down or no port)', () => {
+		const d = intake({ submissions: [entry('finalized')] });
+		expect(d.querySelector('form')).toBeNull();
+		expect(d.querySelector('input[type=file]')).toBeNull();
+		expect(d.querySelector('[data-intake-state="upload-unknown"]')!.textContent).toMatch(/could not check/i);
+		expect(d.querySelector('[data-stage="finalized"]')).not.toBeNull();
 	});
 
 	it('shows nothing about grants when intake is unavailable on this deployment', () => {

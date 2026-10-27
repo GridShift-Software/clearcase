@@ -466,3 +466,61 @@ describe('a refresh token of the shape a live Clerk handshake returns (session-r
 		expect(trap.blocked).toEqual([]);
 	});
 });
+
+// The live refresh answer of 27 October (Astra auth matrix at 939193b1, finding 1; session-renewal-live-2 probe): asked
+// with `suffixed_cookies=false`, Clerk set the renewed token ONLY under the suffixed `__session_<suffix>`, and no
+// `__client_uat`. The handshake keeps this browser on the plain `__session`, so after one renewal it carried two different
+// session tokens: the request presented none (ambiguity is refused), and the handshake on the next document load re-set
+// only `__session`, leaving the suffixed copy behind. A note saved after 90 s idle (303), and the reload straight after it
+// went through the handshake to 401 "Your session has ended", which no later handshake undid.
+const SESSION_SFX = `__session_${suffix(A.publishableKey)}`;
+const liveRefreshAnswer = (s: ReturnType<typeof session>) => (sid: string) => sid !== s.sid ? null
+	: { status: 200, body: { object: 'cookies', cookies: [`${SESSION_SFX}=${A.token({ sub: s.user, sid, azp: ORIGIN })}; Path=/; Expires=${YEAR()}; Secure; SameSite=None`] } };
+// A document load as the browser makes it: through Clerk's handshake when the Worker sends it there (Clerk answers for
+// the session it holds, with the live directive set), back to the page; the final answer.
+async function load(b: ReturnType<typeof browser>, s: ReturnType<typeof session>, path: string) {
+	let r = b.take(await invoke(documentGet(path, b.cookie())));
+	if ([303, 307].includes(r.status) && new URL(r.headers.get('location')!, ORIGIN).origin === A.iss) {
+		const back = new URL(new URL(r.headers.get('location')!).searchParams.get('redirect_url')!);
+		back.searchParams.set('__clerk_handshake', A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh) }));
+		r = b.take(await invoke(documentGet(back.pathname + back.search, b.cookie())));
+		expect(r.status).toBe(303);
+		r = b.take(await invoke(documentGet(new URL(r.headers.get('location')!, ORIGIN).pathname, b.cookie())));
+	}
+	return r;
+}
+const sessionValues = (b: ReturnType<typeof browser>) => new Set(b.cookie().split('; ').filter((c) => /^__session(_|=)/.test(c)).map((c) => c.slice(c.indexOf('=') + 1)));
+const CASE_NOTES = '/cases/case-a/notes';
+
+describe('a session Clerk renews under its suffixed cookie name (session-renewal-live-2)', () => {
+	beforeEach(() => void vi.useFakeTimers({ toFake: ['Date'] }));
+	afterEach(() => void vi.useRealTimers());
+
+	it.each([['straight after the save', 0], ['after the save has settled', 15_000]])('saves a note 90 s after sign-in and reloads %s: still signed in, with one session token', async (_, settle) => {
+		const s = session(), b = browser();
+		sessions.get(s.sid)!.refresh = LIVE_RT(n);
+		refreshAnswer = liveRefreshAnswer(s);
+		expect((await load(b, s, `/cases?__clerk_handshake=${A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh) })}`)).status).toBe(303);
+		later(90_000);
+		expect(b.take(await invoke(saveNote(b.cookie()))).status).toBe(201);
+		expect(refreshCalls()).toHaveLength(1);
+		later(settle);
+		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
+		later(90_000);
+		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(201);
+		expect(sessionValues(b).size).toBe(1);
+		expect(trap.blocked).toEqual([]);
+	});
+	it('signs a browser that a renewal left with two session tokens back in on its next page load', async () => {
+		const s = session(), b = browser();
+		sessions.get(s.sid)!.refresh = LIVE_RT(n);
+		// what the 939193b1 deploy left in a browser: the handshake's plain token and a renewed suffixed one
+		b.take(new Response(null, { headers: [
+			['set-cookie', `__session=${s.stale()}; Path=/; Secure`], ['set-cookie', `${SESSION_SFX}=${A.token({ sub: s.user, sid: s.sid, azp: ORIGIN, now: Date.now() - 30_000 })}; Path=/; Secure`],
+			['set-cookie', `__client_uat=1761400000; Path=/; Secure`], ['set-cookie', `${hold(s.stale(), sessions.get(s.sid)!.refresh)}; Path=/; Secure`],
+		] }));
+		expect(sessionValues(b).size).toBe(2);
+		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
+		expect(sessionValues(b).size).toBe(1);
+	});
+});

@@ -65,7 +65,7 @@ function d1(db: DatabaseSync): IntakeD1 {
   return { prepare: (sql) => statement(sql), async batch(ss) { db.exec('BEGIN'); try { const out = ss.map((s) => (s as unknown as { exec(): unknown }).exec()); db.exec('COMMIT'); return out; } catch (e) { db.exec('ROLLBACK'); throw e; } } };
 }
 const SQL = () => assembleNativeIntakeFileSetsMigration(sources(NATIVE_INTAKE_FILE_SETS_MIGRATION_INPUTS)).sql;
-const REPLACED = ['submissions_file_insert_once', 'submissions_file_matches_declaration', 'submissions_upload_needs_revision'];
+const REPLACED = ['submissions_revision_insert_once', 'submissions_file_insert_once', 'submissions_file_matches_declaration', 'submissions_upload_needs_revision'];
 const scope = { clientId: 'client-a' as ClientId, caseId: 'case-a' as CaseId };
 
 describe('0007 multi-file intake increment', () => {
@@ -90,7 +90,7 @@ describe('0007 multi-file intake increment', () => {
     const untouched = (s: ReturnType<typeof snapshot>) => s.triggers.filter((t) => !REPLACED.includes(t.name) && before.triggers.some((b) => b.name === t.name));
     expect(untouched(after)).toEqual(before.triggers.filter((t) => !REPLACED.includes(t.name)));
     expect(after.triggers.map((t) => t.name)).toEqual(expect.arrayContaining(['pub_provenance_submissions_revision_insert', 'submissions_revision_insert_once', 'submissions_revision_immutable_update', 'submissions_revision_immutable_delete', ...REPLACED]));
-    expect(after.indexes).toEqual(before.indexes);
+    expect(after.indexes.filter((i) => !/^sqlite_autoindex_submissions_set(_member)?_\d+$/.test((i as { name: string }).name))).toEqual(before.indexes);
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     expect(db.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' });
 

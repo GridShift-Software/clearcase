@@ -43,6 +43,14 @@ export const NATIVE_IMPORT_STAGING_MIGRATION_INPUTS = freeze([
 // The already applied increment this one runs after: a dependency record only, never emitted, rewritten or replayed.
 export const NATIVE_IMPORT_STAGING_APPLIED_EVIDENCE = freeze({ path: 'migrations/0005_native_evidence.sql', bytes: 4529,
 	sha256: 'sha256:3fd4aab4b8f89adbf62a34a1cf67ac2941fd4ee30977f48af9980107d3f001db' });
+export const NATIVE_INTAKE_FILE_SETS_MIGRATION_MODE = 'intake-file-sets-0007';
+export const NATIVE_INTAKE_FILE_SETS_MIGRATION_INPUTS = freeze([
+	{ path: 'src/lib/submissions/migrations/0002_submissions_file_sets.sql', bytes: 14281, sha256: 'sha256:13c7f0f9a6b43c1fc12c10001612bc38bbbbe2ef79e159b7f240d00aa6a7eeac' },
+	{ path: 'src/lib/publication/hosted/migrations/0005_provenance_file_sets.sql', bytes: 1259, sha256: 'sha256:77f0697ff4fc75d5a47aa2821d8ead42bf686cc263bcab6c3839f820d4800657' },
+]);
+// The already applied increment this one runs after: a dependency record only, never emitted, rewritten or replayed.
+export const NATIVE_INTAKE_FILE_SETS_APPLIED_IMPORT_STAGING = freeze({ path: 'migrations/0006_native_import_staging.sql', bytes: 8735,
+	sha256: 'sha256:a5ff09a1db8dc2abc890d7734b9744b4186baf4ddf84d86241bb4c23b6690b18' });
 const CLIENTS = freeze([
 	{ slot: 'client-a', name: 'cc-sbx-a-20261023-db', id: 'cd257736-7bf3-49f6-8544-ac58c2207802' },
 	{ slot: 'client-b', name: 'cc-sbx-b-20261025-r1-db', id: '7c340891-9fcc-4398-8128-68abe726f130' },
@@ -144,6 +152,16 @@ const IMPORT_STAGING_PACKET = {
 		appliedEvidenceDependency: NATIVE_IMPORT_STAGING_APPLIED_EVIDENCE, inputs: NATIVE_IMPORT_STAGING_MIGRATION_INPUTS, output, targets, providerProof: false, provisioned: false }),
 };
 
+const INTAKE_FILE_SETS_PACKET = {
+	tag: NATIVE_INTAKE_FILE_SETS_MIGRATION_MODE, inputs: NATIVE_INTAKE_FILE_SETS_MIGRATION_INPUTS, sqlFile: 'migrations/0007_native_intake_file_sets.sql', manifestFile: 'intake-file-sets-migration.json', privateStage: true,
+	header: '-- ClearCase native multi-file intake increment 0007. Requires applied 0001, 0002, 0004, 0005 and 0006; 0003 remains reserved.\n'
+		+ '-- Rebuilds submissions_revision by copy-back under deferred foreign keys; one transaction, never replayed.\n',
+	manifest: (output: Output, targets: Target[]) => ({ schema: 'clearcase.native-intake-file-sets-migration/1', mode: NATIVE_INTAKE_FILE_SETS_MIGRATION_MODE,
+		initialSchemaDependency: NATIVE_RUNTIME_INITIAL_SCHEMA, appliedRuntimeDependency: NATIVE_RENDER_CASE_LIMIT_APPLIED_RUNTIME, appliedRenderCaseLimitDependency: NATIVE_EVIDENCE_APPLIED_RENDER_CASE_LIMIT,
+		appliedEvidenceDependency: NATIVE_IMPORT_STAGING_APPLIED_EVIDENCE, appliedImportStagingDependency: NATIVE_INTAKE_FILE_SETS_APPLIED_IMPORT_STAGING,
+		inputs: NATIVE_INTAKE_FILE_SETS_MIGRATION_INPUTS, output, targets, providerProof: false, provisioned: false }),
+};
+
 function assemble<M extends { readonly targets: readonly Target[] }>(packet: Packet<M>, inputs: readonly { path: string; bytes: Uint8Array }[]) {
 	const items = dense(inputs, packet.inputs.length, 'inputs');
 	const chunks: string[] = [];
@@ -176,6 +194,11 @@ export function assembleNativeEvidenceMigration(inputs: readonly { path: string;
 /** The single pinned chunked-import input only, under the same one-copy capture. Emits a separately named 0006 after the applied 0005. */
 export function assembleNativeImportStagingMigration(inputs: readonly { path: string; bytes: Uint8Array }[]) {
 	return assemble(IMPORT_STAGING_PACKET, inputs);
+}
+
+/** The two pinned multi-file intake inputs only, in order, under the same one-copy capture. Emits a separately named 0007 after the applied 0006. */
+export function assembleNativeIntakeFileSetsMigration(inputs: readonly { path: string; bytes: Uint8Array }[]) {
+	return assemble(INTAKE_FILE_SETS_PACKET, inputs);
 }
 
 function realPath(file: string, directory: boolean) {
@@ -301,3 +324,6 @@ export const checkNativeEvidenceMigrationInvocation = (value: { root: string; st
 export const prepareNativeImportStagingMigration = (value: { root: string; out: string }) => prepare(IMPORT_STAGING_PACKET, value);
 export const readNativeImportStagingMigration = (value: { root: string; stage: string }) => read(IMPORT_STAGING_PACKET, value);
 export const checkNativeImportStagingMigrationInvocation = (value: { root: string; stage: string; cwd: string; slot: NativeRuntimeMigrationSlot; argv: readonly string[] }) => checkInvocation(IMPORT_STAGING_PACKET, value);
+export const prepareNativeIntakeFileSetsMigration = (value: { root: string; out: string }) => prepare(INTAKE_FILE_SETS_PACKET, value);
+export const readNativeIntakeFileSetsMigration = (value: { root: string; stage: string }) => read(INTAKE_FILE_SETS_PACKET, value);
+export const checkNativeIntakeFileSetsMigrationInvocation = (value: { root: string; stage: string; cwd: string; slot: NativeRuntimeMigrationSlot; argv: readonly string[] }) => checkInvocation(INTAKE_FILE_SETS_PACKET, value);

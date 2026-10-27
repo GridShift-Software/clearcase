@@ -5,6 +5,7 @@ import { DatasetEnvelope, ManifestFile, type ManifestFile as ManifestEntry } fro
 import { escapePointer, parseStrictJson } from '../../../case-package/strict-json.ts';
 import { displayText, escapeHtml, renderNarrative, revealInvisible } from '../../../case-package/render.ts';
 import { elementIds } from '../../../case-package/validate.ts';
+import { originalHref } from '../paths.ts';
 
 export const RECORDS_RENDERED = 'records-rendered' as const;
 declare const verifiedBrand: unique symbol;
@@ -19,6 +20,13 @@ export interface VerifiedDataset {
   readonly value: Readonly<import('../../../case-package/schema.ts').DatasetEnvelope>;
 }
 export interface RecordsContext { originalHref(ref: string, page: number | null): string | null | undefined }
+/** Shared by a records reader and its publication display check, using authorized case originals only. */
+export function recordsContext(caseId: string, originals: ReadonlyMap<string, string>): RecordsContext {
+  return { originalHref: (ref, page) => {
+    const asset = originals.get(ref);
+    return asset ? `${originalHref(caseId, asset)}/view${page ? `?page=${page}` : ''}` : null;
+  } };
+}
 export interface RecordsRender { html: string; markers: { records: string[]; leaves: string[] } }
 
 const verifiedDatasets = new WeakSet<object>();

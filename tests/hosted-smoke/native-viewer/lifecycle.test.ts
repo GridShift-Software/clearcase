@@ -39,6 +39,42 @@ beforeEach(() => {
 });
 afterEach(async () => { if (component) await unmount(component); component = null; dom.window.close(); vi.unstubAllGlobals(); });
 
+it('opens a requested page and restores it on a fresh load', async () => {
+  const r = reader(); (window as any).clearcasePdfReader = { open: vi.fn(async () => r) };
+  component = mount(Harness, { target: document.body, props: { initial: { ...data(), requestedPage: '2' } } });
+  flushSync(); await settle();
+  expect(r.draw).toHaveBeenLastCalledWith(2, 1.2);
+  expect(document.querySelector<HTMLInputElement>('input[type=number]')!.value).toBe('2');
+  component.navigate({ ...data(), requestedPage: '2' }); flushSync(); await settle();
+  expect(r.draw).toHaveBeenLastCalledWith(2, 1.2);
+});
+
+it.each(['0', '-1', '1.5', '4', 'abc', ''])('shows an explicit error for invalid requested page %s', async (requestedPage) => {
+  const r = reader(); (window as any).clearcasePdfReader = { open: vi.fn(async () => r) };
+  component = mount(Harness, { target: document.body, props: { initial: { ...data(), requestedPage } } });
+  flushSync(); await settle();
+  expect(r.draw).toHaveBeenLastCalledWith(1, 1.2);
+  expect(document.querySelector<HTMLInputElement>('input[type=number]')!.value).toBe('1');
+  expect(document.querySelector('[role=alert]')?.textContent).toContain('3 pages');
+});
+
+it('uses a valid page field value for drawing and page notes', async () => {
+  const r = reader(); start(vi.fn(async () => r)); await settle();
+  const input = document.querySelector<HTMLInputElement>('input[type=number]')!;
+  input.value = '3'; input.dispatchEvent(new Event('change', { bubbles: true })); flushSync(); await settle();
+  expect(r.draw).toHaveBeenLastCalledWith(3, 1.2);
+  expect(document.body.textContent).toContain('Note on page 3');
+});
+
+it('rejects an impossible page field value with feedback and restores the current page', async () => {
+  const r = reader(); r.pages = 1; start(vi.fn(async () => r)); await settle();
+  const input = document.querySelector<HTMLInputElement>('input[type=number]')!;
+  input.value = '2'; input.dispatchEvent(new Event('change', { bubbles: true })); flushSync();
+  expect(input.value).toBe('1');
+  expect(document.querySelector('[role=alert]')?.textContent).toContain('1 page');
+  expect(r.draw).toHaveBeenLastCalledWith(1, 1.2);
+});
+
 it.each([['B', 'case-a'], ['A', 'case-b']])('replaces reader, notes, draft, page and zoom on navigation to %s in %s', async (asset, caseId) => {
   const old = reader(), fresh = reader(), open = vi.fn().mockResolvedValueOnce(old).mockResolvedValueOnce(fresh);
   start(open); await settle();

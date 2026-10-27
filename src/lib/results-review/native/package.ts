@@ -7,6 +7,7 @@ import { resultsVersionOf, sha256Hex } from '../../case-package/hash.ts';
 import { checkRelPath } from '../../case-package/paths.ts';
 import { AssetIndex, DatasetEnvelope, type Asset, type Manifest } from '../../case-package/schema.ts';
 import { decodeUtf8Strict, isObject, parseStrictJson, type JsonValue } from '../../case-package/strict-json.ts';
+import type { HeldFile } from '../../case-package/source.ts';
 import { verifyCandidateBytes } from '../../case-package/verify-bytes.ts';
 import type { ChangeFact } from './ports.ts';
 
@@ -26,14 +27,14 @@ const bad = (...detail: string[]): Inspection => ({ ok: false, code: 'package-in
  * unknown fields, recomputed inputRevision.id and resultsVersion), then that the package names this very case (never a
  * slug-to-case guess) and carries exactly one well-formed asset index. The identity it returns is recomputed from the bytes.
  */
-export function inspectPackage(files: ReadonlyMap<string, Uint8Array>, caseId: string): Inspection {
+export function inspectPackage(files: ReadonlyMap<string, Uint8Array>, caseId: string, held?: ReadonlyMap<string, HeldFile>): Inspection {
   const manifestBytes = files.get('manifest.json');
   if (!manifestBytes) return bad('manifest.json is not supplied');
   let manifest: unknown;
   try { manifest = parseStrictJson(decodeUtf8Strict(manifestBytes)); } catch { return bad('manifest.json is not strict JSON'); }
   if (!isObject(manifest) || typeof manifest.resultsVersion !== 'string') return bad('manifest.json is not a supported manifest');
   const manifestSha256 = sha256Hex(manifestBytes);
-  const verdict = verifyCandidateBytes(files, { resultsVersion: manifest.resultsVersion, manifestSha256 });
+  const verdict = verifyCandidateBytes(files, { resultsVersion: manifest.resultsVersion, manifestSha256 }, held);
   if (!verdict.ok) return bad(...verdict.problems.slice(0, 20));
   const m = manifest as unknown as Manifest;
   if (m.case.id !== caseId) return { ok: false, code: 'wrong-case', detail: ['the package names another case'] };

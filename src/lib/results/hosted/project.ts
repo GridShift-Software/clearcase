@@ -13,6 +13,7 @@ import { canonicalJson } from '../../case-package/canonical.ts';
 import { DiagSink } from '../../case-package/diagnostics.ts';
 import { withLimits } from '../../case-package/limits.ts';
 import { readCandidate } from '../../case-package/reader.ts';
+import type { HeldFile } from '../../case-package/source.ts';
 import { isPathKey } from '../../case-package/refs.ts';
 import { validateSnapshot } from '../../case-package/validate.ts';
 import type { StagedAsset, StagedDocument, StagedProjection, StagedSeed } from './read-model.ts';
@@ -32,11 +33,13 @@ const optStr = (v: unknown): string | null => (typeof v === 'string' && v !== ''
 const heads = (xs: unknown) => (Array.isArray(xs) ? xs.map((x) => ({ h: str((x as { h?: unknown }).h), t: str((x as { t?: unknown }).t) })) : []);
 
 /** Validates `files` (already verified against their identity by the caller) once; `project(facts)` then projects them. Never touches a disk. */
-export function preparePackage(files: ReadonlyMap<string, Uint8Array>): PreparedPackage {
+export function preparePackage(files: ReadonlyMap<string, Uint8Array>, held?: ReadonlyMap<string, HeldFile>): PreparedPackage {
   const L = withLimits(undefined);
   const sink = new DiagSink(L.diagnosticsPerCode);
   const own = new Map([...files].map(([path, bytes]) => [path, new Uint8Array(bytes)] as const));
-  const pkg = validateSnapshot({ files: own, present: new Map([...own].map(([path, bytes]) => [path, bytes.byteLength] as const)), transport: 'memory' }, sink, L);
+  const present = new Map([...own].map(([path, bytes]) => [path, bytes.byteLength] as const));
+  for (const [path, h] of held ?? []) present.set(path, h.size);
+  const pkg = validateSnapshot({ files: own, present, transport: 'memory', ...(held ? { held } : {}) }, sink, L);
   if (!pkg || sink.errors > 0) return { ok: false, problems: sink.finish(new Set()).filter((d) => d.severity === 'error').slice(0, 20).map((d) => `${d.code}: ${d.message}`) };
   const fileAssets: FileAssetClaim[] = [];
   for (const [key, a] of Object.entries(pkg.assets)) if (a.kind === 'file') fileAssets.push({ key, path: a.path, sha256: a.sha256, size: a.size, mediaType: a.mediaType });

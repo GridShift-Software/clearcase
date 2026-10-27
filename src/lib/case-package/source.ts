@@ -9,10 +9,18 @@ import { readCentralDirectory, readEntry, ZipError } from './zip.ts';
 
 export type PackageSource = string | { files: ReadonlyMap<string, Uint8Array> | Readonly<Record<string, Uint8Array>> };
 
+/**
+ * A preview whose bytes were checked where they are stored (its size, its SHA-256 and that it opens with a PDF header), so the
+ * validator can be handed those facts instead of the bytes. Only a hosted stepped import supplies these.
+ */
+export interface HeldFile { readonly size: number; readonly sha256: string; readonly pdf: boolean }
+
 export interface Snapshot {
   files: Map<string, Uint8Array>;
   present: Map<string, number>;
   transport: 'directory' | 'zip' | 'memory';
+  /** Previews carried as their checked facts; absent from `files`, present in `present`. */
+  held?: ReadonlyMap<string, HeldFile>;
 }
 
 function listedPaths(manifest: Uint8Array): string[] {

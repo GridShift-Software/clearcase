@@ -105,15 +105,18 @@ export function validateSnapshot(snap: Snapshot, sink: DiagSink, L: Limits, chec
     const size = snap.present.get(f.path);
     if (size === undefined) { sink.add('PKG_FILE_MISSING', 'listed file not found', at); return; }
     if (size > L.fileBytes) { sink.add('PKG_TOO_LARGE', `file is larger than ${L.fileBytes} bytes`, at); return; }
-    const bytes = snap.files.get(f.path);
-    if (!bytes) { sink.add('PKG_FILE_MISSING', 'listed file could not be read', at); return; }
-    total += bytes.byteLength;
-    if (f.role === 'preview' && (bytes.length < 5 || decoder.decode(bytes.subarray(0, 5)) !== '%PDF-')) sink.add('PKG_PREVIEW_INVALID', 'preview must be a PDF', { file: f.path });
-    if (bytes.byteLength !== f.size || sha256Hex(bytes) !== f.sha256) { sink.add('PKG_FILE_HASH_MISMATCH', 'size or sha256 differs from the manifest', { ...at, file: f.path }); return; }
-    files.set(f.path, bytes);
+    // A preview may arrive as the facts its storage check produced; every other file is read from its bytes.
+    const held = f.role === 'preview' ? snap.held?.get(f.path) : undefined;
+    const bytes = held ? undefined : snap.files.get(f.path);
+    if (!held && !bytes) { sink.add('PKG_FILE_MISSING', 'listed file could not be read', at); return; }
+    const length = held ? held.size : bytes!.byteLength;
+    total += length;
+    if (f.role === 'preview' && (held ? !held.pdf : bytes!.length < 5 || decoder.decode(bytes!.subarray(0, 5)) !== '%PDF-')) sink.add('PKG_PREVIEW_INVALID', 'preview must be a PDF', { file: f.path });
+    if (length !== f.size || (held ? held.sha256 : sha256Hex(bytes!)) !== f.sha256) { sink.add('PKG_FILE_HASH_MISMATCH', 'size or sha256 differs from the manifest', { ...at, file: f.path }); return; }
+    files.set(f.path, held ? new Uint8Array(0) : bytes!);
     check();
     if (f.role === 'preview') return;
-    const v = parseFile(bytes, f.path, sink);
+    const v = parseFile(bytes!, f.path, sink);
     if (v === undefined) return;
     if (canonicalText(v) !== decoder.decode(bytes)) sink.add('PKG_NONCANONICAL', 'file is not canonical JSON', { file: f.path });
     if (f.role === 'dataset') loaded.push({ f, value: v }); else assetsValue = v;

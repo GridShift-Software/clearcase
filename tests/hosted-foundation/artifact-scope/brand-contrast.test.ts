@@ -27,7 +27,7 @@ it('keeps focus and control boundaries distinguishable on hosted surfaces', () =
 	expect(css).toMatch(/:focus-visible\s*\{[^}]*outline:\s*3px solid var\(--focus-ring\)/);
 	expect(css).toMatch(/input:not\(\[type='checkbox'\]\)[^{]+select, textarea\s*\{[^}]*border:\s*1px solid var\(--border-control\)/);
 	for (const token of ['focus-ring', 'border-control']) {
-		for (const background of ['surface', 'canvas']) {
+		for (const background of ['surface', 'canvas', 'subtle']) {
 			expect(contrast(color(token), color(background)), `${token} against ${background}`).toBeGreaterThanOrEqual(3);
 		}
 	}

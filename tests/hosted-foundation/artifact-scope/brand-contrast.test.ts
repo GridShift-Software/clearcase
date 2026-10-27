@@ -32,3 +32,8 @@ it('keeps focus and control boundaries distinguishable on hosted surfaces', () =
 		}
 	}
 });
+
+it('keeps the focus ring visible on the navy hosted header', () => {
+	expect(css).toMatch(/\.hosted a:focus-visible\s*\{[^}]*outline-color:\s*var\(--surface\)/);
+	expect(contrast(color('surface'), color('navy')), 'header focus ring against navy').toBeGreaterThanOrEqual(3);
+});

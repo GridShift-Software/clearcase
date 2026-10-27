@@ -129,6 +129,81 @@ describe('returnTo survives the round trip in a short-lived __Host- state cookie
 	});
 });
 
+/** The verified callback page on `origin` at `search` with this jar: a 303 location, or the pending targets it offers. */
+async function land(kind: InstanceKind, origin: Origin, jar: Jar, search = '') {
+	workers.env = app(origin);
+	const url = new URL(`${callbackUrl(kind, origin)}${search}`);
+	const r = await outcome(() => flows[kind].route.load({ locals: locals(verified(kind)), url, request: new Request(url, { headers: jar.size ? { cookie: header(jar) } : {} }), cookies: cookiesOf(jar, []) } as never));
+	if (r.thrown) {
+		expect(r.thrown, `${kind} callback on ${origin}${search}`).toMatchObject({ status: 303 });
+		return { location: r.thrown.location! };
+	}
+	return { pending: (r.value as { pending?: { to: string; href: string }[] }).pending };
+}
+
+describe('two tabs signing in through the same flow each reach their own target (review M1)', () => {
+	// Clerk returns both tabs to the same fixed callback with the same cookies, so the callback cannot tell them apart.
+	// It never sends one tab to the other's target: one pending target goes straight there; several are offered as
+	// links, each of which consumes only its own entry, so the other tab still finds its own.
+	const ORDERS = [['A', 'B'], ['B', 'A']] as const;
+	it.each(KINDS.flatMap((kind) => ORDERS.map((order) => [kind, order.join(' then ')] as const)))('%s: callbacks in order %s', async (kind, order) => {
+		const jar: Jar = new Map(), target = (tab: string) => `/cases/tab-${tab}`;
+		await post(kind, ORIGIN_A, target('A'), jar);
+		await post(kind, ORIGIN_A, target('B'), jar);
+		const [first, second] = order.split(' then ');
+		const offered = await land(kind, ORIGIN_A, jar);
+		expect(offered.location, 'the first callback must not guess a tab').toBeUndefined();
+		expect(offered.pending?.map((p) => p.to)).toEqual([target('A'), target('B')]);
+		const own = offered.pending!.find((p) => p.to === target(first!))!;
+		expect(new URL(own.href, ORIGIN_A).pathname).toBe(flows[kind].path);
+		expect(await land(kind, ORIGIN_A, jar, new URL(own.href, ORIGIN_A).search)).toEqual({ location: target(first!) });
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: target(second!) });
+		expect(jar.has(SIGN_IN_RETURN_COOKIE[kind])).toBe(false);
+	});
+	it.each(KINDS)('%s: a second POST for the same target keeps one entry and returns straight there', async (kind) => {
+		const jar: Jar = new Map();
+		await post(kind, ORIGIN_A, '/cases/case-1', jar);
+		await post(kind, ORIGIN_A, '/cases/case-1', jar);
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: '/cases/case-1' });
+		expect(jar.has(SIGN_IN_RETURN_COOKIE[kind])).toBe(false);
+	});
+	it.each(KINDS)('%s: bounds the set, keeping the newest attempts in a cookie a browser will hold', async (kind) => {
+		const jar: Jar = new Map();
+		for (const n of [1, 2, 3, 4, 5, 6]) await post(kind, ORIGIN_A, `/cases/case-${n}`, jar);
+		expect(jar.get(SIGN_IN_RETURN_COOKIE[kind])!.length).toBeLessThanOrEqual(3800);
+		expect((await land(kind, ORIGIN_A, jar)).pending?.map((p) => p.to)).toEqual(['/cases/case-3', '/cases/case-4', '/cases/case-5', '/cases/case-6']);
+		await post(kind, ORIGIN_A, `/cases/${'x'.repeat(2000)}`, jar);
+		expect(jar.get(SIGN_IN_RETURN_COOKIE[kind])!.length).toBeLessThanOrEqual(3800);
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: `/cases/${'x'.repeat(2000)}` });
+	});
+	it.each(KINDS)('%s: drops an expired, tampered or other-flow entry from the set and keeps the rest', async (kind) => {
+		vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-27T09:00:00Z') });
+		const name = SIGN_IN_RETURN_COOKIE[kind], other = kind === 'staff' ? 'client' : 'staff';
+		const old = await sealSignInReturn(configOf(ORIGIN_A), kind, '/cases/old');
+		vi.setSystemTime(new Date('2026-10-27T09:15:01Z'));
+		const fresh = await sealSignInReturn(configOf(ORIGIN_A), kind, '/cases/fresh'), foreign = await sealSignInReturn(configOf(ORIGIN_A), other, '/cases/foreign');
+		const flip = (s: string) => `${s.slice(0, -1)}${s.endsWith('A') ? 'B' : 'A'}`;
+		const tampered = flip((await sealSignInReturn(configOf(ORIGIN_A), kind, '/cases/tampered'))!);
+		expect(await land(kind, ORIGIN_A, new Map([[name, [old, foreign, tampered, fresh].join('~')]]))).toEqual({ location: '/cases/fresh' });
+	});
+	it('keeps two staff tabs and a client tab apart in one browser', async () => {
+		const jar: Jar = new Map();
+		await post('staff', ORIGIN_A, '/cases/staff-A', jar);
+		await post('client', ORIGIN_A, '/cases/client-A', jar);
+		await post('staff', ORIGIN_A, '/cases/staff-B', jar);
+		expect(await land('client', ORIGIN_A, jar)).toEqual({ location: '/cases/client-A' });
+		expect((await land('staff', ORIGIN_A, jar)).pending?.map((p) => p.to)).toEqual(['/cases/staff-A', '/cases/staff-B']);
+	});
+	it.each(KINDS)('%s: an explicit returnTo on the callback consumes only its own entry', async (kind) => {
+		const jar: Jar = new Map();
+		await post(kind, ORIGIN_A, '/cases/tab-A', jar);
+		await post(kind, ORIGIN_A, '/cases/tab-B', jar);
+		expect(await land(kind, ORIGIN_A, jar, query('/cases/elsewhere'))).toEqual({ location: '/cases/elsewhere' });
+		expect(await land(kind, ORIGIN_A, jar, query('//attacker.example.test'))).toEqual({ location: '/cases' });
+		expect((await land(kind, ORIGIN_A, jar)).pending?.map((p) => p.to)).toEqual(['/cases/tab-A', '/cases/tab-B']);
+	});
+});
+
 describe('a hostile returnTo is refused when the state is set and when it is read', () => {
 	it.each(KINDS.flatMap((kind) => HOSTILE.map((returnTo) => [kind, returnTo] as const)))('%s: sends %j to /cases, with the callback unchanged', async (kind, returnTo) => {
 		const { r, jar } = await post(kind, ORIGIN_A, returnTo);

@@ -26,9 +26,9 @@ export type HandshakeOutcome =
  * A refresh outcome for one request: a renewed session (the credential the provider verifies in place of the request's,
  * and the cookies to set), or, with no credential, only cookies to set on the request as it is (a refused renewal's
  * clear of its spent hold). `outage`: Clerk could not be asked (an outage, a network fault or its rate limit), so the
- * request is answered as it is and never handed to the handshake.
+ * request is answered as it is and never handed to the handshake. `spent`: the renewal left the hold spent (SessionHold).
  */
-export interface SessionRefresh { credential?: Request; setCookies: string[]; outage?: true }
+export interface SessionRefresh { credential?: Request; setCookies: string[]; outage?: true; spent?: true }
 /** A page-data request handed to a full page load through Clerk's handshake: where to send the browser, and the cookies to set. */
 export interface SessionHandoff { location: string; setCookies: string[] }
 export interface ClerkBrowserHandshake {
@@ -84,7 +84,12 @@ export const nextHoldName = (name: string) => { const [first, second] = HOLD_SLO
  */
 export const REFRESH_TOKEN_VALUE = /^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]{16,4096}$/;
 const HOLD_TOKEN = /^[A-Za-z0-9._-]{16,8192}$/, COOKIE_MAX_BYTES = 4096;
-export interface SessionHold { kind: InstanceKind; token: string; refreshToken: string }
+/**
+ * `spent`: a renewal used its refresh token and Clerk answered no new one (live Clerk never does, and a refresh token
+ * renews once), so it renews nothing again; the hold keeps it so the next GET goes through the handshake (browser.ts
+ * handoff), whose return holds a fresh one. Its value starts with `~`, which no session token does.
+ */
+export interface SessionHold { kind: InstanceKind; token: string; refreshToken: string; spent?: boolean }
 /** A hold a request carries, with the name it carries it under. */
 export interface CarriedHold extends SessionHold { name: string }
 
@@ -92,17 +97,17 @@ export interface CarriedHold extends SessionHold { name: string }
 export function sessionHoldOf(request: Request): CarriedHold | null {
 	const holds = cookiePairs(request).filter((c) => HOLD_NAMES.has(c.name));
 	if (holds.length !== 1) return null;
-	const { name, value } = holds[0]!, sep = value.indexOf('~');
+	const { name } = holds[0]!, spent = holds[0]!.value.startsWith('~'), value = spent ? holds[0]!.value.slice(1) : holds[0]!.value, sep = value.indexOf('~');
 	const token = value.slice(0, sep), refreshToken = value.slice(sep + 1);
 	if (sep < 0 || !HOLD_TOKEN.test(token) || !inspectToken(token) || !REFRESH_TOKEN_VALUE.test(refreshToken)) return null;
-	return { kind: HOLD_KIND.get(name)!, token, refreshToken, name };
+	return { kind: HOLD_KIND.get(name)!, token, refreshToken, name, ...(spent ? { spent } : {}) };
 }
 /**
  * The directive that sets a hold for a token expiring at `exp` (seconds), under `name` (the kind's handshake name by
  * default), or null when it is already useless or too big.
  */
 export function sessionHoldCookie(hold: SessionHold, exp: number, name = SESSION_HOLD_COOKIE[hold.kind]): string | null {
-	const maxAge = Math.floor((exp * 1000 + MAX_SESSION_LIFETIME_MS - Date.now()) / 1000), pair = `${name}=${hold.token}~${hold.refreshToken}`;
+	const maxAge = Math.floor((exp * 1000 + MAX_SESSION_LIFETIME_MS - Date.now()) / 1000), pair = `${name}=${hold.spent ? '~' : ''}${hold.token}~${hold.refreshToken}`;
 	return maxAge > 0 && pair.length <= COOKIE_MAX_BYTES ? `${pair}; Path=/; Max-Age=${maxAge}; SameSite=Lax; HttpOnly; Secure` : null;
 }
 /** The directive that deletes a hold. */

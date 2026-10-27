@@ -143,9 +143,10 @@ describe('a signed-in user whose session token expired between page loads', () =
 		expect(refreshCalls()).toHaveLength(1);
 		expect(refreshCalls()[0]).toMatchObject({ path: `/v1/sessions/${s.sid}/refresh`, bearer: A.secretKey, body: { refresh_token: s.refresh, request_origin: ORIGIN, format: 'cookie' } });
 		expect(trap.blocked).toEqual([]);
-		// the hold moves on to the refreshed token, under the other name of its kind (session-renewal-live-3 fix 1)
+		// the hold moves on to the refreshed token, under the other name of its kind (session-renewal-live-3 fix 1), spent:
+		// this double answers no new refresh token (round 4b)
 		const token = set!.split(';')[0]!.slice('__session='.length);
-		expect(r.headers.getSetCookie().find((c) => c.startsWith(`${HOLD_A}_2=`))).toMatch(new RegExp(`^${HOLD_A}_2=${token}~${s.refresh.replace(/[+/=]/g, '\\$&')}; Path=/; Max-Age=\\d+; SameSite=Lax; HttpOnly; Secure$`));
+		expect(r.headers.getSetCookie().find((c) => c.startsWith(`${HOLD_A}_2=`))).toMatch(new RegExp(`^${HOLD_A}_2=~${token}~${s.refresh.replace(/[+/=]/g, '\\$&')}; Path=/; Max-Age=\\d+; SameSite=Lax; HttpOnly; Secure$`));
 		expect(r.headers.getSetCookie()).toContain(`${HOLD_A}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly; Secure`);
 		// the refreshed cookie alone is a verified session at this origin
 		const again = await invoke(saveNote(`__client_uat=1761400000; ${set!.split(';')[0]}`));
@@ -155,7 +156,9 @@ describe('a signed-in user whose session token expired between page loads', () =
 	it('answers a filtered search (a __data.json request) for the operator, not "your session has ended"', async () => {
 		const s = session(B);
 		const r = await invoke(dataRequest(`__client_uat=1761400000; __session=${s.stale()}; ${hold(s.stale(), s.refresh, HOLD_B)}`));
-		expect(r.status).toBe(201);
+		// renewed, and with no new refresh token (spent) handed to the staff handshake for one (round 4b)
+		expect((await dataRedirect(r))?.origin).toBe(B.iss);
+		expect(sessionCookie(r)).toBeDefined();
 		expect(refreshCalls()).toHaveLength(1);
 		expect(refreshCalls()[0]!.bearer).toBe(B.secretKey);
 	});
@@ -259,7 +262,9 @@ describe('what the refresh never changes', () => {
 	it('makes one refresh for concurrent requests carrying the same expired token', async () => {
 		const s = session();
 		const out = await Promise.all([invoke(saveNote(jar(s))), invoke(dataRequest(jar(s))), invoke(saveNote(jar(s)))]);
-		expect(out.map((r) => r.status)).toEqual([201, 201, 201]);
+		// the data request, renewed with a spent hold, goes on to the handshake (round 4b)
+		expect(out.map((r) => r.status)).toEqual([201, 200, 201]);
+		expect(await dataRedirect(out[1]!)).not.toBeNull();
 		expect(refreshCalls()).toHaveLength(1);
 	});
 	it.each([
@@ -516,7 +521,9 @@ describe('a session Clerk renews under its suffixed cookie name (session-renewal
 		later(settle);
 		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
 		later(90_000);
-		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(201);
+		// renewed, then handed to the handshake: this double answers no new refresh token (round 4b)
+		const data = b.take(await invoke(clientData(b.cookie())));
+		expect(await dataRedirect(data)).not.toBeNull();
 		expect(sessionValues(b).size).toBe(1);
 		expect(trap.blocked).toEqual([]);
 	});
@@ -730,8 +737,11 @@ describe('a renewal Clerk refuses, and two isolates renewing one hold (session-r
 	it('after a refusal, the next page load signs the browser in again through the handshake, with one hold', async () => {
 		const s = session(), b = carrying(s);
 		sessions.get(s.sid)!.refresh = LIVE_RT(9997);
-		// round 4: the refused data request itself is the page load through the handshake (navigate follows its handoff)
-		expect(await navigate(b, s)).toEqual({ status: 201, handoff: true });
+		// round 4: the refused data request is handed to the handshake (its data redirect), and its answer already clears
+		// the hold, before the browser follows it (r4 review S1)
+		expect(await dataRedirect(b.take(await invoke(clientData(b.cookie()))))).not.toBeNull();
+		expect(b.names().filter((n) => /refresh/.test(n))).toEqual([]);
+		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
 		expect(b.names().filter((n) => /refresh/.test(n))).toEqual([HOLD_A]);
 	});
 	it.each([['an outage', 503], ['a rate limit', 429]])('clears nothing when Clerk answers %s', async (_name, status) => {
@@ -747,7 +757,10 @@ describe('a renewal Clerk refuses, and two isolates renewing one hold (session-r
 		refreshAnswer = () => ({ status: 503, body: { errors: [{ code: 'service_unavailable', message: 'synthetic outage' }] } });
 		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(401);
 		refreshAnswer = null;
-		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(201);
+		// renewed (and, the hold spent, handed to the handshake: round 4b)
+		const renewed = b.take(await invoke(clientData(b.cookie())));
+		expect(sessionCookie(renewed)).toBeDefined();
+		expect(await dataRedirect(renewed)).not.toBeNull();
 		expect(refreshCalls()).toHaveLength(2);
 	});
 	it.each([['the winner first', [0, 1]], ['the loser first', [1, 0]]])('two isolates race one single-use refresh token, the browser applying %s: it stays signed in and renews again (probe 3)', async (_order, order) => {
@@ -841,7 +854,7 @@ describe('a refresh token Clerk never rotates (astra-renewal-7614, round 4)', ()
 		expect((await load(b, s, `/cases?__clerk_handshake=${A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh) })}`)).status).toBe(303);
 	};
 
-	it('Astra B: three idle breadcrumbs with no saves all render the case; the second goes through the handshake', async () => {
+	it('Astra B: three idle breadcrumbs with no saves all render the case, each through the handshake', async () => {
 		const s = session(), b = browser();
 		await signedIn(b, s);
 		const out = [];
@@ -849,7 +862,9 @@ describe('a refresh token Clerk never rotates (astra-renewal-7614, round 4)', ()
 			later(90_000);
 			out.push(await navigate(b, s));
 		}
-		expect(out).toEqual([{ status: 201, handoff: false }, { status: 201, handoff: true }, { status: 201, handoff: false }]);
+		// each renewal spends the hold, so each goes on to the handshake for a fresh one (round 4b), which the next renews
+		expect(out).toEqual([{ status: 201, handoff: true }, { status: 201, handoff: true }, { status: 201, handoff: true }]);
+		expect(refreshCalls()).toHaveLength(3);
 		expect(sessionValues(b).size).toBe(1);
 		expect(holds(b)).toHaveLength(1);
 		expect(trap.blocked).toEqual([]);
@@ -870,7 +885,7 @@ describe('a refresh token Clerk never rotates (astra-renewal-7614, round 4)', ()
 		const s = session(), b = browser();
 		await signedIn(b, s);
 		later(90_000);
-		expect(await navigate(b, s)).toEqual({ status: 201, handoff: false });
+		expect(await navigate(b, s)).toEqual({ status: 201, handoff: true });
 		later(90_000);
 		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
 	});
@@ -907,5 +922,105 @@ describe('a refresh token Clerk never rotates (astra-renewal-7614, round 4)', ()
 		const r = await invoke(clientData(cookie()));
 		expect(await dataRedirect(r)).toBeNull();
 		expect(r.status).toBe(401);
+	});
+});
+
+// Round 4b: a save after an idle that a renewal already spent the refresh token of (astra-renewal-7614). Live Clerk renews
+// once per refresh token and answers no new one, so after a renewal the hold is spent: the next renewal, the one a later
+// save needs, is refused, and a save cannot go through the handshake. So the first GET after a renewal, a page load or a
+// page-data request (the renewing one itself), goes through the handshake, whose return holds a fresh refresh token.
+/** A document load as the browser makes it, through Clerk's handshake when sent there (a fresh refresh token, as live). */
+async function visit(b: ReturnType<typeof browser>, s: ReturnType<typeof session>, path: string) {
+	const r = b.take(await invoke(documentGet(path, b.cookie(path))));
+	if (![303, 307].includes(r.status) || new URL(r.headers.get('location')!, ORIGIN).origin !== A.iss) return { status: r.status, handshake: false };
+	const back = new URL(new URL(r.headers.get('location')!).searchParams.get('redirect_url')!);
+	const row = sessions.get(s.sid)!;
+	row.refresh = LIVE_RT(++n);
+	back.searchParams.set('__clerk_handshake', A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), row.refresh) }));
+	const returned = b.take(await invoke(documentGet(back.pathname + back.search, b.cookie(back.pathname))));
+	expect(returned.status).toBe(303);
+	const to = new URL(returned.headers.get('location')!, ORIGIN).pathname;
+	expect(to).toBe(path);
+	return { status: b.take(await invoke(documentGet(to, b.cookie(to)))).status, handshake: true };
+}
+
+describe('a save after an idle, when an earlier renewal spent the refresh token (astra-renewal-7614, round 4b)', () => {
+	beforeEach(() => void vi.useFakeTimers({ toFake: ['Date'] }));
+	afterEach(() => void vi.useRealTimers());
+	const signedIn = async (b: ReturnType<typeof browser>, s: ReturnType<typeof session>) => {
+		sessions.get(s.sid)!.refresh = LIVE_RT(n);
+		refreshAnswer = neverRotating(s);
+		expect((await load(b, s, `/cases?__clerk_handshake=${A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh) })}`)).status).toBe(303);
+	};
+	const save = async (b: ReturnType<typeof browser>) => b.take(await invoke(saveNote(b.cookie(NOTES)))).status;
+
+	it('idle, save, its page load, idle, save: both saves are written (the user\'s writing flow)', async () => {
+		const s = session(), b = browser();
+		await signedIn(b, s);
+		later(90_000);
+		expect(await save(b)).toBe(201);
+		expect(await visit(b, s, CASE_NOTES)).toEqual({ status: 201, handshake: true });
+		later(90_000);
+		expect(await save(b)).toBe(201);
+		expect(refreshCalls()).toHaveLength(2);
+		expect(trap.blocked).toEqual([]);
+	});
+	it('idle, save, its page load, idle, a data load, idle, save: both saves are written, through one handshake per renewal', async () => {
+		const s = session(), b = browser();
+		await signedIn(b, s);
+		later(90_000);
+		expect(await save(b)).toBe(201);
+		expect(await visit(b, s, CASE_NOTES)).toEqual({ status: 201, handshake: true });
+		later(90_000);
+		expect(await navigate(b, s)).toEqual({ status: 201, handoff: true });
+		later(90_000);
+		expect(await save(b)).toBe(201);
+		// bounded: the page after a save goes through the handshake once, and the next ones through none
+		expect(await visit(b, s, CASE_NOTES)).toEqual({ status: 201, handshake: true });
+		expect(await visit(b, s, CASE_NOTES)).toEqual({ status: 201, handshake: false });
+		expect(await navigate(b, s)).toEqual({ status: 201, handoff: false });
+		expect(sessionValues(b).size).toBe(1);
+		expect(holds(b)).toHaveLength(1);
+		expect(trap.blocked).toEqual([]);
+	});
+	it('adds no handshake to a page load or data load whose refresh token is unspent', async () => {
+		const s = session(), b = browser();
+		await signedIn(b, s);
+		later(5_000);
+		expect(await visit(b, s, CASE_NOTES)).toEqual({ status: 201, handshake: false });
+		expect(await navigate(b, s)).toEqual({ status: 201, handoff: false });
+		expect(refreshCalls()).toHaveLength(0);
+	});
+	it('sends a spent hold through the handshake at most once in a short while, even if its return holds no fresh token', async () => {
+		const s = session(), b = browser();
+		await signedIn(b, s);
+		later(90_000);
+		expect(await save(b)).toBe(201);
+		const first = await invoke(documentGet(CASE_NOTES, b.cookie(CASE_NOTES)));
+		expect(new URL(first.headers.get('location')!).origin).toBe(A.iss);
+		// a handshake return that signs in again but keeps the browser's spent hold: the marker stops a second handshake
+		const back = new URL(new URL(first.headers.get('location')!).searchParams.get('redirect_url')!);
+		back.searchParams.set('__clerk_handshake', A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh).filter((c) => !c.startsWith(REFRESH_A)) }));
+		b.take(await invoke(documentGet(back.pathname + back.search, b.cookie(back.pathname))));
+		const spentAgain = holds(b).length;
+		expect(await visit(b, s, CASE_NOTES)).toEqual({ status: 201, handshake: false });
+		expect(await navigate(b, s)).toEqual({ status: 201, handoff: false });
+		expect(spentAgain).toBeLessThanOrEqual(1);
+	});
+});
+
+describe('the handshake a handoff starts (session-renewal-live-3 r4 review)', () => {
+	it('hands a staff browser that dropped its expired session, but keeps its staff hold, to the staff handshake (M1, probe 3)', async () => {
+		const staff = session(B);
+		sessions.get(staff.sid)!.refresh = LIVE_RT(99998);
+		const r = await invoke(dataRequest(`__client_uat=1761400000; ${hold(staff.stale(), staff.refresh, HOLD_B)}; __clerk_db_jwt=dvb_synthetic0123456789abcdefgh`));
+		expect((await dataRedirect(r))?.origin).toBe(B.iss);
+		expect(r.headers.getSetCookie()).toContain(HOLD_CLEAR(HOLD_B));
+		expect(trap.blocked).toEqual([]);
+	});
+	it('takes only the mark it sets as a recent handoff: another value of the cookie stops nothing (Low)', async () => {
+		const s = session();
+		const r = await invoke(clientData(`__client_uat=1761400000; __session=${s.stale()}; __Host-clearcase_reauth=planted`));
+		expect(await dataRedirect(r)).not.toBeNull();
 	});
 });

@@ -36,7 +36,7 @@ export function withFormActions(csp: string, origins: readonly string[]): string
  * A request's renewed session: the credential its identity is read from instead, and the cookies its answer sets. With no
  * credential the request keeps its own identity and only the cookies are set (a refused renewal clears its spent hold).
  */
-export type Refreshed = { credential?: Request; setCookies: readonly string[]; outage?: true };
+export type Refreshed = { credential?: Request; setCookies: readonly string[]; outage?: true; spent?: true };
 /** Where a page-data request is handed for a full page load, and the cookies its answer sets. */
 export type Handoff = { location: string; setCookies: readonly string[] };
 
@@ -70,7 +70,7 @@ function dataRedirect(location: string, setCookies: readonly string[]): Response
  * `refreshFor` may renew an expired session of a request the handshake let through (any method, after the Origin
  * check): its identity is then read from the renewed credential and its answer sets the renewed cookies. A refresh
  * that fails is no refresh, so the request meets the identity it presented. `handoffFor` may hand a page-data GET that was
- * not renewed (and not for an outage) to a full page load through the identity handshake: its answer is then a data
+ * not renewed (and not for an outage), or whose renewal left its hold spent, to a full page load through the identity handshake: its answer is then a data
  * redirect there, with the refresh's cookies and its own, and no route runs.
  * The local pilot keeps its own hooks.
  */
@@ -94,7 +94,8 @@ export function createHandle(servicesFor: (request: Request, credential?: Reques
 			try { refreshed = await refreshFor(event.request); }
 			catch { refreshed = null; }
 		}
-		const page = handoffFor && event.request.method === 'GET' && !refreshed?.credential && !refreshed?.outage ? dataRequestPage(event.request.url) : null;
+		// a renewal that left the hold spent is handed off too, so a later save has a fresh refresh token (round 4b)
+		const page = handoffFor && event.request.method === 'GET' && (!refreshed?.credential || refreshed.spent) && !refreshed?.outage ? dataRequestPage(event.request.url) : null;
 		if (page) {
 			let handoff: Handoff | null;
 			try { handoff = await handoffFor!(event.request, page); }

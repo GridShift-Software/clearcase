@@ -13,7 +13,7 @@ import { intakeBudget } from '../../src/lib/submissions/budget.ts';
 import { nativeImportBudget } from '../../src/lib/results-review/native/budget.ts';
 import { USER_WORK_CEILINGS, userWorkConfig } from '../../src/lib/user-work/hosted/index.ts';
 import { hostedValidationPolicy } from '../../src/lib/server/runtime/hosted/validation-policy.ts';
-import { NATIVE_PDF_RENDER_CEILINGS } from '../../src/lib/viewer/hosted/native-render-check.ts';
+import { NATIVE_PDF_EVIDENCE_CEILINGS, NATIVE_PDF_RENDER_CEILINGS } from '../../src/lib/viewer/hosted/native-render-check.ts';
 import { resolveExactDeployment, validateClientManifest, type ExactDeploymentTuple } from '../../src/lib/tenancy/manifest.ts';
 import { NATIVE_BROWSER_BINDING, parseNativeJson } from './pipeline.ts';
 
@@ -32,7 +32,7 @@ export const NATIVE_RUNTIME_CONFIG_MAX_BYTES = 5000;
 const MAX_CLIENTS = 8, MAX_NODES = 2048, MAX_DEPTH = 8, MAX_STRING = 8192, MAX_INPUT_BYTES = 262_144;
 // native-render-check.ts keeps these private. The tests drive the real checker and read lease_ms from its reservation, so a
 // drift in either constant fails there rather than silently under-planning the allocation.
-const RENDER_CLEANUP_MS = 2_000, RENDER_IDLE_TAIL_MS = 60_000;
+const RENDER_CLEANUP_MS = 2_000, RENDER_IDLE_TAIL_MS = 60_000, PDF_CONTEXT_CLOSE_MS = 1_000;
 /** Worst-case reservation the real checker charges for one run, success included: run deadline + cleanup + idle tail. */
 export const nativeRenderLeaseMs = (maxRunMs: number) => maxRunMs + RENDER_CLEANUP_MS + RENDER_IDLE_TAIL_MS;
 const sha = (bytes: string | Uint8Array) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
@@ -133,6 +133,8 @@ const TUPLE_KEYS = ['clientId', 'hostname', 'worker', 'd1DatabaseId', 'd1Databas
 const CLIENT_KEYS = ['deployment', 'appOrigin', 'clerk', 'policy'] as const;
 const CLERK_KEYS = ['clientPublishableKey', 'staffPublishableKey', 'apiUrl', 'signInUrl', 'staffSignInUrl', 'audience', 'mfaRequired'] as const;
 const POLICY_KEYS = ['auditLimits', 'storageBudgets', 'storageQuotas', 'userWorkLimits', 'intakeBudget', 'importBudget', 'nativeRenderBudget'] as const;
+/** Policy keys an input may omit. Absent or null, nothing is emitted and the feature it configures stays unavailable (503). */
+const OPTIONAL_POLICY_KEYS = ['pdfEvidenceBudget'] as const;
 const ALLOCATION_KEYS = ['maxConcurrentBrowsers', 'maxReservedBrowserMsPerDay'] as const;
 /** Bindings the current hostedServices reads from env. BROWSER exists only for a client with an explicit render budget. */
 const BINDINGS = { d1: 'DB', r2: 'BUCKET', assets: 'ASSETS' } as const;
@@ -154,6 +156,21 @@ function renderBudget(value: Plain, at: string): Readonly<Record<keyof typeof NA
 	}
 	if (out.maxRunsPerCasePerDay! > out.maxRunsPerClientPerDay!) refuse(`${at}: maxRunsPerCasePerDay may not exceed maxRunsPerClientPerDay`);
 	return out as Record<keyof typeof NATIVE_PDF_RENDER_CEILINGS, number>;
+}
+
+/** Scaled PDF evidence (U9). The same rules as createNativePdfEvidenceChecker's validation, so an accepted budget always supplies a checker. */
+function pdfEvidenceBudget(value: Plain | undefined, at: string): Readonly<Record<keyof typeof NATIVE_PDF_EVIDENCE_CEILINGS, number>> | null {
+	if (value === undefined || value === null) return null;
+	const budget = exact(value, Object.keys(NATIVE_PDF_EVIDENCE_CEILINGS), at);
+	const out: Record<string, number> = {};
+	for (const [key, ceiling] of Object.entries(NATIVE_PDF_EVIDENCE_CEILINGS)) {
+		const n = budget[key];
+		if (typeof n !== 'number' || !Number.isSafeInteger(n) || n <= 0 || n > ceiling) refuse(`${at}.${key}: expected a positive integer within the renderer ceiling`);
+		out[key] = n as number;
+	}
+	if (out.maxDocumentMs! + PDF_CONTEXT_CLOSE_MS > out.maxSessionMs! || out.maxFileBytes! > out.maxSessionBytes! || out.maxRendersPerSession! > out.maxDocumentsPerStep!)
+		refuse(`${at}: a document must fit its session, a file its session bytes, and a session's renders one step`);
+	return out as Record<keyof typeof NATIVE_PDF_EVIDENCE_CEILINGS, number>;
 }
 
 // A placeholder lets the REAL Clerk configuration reader judge the public values. It exists only inside this call, matches the
@@ -189,7 +206,8 @@ function planClient(manifest: ReturnType<typeof validateClientManifest>, value: 
 	if (clerk.clientId !== deployment.clientId || clerk.client.issuer !== deployment.clientIssuer || clerk.staff.issuer !== deployment.staffIssuer ||
 		new URL(clerk.appOrigin).hostname !== deployment.hostname) refuse(`${at}: the Clerk issuers, host and client do not match the manifest deployment`);
 
-	const policy = exact(input.policy!, POLICY_KEYS, `${at}.policy`);
+	const optionalPresent = OPTIONAL_POLICY_KEYS.filter((key) => isRecord(input.policy!) && Object.hasOwn(input.policy, key));
+	const policy = exact(input.policy!, [...POLICY_KEYS, ...optionalPresent], `${at}.policy`);
 	const audit = guard(`${at}.policy.auditLimits`, () => auditConfig({ clientId: deployment.clientId, trustedIssuers: [deployment.clientIssuer, deployment.staffIssuer],
 		limits: thaw(exact(policy.auditLimits!, Object.keys(AUDIT_CEILINGS), `${at}.policy.auditLimits`)) }));
 	const budgets = storageBudgets(objectOf(policy.storageBudgets!, `${at}.policy.storageBudgets`));
@@ -206,6 +224,9 @@ function planClient(manifest: ReturnType<typeof validateClientManifest>, value: 
 		refuse(`${at}.policy.importBudget: missing, unknown, non-finite or above the storage package bounds`);
 	if (hostedValidationPolicy(budgets) === null) refuse(`${at}.policy: the storage budgets give no publication validation policy`);
 	const render = renderBudget(policy.nativeRenderBudget!, `${at}.policy.nativeRenderBudget`);
+	const pdf = pdfEvidenceBudget(policy.pdfEvidenceBudget, `${at}.policy.pdfEvidenceBudget`);
+	// PDF evidence sessions use the same Browser binding, so they are planned under the same opt-in and the same allocation.
+	if (pdf && !render) refuse(`${at}.policy.pdfEvidenceBudget: requires a nativeRenderBudget (the Browser opt-in)`);
 
 	// Key order is fixed, so the emitted text is deterministic and byte-comparable.
 	const settings = {
@@ -215,6 +236,7 @@ function planClient(manifest: ReturnType<typeof validateClientManifest>, value: 
 		auditLimits: { ...audit.limits }, storageBudgets: { ...budgets }, storageQuotas: { ...quotas },
 		userWorkLimits: { ...work.limits }, intakeBudget: { ...intake }, importBudget: { ...imports },
 		...(render ? { nativeRenderBudget: { ...render } } : {}),
+		...(pdf ? { pdfEvidenceBudget: { ...pdf } } : {}),
 	};
 	const nativeConfig = JSON.stringify(settings);
 	const nativeConfigBytes = Buffer.byteLength(nativeConfig);
@@ -237,7 +259,7 @@ function planClient(manifest: ReturnType<typeof validateClientManifest>, value: 
 		vars, secrets: [...NATIVE_RUNTIME_SECRET_NAMES],
 		bindings: { d1: BINDINGS.d1, r2: BINDINGS.r2, assets: BINDINGS.assets, browser: render ? NATIVE_BROWSER_BINDING : null },
 	};
-	return { clientId: deployment.clientId, worker: deployment.worker, hostname: deployment.hostname, render, nativeConfigBytes, file, fileName: `${deployment.clientId}.runtime.json`, text: json(file) };
+	return { clientId: deployment.clientId, worker: deployment.worker, hostname: deployment.hostname, render, pdf, nativeConfigBytes, file, fileName: `${deployment.clientId}.runtime.json`, text: json(file) };
 }
 
 /**
@@ -267,10 +289,14 @@ export function planNativeRuntimeConfig(value: unknown) {
 		if (!browsers.length) refuse('input.browserAllocation: no planned client has a render budget to allocate');
 		const perClient = browsers.map((c) => {
 			const leaseMsWorstCase = nativeRenderLeaseMs(c.render!.maxRunMs);
+			// A PDF evidence session reserves its whole lease (maxSessionMs plus cleanup and idle tail) on the same allocation.
+			const pdf = c.pdf ? { pdfSessionLeaseMs: nativeRenderLeaseMs(c.pdf.maxSessionMs), maxPdfSessionsPerClientPerDay: c.pdf.maxSessionsPerClientPerDay } : null;
 			return { clientId: c.clientId, maxRunMs: c.render!.maxRunMs, cleanupMs: RENDER_CLEANUP_MS, idleTailMs: RENDER_IDLE_TAIL_MS, leaseMsWorstCase,
-				maxRunsPerClientPerDay: c.render!.maxRunsPerClientPerDay, maxConcurrentBrowsers: 1, reservedMsPerDay: leaseMsWorstCase * c.render!.maxRunsPerClientPerDay };
+				maxRunsPerClientPerDay: c.render!.maxRunsPerClientPerDay, maxConcurrentBrowsers: pdf ? 2 : 1, ...(pdf ?? {}),
+				reservedMsPerDay: leaseMsWorstCase * c.render!.maxRunsPerClientPerDay + (pdf ? pdf.pdfSessionLeaseMs * pdf.maxPdfSessionsPerClientPerDay : 0) };
 		});
-		const totals = { concurrentBrowsers: perClient.length, reservedMsPerDay: perClient.reduce((sum, c) => sum + c.reservedMsPerDay, 0) };
+		// A render run and a PDF evidence session are admitted by separate tables, so a client with both may hold two browsers at once.
+		const totals = { concurrentBrowsers: perClient.reduce((sum, c) => sum + c.maxConcurrentBrowsers, 0), reservedMsPerDay: perClient.reduce((sum, c) => sum + c.reservedMsPerDay, 0) };
 		if (totals.concurrentBrowsers > maxConcurrentBrowsers || totals.reservedMsPerDay > maxReservedBrowserMsPerDay) refuse('input.browserAllocation: the planned clients exceed the explicit aggregate policy');
 		allocation = { kind: 'planned-allocation', accountAvailabilityProven: false, spendProven: false,
 			policy: { maxConcurrentBrowsers, maxReservedBrowserMsPerDay }, clients: perClient, totals };

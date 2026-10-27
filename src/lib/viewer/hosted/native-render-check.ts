@@ -25,6 +25,7 @@ export const NATIVE_PDF_RENDER_CEILINGS: Readonly<NativePreviewRenderBudget> = O
 // Charge the default idle tail even on success.
 const IDLE_TAIL_MS = 60_000, CLEANUP_MS = 2_000, DAY_MS = 86_400_000;
 const ROOT = '/__clearcase_native_pdf__/', DOCUMENT = `${ROOT}inspect`, SCRIPT = `${ROOT}inspector.mjs`, PDF = `${ROOT}input.pdf`;
+const PDF_PART_PREFIX = `${ROOT}input/`, PDF_PART = /^\/__clearcase_native_pdf__\/input\/(?:0|[1-9][0-9]{0,5})$/;
 const MAX_STATIC_BYTES = 8_000_000, MAX_REQUESTS = 220;
 /** A refusal that carries only its fixed class, so no message, URL or session text can ride along. */
 class Refused extends Error {
@@ -332,6 +333,11 @@ function intercept(a: {
  origin: string; files: PinnedFiles; assets: AssetsFetcher; signal: AbortSignal; program: string; input: Uint8Array;
  cache: Map<string, Promise<Uint8Array>>; statics: { bytes: number };
  isMainFrame(frame: unknown): boolean; check(): void; violate(kind: PreviewFirstViolation): void; acknowledged(): void;
+ /**
+  * Serve the input as `input/<k>` parts of this many bytes instead of one `input.pdf`, and respond one request at a time
+  * through `serial`. The SDK encodes every response body byte by byte, so this bounds that allocation to one part.
+  */
+ parts?: { bytes: number; serial: { tail: Promise<void> } };
 }): (request: HTTPRequest) => Promise<void> {
  let requests = 0;
  return async request => {
@@ -346,8 +352,12 @@ function intercept(a: {
     body = HTML; contentType = 'text/html; charset=utf-8'; isDocument = true;
    } else if (url.pathname === SCRIPT && request.resourceType() === 'script') {
     body = a.program; contentType = 'text/javascript; charset=utf-8';
-   } else if (url.pathname === PDF && request.resourceType() === 'fetch') {
+   } else if (!a.parts && url.pathname === PDF && request.resourceType() === 'fetch') {
     body = a.input; contentType = 'application/pdf';
+   } else if (a.parts && PDF_PART.test(url.pathname) && request.resourceType() === 'fetch') {
+    const at = Number(url.pathname.slice(PDF_PART_PREFIX.length)) * a.parts.bytes;
+    if (at >= a.input.byteLength) refuse('unowned-path');
+    body = a.input.subarray(at, at + a.parts.bytes); contentType = 'application/octet-stream';
    } else {
     const pin = a.files.get(url.pathname);
     if (!pin || !['script', 'fetch', 'other'].includes(request.resourceType()) || /(?:LICENSE|pdf-reader\.mjs)$/.test(url.pathname)) refuse(url.pathname === '/favicon.ico' ? 'favicon-path' : 'unowned-path');
@@ -367,11 +377,19 @@ function intercept(a: {
     }
     body = await pending; contentType = url.pathname.endsWith('.mjs') ? 'text/javascript; charset=utf-8' : 'application/octet-stream';
    }
-   a.check();
-   await request.respond({ status: 200, contentType, body, headers: {
-    'content-security-policy': CSP, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
-    'referrer-policy': 'no-referrer', 'cross-origin-resource-policy': 'same-origin',
-   } });
+   const respond = async () => {
+    a.check();
+    await request.respond({ status: 200, contentType, body, headers: {
+     'content-security-policy': CSP, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
+     'referrer-policy': 'no-referrer', 'cross-origin-resource-policy': 'same-origin',
+    } });
+   };
+   if (a.parts) {
+    const serial = a.parts.serial, turn = serial.tail;
+    let release!: () => void;
+    serial.tail = new Promise(resolve => { release = resolve; });
+    try { await turn; await respond(); } finally { release(); }
+   } else await respond();
    if (isDocument) a.acknowledged();
   } catch (error) {
    a.violate(error instanceof Refused ? error.kind : 'other');
@@ -586,21 +604,34 @@ function validateTranscript(value: unknown, a: { fixed: RenderInput; binding: st
 export const NATIVE_PDF_EVIDENCE_ALGORITHM = 'clearcase.native-pdf-pages/1';
 /** Hard ceilings for Workers Paid; the deployment may only narrow them. See `pdfEvidenceStepCost` for what a step may spend. */
 export const NATIVE_PDF_EVIDENCE_CEILINGS: Readonly<NativePdfEvidenceBudget> = Object.freeze({
- maxFileBytes: 32 * 1024 * 1024, maxCheckedPagesPerFile: 256, maxPagePixels: 4096 * 4096, maxDocumentMs: 20_000, maxSessionMs: 60_000,
+ maxFileBytes: 16 * 1024 * 1024, maxCheckedPagesPerFile: 256, maxPagePixels: 4096 * 4096, maxDocumentMs: 20_000, maxSessionMs: 60_000,
  maxDocumentsPerStep: 90, maxRendersPerSession: 32, maxSessionBytes: 256 * 1024 * 1024, maxSessionsPerClientPerDay: 96,
 });
-const PDF_PINNED_FILES = 191, MAX_RECEIPT_LOOKUPS = 1, CONTEXT_CLOSE_MS = 1_000;
+const PDF_PINNED_FILES = 191, CONTEXT_CLOSE_MS = 1_000;
+/** The input reaches the page in parts of this size; with the largest pinned file it bounds one response body. */
+const PDF_PART_BYTES = 1024 * 1024, MAX_PINNED_FILE_BYTES = 1_300_000, ENCODE_UNIT_BYTES = Math.max(PDF_PART_BYTES, MAX_PINNED_FILE_BYTES);
+/**
+ * Bytes the pinned SDK (1.4.0, `HTTPRequest.getResponse`) holds per body byte while it responds: one array slot (8 bytes), the
+ * joined string, its base64 and the CDP message that carries it (4/3 each). Responses are serialized, so one body at a time.
+ */
+const ENCODE_BYTES_PER_BODY_BYTE = 13;
+/** Receipt rows one step may read: two per document considered. Each is bounded by its page count; held as text, parsed and validated. */
+const receiptRowsPerStep = (b: NativePdfEvidenceBudget) => 2 * b.maxDocumentsPerStep;
+const receiptRowBytes = (b: NativePdfEvidenceBudget) => 1024 + b.maxCheckedPagesPerFile * 160;
 
 /**
  * Worst case of one step under a budget, for the parent to reserve within Workers Paid's 10,000 subrequests and 128 MB per
- * invocation; at the ceilings it is about 260 subrequests and 87 MB. Subrequests: the receipt lookup, the session admission, a read and a sealed receipt
- * per render, launch plus upgrade, and each pinned static file once (cached for the session). Memory: one PDF at a time, its
- * copy handed to the page, and the pinned static bytes. Wall time: the session deadline plus its cleanup.
+ * invocation. At the ceilings: 259 subrequests, 97,903,008 bytes (93.4 MiB, inside a 96 MiB step allowance) and 62 s.
+ * - Subrequests: the receipt lookup, the session admission, every attempted read and every sealed receipt (one each per render
+ *   at most), launch plus upgrade, and each pinned static file once (ASSETS, cached for the session).
+ * - Memory: three copies of the PDF in hand (the reader's, the checker's and the digest's), the cached static bytes, one
+ *   response being encoded, and the receipt rows read.
+ * - Wall time: one absolute step deadline over every read, write and render, plus browser cleanup.
  */
 export function pdfEvidenceStepCost(b: NativePdfEvidenceBudget): { subrequests: number; memoryBytes: number; wallMs: number } {
  return {
-  subrequests: MAX_RECEIPT_LOOKUPS + 1 + b.maxRendersPerSession * 2 + 2 + PDF_PINNED_FILES,
-  memoryBytes: Math.ceil(b.maxFileBytes * 7 / 3) + MAX_STATIC_BYTES,
+  subrequests: 1 + 1 + b.maxRendersPerSession * 2 + 2 + PDF_PINNED_FILES,
+  memoryBytes: 3 * b.maxFileBytes + MAX_STATIC_BYTES + ENCODE_BYTES_PER_BODY_BYTE * ENCODE_UNIT_BYTES + 3 * receiptRowsPerStep(b) * receiptRowBytes(b),
   wallMs: b.maxSessionMs + CLEANUP_MS,
  };
 }
@@ -618,6 +649,8 @@ const PAGES_INSPECTOR = editProgram(INSPECTOR, [
  ['canvasMaxAreaInBytes: a.maxCanvasPixels * 4,', 'canvasMaxAreaInBytes: a.maxPagePixels * 4,'],
  ['for (let n = 1; n <= doc.numPages; n++) {', 'for (const n of a.pages.filter(n => n <= doc.numPages)) {'],
  ['if (pixels > a.maxCanvasPixels)', 'if (width * height > a.maxPagePixels || pixels > a.maxCanvasPixels)'],
+ ["const input = new Uint8Array(await (await fetch('/__clearcase_native_pdf__/input.pdf', { credentials: 'omit', cache: 'no-store', redirect: 'error' })).arrayBuffer());",
+  "const input = new Uint8Array(a.size);\n  let at = 0;\n  for (let k = 0; k < a.parts; k++) {\n   const part = new Uint8Array(await (await fetch('/__clearcase_native_pdf__/input/' + k, { credentials: 'omit', cache: 'no-store', redirect: 'error' })).arrayBuffer());\n   if (part.length < 1 || at + part.length > a.size) throw Error('input mismatch');\n   input.set(part, at); at += part.length;\n   check();\n  }\n  if (at !== a.size) throw Error('input mismatch');"],
 ]);
 
 export interface NativePdfEvidenceOptions extends RendererBindings { budget: NativePdfEvidenceBudget | null }
@@ -629,7 +662,7 @@ type DocumentRun = { transcript: ContentReceipt | null; reason: PreviewReasonCod
 function validEvidenceBudget(b: NativePdfEvidenceBudget | null): b is NativePdfEvidenceBudget {
  if (!b) return false;
  for (const k of Object.keys(NATIVE_PDF_EVIDENCE_CEILINGS) as (keyof NativePdfEvidenceBudget)[]) if (!integer(b[k], NATIVE_PDF_EVIDENCE_CEILINGS[k])) return false;
- return b.maxDocumentMs <= b.maxSessionMs && b.maxFileBytes <= b.maxSessionBytes && b.maxRendersPerSession <= b.maxDocumentsPerStep;
+ return b.maxDocumentMs + CONTEXT_CLOSE_MS <= b.maxSessionMs && b.maxFileBytes <= b.maxSessionBytes && b.maxRendersPerSession <= b.maxDocumentsPerStep;
 }
 
 /** Missing bindings, an invalid budget or unreviewed pins make the port unavailable. No fallback renderer and no v1 fallback. */
@@ -637,11 +670,15 @@ export async function createNativePdfEvidenceChecker(o: NativePdfEvidenceOptions
  if (!validEvidenceBudget(o.budget)) return null;
  const budget = Object.freeze({ ...o.budget });
  const prepared = await prepareRenderer(o);
- if (!prepared) return null;
+ // The memory model assumes no pinned file is a larger response than this; the reviewed pins satisfy it.
+ if (!prepared || [...prepared.files.values()].some(f => f.bytes > MAX_PINNED_FILE_BYTES)) return null;
  const rendererVersion = await prepared.fingerprint(NATIVE_PDF_EVIDENCE_ALGORITHM, PAGES_INSPECTOR);
  const leaseMs = budget.maxSessionMs + CLEANUP_MS + IDLE_TAIL_MS;
  const expect = (d: { sha256: string; size: number }) => ({ sha256: d.sha256, size: d.size, rendererVersion, maxPagePixels: budget.maxPagePixels });
  return { rendererVersion, async step(input) {
+  // One absolute deadline for the whole step: every read, write, admission and render races it; only cleanup follows it.
+  const stepStop = performance.now() + budget.maxSessionMs;
+  const bounded = <T>(work: Promise<T>) => beforeDeadline(work, stepStop);
   // Copy every identity, page list and reader BEFORE the first await: the input is not an immutable authority.
   const scope = input && input.clientId === prepared.clientId && [input.caseId, input.candidateId].every(identifier)
    && typeof input.resultsVersion === 'string' && /^sha256:[a-f0-9]{64}$/.test(input.resultsVersion) && Array.isArray(input.documents)
@@ -671,10 +708,11 @@ export async function createNativePdfEvidenceChecker(o: NativePdfEvidenceOptions
   const known = new Map<string, unknown[]>();
   const keyOf = (d: { sha256: string; size: number }) => d.sha256 + ':' + d.size;
   try {
-   const rows = await lookupReceiptRows(db, rendererVersion, [...new Set(planned.flatMap(d => d ? [d.sha256] : []))]);
+   const rows = await bounded(lookupReceiptRows(db, rendererVersion, [...new Set(planned.flatMap(d => d ? [d.sha256] : []))], receiptRowsPerStep(budget)));
    if (!rows) throw Error('receipt lookup over bound');
    for (const row of rows) { const r = row as { input_sha256?: unknown; input_size?: unknown }; const k = r.input_sha256 + ':' + r.input_size; known.set(k, [...known.get(k) ?? [], row]); }
-  } catch {
+  } catch (error) {
+   if (error instanceof DeadlinePassed) return finish(0, 'render-timeout');
    planned.forEach((d, i) => { if (d) fail(i, d.assetId, 'pending', 'render-receipt-unavailable'); });
    return finish(0);
   }
@@ -690,28 +728,31 @@ export async function createNativePdfEvidenceChecker(o: NativePdfEvidenceOptions
   const queue = planned.flatMap((d, i) => d && !fromReceipts(d, i) ? [i] : []);
   if (!queue.length) return finish(0);
 
-  const session = createPdfSession({ ...prepared, budget, rendererVersion, leaseMs, scope, queue: queue.map(i => planned[i]!) });
-  let stopped: PreviewReasonCode | null = null, renders = 0, bytesRead = 0;
+  const session = createPdfSession({ ...prepared, budget, rendererVersion, leaseMs, scope, stepStop, queue: queue.map(i => planned[i]!) });
+  // Every attempted read is charged, whether it returns bytes, throws or is abandoned at the deadline.
+  let stopped: PreviewReasonCode | null = null, reads = 0, bytesRead = 0;
   try {
    for (const i of queue) {
     const d = planned[i]!;
     if (fromReceipts(d, i)) continue;
-    if (renders >= budget.maxRendersPerSession || bytesRead + d.size > budget.maxSessionBytes || !session.hasTimeFor(budget.maxDocumentMs)) break;
+    if (reads >= budget.maxRendersPerSession || bytesRead + d.size > budget.maxSessionBytes || !session.hasTimeFor(budget.maxDocumentMs + CONTEXT_CLOSE_MS)) break;
+    reads++; bytesRead += d.size;
     let bytes: Uint8Array;
     try {
-     const read = await d.read();
+     const read = await bounded(d.read());
      bytes = read instanceof Uint8Array ? new Uint8Array(read) : new Uint8Array(0);
-    } catch { fail(i, d.assetId, 'pending', 'render-unavailable'); continue; }
-    bytesRead += d.size;
+    } catch (error) {
+     if (error instanceof DeadlinePassed) { stopped = 'render-timeout'; break; }
+     fail(i, d.assetId, 'pending', 'render-unavailable'); continue;
+    }
     if (bytes.byteLength !== d.size || await sha(bytes) !== d.sha256) { fail(i, d.assetId, 'failed', 'input-integrity-mismatch'); continue; }
     if (new TextDecoder().decode(bytes.subarray(0, 5)) !== '%PDF-') { fail(i, d.assetId, 'failed', 'unsupported-pdf'); continue; }
     const opened = await session.open();
     if (opened !== null) { stopped = opened; break; }
-    renders++;
     const run = await session.inspect(d, bytes);
     if (run.transcript) {
      let sealed: ContentReceipt | null = null;
-     try { sealed = await sealReceipt(db, run.transcript, budget.maxPagePixels); } catch { sealed = null; }
+     try { sealed = await bounded(sealReceipt(db, run.transcript, budget.maxPagePixels)); } catch { sealed = null; }
      if (!sealed) { fail(i, d.assetId, 'pending', 'render-receipt-unavailable'); stopped = 'render-receipt-unavailable'; break; }
      known.set(keyOf(d), [...known.get(keyOf(d)) ?? [], { input_sha256: sealed.sha256, input_size: sealed.size, renderer_version: rendererVersion,
       page_set: JSON.stringify(sealed.pages.map(p => p.number)), page_count: sealed.totalPages, receipt_json: receiptJson(sealed) }]);
@@ -731,41 +772,57 @@ export async function createNativePdfEvidenceChecker(o: NativePdfEvidenceOptions
  } };
 }
 
+/** A step's absolute deadline passed while it waited; the work it raced is abandoned, never awaited again. */
+class DeadlinePassed extends Error {}
+function beforeDeadline<T>(work: Promise<T>, stopAt: number): Promise<T> {
+ let timer: ReturnType<typeof setTimeout> | undefined;
+ return Promise.race([work, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new DeadlinePassed()), Math.max(0, stopAt - performance.now())); })])
+  .finally(() => clearTimeout(timer));
+}
+
 /**
  * One admitted browser session, opened lazily on the first document that needs a render. Admission is one append-only
- * `npr_pdf_sessions` row (migration 0004) committed on the primary before launch; it is never refunded. Each document runs in
- * a fresh browser context and page that is closed before the next opens, so one document's page never serves another's.
- * A violation, a deadline or a failed context close is fatal to the session: its later documents are left for the next step.
+ * `npr_pdf_sessions` row (migration 0004) committed on the primary before launch; it is never refunded. The row reserves
+ * [timestamp, timestamp + lease], and the browser must be gone within it: the session ends at the earlier of the step deadline
+ * and timestamp + maxSessionMs by the trusted clock, and an acknowledgement too late for one document launches nothing.
+ * Each document runs in a fresh browser context and page that is closed before the next opens, so one document's page never
+ * serves another's. A violation, a deadline or a failed context close is fatal to the session: its later documents are left
+ * for the next step.
  */
 function createPdfSession(a: PreparedRenderer & {
- budget: NativePdfEvidenceBudget; rendererVersion: string; leaseMs: number;
+ budget: NativePdfEvidenceBudget; rendererVersion: string; leaseMs: number; stepStop: number;
  scope: { caseId: string; candidateId: string; resultsVersion: string }; queue: readonly Planned[];
 }) {
- let browser: Browser | undefined, transport: { close(): void } | undefined, stopAt = 0, opened: Promise<PreviewReasonCode | null> | undefined;
- let violated = false, closing = false;
- const abort = new AbortController(), cache = new Map<string, Promise<Uint8Array>>(), statics = { bytes: 0 };
+ let browser: Browser | undefined, transport: { close(): void } | undefined, opened: Promise<PreviewReasonCode | null> | undefined;
+ let stopAt = a.stepStop, reservedEnd = Infinity, violated = false, closing = false;
+ const abort = new AbortController(), cache = new Map<string, Promise<Uint8Array>>(), statics = { bytes: 0 }, serial = { tail: Promise.resolve() };
  const token = crypto.randomUUID();
- const remaining = () => Math.max(0, stopAt - performance.now());
+ const trusted = () => { try { const t = a.now().getTime(); return Number.isSafeInteger(t) ? t : Infinity; } catch { return Infinity; } };
+ const remaining = () => Math.max(0, Math.min(stopAt - performance.now(), reservedEnd - trusted()));
+ const documentTime = a.budget.maxDocumentMs + CONTEXT_CLOSE_MS;
  const session = {
   admitted: false,
-  hasTimeFor: (ms: number) => !opened || remaining() >= ms,
+  hasTimeFor: (ms: number) => remaining() >= ms,
   open: () => opened ??= (async (): Promise<PreviewReasonCode | null> => {
-   let timestamp: number;
-   try { timestamp = a.now().getTime(); } catch { return 'render-admission-unavailable'; }
+   const timestamp = trusted();
    if (!Number.isSafeInteger(timestamp) || timestamp < 0 || timestamp % DAY_MS + a.leaseMs >= DAY_MS) return 'render-admission-unavailable';
    const documents = a.queue.slice(0, a.budget.maxRendersPerSession);
    const manifest = await sha(encode(documents.map(d => [d.assetId, d.sha256, d.size, d.pages])));
    try {
     const primary = a.db.withSession('first-primary');
-    const reserved = await primary.batch([primary.prepare(`INSERT INTO npr_pdf_sessions
+    const reserved = await beforeDeadline(primary.batch([primary.prepare(`INSERT INTO npr_pdf_sessions
      (token,client_id,case_id,candidate_id,results_version,renderer_version,manifest_sha256,documents,day,started_ms,lease_ms,client_limit)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?) RETURNING token`).bind(token, a.clientId, a.scope.caseId, a.scope.candidateId, a.scope.resultsVersion,
-      a.rendererVersion, manifest, documents.length, Math.floor(timestamp / DAY_MS), timestamp, a.leaseMs, a.budget.maxSessionsPerClientPerDay)]);
+      a.rendererVersion, manifest, documents.length, Math.floor(timestamp / DAY_MS), timestamp, a.leaseMs, a.budget.maxSessionsPerClientPerDay)]), a.stepStop);
+    session.admitted = true;
     const acknowledgement = reserved[0] as { success?: unknown; results?: { token?: unknown }[] } | undefined;
     if (reserved.length !== 1 || acknowledgement?.success !== true || acknowledgement.results?.length !== 1 || acknowledgement.results[0]?.token !== token) return 'render-admission-unavailable';
-   } catch { return 'render-admission-refused'; }
-   session.admitted = true;
-   stopAt = performance.now() + a.budget.maxSessionMs;
+   } catch (error) { return error instanceof DeadlinePassed ? 'render-admission-unavailable' : 'render-admission-refused'; }
+   // The lease was measured from `timestamp`, before D1. Whatever the acknowledgement took comes out of this session's time.
+   reservedEnd = timestamp + a.budget.maxSessionMs;
+   const acknowledged = trusted();
+   if (acknowledged < timestamp || remaining() < documentTime) return 'render-admission-unavailable';
+   stopAt = Math.min(a.stepStop, performance.now() + (reservedEnd - acknowledged));
    const late = () => closing || remaining() <= 0;
    const check = () => { if (late() || violated) throw Error('session refused'); };
    const binding = boundBinding(a.browserBinding, { signal: abort.signal, check, late, opened: ws => { transport = ws; } });
@@ -781,16 +838,16 @@ function createPdfSession(a: PreparedRenderer & {
     return 'render-unavailable';
    } finally { if (timer) clearTimeout(timer); }
   })(),
-  inspect: (d: Planned, bytes: Uint8Array) => inspectInContext({ ...a, browser: browser!, bytes, d, token, cache, statics, signal: abort.signal,
+  inspect: (d: Planned, bytes: Uint8Array) => inspectInContext({ ...a, browser: browser!, bytes, d, token, cache, statics, serial, signal: abort.signal,
    sessionLeft: remaining, sessionViolated: () => violated, violate: () => { violated = true; } }),
-  /** Owned termination as in v1: a matched Browser.close reply and peer disconnection, then our transport. False if not proven. */
+  /** Owned termination as in v1, within CLEANUP_MS: a matched Browser.close reply and peer disconnection, then our transport. */
   close: async (): Promise<boolean> => {
    closing = true; abort.abort();
    if (!browser) { try { transport?.close(); } catch { /* nothing else is owned */ } return true; }
-   const deadline = performance.now() + CLEANUP_MS;
-   let okay = await terminateOwnedBrowser(browser, deadline);
+   const deadline = performance.now() + CLEANUP_MS, owned = browser;
+   let okay = await terminateOwnedBrowser(owned, deadline);
    try { transport?.close(); } catch { okay = false; }
-   try { await browser.disconnect(); } catch { okay = false; }
+   try { await beforeDeadline(owned.disconnect(), deadline); } catch { okay = false; }
    return okay;
   },
  };
@@ -800,18 +857,20 @@ function createPdfSession(a: PreparedRenderer & {
 /** One document in its own context. Only a complete transcript for exactly its in-range checked pages is returned. */
 async function inspectInContext(a: PreparedRenderer & {
  budget: NativePdfEvidenceBudget; rendererVersion: string; browser: Browser; bytes: Uint8Array; d: Planned; token: string;
- cache: Map<string, Promise<Uint8Array>>; statics: { bytes: number }; signal: AbortSignal;
+ cache: Map<string, Promise<Uint8Array>>; statics: { bytes: number }; serial: { tail: Promise<void> }; signal: AbortSignal;
  sessionLeft(): number; sessionViolated(): boolean; violate(): void;
 }): Promise<DocumentRun> {
- const stopAt = performance.now() + Math.min(a.budget.maxDocumentMs, a.sessionLeft());
+ // The context close below must also finish inside the session, so the document's own deadline leaves room for it.
+ const stopAt = performance.now() + Math.max(0, Math.min(a.budget.maxDocumentMs, a.sessionLeft() - CONTEXT_CLOSE_MS));
  let stage: PreviewRenderStage = 'page-setup', settled = false, violated = false, expired = false, timer: ReturnType<typeof setTimeout> | undefined;
  let context: Awaited<ReturnType<Browser['createBrowserContext']>> | undefined, page: Page | undefined;
  const remaining = () => Math.max(0, stopAt - performance.now());
  const violate = () => { if (!settled) { violated = true; a.violate(); } };
- const check = () => { if (settled || expired || remaining() <= 0 || violated || a.sessionViolated()) throw Error('inspection refused'); };
+ const check = () => { if (settled || expired || remaining() <= 0 || a.sessionLeft() <= 0 || violated || a.sessionViolated()) throw Error('inspection refused'); };
  const binding = await sha(encode([a.token, a.d.assetId, a.d.sha256, a.d.size, a.d.pages, a.rendererVersion]));
  const serve = intercept({ origin: a.origin, files: a.files, assets: a.assets, signal: a.signal, program: PAGES_INSPECTOR, input: a.bytes,
-  cache: a.cache, statics: a.statics, isMainFrame: frame => frame === page?.mainFrame(), check, violate, acknowledged: () => {} });
+  cache: a.cache, statics: a.statics, isMainFrame: frame => frame === page?.mainFrame(), check, violate, acknowledged: () => {},
+  parts: { bytes: PDF_PART_BYTES, serial: a.serial } });
  const work = async (): Promise<unknown> => {
   check();
   context = await a.browser.createBrowserContext();
@@ -837,7 +896,7 @@ async function inspectInContext(a: PreparedRenderer & {
    const fn = (window as unknown as { clearcaseNativePdfInspect?: (v: typeof args) => Promise<unknown> }).clearcaseNativePdfInspect;
    if (typeof fn !== 'function') throw Error('inspector unavailable');
    return fn(args);
-  }, { binding, sha256: a.d.sha256, size: a.d.size, pages: a.d.pages, maxDocumentPages: MAX_DOCUMENT_PAGES, maxPagePixels: a.budget.maxPagePixels,
+  }, { binding, sha256: a.d.sha256, size: a.d.size, parts: Math.ceil(a.d.size / PDF_PART_BYTES), pages: a.d.pages, maxDocumentPages: MAX_DOCUMENT_PAGES, maxPagePixels: a.budget.maxPagePixels,
    maxCanvasPixels: a.budget.maxPagePixels * a.d.pages.length, maxRunMs: Math.max(1, remaining()), workerBytes: worker.bytes, workerSha256: worker.sha256.slice(7) });
   check();
   return transcript;

@@ -192,17 +192,26 @@ rest. Calling again with the remaining documents resumes. So does calling again 
   A row that fails any check holds the document with `render-receipt-integrity`. The checks cover a missing page, other
   bytes, another renderer, a page count that disagrees with its row, a missing page 1 and non-canonical JSON. Such a row
   is never repaired or replaced. A receipt from another renderer version is not read, so the document renders again.
+  These checks do not authenticate a row. A receipt is trusted because the database wrote it: anyone who can write the
+  client's D1 can insert a canonical receipt with an invented page count and proofs, and it will be reused.
 - **Renderer version.** `clearcase.native-pdf-pages/1;sha256:<digest>` uses the same inputs as v1, with a page program
   derived from the v1 program by five exact edits. The v1 program bytes and v1 renderer version are unchanged.
 - **Sessions.** The documents still to render share one browser session. It is admitted once in `npr_pdf_sessions`
   (viewer migration 0004): one session at a time per client, at most 96 a day, and no refund. Each document gets its
   own browser context and page, closed before the next opens, with the same request interception as v1. A violation, a
   deadline or a context that does not close ends the session, and the later documents wait for the next step. A launch
-  that lands after its deadline is terminated.
-- **Bounds.** `pdfEvidenceStepCost(budget)` gives one step's worst case. At the ceilings that is about 260 subrequests,
-  87 MB of Worker memory (one PDF at a time) and 62 s of wall time. The parent reserves it within Workers Paid's per-invocation
-  limits. A kill loses only the document in flight. Its sealed receipts stand, and the session lease
-  (session deadline plus cleanup plus the 60 s idle tail) delays the resume.
+  that lands after its deadline is terminated. The session ends by `started_ms + maxSessionMs` on the trusted clock, so
+  the browser and its cleanup stay inside the reserved lease. An admission acknowledged too late for one document launches nothing.
+- **Response memory.** The pinned SDK encodes each response body one byte per array slot before base64. The page therefore
+  fetches the PDF as `input/<k>` parts of 1 MiB, and the session answers one request at a time, so only one part or one
+  pinned file (at most 1.3 MB) is being encoded at once. A PDF over `maxFileBytes` (ceiling 16 MiB) fails with
+  `file-budget-exceeded` before it is read, which holds publication.
+- **Bounds.** `pdfEvidenceStepCost(budget)` gives one step's worst case. At the ceilings that is 259 subrequests (lookup,
+  admission, every attempted read, every receipt write, launch and ASSETS), 93.4 MiB of Worker memory (three copies of
+  one PDF, cached static files, one encoded response and the receipt rows) and 62 s of wall time. One absolute deadline
+  covers every read, write, admission and render in the step; only browser cleanup follows it. The parent reserves this
+  within Workers Paid's per-invocation limits. A kill loses only the document in flight. Its sealed receipts stand, and
+  the session lease (session deadline plus cleanup plus the 60 s idle tail) delays the resume.
 
 Not run: real Browser Rendering, `createBrowserContext` on the provider, PDF.js on a real 40-page PDF, workerd or deployed
 D1. Migration 0004 is not yet in `deploy/native-alpha/runtime-migration.ts`. The tests in

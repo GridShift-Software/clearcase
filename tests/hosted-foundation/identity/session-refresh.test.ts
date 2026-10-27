@@ -635,3 +635,57 @@ describe('sign-out and the handshake against session cookies at other scopes or 
 		expect(r.headers.getSetCookie().filter((d) => d.startsWith(`${SESSION_C}=`))).toEqual([]);
 	});
 });
+
+// The live renewal of 27 October (Astra auth matrix at b5866e59, finding 1; session-renewal-live-3 probe): a refresh token
+// renews once. After a renewal, a second one 90 s later presenting the same refresh token was refused, whichever expired
+// token came with it, and the hold still carried that token: the Worker read a rotated refresh token only under the
+// instance's suffixed `__refresh_<suffix>`, while Clerk's Backend API answers a cookie-format refresh with
+// `__refresh=<new token>` (its reference example). So the first renewal worked and every later one before a document
+// handshake was refused: a breadcrumb `__data.json` carried "Your session has ended". The double below answers like that:
+// the renewed session under `__session_<suffix>` (as live), the rotated refresh token under the plain `__refresh`, and it
+// refuses a refresh token that has already been used.
+const rotatingRefreshAnswer = (s: ReturnType<typeof session>) => (sid: string) => {
+	if (sid !== s.sid) return null;
+	const row = sessions.get(sid)!, presented = calls.at(-1)!.body?.refresh_token;
+	if (presented !== row.refresh) return { status: 401, body: { errors: [{ code: 'authentication_invalid', message: 'synthetic spent refresh token' }] } };
+	row.refresh = LIVE_RT(++n);
+	return { status: 200, body: { object: 'cookies', cookies: [
+		`${SESSION_SFX}=${A.token({ sub: s.user, sid, azp: ORIGIN })}; Path=/; Expires=${YEAR()}; Secure; SameSite=None`,
+		`__refresh=${row.refresh}; Path=/; Expires=${YEAR()}; HttpOnly; Secure; SameSite=None`,
+	] } };
+};
+
+describe('a refresh token Clerk rotates on every renewal (session-renewal-live-3)', () => {
+	beforeEach(() => void vi.useFakeTimers({ toFake: ['Date'] }));
+	afterEach(() => void vi.useRealTimers());
+	const signedIn = async (b: ReturnType<typeof browser>, s: ReturnType<typeof session>) => {
+		sessions.get(s.sid)!.refresh = LIVE_RT(n);
+		refreshAnswer = rotatingRefreshAnswer(s);
+		expect((await load(b, s, `/cases?__clerk_handshake=${A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh) })}`)).status).toBe(303);
+	};
+
+	it('saves a note after 90 s idle, reloads twice, and loads the case 90 s later: still signed in (Astra b586)', async () => {
+		const s = session(), b = browser();
+		await signedIn(b, s);
+		later(90_000);
+		expect(b.take(await invoke(saveNote(b.cookie(NOTES)))).status).toBe(201);
+		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
+		later(5_000);
+		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
+		later(90_000);
+		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(201);
+		// each renewal presented the refresh token Clerk last issued
+		expect(refreshCalls().map((c) => c.body?.refresh_token)).toEqual([LIVE_RT(n - 2), LIVE_RT(n - 1)]);
+		expect(sessionValues(b).size).toBe(1);
+		expect(trap.blocked).toEqual([]);
+	});
+	it('renews on three page-data loads in a row, each 90 s after the last, with no document load between them', async () => {
+		const s = session(), b = browser();
+		await signedIn(b, s);
+		for (let i = 0; i < 3; i++) {
+			later(90_000);
+			expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(201);
+		}
+		expect(refreshCalls()).toHaveLength(3);
+	});
+});

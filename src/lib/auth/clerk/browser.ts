@@ -271,8 +271,12 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 		const evidence = await revocationEvidenceOf(token, config).catch(() => null);
 		const exp = tokenClaims(token).exp as number;
 		if (!evidence || evidence.instance !== config[a.kind] || evidence.subject !== a.subject || evidence.sessionId !== a.sessionId || exp * 1000 <= Date.now()) return null;
-		// the hold moves on to the new token, with the refresh token Clerk rotated to, if it did
-		const hold = { kind: a.kind, token, refreshToken: clerkRefreshOf(cookies, await refreshNameOf(a.kind)) ?? a.refreshToken };
+		// the hold moves on to the new token, with the refresh token Clerk rotated to, if it did. A refresh token renews once,
+		// and Clerk's refresh answer names the new one plain `__refresh` (its Backend API reference), not the suffixed name its
+		// handshake uses: this is the answer of this instance's own Backend API to its secret key, so either name is this
+		// instance's, the suffixed one first as the SDK reads it. Keeping the spent token refused the next renewal
+		// (session-renewal-live-3).
+		const hold = { kind: a.kind, token, refreshToken: clerkRefreshOf(cookies, await refreshNameOf(a.kind)) ?? clerkRefreshOf(cookies, '__refresh') ?? a.refreshToken };
 		setCookies.push(sessionHoldCookie(hold, exp) ?? sessionHoldClear(SESSION_HOLD_COOKIE[a.kind]));
 		return { token, session, uat, setCookies, until: exp * 1000 };
 	}

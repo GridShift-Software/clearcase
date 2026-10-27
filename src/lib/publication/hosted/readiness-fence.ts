@@ -2,6 +2,7 @@ import type { CaseId, ClientId, Principal, SessionId } from '../../server/runtim
 import { canonicalJson } from '../../case-package/canonical.ts';
 import type { PublicationD1Database } from './d1-publisher.ts';
 import type { CandidateSnapshot, SignoffRecord } from './ports.ts';
+import { previewGrantCondition } from '../../tenancy/preview-observation.ts';
 
 export interface ReadinessObservation {
   clientId: ClientId;
@@ -66,7 +67,7 @@ export function d1ReadinessFence(options: { db: PublicationD1Database; clientId:
           AND r.issuer = o.issuer AND r.session_id = o.session_id) THEN 'invalid-session'
         WHEN NOT EXISTS (SELECT 1 FROM rs_case WHERE case_id = o.case_id)
           OR NOT EXISTS (SELECT 1 FROM grants WHERE role = 'publisher' AND slot = 'publisher')
-          OR NOT EXISTS (SELECT 1 FROM grants WHERE role IN ('viewer', 'editor') AND slot = 'content') THEN 'forbidden'
+          OR NOT ${previewGrantCondition('readiness')} THEN 'forbidden'
         WHEN NOT EXISTS (
           SELECT 1 FROM pub_candidate_generation g
           JOIN native_candidate c USING (client_id, case_id, candidate_id)

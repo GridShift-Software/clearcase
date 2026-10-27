@@ -188,8 +188,8 @@ export const submissionOp = (caseId: string, ref: string) => `opn24-${caseId}-${
  * at the final mark, so the upload stays `reserved` (the original is bound by GRS-115 but the submission is not final).
  * Its own allow-all upload grant and writer; fixture plumbing only.
  */
-export async function submit(dep: Dep, caseId: string, uploads: readonly Submitted[], o: { commit?: boolean } = {}) {
-  const writer = { bindings: { db: dep.db, bucket: dep.bucket }, clientId: ids.clientA, budgets: BUDGETS, quotas: QUOTAS, authorize: async () => {}, now: caseNow };
+export async function submit(dep: Dep, caseId: string, uploads: readonly Submitted[], o: { commit?: boolean; quotas?: typeof QUOTAS } = {}) {
+  const writer = { bindings: { db: dep.db, bucket: dep.bucket }, clientId: ids.clientA, budgets: BUDGETS, quotas: o.quotas ?? QUOTAS, authorize: async () => {}, now: caseNow };
   const repository = d1SubmissionRepository(dep.db);
   const ports = {
     clientId: ids.clientA, budget: { maxMetadataBytes: 4096, maxFileBytes: BUDGETS.maxOriginalBytes }, authorizeUpload: async () => {}, now: caseNow,
@@ -221,10 +221,10 @@ export const setOp = (caseId: string, ref: string) => `set24-${caseId}-${ref}`.p
 /**
  * Opens a set, declares and stores each file through the REAL client intake controller over the real repository and the real
  * GRS-115 original intake, then seals it in steps. Returns the set's revision id. `seal: false` leaves the set open (stored,
- * not sealed); `sealCalls` stops after that many seal calls, so a small `sealStep` can leave it sealing. Its own allow-all upload grant and writer; fixture plumbing only.
+ * not sealed); `sealCalls` stops after that many seal calls, so a small `sealStep` can leave it sealing. `quotas` replaces the generous fixture quotas. Its own allow-all upload grant and writer; fixture plumbing only.
  */
-export async function submitSet(dep: Dep, caseId: string, setRef: string, uploads: readonly Submitted[], o: { seal?: boolean; sealStep?: { files: number; bytes: number; ms: number }; sealCalls?: number } = {}) {
-  const writer = { bindings: { db: dep.db, bucket: dep.bucket }, clientId: ids.clientA, budgets: BUDGETS, quotas: QUOTAS, authorize: async () => {}, now: caseNow };
+export async function submitSet(dep: Dep, caseId: string, setRef: string, uploads: readonly Submitted[], o: { seal?: boolean; sealStep?: { files: number; bytes: number; ms: number }; sealCalls?: number; quotas?: typeof QUOTAS } = {}) {
+  const writer = { bindings: { db: dep.db, bucket: dep.bucket }, clientId: ids.clientA, budgets: BUDGETS, quotas: o.quotas ?? QUOTAS, authorize: async () => {}, now: caseNow };
   const controller = createIntakeController({
     clientId: ids.clientA, budget: { maxMetadataBytes: 4096, maxFileBytes: BUDGETS.maxOriginalBytes }, authorizeUpload: async () => {}, now: caseNow,
     originals: createOriginalIntake(writer as never), repository: d1SubmissionRepository(dep.db), ...(o.sealStep ? { sealStep: o.sealStep } : {}),

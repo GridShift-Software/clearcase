@@ -55,8 +55,8 @@ const TOKEN = /^[A-Za-z0-9._-]{16,8192}$/;
 const DEV_BROWSER = /^[A-Za-z0-9._-]{16,4096}$/;
 const DEV_BROWSER_COOKIE = /^__clerk_db_jwt(?:_[A-Za-z0-9_-]{1,32})?$/;
 const MAX_CLEAR_PATHS = 32;
-// Hosting suffixes browsers refuse as a Domain, so a clear for one would never match a cookie.
-const PUBLIC_SUFFIXES = new Set(['workers.dev', 'pages.dev']);
+// Public suffixes above this app's origins, which browsers refuse as a Domain, so a clear for one would never match a cookie.
+const PUBLIC_SUFFIXES = new Set(['workers.dev', 'pages.dev', 'co.za']);
 const RS256 = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
 const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const fromB64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
@@ -162,12 +162,31 @@ const REFRESHES_LIMIT = 4096;
  * starting again on every return (carryover review, finding 3).
  */
 function devBrowserClears(url: URL): string[] {
-	const labels = url.hostname.split('.'), path = url.pathname, paths = new Set(['/']);
+	const path = url.pathname, paths = new Set(['/']);
 	for (let i = 1; i <= path.length; i++) if (i === path.length || path[i] === '/') paths.add(path.slice(0, i)).add(path.slice(0, i + 1));
-	const domains = [null, ...(labels.length > 1 ? labels.slice(0, -1).map((_, i) => labels.slice(i).join('.')).filter((d) => !PUBLIC_SUFFIXES.has(d)) : [])];
 	const safe = [...paths].filter((p) => !/[;\u0000-\u0020\u007f]/.test(p)).slice(0, MAX_CLEAR_PATHS);
-	return domains.flatMap((d) => safe.map((p) => `__clerk_db_jwt=; ${d === null ? '' : `Domain=${d}; `}Path=${p}; Max-Age=0; SameSite=Lax; Secure`));
+	return cookieDomains(url).flatMap((d) => safe.map((p) => `__clerk_db_jwt=; ${d === null ? '' : `Domain=${d}; `}Path=${p}; Max-Age=0; SameSite=Lax; Secure`));
 }
+/**
+ * Every scope a cookie this origin receives can have a Domain at: host-only (null), the host, and each parent up to the
+ * registrable domain. No public suffix is listed: browsers refuse one as a Domain. `workers.dev` is on the public suffix
+ * list, so no cookie is ever scoped to it, but that makes the account subdomain (`<account>.workers.dev`) registrable,
+ * and every Worker of the account, both sandboxes included, sits under it and can scope a cookie to it. On a custom
+ * domain (`sbx-a.clearcase.co.za`) the registrable parent is `clearcase.co.za`.
+ */
+function cookieDomains(url: URL): (string | null)[] {
+	const labels = url.hostname.split('.');
+	return [null, ...(labels.length > 1 ? labels.slice(0, -1).map((_, i) => labels.slice(i).join('.')).filter((d) => !PUBLIC_SUFFIXES.has(d)) : [])];
+}
+/**
+ * The directives that expire the session cookie `name` at every scope this app or Clerk sets one at: host-only and each
+ * cookieDomains Domain, at Path=/. Every session directive the Worker sets is rewritten to Path=/ (sanitizeDirective), and
+ * Clerk's handshake and refresh answers set Path=/ (each one captured live on 27 October). The server never sees a
+ * received cookie's scope, so a copy at another Path, which only a planted cookie has, is not reached: it stays beside
+ * the others and the request stays refused as ambiguous (session.ts presentedToken), never resolved by picking one.
+ */
+const sessionClears = (name: string, url: URL, secure: boolean) =>
+	cookieDomains(url).map((d) => `${name}=; ${d === null ? '' : `Domain=${d}; `}Path=/; Max-Age=0; SameSite=Lax; HttpOnly${secure ? '; Secure' : ''}`);
 
 export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }): ClerkBrowserHandshake {
 	const { config } = a;
@@ -238,6 +257,12 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 		if (!sfx) suffixes.set(kind, (sfx = cookieSuffix(config[kind].publishableKey)));
 		return `__refresh_${await sfx}`;
 	};
+	/**
+	 * The names of `base` this deployment owns: the plain name and its suffixed form for each configured instance. Only these
+	 * are ever cleared or written for a browser: a suffix of any other instance is not this app's to touch (review M2).
+	 */
+	const ownedNames = async (base: '__session' | '__client_uat') =>
+		new Set([base, ...(await Promise.all((['client', 'staff'] as const).map(async (k) => (await refreshNameOf(k)).replace('__refresh', base))))]);
 
 	/**
 	 * Clerk's answer to one refresh: only a session token of the same instance, subject and session, live now, in
@@ -344,9 +369,12 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			// and the same names in the browser. Clerk answers a renewal under `__session_<suffix>` even when asked for plain
 			// names, while the handshake keeps the browser on `__session`: a second, different session token is ambiguous and
 			// refused on every request, and the next handshake re-sets only its own name (session-renewal-live-2).
-			const sessions = sessionCookieNames(request), uats = [...new Set(pairs.map((c) => c.name).filter((n) => CLIENT_UAT_COOKIE_NAME.test(n)))];
+			// Only the names this deployment owns, and each at every scope it can have: the old copy goes before the new one is
+			// set, so no name is left twice (review M1 and M2).
+			const carried = async (base: '__session' | '__client_uat') => { const owned = await ownedNames(base); return [...new Set(pairs.map((c) => c.name).filter((n) => owned.has(n)))]; };
+			const sessions = await carried('__session'), uats = await carried('__client_uat');
 			const readdressed = [
-				...(sessions.length ? sessions : ['__session']).map((n) => `${n}${refreshed.session}`),
+				...(sessions.length ? sessions : ['__session']).flatMap((n) => [...sessionClears(n, url, secure), `${n}${refreshed.session}`]),
 				...(refreshed.uat === null ? [] : (uats.length ? uats : ['__client_uat']).map((n) => `${n}${refreshed.uat}`)),
 			];
 			return { credential: new Request(url, { headers: { cookie } }), setCookies: [...readdressed, ...refreshed.setCookies] };
@@ -415,11 +443,13 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				const clean = new URL(url);
 				for (const p of HANDSHAKE_PARAMS) clean.searchParams.delete(p);
 				if (state.status !== 'signed-in' && setCookies.some(setsSession)) return refuse(502, 'handshake-cookie-refused');
-				// a session cookie the browser carries beside the ones this handshake sets would make its credential ambiguous, so
-				// it goes: a browser a renewal left with `__session_<suffix>` beside `__session` is signed in again here
-				const named = new Set(setCookies.map((c) => c.slice(0, c.indexOf('='))));
-				if ([...named].some((n) => SESSION_COOKIE_NAME.test(n)))
-					for (const n of sessionCookieNames(request)) if (!named.has(n)) setCookies.push(`${n}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly${secure ? '; Secure' : ''}`);
+				// A session cookie the browser carries beside the ones this handshake sets would make its credential ambiguous, so
+				// each owned one it carries goes, at every scope, before the handshake's own are set: a browser a renewal left with
+				// `__session_<suffix>` beside `__session` is signed in again here. Another instance's name is left alone (M2).
+				if (setCookies.some((c) => SESSION_COOKIE_NAME.test(c.slice(0, c.indexOf('='))))) {
+					const owned = await ownedNames('__session');
+					setCookies.unshift(...sessionCookieNames(request).filter((n) => owned.has(n)).flatMap((n) => sessionClears(n, url, secure)));
+				}
 				// a dev browser that a token only the staff key verifies set, on the return of a staff handshake this browser
 				// started with no untied URL value (staffView), is tied to the staff instance (flow.ts tiedDevBrowser)
 				const devBrowser = setCookies.findLast((c) => c.startsWith('__clerk_db_jwt='));

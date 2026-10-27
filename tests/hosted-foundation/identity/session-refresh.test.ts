@@ -126,7 +126,8 @@ const hold = (token: string, refresh: string, name = HOLD_A) => `${name}=${token
 const held = (s: ReturnType<typeof session>, refresh = s.refresh) => hold(s.stale(), refresh);
 const jar = (s: ReturnType<typeof session>, refresh = s.refresh) => `__client_uat=1761400000; __session=${s.stale()}; ${held(s, refresh)}`;
 const refreshCalls = () => calls.filter((c) => c.path.endsWith('/refresh'));
-const sessionCookie = (r: Response) => r.headers.getSetCookie().find((c) => /^__session=/.test(c));
+// the session cookie a response sets (a renewal also expires the old copy at each scope first)
+const sessionCookie = (r: Response) => r.headers.getSetCookie().find((c) => /^__session=[^;]/.test(c));
 
 describe('a signed-in user whose session token expired between page loads', () => {
 	it('saves the note: the Worker refreshes the session with the refresh token the handshake stored, and the write succeeds', async () => {
@@ -135,7 +136,9 @@ describe('a signed-in user whose session token expired between page loads', () =
 		expect(r.status).toBe(201);
 		const set = sessionCookie(r);
 		expect(set).toMatch(/^__session=[^;]+; Path=\/; Max-Age=60; SameSite=Lax; HttpOnly; Secure$/);
-		expect(r.headers.getSetCookie().join('\n')).not.toMatch(/Domain=/i);
+		// no cookie is set with Clerk's Domain: a Domain appears only on the clears of the old copy's other scopes
+		expect(r.headers.getSetCookie().filter((c) => /^[^=]+=[^;]/.test(c)).join('\n')).not.toMatch(/Domain=/i);
+		expect(r.headers.getSetCookie().filter((c) => /Domain=/i.test(c)).every((c) => /^__session=; Domain=[^;]+; Path=\/; Max-Age=0;/.test(c))).toBe(true);
 		expect(refreshCalls()).toHaveLength(1);
 		expect(refreshCalls()[0]).toMatchObject({ path: `/v1/sessions/${s.sid}/refresh`, bearer: A.secretKey, body: { refresh_token: s.refresh, request_origin: ORIGIN, format: 'cookie' } });
 		expect(trap.blocked).toEqual([]);

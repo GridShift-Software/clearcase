@@ -156,6 +156,14 @@ describe('renewal refusals', () => {
     expect(w.writes()).toEqual([]);
   });
 
+  it('fails closed on a stored expiry that is not an exact instant', async () => {
+    const w = await world(), old = await expired(w);
+    w.sqlite.prepare("UPDATE tenant_case_grants SET expires_at = 'garbage' WHERE grant_id = ?").run(old.grantId);
+    w.hooks.sql.length = 0;
+    expect(await w.renewal().renewCaseGrant(renewalOf(w, old))).toMatchObject({ kind: 'invalid' });
+    expect(w.writes()).toEqual([]);
+  });
+
   it('refuses to renew a grant that never expires', async () => {
     const w = await world();
     const made = await w.make().grantCase(INPUT);

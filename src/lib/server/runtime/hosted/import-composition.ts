@@ -16,8 +16,18 @@ import { submissionSnapshotReader } from '../../../results-review/native/submiss
 import type { CandidateAuditRecovery, NativeImportPorts } from '../../../results-review/native/ports.ts';
 import { canonicalText } from '../../../case-package/canonical.ts';
 
-/** Workers Free: 50 D1 queries and 50 subrequests per invocation, five of each kept as headroom. The deployment's plan. */
+/** Workers Free: 50 D1 queries and 50 subrequests per invocation, five of each kept as headroom. */
 export const WORKERS_FREE_REQUEST: Pick<RequestBudget, 'd1' | 'external'> = Object.freeze({ d1: 45, external: 45 });
+/**
+ * Workers Paid (ADR-0013), from Cloudflare's documentation read on 27 October 2026. Workers limits
+ * (developers.cloudflare.com/workers/platform/limits/): 10,000 subrequests per invocation, and "a subrequest is any request a Worker makes
+ * using the Fetch API or to Cloudflare services like R2, KV, or D1", so R2 and D1 binding calls count; a separate "subrequests to
+ * internal services" row is the configured limit, 10,000 by default. D1 limits (developers.cloudflare.com/d1/platform/limits/): 1,000
+ * queries per invocation on Paid, a batch counting as one. `d1` keeps 10% of those 1,000 as headroom. `external` counts the identity
+ * provider's session checks, which are fetches: it is held under half of the 10,000 so the D1 and R2 calls that share the limit have room
+ * even if it is one pool. The import and staging routes use this; every other route has its own budget.
+ */
+export const WORKERS_PAID_REQUEST: Pick<RequestBudget, 'd1' | 'external'> = Object.freeze({ d1: 900, external: 4500 });
 
 /** The request's own case authority: the live identity-provider session, then the explicit grant authorizer. */
 export function caseAuthority(a: { identity: Identity; deployment: ClientResourceIdentity; db: D1; audit: AuditSink; now(): Date }) {
@@ -50,6 +60,8 @@ export function nativeImportPorts(a: {
 	historical: CandidateAuditRecovery; requestActor: IdentityState; now(): Date;
 	/** The plan's per-request call limit; null composes no limit (a plan whose limits this import cannot reach). */
 	requestBudget: Pick<RequestBudget, 'd1' | 'external'> | null;
+	/** Bounds, clock and lease ids of the stepped stager; the defaults are Workers Paid's. */
+	steps?: NonNullable<Parameters<typeof createHostedCandidateStager>[0]['steps']>;
 }): NativeImportPorts | null {
 	const { clientId, identity, budgets, audit, now } = a;
 	const importBudget = nativeImportBudget(a.importBudget, { stagerMaxPackageBytes: budgets.maxPackageBytes });
@@ -58,11 +70,11 @@ export function nativeImportPorts(a: {
 	const observeOperate: NonNullable<NativeImportPorts['observeOperate']> = (o) => a.authority.operate.observe(o);
 	const operateCondition: NonNullable<NativeImportPorts['operateCondition']> = (o) => a.authority.operate.condition(o);
 	const staged = createHostedCandidateStager({ bindings: { db: a.db, bucket: a.bucket },
-		clientId, budgets, quotas: a.quotas, identity, authorizeOperate: observeOperate, operateCondition, requestBudget: a.requestBudget, audit, now });
+		clientId, budgets, quotas: a.quotas, identity, authorizeOperate: observeOperate, operateCondition, requestBudget: a.requestBudget, audit, now, ...(a.steps ? { steps: a.steps } : {}) });
 	const candidates = d1NativeCandidateRepository(a.db);
 	// The chunked import: progress in the client's D1 and verified bytes in its private bucket, under the same budget and operator fences.
 	const staging = { ledger: d1StagingLedger(a.db, { rowsPerBatch: budgets.maxRowsPerBatch }), store: r2StagingStore(a.bucket, { maxBytes: importBudget.maxFileBytes }), rowsPerBatch: budgets.maxRowsPerBatch };
-	return { clientId, budget: importBudget, authorizeOperate: operate, observeOperate, operateCondition, staging,
+	return { clientId, budget: importBudget, authorizeOperate: operate, observeOperate, operateCondition, staging, stepped: staged.stepped,
 		requestBudget: a.requestBudget && { ...a.requestBudget, rowsPerBatch: budgets.maxRowsPerBatch },
 		submissions: submissionSnapshotReader(a.db), stager: staged.stager, packages: staged.packages, repository: candidates, now,
 		audit: { append: async (event) => {

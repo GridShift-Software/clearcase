@@ -26,6 +26,9 @@ import type { AuditEvent, AuditSink, CaseId, ClientId, Identity, ResultsVersion 
 import { contractError, isDenial } from '../errors.ts';
 import type { FinalizedSubmissionSnapshot } from './alpha-contracts.ts';
 import { hostedValidationPolicy } from './validation-policy.ts';
+import { createSteppedStager } from './stepped-stager.ts';
+import { DEFAULT_STEP_BOUNDS, type StepBounds, type SteppedPorts } from '../../../results-review/native/staging/steps.ts';
+import { VERSION_HEAD, integrity, originals, refused, same, select, size, storedContent, unavailable, type ContentKeys, type FileRow, type VersionRow } from './stage-shared.ts';
 
 /** Request-scoped, trusted deployment inputs. No defaults, request bindings, or success-stager injection. */
 export interface HostedCandidateStagerOptions {
@@ -45,26 +48,10 @@ export interface HostedCandidateStagerOptions {
   requestBudget?: Pick<RequestBudget, 'd1' | 'external'> | null;
   audit: AuditSink;
   now(): Date;
+  /** The stepped stager's bounds, its clock (milliseconds all builders share) and its lease ids. Defaults: Workers Paid bounds, `Date.now`, a random id. */
+  steps?: { bounds?: Partial<StepBounds>; clock?: () => number; leaseId?: () => string };
 }
-export interface HostedCandidateStager { stager: CandidateStager; packages: StoredPackageReader }
-
-const unavailable = (): never => { throw contractError('storage-unavailable', true); };
-const integrity = (): never => { throw contractError('integrity'); };
-const refused = (reason: string, ...detail: string[]): Extract<StageOutcome, { kind: 'refused' }> => ({ kind: 'refused', reason, detail });
-const same = (a: unknown, b: unknown) => canonicalText(a) === canonicalText(b);
-const size = (n: number) => Number.isSafeInteger(n) && n >= 0;
-const VERSION_HEAD = 'SELECT * FROM rs_results_version WHERE version_id = ? AND case_id = ?';
-type FileRow = { path: string; sha256: string; size: number; object_key: string };
-type VersionRow = {
-  case_id: string; state: string; manifest_sha256: string; input_revision_id: string; package_bytes: number;
-  verdict: 'accept' | 'report'; validator_version: string; diagnostics_sha256: string; warning_fingerprints: string;
-  read_model_sha256: string; expected_files: number; expected_documents: number; expected_assets: number; expected_seeds: number;
-};
-type Selection = { asset: FileAssetClaim; original: FolderOriginal };
-/** Which stored objects are case content another request put there, as opposed to this request's own package bytes. */
-type ContentKeys = (key: string) => boolean;
-const originals: ContentKeys = (key) => key.startsWith('orig/');
-const storedContent: ContentKeys = (key) => key.startsWith('orig/') || key.startsWith('pkg/');
+export interface HostedCandidateStager { stager: CandidateStager; packages: StoredPackageReader; stepped: SteppedPorts }
 
 /**
  * Real validator + private GRS-115 staging, and a separate operate-only correction reader. The parent owns composition,
@@ -375,23 +362,13 @@ export function createHostedCandidateStager(o: HostedCandidateStagerOptions): Ho
       });
     },
   };
-  return { stager, packages };
+  const stepBounds: StepBounds = Object.freeze({ ...DEFAULT_STEP_BOUNDS, ...o.steps?.bounds });
+  const positive = (n: number) => Number.isSafeInteger(n) && n >= 1;
+  if (![stepBounds.originalsPerStep, stepBounds.bytesPerStep, stepBounds.objectsPerStep, stepBounds.rowsPerStep, stepBounds.wallMsPerStep, stepBounds.leaseMs, stepBounds.structuredBytes, stepBounds.stepsPerRequest, stepBounds.wallMsPerRequest].every(positive)
+    || stepBounds.leaseMs <= stepBounds.wallMsPerStep) unavailable();
+  const clock = o.steps?.clock ?? (() => Date.now());
+  const steppedStager = createSteppedStager({ clientId, budgets: b, quotas: q, limits, scoped, audit, admission, now: o.now, bounds: stepBounds, clock, leaseId: o.steps?.leaseId ?? (() => crypto.randomUUID()) });
+  return { stager, packages, stepped: { stager: steppedStager, bounds: stepBounds, clock } };
 }
 
 const rowsOf = (p: StagedProjection) => p.documents.length + p.assets.length + p.seeds.length;
-
-/** PATH FIRST in the selected revision's real finalized folder; a fingerprint never chooses a path or a revision. */
-function select(assets: readonly FileAssetClaim[], folder: readonly FolderOriginal[], submission: FinalizedSubmissionSnapshot): { kind: 'selected'; selections: Selection[] } | Extract<StageOutcome, { kind: 'refused' }> {
-  const mine = folder.filter((f) => f.source === 'submission' && f.revisionId === submission.manifest.revisionId);
-  const selections: Selection[] = [];
-  for (const asset of assets) {
-    const literal = mine.filter((f) => f.path === asset.path);
-    const found = literal.length ? literal : mine.filter((f) => foldPath(f.path) === foldPath(asset.path));
-    if (found.length !== 1) return refused('original-link-required', 'selected revision has no unique finalized original at the indexed path');
-    const f = found[0];
-    const declared = submission.manifest.files.filter((d) => d.assetId === f.assetId && d.path === f.path && d.sha256 === f.sha256 && d.size === f.size);
-    if (declared.length !== 1 || f.sha256 !== asset.sha256 || f.size !== asset.size || f.originalSize !== f.size || !size(f.size) || f.objectKey !== originalKey(f.sha256)) return refused('integrity', 'selected path does not have the exact submission and package fingerprint');
-    selections.push({ asset, original: f });
-  }
-  return { kind: 'selected', selections };
-}

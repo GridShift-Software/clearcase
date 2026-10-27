@@ -49,9 +49,9 @@ export interface RealPackage {
 export async function realPackage(): Promise<RealPackage> {
   const poc = await pocPackage();
   const dir = pocDirectory();
-  const idx = JSON.parse(dec(poc.files.get('assets.json')!)) as { index: string; root: string; assets: Record<string, { kind: string; path: string; sha256: string; size: number; mediaType: string; textStatus: string; preview?: unknown }> };
+  const idx = JSON.parse(dec(poc.files.get('assets.json')!)) as { index: string; root: string; assets: Record<string, { kind: string; path: string; sha256?: string; size?: number; mediaType: string; textStatus: string; preview?: unknown }> };
   const entries = Object.entries(idx.assets);
-  const smallest = entries.filter(([k, a]) => a.kind === 'file' && !k.startsWith('P-')).sort((x, y) => x[1].size - y[1].size)[0]![1];
+  const smallest = entries.filter(([k, a]) => a.kind === 'file' && !k.startsWith('P-')).sort((x, y) => x[1].size! - y[1].size!)[0]![1];
   const original = { path: 'ORIGINALS/original.pdf', bytes: new Uint8Array(readFileSync(path.join(dir, 'case', smallest.path))) };
   const sha = sha256Hex(original.bytes);
   const previews = new Map<string, Uint8Array>();
@@ -77,17 +77,19 @@ export async function realPackage(): Promise<RealPackage> {
   return { caseId: poc.caseId, files, original, previews: previews.size, documents: n };
 }
 
-export class Killed extends Error { constructor(readonly where: string) { super(`killed ${where}`); } }
+export class Killed extends Error { readonly where: string; constructor(where: string) { super(`killed ${where}`); this.where = where; } }
 export interface KillAt { op: 'put' | 'batch'; nth: number; after: boolean }
 
 /** What survives a dead process: the database, the bucket, the audit log and the shared clock. */
 export class Durable {
+  readonly caseId: string;
   readonly dep: ReturnType<typeof deployment>;
   readonly events: AuditEvent[] = [];
   readonly clock = { ms: 1_000_000 };
   readonly counts = { puts: 0, batches: 0, d1: 0, gets: 0, heads: 0, deletes: 0, bytesRead: 0, originalGets: 0, wholeStage: 0 };
   readonly putKeys: string[] = [];
-  constructor(readonly caseId: string) {
+  constructor(caseId: string) {
+    this.caseId = caseId;
     this.dep = deployment(ids.clientA, [caseId]);
     for (const name of ['0001_native_candidate_import.sql', '0002_native_import_staging.sql']) this.dep.db.sqlite.exec(MIGRATION(name));
   }
@@ -97,7 +99,9 @@ export class Durable {
 
 class ChaosR2 implements CloudR2 {
   private puts = 0;
-  constructor(private readonly d: Durable, private readonly kill: KillAt | null) {}
+  private readonly d: Durable;
+  private readonly kill: KillAt | null;
+  constructor(d: Durable, kill: KillAt | null) { this.d = d; this.kill = kill; }
   head(key: string): Promise<CloudR2Head | null> { this.d.counts.heads++; return this.d.bucket.head(key); }
   async get(key: string): Promise<CloudR2Body | null> {
     this.d.counts.gets++;
@@ -122,7 +126,10 @@ class ChaosD1 implements NativeD1, CloudD1 {
   private batches = 0;
   private interleaved = false;
   private readonly sql = new WeakMap<object, string>();
-  constructor(private readonly d: Durable, private readonly kill: KillAt | null, private readonly interleave: (() => Promise<void>) | null) {}
+  private readonly d: Durable;
+  private readonly kill: KillAt | null;
+  private readonly interleave: (() => Promise<void>) | null;
+  constructor(d: Durable, kill: KillAt | null, interleave: (() => Promise<void>) | null) { this.d = d; this.kill = kill; this.interleave = interleave; }
   prepare(sql: string) {
     // bind() makes a new statement, so every statement that reaches batch() is tagged with its SQL. A D1 call is an execution or one batch.
     const tag = (s: CloudD1Statement): CloudD1Statement => {

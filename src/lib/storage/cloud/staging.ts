@@ -46,7 +46,7 @@ export interface ResultsStaging { stage(a: StageInput): Promise<StageOutcome> }
 
 const unavailable = (): never => { throw contractError('storage-unavailable', true); };
 const refused = (reason: StageRefusal, detail: readonly string[] = []): StageOutcome => ({ kind: 'refused', reason, detail });
-const OPAQUE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+export const OPAQUE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 type Version = { case_id: string; state: 'staging' | 'stored'; attempt: number; manifest_sha256: string };
 
 /** The condition that a version row is still the staging attempt this writer began: every row batch of that attempt starts with it. */

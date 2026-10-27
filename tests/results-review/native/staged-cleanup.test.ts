@@ -141,8 +141,10 @@ describe('after the session time to live', () => {
     now = T0 + 5 * DAY;
     const young = await start({ now: () => new Date(now) });
     await upload(young, OP_B, other, null, REVISION_B);
-    const keysB = stagedKeys(durable).filter((k) => !keysA.includes(k));
-    expect(keysB.length).toBeGreaterThan(3);
+    // Everything B needs, including what it shares with A by content.
+    const keysB = [...new Set([...other.files.values()].map((b) => `native-import/client-a/case-a/${sha256Hex(b)}`))].sort();
+    expect(keysB.every((k) => stagedKeys(durable).includes(k))).toBe(true);
+    expect(keysB.length).toBeGreaterThan(0);
 
     // Eight days after A was opened and three after B: only A is past a seven-day life.
     now = T0 + 8 * DAY;
@@ -157,7 +159,7 @@ describe('after the session time to live', () => {
     }
     expect(Math.max(...swept)).toBeLessThanOrEqual(3);
     expect(swept.length).toBeGreaterThan(2);
-    expect(stagedKeys(durable)).toEqual(keysB.sort());
+    expect(stagedKeys(durable)).toEqual(keysB);
     // A is gone and says so; it cannot be continued. B is unaffected.
     expect(await later.service.staged!.put(later.token, { operationId: OP_A, files: new Map([['assets.json', fx.files.get('assets.json')!]]) })).toMatchObject({ kind: 'refused', code: 'session-expired' });
     expect(await later.service.staged!.complete(later.token, { operationId: OP_A })).toMatchObject({ kind: 'refused', code: 'session-expired' });

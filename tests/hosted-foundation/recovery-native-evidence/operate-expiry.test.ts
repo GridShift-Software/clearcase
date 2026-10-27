@@ -13,7 +13,7 @@ it('refuses corrupt expiry shapes even when SQLite parses them as future dates',
       w.db.exec("UPDATE tenant_case_grants SET expires_at = ? WHERE grant_id = 'operator'", expiry);
       await expect(observation.observe(subject)).resolves.toBeUndefined();
     }
-    for (const expiry of ['2480000.5', '2099-01-01 00:00:00', '2099-01-01T00:00:00Z', '2099-01-01T00:00:00.000+00:00', 'not-a-date', '2020-01-01T00:00:00.000Z']) {
+    for (const expiry of ['2480000.5', '2099-01-01 00:00:00', '2099-01-01T00:00:00Z', '2099-01-01T00:00:00.000+00:00', 'not-a-date', '2099-01-01T24:00:00.000Z', '2099-01-01T24:00:00.001Z', '2020-01-01T00:00:00.000Z']) {
       w.db.exec("UPDATE tenant_case_grants SET expires_at = ? WHERE grant_id = 'operator'", expiry);
       await expect(observation.observe(subject), expiry).rejects.toMatchObject({ code: 'forbidden' });
     }

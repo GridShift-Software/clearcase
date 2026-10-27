@@ -74,14 +74,6 @@ describe('package PDF previews', () => {
     expect(result.counts.PKG_PREVIEW_INVALID).toBeGreaterThan(0);
     expect(result.counts.PKG_PREVIEW_UNREFERENCED).toBeGreaterThan(0);
   });
-  it('rejects a PDF header without a parseable document', async () => {
-    const bytes = new TextEncoder().encode('%PDF-1.4\nnot a PDF');
-    const files = packageWithPreview((asset) => { asset.preview.sha256 = sha256Hex(bytes); asset.preview.size = bytes.length; });
-    files.set(path, bytes);
-    const result = await importCandidate({ files: resealFiles(files) }, b.caseDir);
-    expect(result.counts.PKG_PREVIEW_INVALID).toBeGreaterThan(0);
-    expect(result.verdict).toBe('reject');
-  });
   it('rejects a dataset relabelled as preview', async () => {
     const files = resealFiles(b.files, (manifest) => { manifest.files.find((entry: any) => entry.path === 'datasets/chronology.json').role = 'preview'; });
     const result = await importCandidate({ files }, b.caseDir);

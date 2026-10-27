@@ -62,6 +62,15 @@ describe('leases', () => {
     const run2 = run.db.prepare('SELECT lease_token FROM pub_evidence_run').get() as { lease_token: string };
     expect(run2.lease_token).toBe('second');
   });
+  it('a takeover that has claimed but not yet committed still locks out the previous holder, though the cursor has not moved', async () => {
+    const run = setup();
+    const slow = producer();
+    let taken = false;
+    const first = run.engine('first', { producer: async cursor => { if (cursor === '5' && !taken) { taken = true; run.advance(101); expect((await run.store.claim(binding, 'second', run.now(), run.now() + 100)).kind).toBe('claimed'); } return slow(cursor); } });
+    expect((await first.step()).kind).toBe('leased');
+    expect(count(run.db)).toBe(0);
+    expect((await run.engine('second').step()).kind).toBe('progress');
+  });
   it('two builders sharing one lease id cannot both commit the same range', async () => {
     const run = setup();
     const slow = producer();
@@ -78,7 +87,8 @@ describe('leases', () => {
     await run.engine('holder').step();
     const claim = await run.store.claim(binding, 'intruder', run.now(), run.now() + 100);
     expect(claim.kind).toBe('leased');
-    const forged = await run.store.commit(binding, 'intruder', { cursor: '0' }, { items: [{ key: 'zzzz', json: '{}' }], page: null, nextCursor: 'x', leaseUntilMs: run.now() + 100 });
+    const { cursor } = run.db.prepare('SELECT cursor FROM pub_evidence_run').get() as { cursor: string };
+    const forged = await run.store.commit(binding, 'intruder', { cursor }, { items: [{ key: 'zzzz', json: '{}' }], page: null, nextCursor: 'x', leaseUntilMs: run.now() + 100 });
     expect(forged).toBe(false);
     expect(count(run.db)).toBe(20);
   });

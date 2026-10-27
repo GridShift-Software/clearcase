@@ -30,8 +30,11 @@ export function d1(db: DatabaseSync, hook: { before?: () => void; after?: () => 
   return { withSession: (_: 'first-primary') => ({ prepare, async batch(statements: ReturnType<typeof prepare>[]) {
     hook.before?.();
     db.exec('BEGIN');
-    try { const results = []; for (const statement of statements) results.push(await statement.run()); db.exec('COMMIT'); hook.after?.(); return results; }
+    let results;
+    try { results = []; for (const statement of statements) results.push(await statement.run()); db.exec('COMMIT'); }
     catch (error) { db.exec('ROLLBACK'); throw error; }
+    hook.after?.();
+    return results;
   } }) };
 }
 export const binding: EvidenceBinding = { candidateId: 'candidate', generation: 'generation', clientId: 'client', caseId: 'case', resultsVersion: 'version', manifestSha256: 'a'.repeat(64), validatorVersion: 'validator', rendererVersion: 'renderer' };

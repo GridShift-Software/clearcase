@@ -26,3 +26,9 @@ it('bounds controls and wraps long content, including the mobile chronology', ()
   expect(preview).toMatch(/td\s*\{[^}]*display:\s*block/);
   expect(viewer).toMatch(/overflow-x:\s*auto/);
 });
+
+it('wraps a long unbroken note body and its target line, so a note never widens the page', () => {
+  const note = readFileSync('src/lib/views/hosted/NoteText.svelte', 'utf8');
+  expect(note).toMatch(/\.note-body\s*\{[^}]*overflow-wrap:\s*anywhere/);
+  expect(note).toMatch(/\.note-meta\s*\{[^}]*overflow-wrap:\s*anywhere/);
+});

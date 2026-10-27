@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { assembleNativeSchema, NATIVE_SCHEMA_INPUTS } from '../../../../../deploy/native-alpha/schema.ts';
-import { assembleNativeRuntimeMigration, NATIVE_RUNTIME_MIGRATION_INPUTS, assembleNativeRenderCaseLimitMigration, NATIVE_RENDER_CASE_LIMIT_MIGRATION_INPUTS, assembleNativeEvidenceMigration, NATIVE_EVIDENCE_MIGRATION_INPUTS } from '../../../../../deploy/native-alpha/runtime-migration.ts';
-import { createEvidenceEngine, d1EvidenceStore } from './index.ts';
+import { assembleNativeSchema, NATIVE_SCHEMA_INPUTS } from '../../../deploy/native-alpha/schema.ts';
+import { assembleNativeRuntimeMigration, NATIVE_RUNTIME_MIGRATION_INPUTS, assembleNativeRenderCaseLimitMigration, NATIVE_RENDER_CASE_LIMIT_MIGRATION_INPUTS, assembleNativeEvidenceMigration, NATIVE_EVIDENCE_MIGRATION_INPUTS } from '../../../deploy/native-alpha/runtime-migration.ts';
+import { createEvidenceEngine, d1EvidenceStore } from '../../../src/lib/publication/hosted/evidence/index.ts';
 
 const sources = (pins: readonly { path: string }[]) => pins.map(p => ({ path: p.path, bytes: readFileSync(p.path) }));
 function database() {

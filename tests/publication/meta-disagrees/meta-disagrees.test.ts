@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createEvidenceEngine, d1EvidenceStore, type EvidenceBinding, type EvidenceProducer } from '../../../src/lib/publication/hosted/evidence/index.ts';
 import { d1EvidenceReader } from '../../../src/lib/publication/hosted/readiness-evidence.ts';
 import { checkEvidenceItem, checkSnapshotV2, metaDisagreementsOf, signoffBlockerV2, type AcknowledgementGroup, type CheckedEvidenceItem } from '../../../src/lib/publication/hosted/rules.ts';
-import type { CandidateSnapshotV2 } from '../../../src/lib/publication/hosted/ports.ts';
+import type { CandidateSnapshotV2, EvidenceItemRow } from '../../../src/lib/publication/hosted/ports.ts';
 import { META_DISAGREEMENT_CODE, metaEvidenceItems, metaReconciles, metaSectionV2, type MetaBinding, type MetaSectionV2 } from '../../../src/lib/case-package/meta-integrity.ts';
 import { d1, database } from '../evidence/harness.ts';
 import { CASE, CLIENT, RV, SHA, snapshot } from '../../hosted-smoke/operator-workbench/fixtures.ts';
@@ -47,7 +47,7 @@ async function roundTrip(section: MetaSectionV2, o: { itemsPerStep?: number } = 
   const snap = checkSnapshotV2(s)!;
   const checked: CheckedEvidenceItem[] = [];
   for (let after: string | null = null; ;) {
-    const page = (await reader.page({ ...where, root: summary.root, after, kind: 'warning', limit: 3 }))!;
+    const page: readonly EvidenceItemRow[] = (await reader.page({ ...where, root: summary.root, after, kind: 'warning', limit: 3 }))!;
     for (const row of page) checked.push(checkEvidenceItem(row, { clientId: CLIENT, caseId: CASE, resultsVersion: RV, manifestSha256: evidenceBinding.manifestSha256 })!);
     if (page.length < 3) break;
     after = page.at(-1)!.key;

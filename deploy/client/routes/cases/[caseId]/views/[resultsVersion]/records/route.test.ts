@@ -125,14 +125,26 @@ describe('records route', () => {
     }
   });
   it('serves the exact records render checked under the shared publication context', async () => {
-    const manifest = JSON.parse(new TextDecoder().decode(files.get('manifest.json')!));
-    const entry = manifest.files.find((f: { key?: string }) => f.key === 'matter');
-    const dataset = verifyDatasetBytes(entry, files.get(entry.path)!);
-    const ctx = recordsContext(CASE, new Map([['DOC-001', 'DOC-001'], ['DOC-002', 'DOC-002']]));
-    const rendered = renderRecords(dataset, ctx);
-    const result = await request(setup(), 'matter');
-    expect(result).toHaveProperty('value');
-    if ('value' in result) expect(recordsSectionState(dataset, { ...rendered, html: result.value.html }, ctx)).toBe('records-rendered');
+    const manifestBytes = files.get('manifest.json')!, matterBytes = files.get('datasets/matter.json')!;
+    try {
+      const manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
+      const matter = JSON.parse(new TextDecoder().decode(matterBytes));
+      matter.data.title = 'Evidence [[DOC-001#p2]]';
+      const bytes = new TextEncoder().encode(JSON.stringify(matter));
+      const entry = manifest.files.find((f: { key?: string }) => f.key === 'matter');
+      entry.sha256 = sha256Hex(bytes); entry.size = bytes.length;
+      files.set('manifest.json', new TextEncoder().encode(JSON.stringify(manifest)));
+      files.set(entry.path, bytes);
+      const dataset = verifyDatasetBytes(entry, bytes);
+      const ctx = recordsContext(CASE, new Map([['DOC-001', 'DOC-001'], ['DOC-002', 'DOC-002']]));
+      const rendered = renderRecords(dataset, ctx);
+      const result = await request(setup(), 'matter');
+      expect(result).toHaveProperty('value');
+      if ('value' in result) {
+        expect(result.value.html).toContain(`/originals/DOC-001/view?page=2`);
+        expect(recordsSectionState(dataset, { ...rendered, html: result.value.html }, ctx)).toBe('records-rendered');
+      }
+    } finally { files.set('manifest.json', manifestBytes); files.set('datasets/matter.json', matterBytes); }
   });
   it('refuses a candidate and another case before loading data', async () => {
     const f = setup();

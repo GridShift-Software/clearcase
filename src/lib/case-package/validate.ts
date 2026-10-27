@@ -392,7 +392,8 @@ export function markdownLinkTargets(s: string): string[] {
 const unescapeDest = (d: string): string => decodeEntities(d.replace(/\\([!-\/:-@\[-`{-~])/g, '$1'));
 
 const arrayIds = new WeakMap<unknown[], string[]>();
-function elementIds(arr: unknown[], idField: string | null): string[] {
+/** The stable id of each array element in diagnostic fingerprints: `<idField>:<value>` when the element names itself, else `#` plus the short hash of its text (`~n` for repeats). */
+export function elementIds(arr: unknown[], idField: string | null): string[] {
   let ids = arrayIds.get(arr);
   if (!ids) {
     const seen = new Map<string, number>();

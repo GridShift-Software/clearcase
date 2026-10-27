@@ -105,10 +105,10 @@ export function d1StagingLedger(db: NativeD1, o: { rowsPerBatch: number }): Stag
     async beginWrite(a) {
       const writerId = crypto.randomUUID();
       const { results } = await db.prepare(`INSERT INTO native_import_stage_fact (client_id, case_id, operation_id, epoch, pass, key, value)
-        SELECT s.client_id, s.case_id, s.operation_id, 0, 'writer-start', ?, '{}' FROM native_import_session s
+        SELECT s.client_id, s.case_id, s.operation_id, 0, 'writer-start', ?, json_object('at', ?) FROM native_import_session s
         WHERE s.client_id = ? AND s.case_id = ? AND s.operation_id = ?
           AND NOT EXISTS (SELECT 1 FROM native_import_cleanup c WHERE ${of('c')})${a.guard ? ` AND ${a.guard.sql}` : ''} RETURNING key`)
-        .bind(writerId, a.clientId, a.caseId, a.operationId, ...(a.guard?.values ?? [])).all<{ key: string }>().catch(unavailable);
+        .bind(writerId, a.at, a.clientId, a.caseId, a.operationId, ...(a.guard?.values ?? [])).all<{ key: string }>().catch(unavailable);
       return results.length === 1 ? writerId : null;
     },
 
@@ -118,6 +118,18 @@ export function d1StagingLedger(db: NativeD1, o: { rowsPerBatch: number }): Stag
         WHERE w.client_id = ? AND w.case_id = ? AND w.operation_id = ? AND w.epoch = 0 AND w.pass = 'writer-start' AND w.key = ?
           AND NOT EXISTS (SELECT 1 FROM native_import_stage_fact e WHERE e.client_id = w.client_id AND e.case_id = w.case_id AND e.operation_id = w.operation_id AND e.epoch = 0 AND e.pass = 'writer-end' AND e.key = w.key)`)
         .bind(a.clientId, a.caseId, a.operationId, a.writerId).run().catch(unavailable);
+    },
+
+    async recoverWriters(a) {
+      // The sweep's listing cannot move while a writer is open, so `after_key = ''` is the proof that nothing was deleted behind a late write.
+      // A start without a time (`json_extract` is null) is never matched.
+      const { results } = await db.prepare(`INSERT INTO native_import_stage_fact (client_id, case_id, operation_id, epoch, pass, key, value)
+        SELECT w.client_id, w.case_id, w.operation_id, 0, 'writer-end', w.key, '{"recovered":true}' FROM native_import_stage_fact w
+        WHERE w.client_id = ? AND w.case_id = ? AND w.operation_id = ? AND w.epoch = 0 AND w.pass = 'writer-start' AND json_extract(w.value, '$.at') < ?
+          AND EXISTS (SELECT 1 FROM native_import_cleanup c WHERE c.client_id = w.client_id AND c.case_id = w.case_id AND c.operation_id = w.operation_id AND c.state = 'sweeping' AND c.after_key = '')
+          AND NOT EXISTS (SELECT 1 FROM native_import_stage_fact e WHERE e.client_id = w.client_id AND e.case_id = w.case_id AND e.operation_id = w.operation_id AND e.epoch = 0 AND e.pass = 'writer-end' AND e.key = w.key)
+        RETURNING key`).bind(a.clientId, a.caseId, a.operationId, a.startedBefore).all<{ key: string }>().catch(unavailable);
+      return results.length;
     },
 
     async writing(a) {

@@ -35,6 +35,8 @@ export type StagedCompleteOutcome = ImportOutcome | StagedRefused | StagingStatu
  */
 export type SweepOutcome = { kind: 'swept'; operationId: string | null; deleted: number; remaining: number; state: 'sweeping' | 'done' } | StagedRefused;
 
+const SETTLE_BACKOFF_MS = [50, 100] as const;
+
 /** The chunked import. Authority is the same admitted operator the one-request import takes; every write is fenced as there. */
 export interface StagedImport {
   readonly bounds: StagedBounds;
@@ -199,6 +201,22 @@ export function createStagedImport(d: StagedDeps): StagedImport {
   const unwrite = async (a: AdmittedOperator, operationId: string, sha256s: readonly string[]) => {
     for (const sha256 of new Set(sha256s)) await store.delete({ ...scope(a), operationId, sha256 }).catch(() => undefined);
   };
+  /**
+   * Runs the R2 puts of one reservation, then settles it. The settlement is idempotent, so a failed write is retried a few times with a short
+   * backoff (about 150 ms in all). If the puts failed, their error is the one thrown, whatever happens to the settlement; if only the
+   * settlement keeps failing the request fails with that error. Either way an unsettled reservation stays held for staff to recover.
+   */
+  const writing = async (key: Scoped & { operationId: string }, writerId: string, puts: () => Promise<void>) => {
+    let failure: { error: unknown } | null = null;
+    try { await puts(); } catch (error) { failure = { error }; }
+    let last: unknown = null;
+    for (let attempt = 0; attempt < SETTLE_BACKOFF_MS.length + 1; attempt++) {
+      if (attempt > 0) await new Promise<void>((resolve) => setTimeout(resolve, SETTLE_BACKOFF_MS[attempt - 1]));
+      try { await ledger.endWrite({ ...key, writerId }); last = null; break; } catch (error) { last = { error }; }
+    }
+    if (failure) throw failure.error;
+    if (last) throw (last as { error: unknown }).error;
+  };
   const swept = (a: AdmittedOperator) => d.answer(a, refuse('session-expired', 'the staged files of this import were deleted'));
 
   return {
@@ -226,10 +244,9 @@ export function createStagedImport(d: StagedDeps): StagedImport {
       const key = { ...scope(a), operationId: r.operationId };
       if (await ledger.cleanup(key)) return swept(a);
       await d.observe(a);
-      const writerId = await d.fenced(a, async () => ledger.beginWrite({ ...key, guard: await d.fence(a) }));
+      const writerId = await d.fenced(a, async () => ledger.beginWrite({ ...key, at: d.now().toISOString(), guard: await d.fence(a) }));
       if (!writerId) return swept(a);
-      try { await store.put({ ...key, sha256: m.manifestSha256, bytes: r.manifest }); }
-      finally { await ledger.endWrite({ ...key, writerId }); }
+      await writing(key, writerId, async () => { await store.put({ ...key, sha256: m.manifestSha256, bytes: r.manifest }); });
       // A sweep that began while the manifest was written may have listed past it.
       if (await ledger.cleanup(key)) { await unwrite(a, r.operationId, [m.manifestSha256]); return swept(a); }
       return d.answer(a, await progress(a, opened.session, m, opened.kind === 'repeated', null));
@@ -265,12 +282,11 @@ export function createStagedImport(d: StagedDeps): StagedImport {
       if (fresh.length > 0) {
         await d.observe(a);
         const key = { ...scope(a), operationId: r.operationId };
-        const writerId = await d.fenced(a, async () => ledger.beginWrite({ ...key, guard: await d.fence(a) }));
+        const writerId = await d.fenced(a, async () => ledger.beginWrite({ ...key, at: d.now().toISOString(), guard: await d.fence(a) }));
         if (!writerId) return swept(a);
         // One reservation covers this sequential batch. Release only after every started R2 put has settled, on success OR failure.
         // If the isolate is killed before settlement is recorded, the durable reservation keeps capacity held rather than guessing.
-        try { for (const f of fresh) await store.put({ ...key, sha256: f.sha256, bytes: f.data }); }
-        finally { await ledger.endWrite({ ...key, writerId }); }
+        await writing(key, writerId, async () => { for (const f of fresh) await store.put({ ...key, sha256: f.sha256, bytes: f.data }); });
         const guard = await d.fence(a);
         const accepted = await d.fenced(a, () => ledger.accept({ ...scope(a), operationId: r.operationId, rows: fresh.map(({ path, sha256, size, data }) => ({ path, sha256, size, pdf: isPdf(data) })), at: d.now().toISOString(), guard }));
         // A sweep began after the check above: nothing more is accepted, and what this batch wrote is removed again.

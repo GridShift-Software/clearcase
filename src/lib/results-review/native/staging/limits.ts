@@ -9,6 +9,11 @@ export const STAGED_BATCH_BYTES = 12 * MiB;
 export const STAGED_MISSING_LISTED = 512;
 /** How long a session lives without a candidate before its staged objects may be swept: seven days. */
 export const STAGED_SESSION_TTL_MS = 7 * 24 * 3600 * 1000;
+/**
+ * How long an unsettled writer reservation must have been open before staff may settle it by hand: one hour. A batch is at most 12 MiB and
+ * 32 files, so a live request settles in seconds to minutes; this is well past any single request's lifetime.
+ */
+export const WRITER_RECOVERY_GRACE_MS = 3600 * 1000;
 /** Staged objects one sweep step deletes. */
 export const STAGED_SWEEP_OBJECTS = 100;
 /** Staged bytes one client's sessions not yet swept may hold together: four GiB. A session's share is its listed files and its manifest. */

@@ -31,11 +31,17 @@ export interface StagingLedger {
   accept(a: Scoped & { operationId: string; rows: readonly StagedRow[]; at: string; guard?: SqlCondition }): Promise<'accepted' | 'swept'>;
   totals(a: Scoped & { operationId: string }): Promise<{ files: number; bytes: number }>;
 
-  /** Durable per-batch writer reservation, atomically refused once the cleanup tombstone exists. Never expires on a clock. */
-  beginWrite(a: Scoped & { operationId: string; guard?: SqlCondition }): Promise<string | null>;
+  /** Durable per-batch writer reservation, atomically refused once the cleanup tombstone exists. Never expires on a clock; it records when it began (`at`) for staff. */
+  beginWrite(a: Scoped & { operationId: string; at: string; guard?: SqlCondition }): Promise<string | null>;
   /** Call only after every R2 put of this reservation has settled. A dead writer keeps its reservation (fail closed). */
   endWrite(a: Scoped & { operationId: string; writerId: string }): Promise<void>;
   writing(a: Scoped & { operationId: string }): Promise<boolean>;
+  /**
+   * Staff recovery of reservations whose settlement was never recorded: inserts the matching `writer-end` for every writer that began before
+   * `startedBefore`, only while the operation's sweep is under way and its listing has not moved. Answers how many it settled. Pass a time at
+   * least `WRITER_RECOVERY_GRACE_MS` ago. Not reachable over HTTP.
+   */
+  recoverWriters(a: Scoped & { operationId: string; startedBefore: string }): Promise<number>;
 
   /** The sweep record of an operation, or null when none was started. */
   cleanup(a: Scoped & { operationId: string }): Promise<CleanupRow | null>;

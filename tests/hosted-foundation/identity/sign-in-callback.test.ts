@@ -274,6 +274,39 @@ describe('a callback that cleared other tabs\' attempts leaves no false singleto
 		expect(await land(kind, ORIGIN_A, jar), 'tab B, still inside its own lifetime').toEqual({ location: HOME });
 		expect(attemptsOf(kind, jar)).toEqual([]);
 	});
+	it.each(KINDS)('%s: a late response cannot shorten the marker below an attempt issued by a clock up to 60 s ahead (M5a)', async (kind) => {
+		const jar: Jar = new Map(), tick = ticking();
+		await post(kind, ORIGIN_A, target('A'), jar);
+		tick();
+		await post(kind, ORIGIN_A, target('C'), jar);
+		const slowA = new Map(jar);
+		expect(await land(kind, ORIGIN_A, slowA), 'tab A at 09:00:01, its response held back').toEqual({ location: HOME });
+		vi.setSystemTime(new Date('2026-10-27T09:06:01Z')); // B is signed by a server clock 60 seconds ahead
+		await post(kind, ORIGIN_A, target('B'), jar);
+		vi.setSystemTime(new Date('2026-10-27T09:05:01Z'));
+		expect(await land(kind, ORIGIN_A, jar), 'tab C clears A, C and B').toEqual({ location: HOME });
+		for (const [name, value] of markersOf(slowA)) jar.set(name, value); // A's response arrives 300 seconds late, last
+		vi.setSystemTime(new Date('2026-10-27T09:20:02Z'));
+		await post(kind, ORIGIN_A, target('E'), jar);
+		expect(await land(kind, ORIGIN_A, jar), 'tab B, still inside its own lifetime').toEqual({ location: HOME });
+	});
+	it.each(KINDS)('%s: a late response from a callback that saw the marker expired cannot erase a newer marker (M5b)', async (kind) => {
+		const { jar } = await clearedTwo(kind);
+		const [[name, value]] = markersOf(jar) as [[string, string]];
+		const lapsed = (Number(value.split('.')[0]) + 1) * 1000;
+		vi.setSystemTime(lapsed);
+		await post(kind, ORIGIN_A, target('D'), jar);
+		const slowD = new Map(jar);
+		expect(await land(kind, ORIGIN_A, slowD), 'tab D after the marker lapsed, its response held back').toEqual({ location: target('D') });
+		vi.setSystemTime(lapsed + 1000);
+		await post(kind, ORIGIN_A, target('B'), jar);
+		await post(kind, ORIGIN_A, target('F'), jar);
+		expect(await land(kind, ORIGIN_A, jar), 'tab B clears D, B and F').toEqual({ location: HOME });
+		if (!slowD.has(name)) jar.delete(name); // D's response arrives last: whatever it did to the marker happens now
+		vi.setSystemTime(lapsed + 2000);
+		await post(kind, ORIGIN_A, target('E'), jar);
+		expect(await land(kind, ORIGIN_A, jar), 'tab F, still inside its own lifetime').toEqual({ location: HOME });
+	});
 	it.each(KINDS)('%s: the marker lasts the attempt lifetime plus its delivery slack after the clear, then a single attempt routes normally', async (kind) => {
 		const { jar } = await clearedTwo(kind);
 		const still = new Map(jar);

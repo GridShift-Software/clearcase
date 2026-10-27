@@ -30,6 +30,7 @@ import { MAX_SESSION_LIFETIME_MS } from '../../../src/lib/auth/clerk/flow.ts';
 import { clerkBrowserHandshakeFromEnv } from '../../../src/lib/auth/clerk/browser.ts';
 import { presentedToken } from '../../../src/lib/auth/clerk/session.ts';
 import { handle } from '../../../src/lib/server/runtime/hosted/hooks.server.ts';
+// @ts-expect-error jsdom ships no types and the root pins no @types/jsdom; BrowserJar below types the part used here.
 import { CookieJar } from 'jsdom';
 import { craftedInstance } from './synthetic.ts';
 
@@ -304,8 +305,13 @@ describe('the credential a refresh is answered for (review H1)', () => {
 // A browser's cookie jar on the (faked) clock: tough-cookie's RFC 6265 store (jsdom's CookieJar), so a cookie is one
 // name, domain and path, Max-Age and Expires end it, a `__Host-` cookie without Secure, with a Domain or off Path=/ is
 // refused, and a request carries every cookie whose domain and path match it (review L1, session-renewal-live-2).
+interface BrowserJar {
+	setCookieSync(directive: string, url: string, options: { ignoreError: boolean }): unknown;
+	getCookiesSync(url: string): Array<{ key: string }>;
+	getCookieStringSync(url: string): string;
+}
 function browser() {
-	const j = new CookieJar(undefined, { looseMode: false });
+	const j: BrowserJar = new CookieJar(undefined, { looseMode: false });
 	const set = (directive: string, from = `${ORIGIN}/`) => void j.setCookieSync(directive, from, { ignoreError: true });
 	return {
 		take(r: Response, from = `${ORIGIN}/`) {

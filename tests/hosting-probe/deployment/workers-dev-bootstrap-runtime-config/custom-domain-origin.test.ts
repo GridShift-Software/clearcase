@@ -3,7 +3,7 @@ import { APPROVED_NATIVE_SCOPE } from '../../../../deploy/native-alpha/controls.
 import { bootstrapHostname, planWorkersDevBootstrap, type BootstrapSettings } from '../../../../deploy/native-alpha/workers-dev-bootstrap.ts';
 import { exampleInput } from '../../../hosted-foundation/native-runtime-config/example-input.ts';
 
-// Synthetic inputs only. The two origins are the pinned sets: workers.dev (the fallback) and the custom domain (the zone's single labels).
+// Synthetic inputs only. The two origins are the pinned sets: workers.dev (the rollback) and the custom domain (the zone's single labels).
 // Not provider, DNS, login or deployment evidence.
 const ZONE = { id: '1c82369e826ebe0afded65c295198fcd', name: 'clearcase.co.za' };
 const SLOTS = ['client-a', 'client-b'] as const;
@@ -48,10 +48,25 @@ describe('the custom-domain origin is the one pinned set of this zone and these 
 			const c = config(plan, slot);
 			expect(c.vars.CLEARCASE_APP_ORIGIN).toBe(`https://${CUSTOM[slot]}`);
 			expect(JSON.parse(c.vars.CLEARCASE_NATIVE_CONFIG).deployment.hostname).toBe(CUSTOM[slot]);
-			// The domain is bound by the reviewed PUT, never by a route in the Worker config; workers.dev stays on as the static fallback.
+			// The domain is bound by the reviewed PUT, never by a route in the Worker config. workers.dev and preview URLs do not serve at all:
+			// the runtime pins one origin, and a second one would only be somewhere to replay a session.
 			expect(c.routes).toEqual([]);
-			expect(c.workers_dev).toBe(true);
+			expect(c.workers_dev).toBe(false);
+			expect(c.preview_urls).toBe(false);
 		}
+	});
+	it('turns workers.dev and previews off for a client only under the custom-domain origin; the rollback redeploy with workers-dev turns workers.dev back on', () => {
+		const custom = planWorkersDevBootstrap(settings(input(CUSTOM), 'custom-domain'));
+		const rollback = planWorkersDevBootstrap(settings(input(DEV), 'workers-dev'));
+		const absent = planWorkersDevBootstrap(settings(input(DEV)));
+		for (const slot of SLOTS) {
+			expect([config(custom, slot).workers_dev, config(custom, slot).preview_urls]).toEqual([false, false]);
+			for (const plan of [rollback, absent]) expect([config(plan, slot).workers_dev, config(plan, slot).preview_urls]).toEqual([true, false]);
+		}
+	});
+	it('leaves the unconfigured staff shell as it was: it has no custom domain, so it keeps its workers.dev URL', () => {
+		const custom = planWorkersDevBootstrap(settings(input(CUSTOM), 'custom-domain'));
+		expect([config(custom, 'staff').workers_dev, config(custom, 'staff').preview_urls]).toEqual([true, false]);
 	});
 	it("binds each client's host only to its own Worker: no config names the other client's host or Worker", () => {
 		const plan = planWorkersDevBootstrap(settings(input(CUSTOM), 'custom-domain'));
@@ -120,6 +135,9 @@ describe('the origin switch', () => {
 	it('changes nothing in the shell-only output: no runtime configuration, no hostname, only the recorded origin', () => {
 		const { browserClients: _browsers, runtimeConfig: _runtime, ...base } = settings(undefined);
 		const shell = (origin?: BootstrapSettings['origin']) => planWorkersDevBootstrap({ ...base, ...(origin ? { origin } : {}) });
-		expect(shell().targets.map((t) => t.configText)).toEqual(shell('custom-domain').targets.map((t) => t.configText));
+		// Only the two client Workers' reachability differs; the staff shell and every other key are the same.
+		const differing = (slot: string, plan: ReturnType<typeof shell>) => { const { workers_dev: _w, ...rest } = config(plan, slot); return rest; };
+		for (const slot of ['client-a', 'client-b', 'staff']) expect(differing(slot, shell())).toEqual(differing(slot, shell('custom-domain')));
+		expect(config(shell('custom-domain'), 'staff')).toEqual(config(shell(), 'staff'));
 	});
 });

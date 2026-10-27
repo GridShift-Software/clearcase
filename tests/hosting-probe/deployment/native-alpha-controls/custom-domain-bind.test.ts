@@ -137,4 +137,18 @@ describe('the rollback detaches only the two reviewed bindings', () => {
 		['an id that is not 32 hex', [row('a', { id: '../../zones' })]],
 		['a malformed row', ['x']],
 	])('refuses %s, so nothing is detached', (_label, list) => expect(() => planCustomDomainUnbind(list)).toThrow(/custom-domain unbind refused/));
+	it.each([
+		['staging', 'staging'],
+		['an empty name', ''],
+		['a look-alike name', 'Production'],
+	])('refuses the whole rollback when an approved host has drifted to the environment %s, as the bind verification does', (_label, environment) => {
+		for (const drifted of ['a', 'b'] as const) {
+			const list = [row('a'), row('b')].map((r) => (r.hostname === HOST[drifted] ? { ...r, environment } : r));
+			expect(customDomainBindProblems(list).join('\n')).toMatch(/not production/);
+			expect(() => planCustomDomainUnbind(list)).toThrow(/custom-domain unbind refused: .*not exactly one production binding of/);
+		}
+	});
+	it('refuses a single drifted binding even when the other host is not bound at all', () => {
+		expect(() => planCustomDomainUnbind([row('b', { environment: 'staging' })])).toThrow(/custom-domain unbind refused/);
+	});
 });

@@ -38,7 +38,7 @@ describe('source records', () => {
       const dataset = verifyDatasetBytes(entry, await readFile(path.join(pkg, entry.path)));
       const rendered = renderRecords(dataset, context);
       expect(rendered.html).toContain('Source records');
-      expect(recordsSectionState(dataset, rendered), entry.key).toBe('records-rendered');
+      expect(recordsSectionState(dataset, rendered, context), entry.key).toBe('records-rendered');
       const expectedLeaves = [...new Set(leaves(KNOWN_SCHEMAS.get(dataset.schemaId)!.data as Shape))].map(sha256Hex);
       expect(rendered.markers.leaves).toEqual(expectedLeaves);
       if (Array.isArray(dataset.value.data)) {
@@ -53,9 +53,9 @@ describe('source records', () => {
       for (const marker of rendered.markers.records) expect(rendered.html).toContain(`data-record="${marker}"`);
       for (const marker of expectedLeaves) expect(rendered.html).toContain(`data-leaf="${marker}"`);
       if (rendered.markers.records.length) {
-        expect(recordsSectionState(dataset, { ...rendered, markers: { ...rendered.markers, records: rendered.markers.records.slice(1) } })).toBe('invalid');
+        expect(recordsSectionState(dataset, { ...rendered, markers: { ...rendered.markers, records: rendered.markers.records.slice(1) } }, context)).toBe('invalid');
         const marker = rendered.markers.records[0]!;
-        expect(recordsSectionState(dataset, { ...rendered, html: rendered.html.replace(`data-record="${marker}"`, '') })).toBe('invalid');
+        expect(recordsSectionState(dataset, { ...rendered, html: rendered.html.replace(`data-record="${marker}"`, '') }, context)).toBe('invalid');
         mutated = true;
       }
     }

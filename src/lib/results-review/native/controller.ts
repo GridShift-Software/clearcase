@@ -51,6 +51,9 @@ const STAGED_REFUSAL: Record<StagedRefusalCode, [number, string]> = {
   'over-budget': [413, 'This is more work than one request on this deployment may do.'],
   'submission-not-found': [404, 'No such finalized submission in this case.'],
   'submission-not-finalized': [409, 'The submission is not finalized.'],
+  'session-expired': [410, 'The staged files of this import were deleted.'],
+  'not-finished': [409, 'The import has no candidate yet and is still inside its time to live.'],
+  'busy': [409, 'Another request is running a step of this import. Try again shortly.'],
 };
 
 function authorityRefusal(e: unknown, access: 'read' | 'write'): never {
@@ -168,8 +171,25 @@ export function createNativeImportController(service: NativeResultsImport | null
       const operationId = operationParam(r);
       await body(r, a.service, '');
       const out = await svc.complete(a.who, { operationId });
+      // Still staging: the work is half done and durable; call complete again. Every other answer is final.
+      if (out.kind === 'staging') return json(202, out);
       // A refusal only the staged steps raise has its own table; the rest are the one-request import's and answer as it does.
       return out.kind === 'refused' && !(out.code in REFUSAL) ? stagedResult(out as never) : result(out as never);
+    }),
+
+    /** POST .../imports/staged/[operationId]/sweep: one bounded step of deleting a finished or abandoned import's staged objects. */
+    sweepStaged: (r: NativeRequest) => handle(async () => {
+      const a = await admit(r, 'write', 'application/json');
+      const operationId = operationParam(r);
+      await body(r, a.service, '');
+      return stagedResult(await staged(a.service).sweep(a.who, { operationId }));
+    }),
+
+    /** POST .../imports/staged/sweep: the same step for the session of the case that is due next (past its time to live). */
+    sweepExpiredStaged: (r: NativeRequest) => handle(async () => {
+      const a = await admit(r, 'write', 'application/json');
+      await body(r, a.service, '');
+      return stagedResult(await staged(a.service).sweepExpired(a.who));
     }),
 
     /** POST /operator/results/[caseId]/imports: one bounded JSON request with the package files as UTF-8 text. */

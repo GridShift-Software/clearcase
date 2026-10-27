@@ -31,6 +31,8 @@ export interface CloudR2 {
    * behaviour on the real service is not exercised by the unit doubles).
    */
   put(key: string, value: Uint8Array, options: { sha256: string; onlyIf?: { etagDoesNotMatch: '*' } }): Promise<CloudR2Head | null>;
+  /** Removes an object; an absent key is not an error (R2's `delete`). Present on the real bucket; only the staged-object sweep calls it. */
+  delete?(key: string): Promise<void>;
 }
 export interface CloudBindings { db: CloudD1; bucket: CloudR2 }
 

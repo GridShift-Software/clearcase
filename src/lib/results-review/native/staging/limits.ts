@@ -7,6 +7,10 @@ export const STAGED_BATCH_FILES = 32;
 export const STAGED_BATCH_BYTES = 12 * MiB;
 /** Paths a progress answer lists as still missing; ask again for the next ones. */
 export const STAGED_MISSING_LISTED = 512;
+/** How long a session lives without a candidate before its staged objects may be swept: seven days. */
+export const STAGED_SESSION_TTL_MS = 7 * 24 * 3600 * 1000;
+/** Staged objects one sweep step deletes. */
+export const STAGED_SWEEP_OBJECTS = 100;
 /** JSON framing per file in a batch body: the quoted path (at most 1,024 bytes), a colon, a comma and the base64 quotes. */
 const FRAMING_PER_FILE = 1100;
 const ENVELOPE = 4096;

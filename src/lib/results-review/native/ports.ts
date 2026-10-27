@@ -2,6 +2,7 @@ import type { AuditEvent, AuditSink, CaseId, ClientId, Principal, ResultsVersion
 import type { CandidateImportLink, FinalizedSubmissionSnapshot } from '../../server/runtime/hosted/alpha-contracts.ts';
 import type { RequestBudget } from './budget.ts';
 import type { StagingPorts } from './staging/ports.ts';
+import type { SteppedPorts } from './staging/steps.ts';
 
 /** The part of a Cloudflare D1 binding this module uses. The parent passes the client's per-deployment `DB`. */
 export type NativeD1Value = string | number | null;
@@ -190,6 +191,11 @@ export interface NativeImportPorts {
    * import is unavailable and the one-request import is unchanged.
    */
   readonly staging?: StagingPorts | null;
+  /**
+   * The stepped stager of the chunked import's `complete` (migration `0002_native_import_staging.sql`). Without it `complete` hands the whole
+   * verified package to `stager` in one request, which only a package that fits one request can survive.
+   */
+  readonly stepped?: SteppedPorts | null;
   readonly audit: AuditSink | null;
   now(): Date;
 }

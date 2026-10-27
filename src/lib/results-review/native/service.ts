@@ -8,7 +8,9 @@ import { overRequestBudget } from './budget.ts';
 import { buildCoverage, type UnlinkedReason } from './coverage.ts';
 import { candidateIdOf, linkIdOf, sha256Bytes, sha256Canonical } from './digest.ts';
 import { buildCorrection, inspectPackage, type InspectedPackage } from './package.ts';
+import { inspectStaged } from './staging/load.ts';
 import { createStagedImport, type StagedImport } from './staging/service.ts';
+import type { StagedPackageView, StagingStatus } from './staging/steps.ts';
 import type { CandidateReader, CommittedCandidateAudit, CorrectionRecord, LinkedCandidate, NativeImportPorts, Origin, Scoped, SqlCondition, StageOutcome } from './ports.ts';
 
 export type RefusalCode =
@@ -29,6 +31,8 @@ export interface CorrectionRequest { operationId: string; candidateId: string; r
 export interface NativeResultsImport {
   admit(a: { identity: Identity; caseId: CaseId; access: 'read' | 'write' }): Promise<AdmittedOperator>;
   importPackage(admitted: AdmittedOperator, request: ImportRequest): Promise<ImportOutcome>;
+  /** The chunked import's completion: bounded steps over a staged package, then the same link. Used by the staged routes. */
+  importStepped(admitted: AdmittedOperator, request: { operationId: string; submissionRevisionId: string; identity: { resultsVersion: string; manifestSha256: string }; pkg: StagedPackageView }): Promise<ImportOutcome | StagingStatus | { kind: 'busy' }>;
   correct(admitted: AdmittedOperator, request: CorrectionRequest): Promise<ImportOutcome>;
   /** An audited operator read (the append happens before the data is returned). */
   readCandidate(admitted: AdmittedOperator, candidateId: string): Promise<LinkedCandidate | null>;
@@ -144,14 +148,25 @@ export function createNativeResultsImport(ports: NativeImportPorts | null): Nati
   }
   const isOutcome = (x: FinalizedSubmissionSnapshot | ImportOutcome): x is ImportOutcome => 'kind' in x;
 
-  /** Stage privately through the injected real validator, check what it reports against the bytes, then link under the exact-set policy. */
-  async function stageAndLink(a: AdmittedOperator, o: { operationId: string; origin: Origin; parent: string | null; pkg: InspectedPackage; snapshot: FinalizedSubmissionSnapshot; correction: Omit<CorrectionRecord, 'at' | 'operator'> | null }): Promise<ImportOutcome> {
-    const s = scope(a.caseId), pkg = o.pkg;
-    const prior = await repository.byResultsVersion({ ...s, resultsVersion: brandVersion(pkg.resultsVersion) });
+  type Staged = StageOutcome | StagingStatus | { kind: 'busy' };
+  /**
+   * Stage privately through the injected real validator, check what it reports against the bytes, then link under the exact-set policy.
+   * `stage` runs the stager (whole, or in steps) and may answer that it is still working; `pkg` is only asked for once the stager has
+   * staged, so a stepped import does not inspect the package on every request.
+   */
+  async function stageAndLink(a: AdmittedOperator, o: { operationId: string; origin: Origin; parent: string | null; ident: { resultsVersion: string; manifestSha256: string }; snapshot: FinalizedSubmissionSnapshot; correction: Omit<CorrectionRecord, 'at' | 'operator'> | null;
+    stage: () => Promise<Staged>; pkg: () => Promise<InspectedPackage | ImportOutcome> }): Promise<ImportOutcome | StagingStatus | { kind: 'busy' }> {
+    const s = scope(a.caseId);
+    const prior = await repository.byResultsVersion({ ...s, resultsVersion: brandVersion(o.ident.resultsVersion) });
     if (prior) return answer(a, refused('candidate-exists', 'a candidate of this results version already exists in this case'));
-    const out: StageOutcome = await stager.stage({ clientId, caseId: a.caseId, operationId: o.operationId, files: pkg.files, submission: o.snapshot, identity: { resultsVersion: brandVersion(pkg.resultsVersion), manifestSha256: pkg.manifestSha256 } });
+    const out = await o.stage();
+    if (out.kind === 'staging') return answer(a, out);
+    if (out.kind === 'busy') return out;
     // The stager observed the grant after its last read, so the validator's detail is answered under that observation.
     if (out.kind === 'refused') return out.reason === 'over-request-budget' ? refused('over-budget', ...out.detail.slice(0, 20)) : refused('validator-refused', out.reason, ...out.detail.slice(0, 20));
+    const inspected = await o.pkg();
+    if ('kind' in inspected) return answer(a, inspected);
+    const pkg = inspected;
     if (out.resultsVersion !== pkg.resultsVersion || out.manifestSha256 !== pkg.manifestSha256 || out.inputRevisionId !== pkg.inputRevisionId || (out.verdict !== 'accept' && out.verdict !== 'report')) {
       return answer(a, refused('stager-identity-mismatch', 'the stager reported an identity other than the supplied package\'s'));
     }
@@ -178,6 +193,7 @@ export function createNativeResultsImport(ports: NativeImportPorts | null): Nati
   let service: NativeResultsImport;
   const staged = ports.staging ? createStagedImport({ clientId, budget, staging: ports.staging, repository, requestBudget: ports.requestBudget ?? null, now: () => ports.now(),
     must, observe, fence, fenced, answer, importPackage: (a, r) => service.importPackage(a, r), repeated,
+    importStepped: ports.stepped ? (a, r) => service.importStepped(a, r) : null, stepBounds: ports.stepped?.bounds ?? null,
     submissionRefusal: async (caseId, revisionId) => { const s = await snapshotOf(caseId, revisionId); return isOutcome(s) && s.kind === 'refused' ? s : null; } }) : null;
 
   return service = {
@@ -203,7 +219,41 @@ export function createNativeResultsImport(ports: NativeImportPorts | null): Nati
 
       const snap = await snapshotOf(a.caseId, r.submissionRevisionId);
       if (isOutcome(snap)) return answer(a, snap);
-      return stageAndLink(a, { operationId: r.operationId, origin: 'import', parent: null, pkg: pkg.value, snapshot: snap, correction: null });
+      const inspected = pkg.value;
+      const stage = () => stager.stage({ clientId, caseId: a.caseId, operationId: r.operationId, files: inspected.files, submission: snap, identity: { resultsVersion: brandVersion(inspected.resultsVersion), manifestSha256: inspected.manifestSha256 } });
+      return stageAndLink(a, { operationId: r.operationId, origin: 'import', parent: null, ident: inspected, snapshot: snap, correction: null, stage, pkg: async () => inspected }) as Promise<ImportOutcome>;
+    },
+
+    async importStepped(a, r) {
+      must(a, 'write');
+      const stepped = ports!.stepped;
+      if (!stepped) throw contractError('storage-unavailable', true);
+      const s = scope(a.caseId);
+      // The same digest the one-request import computes for the same bytes, so the same operation id is the same request on either route.
+      const manifestFile = { path: 'manifest.json', sha256: await sha256Bytes(r.pkg.manifest), size: r.pkg.manifest.byteLength };
+      const listed = [manifestFile, ...[...r.pkg.files].map(([path, f]) => ({ path, sha256: f.sha256, size: f.size }))].sort((x, y) => cmp(x.path, y.path));
+      const requestSha256 = await sha256Canonical({ kind: 'import', submissionRevisionId: r.submissionRevisionId, files: listed });
+      const claimed = await claim(a, { ...s, operationId: r.operationId, kind: 'import', operator: { issuer: a.principal.issuer, subject: a.principal.subject }, requestSha256, submissionRevisionId: r.submissionRevisionId, baseCandidateId: null, at: ports!.now().toISOString() });
+      if (claimed.kind === 'operation-reused') return answer(a, refused('operation-reused', 'this operation id was already used for a different request'));
+      const existing = claimed.kind === 'repeated' ? await repository.byOperation({ ...s, operationId: r.operationId }) : null;
+      if (existing) return repeated(a, existing);
+      const snap = await snapshotOf(a.caseId, r.submissionRevisionId);
+      if (isOutcome(snap)) return answer(a, snap);
+      const request = { clientId, caseId: a.caseId, operationId: r.operationId, identity: r.identity, submission: snap, pkg: r.pkg };
+      const stage = async (): Promise<Staged> => {
+        const began = stepped.clock();
+        for (let step = 1; ; step++) {
+          const out = await stepped.stager.step(request);
+          if (out.kind !== 'staging' || step >= stepped.bounds.stepsPerRequest || stepped.clock() - began >= stepped.bounds.wallMsPerRequest) return out;
+        }
+      };
+      // Once staged, the package is inspected from the staged files alone for what the link needs of it (its asset index and identity).
+      const pkg = async (): Promise<InspectedPackage | ImportOutcome> => {
+        const inspected = await inspectStaged(r.pkg, a.caseId, stepped.bounds.structuredBytes);
+        if (inspected.ok === false) return refused(inspected.code === 'too-large' ? 'over-budget' : 'package-invalid', ...inspected.detail);
+        return inspected.value;
+      };
+      return stageAndLink(a, { operationId: r.operationId, origin: 'import', parent: null, ident: r.identity, snapshot: snap, correction: null, stage, pkg });
     },
 
     async correct(a, r) {
@@ -235,7 +285,9 @@ export function createNativeResultsImport(ports: NativeImportPorts | null): Nati
       const snap = await snapshotOf(a.caseId, base.link.submissionRevisionId);
       if (isOutcome(snap)) return answer(a, snap);
       if (snap.storedManifestSha256 !== base.link.submissionManifestSha256) return answer(a, refused('submission-changed', 'the submission no longer matches the link it was made from'));
-      return stageAndLink(a, { operationId: r.operationId, origin: 'correction', parent: base.candidateId, pkg: next.value, snapshot: snap, correction: { reason: r.reason, changes: built.changes } });
+      const inspected = next.value;
+      const stage = () => stager.stage({ clientId, caseId: a.caseId, operationId: r.operationId, files: inspected.files, submission: snap, identity: { resultsVersion: brandVersion(inspected.resultsVersion), manifestSha256: inspected.manifestSha256 } });
+      return stageAndLink(a, { operationId: r.operationId, origin: 'correction', parent: base.candidateId, ident: inspected, snapshot: snap, correction: { reason: r.reason, changes: built.changes }, stage, pkg: async () => inspected }) as Promise<ImportOutcome>;
     },
 
     async readCandidate(a, candidateId) {

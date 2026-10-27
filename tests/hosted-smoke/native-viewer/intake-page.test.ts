@@ -102,3 +102,33 @@ it('retries the captured first file under its own operation, and a different pic
   expect(puts().map((p) => p.bytes)).toEqual([first.bytes, first.bytes, second.bytes]);
   expect(puts().map((p) => p.url)).toEqual([a, retry, other].map((m) => `${BASE}/${m!.operationId}`));
 });
+
+// Alpha hardening, lane auth-routing (Astra: a refused send showed "Sign in to continue." with no way to sign in).
+const signInLink = () => document.querySelector('a[data-intake-sign-in]') as HTMLAnchorElement | null;
+const SIGN_IN = `/sign-in?returnTo=${encodeURIComponent(`/client/intake/${CASE}`)}`;
+
+it('a declaration refused with 401 offers a sign-in link that returns to this intake page, as a full navigation', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => reply(401, { code: 'unauthenticated', message: 'Sign in to continue.' })));
+  pick(pdfFile('first.pdf', 'one').file); submit();
+  await vi.waitFor(() => expect(status()).toBe('Sign in to continue.'));
+  expect(signInLink()!.getAttribute('href')).toBe(SIGN_IN);
+  expect(signInLink()!.hasAttribute('data-sveltekit-reload')).toBe(true);
+});
+
+it('an upload refused with 401 offers the same link, and a later send that is refused otherwise withdraws it', async () => {
+  put(401, 403);
+  const first = pdfFile('first.pdf', 'one');
+  pick(first.file); submit();
+  await vi.waitFor(() => expect(signInLink()).not.toBeNull());
+  expect(signInLink()!.getAttribute('href')).toBe(SIGN_IN);
+  submit();
+  await vi.waitFor(() => expect(signInLink()).toBeNull());
+  await settled(2);
+});
+
+it('a send refused for another reason offers no sign-in link', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => reply(403, { code: 'forbidden', message: 'You cannot supply files for this case.' })));
+  pick(pdfFile('first.pdf', 'one').file); submit();
+  await vi.waitFor(() => expect(status()).toBe('You cannot supply files for this case.'));
+  expect(signInLink()).toBeNull();
+});

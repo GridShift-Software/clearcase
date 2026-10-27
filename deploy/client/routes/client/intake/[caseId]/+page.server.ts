@@ -6,8 +6,9 @@ export async function load(e: RequestEvent) {
 	const caseId = (e.params as Record<string, string>).caseId;
 	const controller = await intakeControllerFor(e);
 	const r = await controller.list({ request: e.request, url: e.url, params: e.params as Record<string, string>, identity: e.locals.identity });
-	const body = (await r.json()) as { submissions?: SubmissionView[]; code?: string; message?: string };
+	const body = (await r.json()) as { submissions?: SubmissionView[]; canUpload?: boolean; code?: string; message?: string };
 	if (r.status === 503) return { caseId: caseId, available: false as const, submissions: [] as SubmissionView[] };
 	if (!r.ok) error(r.status, { message: body.message ?? 'Not found.', code: body.code });
-	return { caseId: caseId, available: true as const, submissions: body.submissions ?? [] };
+	// `canUpload` only explains a missing grant on the page; the audited send still decides, so an absent answer keeps the form.
+	return { caseId: caseId, available: true as const, submissions: body.submissions ?? [], ...(typeof body.canUpload === 'boolean' ? { canUpload: body.canUpload } : {}) };
 }

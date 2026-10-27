@@ -8,7 +8,8 @@
 		<button id="sign-in-link" type="submit">Sign in to ClearCase</button>
 		{#if form?.message}<p role="alert">{form.message}</p>{/if}
 	</form>
-	<p>Accounts are by invitation only.</p>
+	<p>Accounts are by invitation only. Client accounts sign in here; ClearCase staff accounts sign in separately.</p>
+	<p><a href="/sign-in/operator" data-sveltekit-reload>ClearCase staff? Sign in here</a></p>
 {:else}
 	<p data-auth-provider="double">Test identity double ({data.provider}): synthetic fixture identities only. A real identity provider replaces it.</p>
 	<form method="POST">

@@ -20,6 +20,8 @@ export interface IntakeBudget {
  * request value. The parent adapts the identity service's capability check to this port.
  */
 export type AuthorizeUpload = (a: { principal: Principal; sessionId: SessionId; clientId: ClientId; caseId: CaseId }) => Promise<void>;
+/** Whether the principal holds an effective upload grant for the case. Advisory and unaudited: it only lets the intake page explain a missing grant; `AuthorizeUpload` still decides every write. */
+export type MayUpload = (a: { principal: Principal; clientId: ClientId; caseId: CaseId }) => Promise<boolean>;
 
 /** One storage step's outcome, structurally GRS-115's `IntakeOutcome`. */
 export type OriginalOutcome = { kind: 'declared' | 'stored' | 'finalized'; repeated: boolean } | { kind: 'refused'; reason: string };
@@ -86,6 +88,8 @@ export interface IntakePorts {
   readonly clientId: ClientId;
   readonly budget: IntakeBudget | null;
   readonly authorizeUpload: AuthorizeUpload | null;
+  /** Optional: absent, the list answer says nothing about upload eligibility and the page keeps its form. */
+  readonly mayUpload?: MayUpload | null;
   readonly originals: OriginalIntakePort | null;
   readonly repository: SubmissionRepository | null;
   now(): Date;

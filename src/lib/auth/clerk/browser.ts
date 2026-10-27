@@ -42,7 +42,7 @@
 import { createClerkClient } from '@clerk/backend';
 import { isSignInFlowPage, readClerkIdentityConfig, rsaJwkOf, type ClerkIdentityConfig, type InstanceKind } from './config.ts';
 import {
-	OPERATOR_PATH, REFRESH_TOKEN_VALUE, SESSION_HOLD_COOKIE, STAFF_DEV_BROWSER_TIE, STAFF_HANDSHAKE_CLEAR, STAFF_HANDSHAKE_COOKIE, STAFF_HANDSHAKE_PARAM, cookiePairs, sdkCookieHeader, sessionHoldClear,
+	MAX_SESSION_LIFETIME_MS, OPERATOR_PATH, REFRESH_TOKEN_VALUE, SESSION_HOLD_COOKIE, STAFF_DEV_BROWSER_TIE, STAFF_HANDSHAKE_CLEAR, STAFF_HANDSHAKE_COOKIE, STAFF_HANDSHAKE_PARAM, cookiePairs, sdkCookieHeader, sessionHoldClear,
 	sessionHoldCookie, sessionHoldNames, sessionHoldOf, staffDevBrowserTie, staffHandshakeOf, startStaffHandshake, tiedDevBrowser,
 	type ClerkBrowserHandshake, type HandshakeOutcome, type SessionHold, type SessionRefresh,
 } from './flow.ts';
@@ -270,10 +270,18 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			const hold = sessionHoldOf(request), presented = presentedToken(request);
 			if (hold === null || presented === 'malformed' || (presented !== null && presented !== hold.token)) return null;
 			const { token, kind } = hold;
+			// Time only refuses: a token expired longer ago than any Clerk session lives names a session Clerk has ended, so it
+			// is never renewed and costs no Backend API call. Revocation (revocation.ts) has no such bound; sign-out revokes once.
+			let claims: Record<string, unknown>;
+			try {
+				claims = tokenClaims(token);
+			} catch {
+				return null;
+			}
+			const { exp, sts } = claims;
+			if (typeof exp !== 'number' || exp * 1000 > Date.now() || exp * 1000 + MAX_SESSION_LIFETIME_MS < Date.now() || (sts !== undefined && sts !== 'active')) return null;
 			const evidence = await revocationEvidenceOf(token, config);
 			if (!evidence || evidence.instance !== config[kind]) return null;
-			const { exp, sts } = tokenClaims(token);
-			if (typeof exp !== 'number' || exp * 1000 > Date.now() || (sts !== undefined && sts !== 'active')) return null;
 			const pairs = cookiePairs(request);
 			const credential = [config.appOrigin, config.apiUrl ?? '', evidence.instance.issuer, token, hold.refreshToken].join('\0');
 			const key = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(credential))));

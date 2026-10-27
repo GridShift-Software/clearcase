@@ -6,7 +6,7 @@
 import type { Identity, Principal, SessionId } from '../../server/runtime/contracts.ts';
 import { contractError } from '../../server/runtime/errors.ts';
 import { isSignInFlowPage, readClerkIdentityConfig, type ClerkIdentityConfig, type ClerkInstanceConfig, type InstanceKind, type StaffDevBrowser } from './config.ts';
-import { MAX_SESSION_LIFETIME_MS, revocationEvidenceOf, type RevocationEvidence } from './revocation.ts';
+import { revocationEvidenceOf, type RevocationEvidence } from './revocation.ts';
 import { CLEARABLE_COOKIE_NAME, REFRESH_COOKIE_NAME, cookiePairs, inspectToken, presentedToken } from './session.ts';
 
 export { cookiePairs, type CookiePair } from './session.ts';
@@ -39,13 +39,15 @@ export function sdkCookieHeader(request: Request): string {
 	return cookiePairs(request).filter((c) => c.name !== '__clerk_handshake' && !REFRESH_COOKIE_NAME.test(c.name) && !HOLD_NAMES.has(c.name)).map((c) => `${c.name}=${c.value}`).join('; ');
 }
 
+/** The longest a Clerk session lives, 7 days: a session hold outlives its token by this, and no longer. */
+export const MAX_SESSION_LIFETIME_MS = 7 * 86_400_000;
 /**
  * The app-owned cookie that keeps what a session refresh needs (browser.ts refresh) after the browser drops the session
  * token's 60-second cookie: the last session token this app set and the instance's refresh token, as `<token>~<refresh>`,
  * HttpOnly, one name per instance kind. It is a `__Host-` cookie, so only this secure origin can set it and a sibling
  * under the parent domain can neither plant nor shadow it; Clerk's own `__refresh` names are never read. An http origin
- * holds none. It lives until its token has been expired for MAX_SESSION_LIFETIME_MS: by then Clerk has ended the session
- * and the token is no evidence (revocation.ts), so the hold could renew or revoke nothing. It never authenticates: the
+ * holds none. It lives until its token has been expired for MAX_SESSION_LIFETIME_MS: by then Clerk has ended the session,
+ * so the hold could renew nothing (the refresh refuses an older token before any Backend API call). It never authenticates: the
  * provider reads only `__session`, and a refresh must still succeed at Clerk.
  */
 export const SESSION_HOLD_COOKIE: Readonly<Record<InstanceKind, string>> = { client: '__Host-clearcase_refresh', staff: '__Host-clearcase_staff_refresh' };

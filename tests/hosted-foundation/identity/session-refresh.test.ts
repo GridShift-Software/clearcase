@@ -26,7 +26,7 @@ const trap = vi.hoisted(() => {
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown>, waitUntil: () => {} }));
 vi.mock('cloudflare:workers', () => workers);
 
-import { MAX_SESSION_LIFETIME_MS } from '../../../src/lib/auth/clerk/revocation.ts';
+import { MAX_SESSION_LIFETIME_MS } from '../../../src/lib/auth/clerk/flow.ts';
 import { clerkBrowserHandshakeFromEnv } from '../../../src/lib/auth/clerk/browser.ts';
 import { handle } from '../../../src/lib/server/runtime/hosted/hooks.server.ts';
 import { craftedInstance } from './synthetic.ts';

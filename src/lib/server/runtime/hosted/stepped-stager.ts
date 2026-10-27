@@ -537,19 +537,23 @@ export function createSteppedStager(t: SteppedToolkit): SteppedStager {
     const meta = i === 0 ? { ...c.run.meta, headSha: await sha256Canonical(head.version) } : c.run.meta;
     if (i > 0 && c.run.meta.headSha !== await sha256Canonical(head.version)) integrity();
     const batch: FileRow[] = [];
-    while (i + batch.length < previews.length && batch.length < bounds.objectsPerStep && (batch.length === 0 || (bytes < bounds.bytesPerStep && t.clock() - c.started < bounds.wallMsPerStep))) {
+    while (i + batch.length < previews.length && batch.length < bounds.objectsPerStep && (batch.length === 0 || bytes < bounds.bytesPerStep)) {
       const f = previews[i + batch.length]!;
       batch.push(f); bytes += f.size; n++;
     }
     const denied = batch.length ? await admit(c, batch.length, bytes) : null;
     if (denied) return denied;
-    await pool(batch, async (f) => {
-      const r = await verifiedRead(c.s.bucket, f.object_key, f, b.maxPackageFileBytes);
-      if (r.kind === 'unreachable') unavailable();
-      if (r.kind !== 'ok') integrity();
-      if (r.kind === 'ok' && !(c.req.pkg.files.get(f.path)!.pdf === (r.bytes.length >= 5 && new TextDecoder().decode(r.bytes.subarray(0, 5)) === '%PDF-'))) integrity();
-    });
-    i += batch.length;
+    // A group of reads at a time, so the step can stop at its wall time with every preview it reached read back.
+    let read = 0;
+    for (; read < batch.length && (read === 0 || t.clock() - c.started < bounds.wallMsPerStep); read += READ_CONCURRENCY) {
+      await pool(batch.slice(read, read + READ_CONCURRENCY), async (f) => {
+        const r = await verifiedRead(c.s.bucket, f.object_key, f, b.maxPackageFileBytes);
+        if (r.kind === 'unreachable') unavailable();
+        if (r.kind !== 'ok') integrity();
+        if (r.kind === 'ok' && !(c.req.pkg.files.get(f.path)!.pdf === (r.bytes.length >= 5 && new TextDecoder().decode(r.bytes.subarray(0, 5)) === '%PDF-'))) integrity();
+      });
+    }
+    i += Math.min(read, batch.length);
     await c.commit(i >= previews.length ? { phase: 'originals-d', cursor: { after: '', n: 0 }, meta } : { phase: 'readback', cursor: { i }, meta });
     return advance(i, previews.length);
   }

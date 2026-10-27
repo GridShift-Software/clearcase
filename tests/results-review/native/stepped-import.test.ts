@@ -160,7 +160,7 @@ describe('the stepped import equals the one-request import', () => {
     // The one original is 17 KB: two do not fit under 20,000 bytes, so each step of a pass reads one.
     const p = await startProcess(durable, { bounds: { bytesPerStep: 20_000, originalsPerStep: 50, objectsPerStep: 1000 } });
     const steps: StepRecord[] = [];
-    const out = linked(await driveStaged(p, durable, pkg, revisionId, { steps }));
+    const out = linked(await driveStaged(p, durable, pkg, revisionId, { steps, maxCalls: 100_000 }));
     expect(JSON.stringify(out)).toBe(JSON.stringify(reference.candidate));
     expect(dump(durable)).toEqual(reference.dump);
     expect(Math.max(...steps.map((s) => s.originalGets))).toBe(1);
@@ -174,7 +174,7 @@ describe('the stepped import equals the one-request import', () => {
     const bounds = { wallMsPerStep: 50, objectsPerStep: 1000, bytesPerStep: 64 << 20, originalsPerStep: 1000 };
     const p = await startProcess(durable, { bounds });
     const steps: StepRecord[] = [];
-    const out = linked(await driveStaged(p, durable, pkg, revisionId, { steps }));
+    const out = linked(await driveStaged(p, durable, pkg, revisionId, { steps, maxCalls: 100_000 }));
     expect(JSON.stringify(out)).toBe(JSON.stringify(reference.candidate));
     expect(dump(durable)).toEqual(reference.dump);
     // Without the wall bound a step would take every object and original it is allowed; with it, a step ends once 50 ms have passed.

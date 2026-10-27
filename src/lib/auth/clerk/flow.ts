@@ -18,8 +18,11 @@ export const DEFAULT_RETURN = '/cases';
 
 export type HandshakeOutcome =
 	| { kind: 'continue' }
-	/** Answer 303 to `location` with every `setCookies` entry (a handshake redirect, or the clean URL once cookies are set). */
-	| { kind: 'redirect'; location: string; setCookies: string[] }
+	/**
+	 * Answer 303 to `location` with every `setCookies` entry (a handshake redirect, or the clean URL once cookies are set).
+	 * `refresh`: answer 200 with a declarative refresh there instead (handshakeResponse).
+	 */
+	| { kind: 'redirect'; location: string; setCookies: string[]; refresh?: true }
 	/** Answer `status` and stop: a handshake that must not be followed. */
 	| { kind: 'refuse'; status: 400 | 502; code: 'wrong-origin' | 'handshake-invalid' | 'handshake-format-unsupported' | 'handshake-cookie-refused' };
 /**
@@ -266,13 +269,21 @@ export function clearableNames(request: Request): string[] {
 }
 
 
-/** A no-store 303 for a redirect outcome, a bare error for a refusal, null to let the request continue. */
+const HTML_ESCAPES: Readonly<Record<string, string>> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+/**
+ * A no-store 303 for a redirect outcome, a bare error for a refusal, null to let the request continue. A `refresh`
+ * redirect is a 200 page that refreshes to its location: a browser checks every HTTP redirect of a form submission
+ * against the page's `form-action 'self'`, so a 303 from the page a save redirects to, on to the Frontend API, never left
+ * the page (astra-renewal-bb20); a refresh is a navigation of its own, which form-action does not cover.
+ */
 export function handshakeResponse(o: HandshakeOutcome): Response | null {
 	if (o.kind === 'continue') return null;
 	if (o.kind === 'refuse') return new Response(null, { status: o.status, headers: { 'cache-control': 'no-store', 'x-clearcase-auth': o.code } });
-	const headers = new Headers({ location: o.location, 'cache-control': 'no-store' });
+	const headers = new Headers(o.refresh ? { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } : { location: o.location, 'cache-control': 'no-store' });
 	for (const c of o.setCookies) headers.append('set-cookie', c);
-	return new Response(null, { status: 303, headers });
+	if (!o.refresh) return new Response(null, { status: 303, headers });
+	const href = o.location.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]!);
+	return new Response(`<!doctype html><meta http-equiv="refresh" content="0;url=${href}"><title>Signing in</title><p><a href="${href}">Continue to sign in</a></p>`, { status: 200, headers });
 }
 
 export type SignInPlan = { action: 'proceed' } | { action: 'sign-out-first'; current: InstanceKind } | { action: 'refuse'; reason: 'ambiguous-credential' };

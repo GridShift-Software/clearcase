@@ -474,7 +474,8 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			// a signed-in page load whose hold a renewal spent goes through the handshake for a fresh refresh token (handoff)
 			if (state.status === 'signed-in' && request.headers.get('sec-fetch-dest') === 'document' && sessionHoldOf(request)?.spent) {
 				const handed = await api.handoff(request, url);
-				if (handed) return { kind: 'redirect', location: handed.location, setCookies: handed.setCookies };
+				// a refresh, not a 303: this load may be the redirect of a form submission (handshakeResponse)
+				if (handed) return { kind: 'redirect', location: handed.location, setCookies: handed.setCookies, refresh: true };
 			}
 			return { kind: 'continue' };
 		},

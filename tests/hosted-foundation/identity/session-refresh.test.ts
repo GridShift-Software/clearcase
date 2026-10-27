@@ -491,10 +491,16 @@ const liveRefreshAnswer = (s: ReturnType<typeof session>) => (sid: string) => si
 	: { status: 200, body: { object: 'cookies', cookies: [`${SESSION_SFX}=${A.token({ sub: s.user, sid, azp: ORIGIN })}; Path=/; Expires=${YEAR()}; Secure; SameSite=None`] } };
 // A document load as the browser makes it: through Clerk's handshake when the Worker sends it there (Clerk answers for
 // the session it holds, with the live directive set), back to the page; the final answer.
+// Where a page-load answer sends the browser to Clerk's handshake: a 303 or 307, or a page that refreshes there (round 4c).
+async function handshakeAt(r: Response): Promise<URL | null> {
+	const at = [303, 307].includes(r.status) ? r.headers.get('location') : r.status === 200 && (r.headers.get('content-type') ?? '').startsWith('text/html') ? (/<meta http-equiv="refresh" content="0;url=([^"]+)">/.exec(await r.clone().text())?.[1]?.replaceAll('&amp;', '&') ?? null) : null;
+	return at !== null && new URL(at, ORIGIN).origin === A.iss ? new URL(at) : null;
+}
 async function load(b: ReturnType<typeof browser>, s: ReturnType<typeof session>, path: string) {
 	let r = b.take(await invoke(documentGet(path, b.cookie(new URL(path, ORIGIN).pathname))));
-	if ([303, 307].includes(r.status) && new URL(r.headers.get('location')!, ORIGIN).origin === A.iss) {
-		const back = new URL(new URL(r.headers.get('location')!).searchParams.get('redirect_url')!);
+	const at = await handshakeAt(r);
+	if (at) {
+		const back = new URL(at.searchParams.get('redirect_url')!);
 		back.searchParams.set('__clerk_handshake', A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh) }));
 		r = b.take(await invoke(documentGet(back.pathname + back.search, b.cookie(back.pathname))));
 		expect(r.status).toBe(303);
@@ -932,8 +938,12 @@ describe('a refresh token Clerk never rotates (astra-renewal-7614, round 4)', ()
 /** A document load as the browser makes it, through Clerk's handshake when sent there (a fresh refresh token, as live). */
 async function visit(b: ReturnType<typeof browser>, s: ReturnType<typeof session>, path: string) {
 	const r = b.take(await invoke(documentGet(path, b.cookie(path))));
-	if (![303, 307].includes(r.status) || new URL(r.headers.get('location')!, ORIGIN).origin !== A.iss) return { status: r.status, handshake: false };
-	const back = new URL(new URL(r.headers.get('location')!).searchParams.get('redirect_url')!);
+	const at = await handshakeAt(r);
+	if (!at) return { status: r.status, handshake: false };
+	// the page a save redirects to is not sent on with a 303, which form-action 'self' would refuse (round 4c)
+	expect(r.status).toBe(200);
+	expect(r.headers.get('location')).toBeNull();
+	const back = new URL(at.searchParams.get('redirect_url')!);
 	const row = sessions.get(s.sid)!;
 	row.refresh = LIVE_RT(++n);
 	back.searchParams.set('__clerk_handshake', A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), row.refresh) }));
@@ -996,10 +1006,10 @@ describe('a save after an idle, when an earlier renewal spent the refresh token 
 		await signedIn(b, s);
 		later(90_000);
 		expect(await save(b)).toBe(201);
-		const first = await invoke(documentGet(CASE_NOTES, b.cookie(CASE_NOTES)));
-		expect(new URL(first.headers.get('location')!).origin).toBe(A.iss);
+		const first = await handshakeAt(await invoke(documentGet(CASE_NOTES, b.cookie(CASE_NOTES))));
+		expect(first?.origin).toBe(A.iss);
 		// a handshake return that signs in again but keeps the browser's spent hold: the marker stops a second handshake
-		const back = new URL(new URL(first.headers.get('location')!).searchParams.get('redirect_url')!);
+		const back = new URL(first!.searchParams.get('redirect_url')!);
 		back.searchParams.set('__clerk_handshake', A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh).filter((c) => !c.startsWith(REFRESH_A)) }));
 		b.take(await invoke(documentGet(back.pathname + back.search, b.cookie(back.pathname))));
 		const spentAgain = holds(b).length;
@@ -1022,5 +1032,31 @@ describe('the handshake a handoff starts (session-renewal-live-3 r4 review)', ()
 		const s = session();
 		const r = await invoke(clientData(`__client_uat=1761400000; __session=${s.stale()}; __Host-clearcase_reauth=planted`));
 		expect(await dataRedirect(r)).not.toBeNull();
+	});
+});
+
+describe('the page a save redirects to, after its renewal spent the hold (astra-renewal-bb20, round 4c)', () => {
+	it('is a 200 page that refreshes to the handshake, never a redirect, with the escaped location and no other content', async () => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		try {
+			const s = session(), b = browser();
+			sessions.get(s.sid)!.refresh = LIVE_RT(n);
+			refreshAnswer = neverRotating(s);
+			expect((await load(b, s, `/cases?__clerk_handshake=${A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), sessions.get(s.sid)!.refresh) })}`)).status).toBe(303);
+			later(90_000);
+			expect(b.take(await invoke(saveNote(b.cookie(NOTES)))).status).toBe(201);
+			const r = await invoke(documentGet(CASE_NOTES, b.cookie(CASE_NOTES)));
+			expect(r.status).toBe(200);
+			expect(r.headers.get('location')).toBeNull();
+			expect(r.headers.get('content-type')).toBe('text/html; charset=utf-8');
+			expect(r.headers.get('cache-control')).toBe('no-store');
+			const body = await r.clone().text();
+			expect(body).not.toMatch(/<script|[^;]&[^a]/);
+			const at = (await handshakeAt(r))!;
+			expect(at.origin + at.pathname).toBe(`${A.iss}/v1/client/handshake`);
+			expect(new URL(at.searchParams.get('redirect_url')!).searchParams.get('__clearcase_reauth')).toBe('1');
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

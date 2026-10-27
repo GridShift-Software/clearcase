@@ -26,7 +26,7 @@ const Kind = Type.Union([Type.Literal('generated'), Type.Literal('authored')]);
 
 export const ManifestFile = Type.Object({
   path: RelPath,
-  role: Type.Union([Type.Literal('dataset'), Type.Literal('assets')]),
+  role: Type.Union([Type.Literal('dataset'), Type.Literal('assets'), Type.Literal('preview')]),
   key: Type.Optional(DatasetKey),
   kind: Type.Optional(Kind),
   schema: Type.Optional(Type.String({ pattern: SCHEMA_ID })),
@@ -95,6 +95,8 @@ export const AssetFile = Type.Object({
   size: Size,
   mediaType: MediaType,
   textStatus: TextStatus,
+  /** PDF package file derived from this exact original. */
+  preview: Type.Optional(Type.Object({ path: RelPath, sha256: Sha256, size: Size, originalSha256: Sha256 }, { additionalProperties: false })),
   /** an extracted attachment stored as its own file */
   parentRef: Type.Optional(Ref),
 }, { additionalProperties: false });

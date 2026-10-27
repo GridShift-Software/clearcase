@@ -6,6 +6,8 @@ import { generateCorpus } from '../../../../../../../../scripts/fixtures/synthet
 import { sha256Hex } from '../../../../../../../../src/lib/case-package/hash.ts';
 import { CASE, OLD_RV, RV, event, fake, outcome } from '../../../../../../../../tests/hosted-smoke/case-overview/doubles.ts';
 import { load } from './[key]/+page.server.ts';
+import { contractError } from '../../../../../../../../src/lib/server/runtime/errors.ts';
+import { recordsContext, recordsSectionState, renderRecords, verifyDatasetBytes } from '../../../../../../../../src/lib/views/hosted/records/index.ts';
 import { createCloudResults } from '../../../../../../../../src/lib/results/hosted/index.ts';
 import { createResultsStaging } from '../../../../../../../../src/lib/storage/cloud/staging.ts';
 import { id } from '../../../../../../../../src/lib/server/runtime/ids.ts';
@@ -30,8 +32,8 @@ function setup() {
   const f = fake({ publication: { kind: 'published', resultsVersion: RV } });
   const original = f.services.store;
   f.services.store = new Proxy(original, { get(target, key, receiver) {
-    if (key === 'getVersion') return async () => ({ id: RV, case_id: CASE, manifest_sha256: sha256Hex(files.get('manifest.json')!) });
-    if (key === 'packageFile') return async ({ path: p }: { path: string }) => files.get(p) ?? null;
+    if (key === 'getVersion') return async () => { f.calls.push('getVersion'); return { id: RV, case_id: CASE, manifest_sha256: sha256Hex(files.get('manifest.json')!) }; };
+    if (key === 'packageFile') return async ({ path: p }: { path: string }) => { f.calls.push('packageFile'); return files.get(p) ?? null; };
     return Reflect.get(target, key, receiver);
   } });
   return f;
@@ -77,9 +79,66 @@ describe('records route', () => {
       expect(await request(setup(), 'matter')).toMatchObject({ thrown: { status: 503 } });
     } finally { files.set('manifest.json', originalManifest); files.set('datasets/matter.json', originalMatter); }
   });
+  it('refuses a tampered manifest even when it remains valid JSON', async () => {
+    const f = setup();
+    const original = f.services.store;
+    f.services.store = new Proxy(original, { get(target, key, receiver) {
+      if (key === 'getVersion') return async () => ({ id: RV, case_id: CASE, manifest_sha256: '0'.repeat(64) });
+      return Reflect.get(target, key, receiver);
+    } });
+    expect(await request(f, 'matter')).toMatchObject({ thrown: { status: 503 } });
+  });
+  it('does not link attributions for assets outside the case originals', async () => {
+    const manifestBytes = files.get('manifest.json')!, matterBytes = files.get('datasets/matter.json')!;
+    try {
+      const manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
+      const matter = JSON.parse(new TextDecoder().decode(matterBytes));
+      matter.data.title = 'Evidence [[DOC-001#p2]]';
+      const bytes = new TextEncoder().encode(JSON.stringify(matter));
+      const entry = manifest.files.find((f: { key?: string }) => f.key === 'matter');
+      entry.sha256 = sha256Hex(bytes); entry.size = bytes.length;
+      files.set('manifest.json', new TextEncoder().encode(JSON.stringify(manifest)));
+      files.set('datasets/matter.json', bytes);
+      const f = setup();
+      const originals = f.services.assets.originals;
+      f.services.assets.originals = async (scope) => (await originals(scope)).filter(o => o.assetId !== 'DOC-001');
+      const result = await request(f, 'matter');
+      expect(result).toHaveProperty('value');
+      if ('value' in result) {
+        expect(result.value.html).toContain('cite-broken');
+        expect(result.value.html).not.toContain('/originals/DOC-001/');
+      }
+    } finally { files.set('manifest.json', manifestBytes); files.set('datasets/matter.json', matterBytes); }
+  });
+  it('maps store and asset contract faults to their published read statuses', async () => {
+    for (const [port, code, status] of [['getVersion', 'storage-unavailable', 503], ['packageFile', 'storage-unavailable', 503], ['originalAttributions', 'forbidden', 404], ['originals', 'asset-unavailable', 503]] as const) {
+      const f = setup();
+      if (port === 'originals') f.services.assets.originals = async () => { throw contractError(code); };
+      else {
+        const store = f.services.store;
+        f.services.store = new Proxy(store, { get(target, key, receiver) {
+          if (key === port) return async () => { throw contractError(code); };
+          return Reflect.get(target, key, receiver);
+        } });
+      }
+      expect(await request(f, 'matter'), port).toMatchObject({ thrown: { status } });
+    }
+  });
+  it('serves the exact records render checked under the shared publication context', async () => {
+    const manifest = JSON.parse(new TextDecoder().decode(files.get('manifest.json')!));
+    const entry = manifest.files.find((f: { key?: string }) => f.key === 'matter');
+    const dataset = verifyDatasetBytes(entry, files.get(entry.path)!);
+    const ctx = recordsContext(CASE, new Map([['DOC-001', 'DOC-001'], ['DOC-002', 'DOC-002']]));
+    const rendered = renderRecords(dataset, ctx);
+    const result = await request(setup(), 'matter');
+    expect(result).toHaveProperty('value');
+    if ('value' in result) expect(recordsSectionState(dataset, { ...rendered, html: result.value.html }, ctx)).toBe('records-rendered');
+  });
   it('refuses a candidate and another case before loading data', async () => {
     const f = setup();
     expect(await request(f, keys[0]!, OLD_RV)).toMatchObject({ thrown: { status: 403 } });
+    expect(f.calls).not.toContain('getVersion');
+    expect(f.calls).not.toContain('packageFile');
     const other = setup();
     expect(await request(other, keys[0]!, RV, 'other-case')).toMatchObject({ thrown: { status: 404 } });
   });

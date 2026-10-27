@@ -718,17 +718,20 @@ describe('a renewal Clerk refuses, and two isolates renewing one hold (session-r
 		sessions.get(s.sid)!.refresh = LIVE_RT(9998);
 		const out = [];
 		for (let i = 0; i < 3; i++) out.push(b.take(await invoke(clientData(b.cookie()))));
-		expect(out.map((r) => r.status)).toEqual([401, 401, 401]);
+		// round 4: the refused request is handed to the handshake (its data redirect), and the requests after it, with no
+		// hold and no session left, are refused with no Backend API call
+		expect(await dataRedirect(out[0]!)).not.toBeNull();
+		expect(out.slice(1).map((r) => r.status)).toEqual([401, 401]);
 		expect(refreshCalls()).toHaveLength(1);
-		expect(out[0]!.headers.getSetCookie()).toEqual([HOLD_CLEAR(HOLD_A)]);
+		expect(out[0]!.headers.getSetCookie()[0]).toBe(HOLD_CLEAR(HOLD_A));
+		expect(out[0]!.headers.getSetCookie().filter((c) => /^(__session|__client_uat|__Host-clearcase_refresh)[^=]*=/.test(c))).toEqual([HOLD_CLEAR(HOLD_A)]);
 		expect(b.names()).not.toContain(HOLD_A);
 	});
 	it('after a refusal, the next page load signs the browser in again through the handshake, with one hold', async () => {
 		const s = session(), b = carrying(s);
 		sessions.get(s.sid)!.refresh = LIVE_RT(9997);
-		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(401);
-		expect(b.names().filter((n) => /refresh/.test(n))).toEqual([]);
-		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
+		// round 4: the refused data request itself is the page load through the handshake (navigate follows its handoff)
+		expect(await navigate(b, s)).toEqual({ status: 201, handoff: true });
 		expect(b.names().filter((n) => /refresh/.test(n))).toEqual([HOLD_A]);
 	});
 	it.each([['an outage', 503], ['a rate limit', 429]])('clears nothing when Clerk answers %s', async (_name, status) => {
@@ -757,9 +760,11 @@ describe('a renewal Clerk refuses, and two isolates renewing one hold (session-r
 			invoke(clientData(b.cookie())),
 			second({ event: { request, url: new URL(request.url), locals: {}, isSubRequest: false }, resolve: route } as never),
 		]);
-		expect(out.map((r) => r.status).sort()).toEqual([201, 401]);
+		// round 4: the refused loser is handed to the handshake (a data redirect) instead of answering 401
+		expect(out.filter((r) => r.status === 201)).toHaveLength(1);
 		expect(refreshCalls()).toHaveLength(2);
-		const ranked = [out.find((r) => r.status === 201)!, out.find((r) => r.status === 401)!];
+		const ranked = [out.find((r) => r.status === 201)!, out.find((r) => r.status !== 201)!];
+		expect(await dataRedirect(ranked[1]!)).not.toBeNull();
 		expect(ranked[1]!.headers.get('location')).toBeNull();
 		expect(sessionCookie(ranked[1]!)).toBeUndefined();
 		for (const i of order) b.take(ranked[i]!);
@@ -886,13 +891,13 @@ describe('a refresh token Clerk never rotates (astra-renewal-7614, round 4)', ()
 		later(90_000);
 		expect((await navigate(b, s)).handoff).toBe(true);
 		// the session that handshake set is already unusable here (as if its token had been refused): no second handshake
-		const stale = b.cookie().split('; ').filter((c) => !/^__session=|^__Host-clearcase_refresh/.test(c)).concat(`__session=${s.stale()}`).join('; ');
+		const stale = () => b.cookie().split('; ').filter((c) => !/^__session=|^__Host-clearcase_refresh/.test(c)).concat(`__session=${s.stale()}`).join('; ');
 		later(10_000);
-		const again = await invoke(clientData(stale));
+		const again = await invoke(clientData(stale()));
 		expect(await dataRedirect(again)).toBeNull();
 		expect(again.status).toBe(401);
 		later(60_000);
-		expect(await dataRedirect(await invoke(clientData(stale)))).not.toBeNull();
+		expect(await dataRedirect(await invoke(clientData(stale())))).not.toBeNull();
 	});
 	it.each([
 		['no session at all', () => '__client_uat=0'],

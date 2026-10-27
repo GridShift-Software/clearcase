@@ -50,7 +50,11 @@ import {
 import { revocationEvidenceOf } from './revocation.ts';
 import { CLERK_COOKIE_NAME, CLIENT_UAT_COOKIE_NAME, REFRESH_COOKIE_NAME, SESSION_COOKIE_NAME, inspectToken, presentedToken, sessionCookieNames } from './session.ts';
 
-const HANDSHAKE_PARAMS = ['__clerk_handshake', '__clerk_handshake_nonce', '__clerk_help', '__clerk_db_jwt', STAFF_HANDSHAKE_PARAM];
+// A handshake this app starts for a page-data request it could not renew (handoff) carries REAUTH_PARAM in its return URL,
+// and its return marks the browser with REAUTH_COOKIE for REAUTH_MAX_AGE seconds: a data request carrying the mark is not
+// handed off again, so one handoff costs at most one handshake, and a hover preload of a data redirect marks nothing.
+const REAUTH_PARAM = '__clearcase_reauth', REAUTH_COOKIE = '__Host-clearcase_reauth', REAUTH_MAX_AGE = 30;
+const HANDSHAKE_PARAMS = ['__clerk_handshake', '__clerk_handshake_nonce', '__clerk_help', '__clerk_db_jwt', STAFF_HANDSHAKE_PARAM, REAUTH_PARAM];
 const TOKEN = /^[A-Za-z0-9._-]{16,8192}$/;
 const DEV_BROWSER = /^[A-Za-z0-9._-]{16,4096}$/;
 const DEV_BROWSER_COOKIE = /^__clerk_db_jwt(?:_[A-Za-z0-9_-]{1,32})?$/;
@@ -141,9 +145,10 @@ const tokenClaims = (token: string) => JSON.parse(new TextDecoder().decode(fromB
 // a request holding both the token and its refresh token meets an entry; bounded, so dropping one only costs a call.
 // `session` and `uat` are Clerk's directives for those cookies without their name: refresh() sets them under the names
 // this browser keeps, never the ones Clerk answered with, and the hold under the name the request's hold does not use.
-// 'refused' is Clerk's own refusal of the refresh token (spent, wrong or revoked), remembered like null.
+// 'refused' is Clerk's own refusal of the refresh token (spent, wrong or revoked), remembered like null; 'limited' is its
+// rate limit, remembered too, which says nothing about the credential.
 type Refreshed = { token: string; session: string; uat: string | null; hold: SessionHold; setCookies: string[]; until: number };
-const refreshes = new Map<string, Promise<Refreshed | null | 'refused' | 'fault'>>();
+const refreshes = new Map<string, Promise<Refreshed | null | 'refused' | 'limited' | 'fault'>>();
 const REFRESHES_LIMIT = 4096;
 // The expired tokens this isolate renewed, keyed like `refreshes` without the refresh token: a browser may already hold
 // that renewal, so a refusal of the same token with another refresh token clears nothing (review H1 sets nothing).
@@ -239,10 +244,10 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 	/**
 	 * Clerk's answer to one refresh: only a session token of the same instance, subject and session, live now, in
 	 * directives this origin accepts (the instance's own refresh token included). 'refused' for Clerk's refusal of the
-	 * credential, null for an answer this origin refuses or Clerk's rate limit (429), both remembered; 'fault' for an
-	 * outage or network fault, which is not.
+	 * credential, 'limited' for its rate limit (429), null for an answer this origin refuses, all remembered; 'fault' for
+	 * an outage or network fault, which is not.
 	 */
-	async function refreshAt(a: SessionHold & { suffixed: boolean; subject: string; sessionId: string; userAgent: string | null }): Promise<Refreshed | null | 'refused' | 'fault'> {
+	async function refreshAt(a: SessionHold & { suffixed: boolean; subject: string; sessionId: string; userAgent: string | null }): Promise<Refreshed | null | 'refused' | 'limited' | 'fault'> {
 		let cookies: unknown;
 		try {
 			cookies = (await clientFor(a.kind).sessions.refreshSession(a.sessionId, {
@@ -254,7 +259,7 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			// Clerk's own refusal (4xx) settles this token; an outage or a network fault does not. A rate limit says nothing
 			// about the credential, so it is no refusal of it.
 			const status = typeof e === 'object' && e !== null ? (e as { status?: unknown }).status : undefined;
-			return typeof status === 'number' && status >= 400 && status < 500 ? (status === 429 ? null : 'refused') : 'fault';
+			return typeof status === 'number' && status >= 400 && status < 500 ? (status === 429 ? 'limited' : 'refused') : 'fault';
 		}
 		if (!Array.isArray(cookies) || cookies.length === 0 || cookies.length > 16) return null;
 		const setCookies: string[] = [];
@@ -299,7 +304,7 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 		return [...(set === null ? [] : [set]), ...sessionHoldNames(request).filter((n) => n !== kept).map(sessionHoldClear)];
 	}
 
-	return {
+	const api: ClerkBrowserHandshake = {
 		async refresh(request) {
 			let url: URL;
 			try {
@@ -336,7 +341,12 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				refreshes.set(key, answer);
 			}
 			const refreshed = await answer;
-			if (refreshed === 'fault' || (typeof refreshed === 'object' && refreshed !== null && refreshed.until <= Date.now())) {
+			// Clerk could not be asked: the request is answered as it is, and is never handed to the handshake (handoff)
+			if (refreshed === 'fault' || refreshed === 'limited') {
+				if (refreshed === 'fault' && refreshes.get(key) === answer) refreshes.delete(key);
+				return { setCookies: [], outage: true };
+			}
+			if (refreshed !== null && refreshed !== 'refused' && refreshed.until <= Date.now()) {
 				if (refreshes.get(key) === answer) refreshes.delete(key);
 				return null;
 			}
@@ -452,11 +462,42 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				// what a later refresh needs is held only from a verified handshake that signs this browser in, for its instance
 				const signedIn = state.status === 'signed-in' ? sessionTokenOf(setCookies) : null;
 				setCookies.push(...(await holdDirectives(request, signedIn === null ? null : { kind, token: signedIn, refreshToken: clerkRefreshOf(state.headers.getSetCookie(), await refreshNameOf(kind)) })));
+				// the return of a handoff's handshake marks the browser, so it is not handed off again for a while (REAUTH_COOKIE)
+				if (secure && url.searchParams.has(REAUTH_PARAM)) setCookies.push(`${REAUTH_COOKIE}=1; Path=/; Max-Age=${REAUTH_MAX_AGE}; SameSite=Lax; HttpOnly; Secure`);
 				return { kind: 'redirect', location: clean.href, setCookies };
 			}
 			return { kind: 'continue' };
 		},
+		/**
+		 * A page-data request (Kit's `__data.json`) cannot meet the handshake, which only a document load can follow, so a
+		 * client-side navigation whose expired session was not renewed (the refresh token was refused or spent, or there is
+		 * none: live Clerk renews once per refresh token and its answer carries no new one, astra-renewal-7614) would say
+		 * "Your session has ended" while Clerk's own session lives. Instead it is handed the handshake a full load of its page
+		 * starts: the hosted handle answers it with a data redirect there, which Kit follows as a full page load because it
+		 * is another origin, and the handshake's return mints a fresh session and refresh token, back on the page. Only for a
+		 * genuine expired token of a configured instance, the one the request presents or, with none, the one its hold
+		 * keeps: no session, an ambiguous one (refused, as everywhere) or a live token is left to the identity; and never
+		 * twice within REAUTH_MAX_AGE of a handoff's return. If the handshake signs the browser out, its return clears the
+		 * session, so the page is session-ended and nothing is handed off after it.
+		 */
+		async handoff(request, page) {
+			if (!secure || page.origin !== config.appOrigin || isSignInFlowPage(page.pathname) || page.pathname === '/sign-out' || request.headers.has('authorization')) return null;
+			if (cookiePairs(request).some((c) => c.name === REAUTH_COOKIE)) return null;
+			const presented = presentedToken(request);
+			if (presented === 'malformed') return null;
+			const token = presented ?? sessionHoldOf(request)?.token ?? null;
+			if (token === null || !(await revocationEvidenceOf(token, config).catch(() => null))) return null;
+			if ((tokenClaims(token).exp as number) * 1000 > Date.now()) return null;
+			const doc = new URL(page);
+			doc.searchParams.set(REAUTH_PARAM, '1');
+			const headers = new Headers({ 'sec-fetch-dest': 'document', accept: 'text/html' });
+			if (request.headers.has('cookie')) headers.set('cookie', request.headers.get('cookie')!);
+			const started = await api.handle(new Request(doc, { method: 'GET', headers }));
+			// only a handshake start, at the instance's Frontend API, is a handoff
+			return started.kind === 'redirect' && new URL(started.location).origin !== config.appOrigin ? { location: started.location, setCookies: started.setCookies } : null;
+		},
 	};
+	return api;
 }
 
 export function clerkBrowserHandshakeFromEnv(env: Readonly<Record<string, unknown>>): { ok: true; handshake: ClerkBrowserHandshake; config: ClerkIdentityConfig } | { ok: false; reason: string } {

@@ -25,13 +25,21 @@ export type HandshakeOutcome =
 /**
  * A refresh outcome for one request: a renewed session (the credential the provider verifies in place of the request's,
  * and the cookies to set), or, with no credential, only cookies to set on the request as it is (a refused renewal's
- * clear of its spent hold).
+ * clear of its spent hold). `outage`: Clerk could not be asked (an outage, a network fault or its rate limit), so the
+ * request is answered as it is and never handed to the handshake.
  */
-export interface SessionRefresh { credential?: Request; setCookies: string[] }
+export interface SessionRefresh { credential?: Request; setCookies: string[]; outage?: true }
+/** A page-data request handed to a full page load through Clerk's handshake: where to send the browser, and the cookies to set. */
+export interface SessionHandoff { location: string; setCookies: string[] }
 export interface ClerkBrowserHandshake {
 	handle(request: Request): Promise<HandshakeOutcome>;
 	/** The request's expired session renewed at its instance (browser.ts), or null to treat the request as it is. */
 	refresh(request: Request): Promise<SessionRefresh | null>;
+	/**
+	 * For a page-data request whose expired session was not renewed: the handshake a full load of `page` starts (browser.ts),
+	 * or null when there is none to start.
+	 */
+	handoff(request: Request, page: URL): Promise<SessionHandoff | null>;
 }
 
 /**

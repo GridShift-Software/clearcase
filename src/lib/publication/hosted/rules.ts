@@ -158,9 +158,12 @@ function metaAcknowledged(s: CandidateSnapshotV2, meta: MetaEvidence | undefined
   const bound: MetaBinding = { resultsVersion: s.link.candidate.resultsVersion, manifestSha256: s.link.candidate.manifestSha256,
     validatorVersion: s.validation.validatorVersion, diagnosticsSha256: s.validation.diagnosticsSha256 };
   const derived = new Set<string>();
-  for (const d of meta.disagreements) { if (d.fingerprint !== metaDisagreementFingerprint(bound, d)) return false; derived.add(d.fingerprint); }
+  for (const d of meta.disagreements) {
+    if (!disagreementOk(d) || d.fingerprint !== metaDisagreementFingerprint(bound, d)) return false;
+    derived.add(d.fingerprint);
+  }
   if (derived.size !== meta.disagreements.length) return false;
-  const groups = meta.acknowledgements.filter((g) => g.code === META_DISAGREEMENT_CODE);
+  const groups = meta.acknowledgements.filter((g) => plain(g) && g.code === META_DISAGREEMENT_CODE);
   if (groups.length === 0) return false;
   const named = new Set<string>();
   for (const g of groups) {
@@ -200,6 +203,9 @@ export interface CheckedEvidenceItem { readonly key: string; readonly observatio
 
 const metaDetail = (m: unknown): m is MetaCountDetail => plain(m) && keys(m, ['carried', 'derived', 'diagnostic', 'subject']) && (m.carried === null || safeCount(m.carried))
   && safeCount(m.derived) && typeof m.diagnostic === 'string' && FP.test(m.diagnostic) && text(m.subject, 200);
+
+const disagreementOk = (d: unknown): d is MetaDisagreement => plain(d) && keys(d, ['carried', 'derived', 'diagnostic', 'fingerprint', 'subject']) && typeof d.fingerprint === 'string' && FP.test(d.fingerprint)
+  && metaDetail({ carried: d.carried, derived: d.derived, diagnostic: d.diagnostic, subject: d.subject });
 
 /** The META disagreements among checked warning items, as `MetaEvidence` wants them. A fingerprint listed twice is returned twice, so the rule refuses it. */
 export const metaDisagreementsOf = (items: readonly CheckedEvidenceItem[]): MetaDisagreement[] =>

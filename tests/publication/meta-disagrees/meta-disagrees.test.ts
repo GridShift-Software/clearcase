@@ -171,3 +171,62 @@ describe('the derivation is persisted and bounded', () => {
     expect(metaEvidenceItems({ state: 'invalid' })).toEqual([{ key: 'section/meta', observation: { kind: 'section', key: 'meta', state: 'invalid' } }]);
   });
 });
+
+describe('a field that is deleted, nulled or retyped never clears or reads as a disagreement', () => {
+  const bound = { clientId: CLIENT, caseId: CASE, resultsVersion: RV, manifestSha256: evidenceBinding.manifestSha256 };
+  const stored = (observation: unknown) => ({ key: `warning/${'a'.repeat(32)}`, baseline: false, json: JSON.stringify({ observation, input: { caseId: CASE, clientId: CLIENT, manifestSha256: bound.manifestSha256, rendererVersion: 'r', resultsVersion: RV, validatorVersion: 'v' } }) });
+  const item = { kind: 'warning', fingerprint: 'a'.repeat(32), meta: { diagnostic: 'b'.repeat(32), subject: 'META.emails', carried: 469, derived: 629 } };
+
+  it('reads the exact stored item, and refuses every deleted, nulled or retyped leaf of it', () => {
+    expect(checkEvidenceItem(stored(item), bound)?.meta).toEqual(item.meta);
+    const paths = ['fingerprint', 'meta', ...Object.keys(item.meta).map((k) => `meta.${k}`)];
+    for (const path of paths) {
+      const leaf = path.split('.').at(-1)!;
+      const at = (o: any) => path.split('.').slice(0, -1).reduce((x, k) => x[k], o);
+      // A string is a valid subject, a count is a valid carried or derived value, and null is a valid carried count (META lacks the key).
+      const count = path === 'meta.carried' || path === 'meta.derived';
+      const values = [undefined, null, 7, 'x', {}, -1, 1.5].filter((v) => !(path === 'meta.subject' && v === 'x') && !(path === 'meta.carried' && v === null) && !(count && v === 7)
+        && (count || (v !== -1 && v !== 1.5)));
+      for (const value of values) {
+        const o = structuredClone(item);
+        if (value === undefined) delete at(o)[leaf]; else at(o)[leaf] = value;
+        expect(checkEvidenceItem(stored(o), bound)?.meta, `${path}=${JSON.stringify(value)}`).toBeUndefined();
+      }
+    }
+    expect(checkEvidenceItem(stored({ ...item, meta: { ...item.meta, carried: null } }), bound)?.meta?.carried).toBeNull();
+    expect(checkEvidenceItem(stored({ ...item, extra: 1 }), bound)).toBeNull();
+    expect(checkEvidenceItem(stored({ ...item, meta: { ...item.meta, extra: 1 } }), bound)).toBeNull();
+    expect(checkEvidenceItem(stored({ ...item, meta: { ...item.meta, diagnostic: item.fingerprint } }), bound)).toBeNull();
+    expect(checkEvidenceItem(stored({ ...item, kind: 'error' }), bound)).toBeNull();
+    expect(checkEvidenceItem(stored({ ...item, meta: { ...item.meta, derived: 1.5 } }), bound)).toBeNull();
+    expect(checkEvidenceItem(stored({ ...item, meta: { ...item.meta, derived: -1 } }), bound)).toBeNull();
+  });
+
+  it('refuses an acknowledgement group with a deleted, nulled or retyped field, and a malformed group in the list', async () => {
+    const { snap, evidence } = await roundTrip(derive());
+    const all = evidence.map((d) => d.fingerprint), held = { code: 'required-section', detail: ['meta:disagrees'] };
+    const good = ack(all);
+    const blocker = (g: unknown) => signoffBlockerV2(snap, { disagreements: evidence, acknowledgements: [g as AcknowledgementGroup] });
+    expect(blocker(good)).toBeNull();
+    for (const [field, values] of Object.entries({ reason: [undefined, null, 7, {}, ['r']], fingerprints: [undefined, null, 'x', 7, {}, [null], [7], [{}]], code: [undefined, null, 7, 'v5_meta_count_disagreement'] })) {
+      for (const value of values) expect(blocker({ ...good, [field]: value }), `${field}=${JSON.stringify(value)}`).toEqual(held);
+    }
+    for (const g of [null, undefined, 7, 'x', []]) expect(blocker(g)).toEqual(held);
+    expect(signoffBlockerV2(snap, { disagreements: evidence, acknowledgements: [null as never, good] })).toBeNull();
+  });
+
+  it('refuses a disagreement list with a deleted, nulled, retyped or doubled entry', async () => {
+    const { snap, evidence } = await roundTrip(derive());
+    const group = ack(evidence.map((d) => d.fingerprint)), held = { code: 'required-section', detail: ['meta:disagrees'] };
+    const blocker = (disagreements: unknown) => signoffBlockerV2(snap, { disagreements: disagreements as never, acknowledgements: [group] });
+    expect(blocker(evidence)).toBeNull();
+    expect(blocker([evidence[0]])).toEqual(held);
+    expect(blocker([...evidence, evidence[0]])).toEqual(held);
+    for (const field of ['fingerprint', 'diagnostic', 'subject', 'carried', 'derived'] as const) {
+      for (const value of [undefined, null, 7, 'x', {}]) {
+        const changed = evidence.map((d, i) => (i === 0 ? { ...d, [field]: value } : d));
+        expect(blocker(changed), `${field}=${JSON.stringify(value)}`).toEqual(held);
+      }
+    }
+  });
+});

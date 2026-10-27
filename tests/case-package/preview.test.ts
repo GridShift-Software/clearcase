@@ -4,7 +4,23 @@ import { sha256Hex } from '../../src/lib/case-package/hash.ts';
 import { buildSynth, editPackage, resealFiles, type Built } from './fixtures/build.ts';
 import { cleanup } from './fixtures/synth.ts';
 
-const pdf = new TextEncoder().encode('%PDF-1.4\nsynthetic preview\n%%EOF\n');
+function syntheticPdf(): Uint8Array {
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 72 72] >>',
+  ];
+  let text = '%PDF-1.4\n';
+  const offsets = objects.map((object, i) => {
+    const offset = text.length;
+    text += `${i + 1} 0 obj\n${object}\nendobj\n`;
+    return offset;
+  });
+  const xref = text.length;
+  text += `xref\n0 4\n0000000000 65535 f \n${offsets.map((n) => `${String(n).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return new TextEncoder().encode(text);
+}
+const pdf = syntheticPdf();
 const path = 'previews/OD-001.pdf';
 let b: Built;
 

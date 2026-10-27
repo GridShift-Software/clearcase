@@ -19,8 +19,8 @@ const MIGRATIONS = ['0001_preview_render_work.sql', '0002_preview_render_case_li
  .map(f => join('src/lib/viewer/hosted/migrations', f));
 
 /** Synthetic bytes: a PDF header and a tag. Their page count lives only in the browser double's script. */
-export function syntheticPdf(tag: string) {
- const bytes = new TextEncoder().encode(`%PDF-1.7\n% synthetic ${tag}; not a renderable PDF\n`);
+export function syntheticPdf(tag: string, padding = 0) {
+ const bytes = new TextEncoder().encode(`%PDF-1.7\n% synthetic ${tag}; not a renderable PDF\n${'%'.repeat(padding)}`);
  return { bytes, sha256: createHash('sha256').update(bytes).digest('hex'), size: bytes.length };
 }
 
@@ -57,13 +57,16 @@ export function pdfDatabase(sqlite = new DatabaseSync(':memory:')) {
  return { sqlite, state, primary, withSession: vi.fn((_constraint: 'first-primary') => primary) };
 }
 
-export type PdfScript = { totalPages: number; behaviour?: 'corrupt' | 'violate' | 'omit-page' | 'hang' };
+export type PdfScript = { totalPages: number; behaviour?: 'corrupt' | 'violate' | 'omit-page' | 'hang' | 'burst' };
 /**
  * A browser double with one isolated context per document. `evaluate` answers from `script` by input digest, for exactly the
- * pages the server asked for that exist, the way the page program does. It records every document it was asked to inspect.
+ * pages the server asked for that exist, the way the page program does. It records every document it was asked to inspect,
+ * the size of every response body and how many responses were in flight at once. It reassembles the input from the bodies it
+ * was served and refuses a document whose bytes do not hash to the requested digest, as the page program does.
  */
 export function pdfBrowser(script: Map<string, PdfScript>) {
  const inspected: { sha256: string; pages: number[] }[] = [];
+ const responses = { largest: 0, active: 0, mostActive: 0 };
  const contexts = { opened: 0, closed: 0 };
  let connected = true;
  const closedListeners = new Set<() => void>();
@@ -71,15 +74,31 @@ export function pdfBrowser(script: Map<string, PdfScript>) {
   const listeners = new Map<string, ((...args: unknown[]) => unknown)[]>();
   const mainFrame = {};
   const request = async (url: string, type = 'script') => {
-   let finish!: () => void;
-   const done = new Promise<void>(resolve => { finish = resolve; });
+   let finish!: (body: Uint8Array | null) => void;
+   const done = new Promise<Uint8Array | null>(resolve => { finish = resolve; });
    const req = {
     url: () => url, method: () => 'GET', resourceType: () => type, isNavigationRequest: () => type === 'document', frame: () => mainFrame,
-    respond: vi.fn(async () => { finish(); }), abort: vi.fn(async () => { finish(); }),
+    respond: vi.fn(async (response: { body: string | Uint8Array }) => {
+     const body = typeof response.body === 'string' ? new TextEncoder().encode(response.body) : response.body;
+     responses.largest = Math.max(responses.largest, body.byteLength);
+     responses.mostActive = Math.max(responses.mostActive, ++responses.active);
+     await new Promise(resolve => setTimeout(resolve, 1));
+     responses.active--;
+     finish(body);
+    }),
+    abort: vi.fn(async () => { finish(null); }),
    };
    for (const f of listeners.get('request') ?? []) f(req as unknown as HTTPRequest);
-   await done;
-   return req;
+   return done;
+  };
+  const input = async (args: { size: number; parts?: number }, burst: boolean) => {
+   const urls = args.parts === undefined ? ['https://app.example/__clearcase_native_pdf__/input.pdf']
+    : Array.from({ length: args.parts }, (_, k) => `https://app.example/__clearcase_native_pdf__/input/${k}`);
+   const bodies = burst ? await Promise.all(urls.map(u => request(u, 'fetch'))) : await urls.reduce(async (all, u) => [...await all, await request(u, 'fetch')], Promise.resolve([] as (Uint8Array | null)[]));
+   if (bodies.some(b => !b)) throw Error('inspection refused');
+   const whole = new Uint8Array(bodies.reduce((n, b) => n + b!.byteLength, 0));
+   bodies.reduce((at, b) => { whole.set(b!, at); return at + b!.byteLength; }, 0);
+   return whole;
   };
   const page = {
    setDefaultTimeout: vi.fn(), setDefaultNavigationTimeout: vi.fn(),
@@ -91,10 +110,12 @@ export function pdfBrowser(script: Map<string, PdfScript>) {
     await request('https://app.example/__clearcase_native_pdf__/inspector.mjs');
     await request('https://app.example/pdfjs/pdf.min.mjs');
    }),
-   evaluate: vi.fn(async (_fn: unknown, args: { binding: string; sha256: string; size: number; pages: number[] }): Promise<unknown> => {
-    await request('https://app.example/__clearcase_native_pdf__/input.pdf', 'fetch');
-    await request('https://app.example/pdfjs/pdf.worker.min.mjs', 'fetch');
+   evaluate: vi.fn(async (_fn: unknown, args: { binding: string; sha256: string; size: number; pages: number[]; parts?: number }): Promise<unknown> => {
     const s = script.get(args.sha256);
+    const burst = s?.behaviour === 'burst';
+    const [bytes] = await Promise.all([input(args, burst), burst ? Promise.all(['pdf.worker.min.mjs', 'standard_fonts/FoxitSerif.pfb', 'standard_fonts/FoxitDingbats.pfb']
+     .map(p => request('https://app.example/pdfjs/' + p, 'fetch'))) : request('https://app.example/pdfjs/pdf.worker.min.mjs', 'fetch')]);
+    if (bytes.byteLength !== args.size || createHash('sha256').update(bytes).digest('hex') !== args.sha256) throw Error('inspection refused');
     inspected.push({ sha256: args.sha256, pages: [...args.pages] });
     if (!s || s.behaviour === 'corrupt') throw Error('inspection refused');
     if (s.behaviour === 'violate') await request('https://app.example/private/case-data', 'fetch');
@@ -120,7 +141,7 @@ export function pdfBrowser(script: Map<string, PdfScript>) {
  };
  /** Each launch is a new connected browser over the same script and records. */
  const launch = () => { connected = true; return browser; };
- return { browser, launch, inspected, contexts };
+ return { browser, launch, inspected, contexts, responses };
 }
 
 export function evidenceOptions(db: ReturnType<typeof pdfDatabase>, pins: NativePreviewRenderPins, root: string, clock: () => number,

@@ -5,7 +5,7 @@
 // evidence only, not a browser or a real Clerk instance.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readClerkIdentityConfig, type InstanceKind } from '../../../src/lib/auth/clerk/config.ts';
-import { SIGN_IN_RETURN_COOKIE, sealSignInReturn } from '../../../src/lib/auth/clerk/flow.ts';
+import { SIGN_IN_RETURN_PREFIX, sealSignInReturn } from '../../../src/lib/auth/clerk/flow.ts';
 import { craftedInstance } from './synthetic.ts';
 
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
@@ -66,6 +66,21 @@ async function callback(kind: InstanceKind, origin: Origin, jar: Jar) {
 	expect(r.thrown, `${kind} callback on ${origin}`).toMatchObject({ status: 303 });
 	return r.thrown!.location!;
 }
+/** This flow's attempt cookies in the jar, and the bytes they add to a Cookie header. */
+const attemptsOf = (kind: InstanceKind, jar: Jar) => [...jar].filter(([n]) => n.startsWith(SIGN_IN_RETURN_PREFIX[kind]));
+const attemptBytes = (kind: InstanceKind, jar: Jar) => attemptsOf(kind, jar).reduce((n, [name, value]) => n + name.length + value.length + 3, 0);
+/** A fake Date one second further on each call, so attempts made in a loop have a definite order. */
+const ticking = () => {
+	vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-27T09:00:00Z') });
+	return () => vi.setSystemTime(Date.now() + 1000);
+};
+/** Changes one decoded byte of a MAC near its end (the last base64url character also carries unused bits). */
+const flip = (s: string) => `${s.slice(0, -3)}${s.at(-3) === 'A' ? 'B' : 'A'}${s.slice(-2)}`;
+const sealed = async (kind: InstanceKind, origin: Origin, to: string) => {
+	const c = await sealSignInReturn(configOf(origin), kind, to);
+	if (!c) throw new Error('no attempt on this origin');
+	return [c.name, c.value] as [string, string];
+};
 const configOf = (origin: Origin) => {
 	const read = readClerkIdentityConfig(app(origin), { keys: 'optional' });
 	if (!read.ok) throw new Error(read.reason);
@@ -107,14 +122,14 @@ describe('returnTo survives the round trip in a short-lived __Host- state cookie
 		const { sets, jar } = await post(kind, ORIGIN_A, '/cases/case-2?tab=documents');
 		expect(sets).toHaveLength(1);
 		const [set] = sets;
-		expect(set!.name).toBe(SIGN_IN_RETURN_COOKIE[kind]);
+		expect(set!.name).toMatch(new RegExp(`^${SIGN_IN_RETURN_PREFIX[kind]}[A-Za-z0-9_-]{22}$`));
 		expect(set!.name.startsWith('__Host-')).toBe(true);
 		expect(set!.options).toMatchObject({ path: '/', httpOnly: true, secure: true, sameSite: 'lax' });
 		expect(set!.options).not.toHaveProperty('domain');
 		expect(set!.options.maxAge).toBeGreaterThan(0);
 		expect(set!.options.maxAge).toBeLessThanOrEqual(900);
 		expect(await callback(kind, ORIGIN_A, jar)).toBe('/cases/case-2?tab=documents');
-		expect(jar.has(SIGN_IN_RETURN_COOKIE[kind])).toBe(false);
+		expect(attemptsOf(kind, jar)).toEqual([]);
 		expect(await callback(kind, ORIGIN_A, jar)).toBe('/cases');
 	});
 	it('keeps a staff and a client sign-in in flight in one browser apart', async () => {
@@ -138,67 +153,84 @@ async function land(kind: InstanceKind, origin: Origin, jar: Jar, search = '') {
 		expect(r.thrown, `${kind} callback on ${origin}${search}`).toMatchObject({ status: 303 });
 		return { location: r.thrown.location! };
 	}
-	return { pending: (r.value as { pending?: { to: string; href: string }[] }).pending };
+	return { pending: (r.value as { pending?: { to: string; attempt: string }[] }).pending };
+}
+/** The callback page's POST choice of one attempt, from this origin, with this jar: where it sends the browser. */
+async function choose(kind: InstanceKind, origin: Origin, jar: Jar, attempt: string) {
+	workers.env = app(origin);
+	const url = new URL(callbackUrl(kind, origin));
+	const request = new Request(url, { method: 'POST', headers: { origin, cookie: header(jar), 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ attempt }) });
+	const r = await outcome(() => flows[kind].route.actions.default!({ locals: locals(verified(kind)), url, request, cookies: cookiesOf(jar, []) } as never));
+	expect(r.thrown, `${kind} choice on ${origin}`).toMatchObject({ status: 303 });
+	return { location: r.thrown!.location! };
 }
 
 describe('two tabs signing in through the same flow each reach their own target (review M1)', () => {
 	// Clerk returns both tabs to the same fixed callback with the same cookies, so the callback cannot tell them apart.
 	// It never sends one tab to the other's target: one pending target goes straight there; several are offered as
-	// links, each of which consumes only its own entry, so the other tab still finds its own.
+	// POST choices, each of which consumes only its own attempt, so the other tab still finds its own.
 	const ORDERS = [['A', 'B'], ['B', 'A']] as const;
 	it.each(KINDS.flatMap((kind) => ORDERS.map((order) => [kind, order.join(' then ')] as const)))('%s: callbacks in order %s', async (kind, order) => {
-		const jar: Jar = new Map(), target = (tab: string) => `/cases/tab-${tab}`;
+		const jar: Jar = new Map(), target = (tab: string) => `/cases/tab-${tab}`, tick = ticking();
 		await post(kind, ORIGIN_A, target('A'), jar);
+		tick();
 		await post(kind, ORIGIN_A, target('B'), jar);
 		const [first, second] = order.split(' then ');
 		const offered = await land(kind, ORIGIN_A, jar);
 		expect(offered.location, 'the first callback must not guess a tab').toBeUndefined();
 		expect(offered.pending?.map((p) => p.to)).toEqual([target('A'), target('B')]);
 		const own = offered.pending!.find((p) => p.to === target(first!))!;
-		expect(new URL(own.href, ORIGIN_A).pathname).toBe(flows[kind].path);
-		expect(await land(kind, ORIGIN_A, jar, new URL(own.href, ORIGIN_A).search)).toEqual({ location: target(first!) });
+		expect(await choose(kind, ORIGIN_A, jar, own.attempt)).toEqual({ location: target(first!) });
 		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: target(second!) });
-		expect(jar.has(SIGN_IN_RETURN_COOKIE[kind])).toBe(false);
+		expect(attemptsOf(kind, jar)).toEqual([]);
 	});
 	it.each(KINDS)('%s: a second POST for the same target keeps one entry and returns straight there', async (kind) => {
 		const jar: Jar = new Map();
 		await post(kind, ORIGIN_A, '/cases/case-1', jar);
 		await post(kind, ORIGIN_A, '/cases/case-1', jar);
 		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: '/cases/case-1' });
-		expect(jar.has(SIGN_IN_RETURN_COOKIE[kind])).toBe(false);
+		expect(attemptsOf(kind, jar)).toEqual([]);
 	});
 	it.each(KINDS)('%s: bounds the set, keeping the newest attempts in a cookie a browser will hold', async (kind) => {
-		const jar: Jar = new Map();
-		for (const n of [1, 2, 3, 4, 5, 6]) await post(kind, ORIGIN_A, `/cases/case-${n}`, jar);
-		expect(jar.get(SIGN_IN_RETURN_COOKIE[kind])!.length).toBeLessThanOrEqual(3800);
+		const jar: Jar = new Map(), tick = ticking();
+		for (const n of [1, 2, 3, 4, 5, 6]) { await post(kind, ORIGIN_A, `/cases/case-${n}`, jar); tick(); }
+		expect(attemptsOf(kind, jar)).toHaveLength(4);
+		expect(attemptBytes(kind, jar)).toBeLessThanOrEqual(3800);
 		expect((await land(kind, ORIGIN_A, jar)).pending?.map((p) => p.to)).toEqual(['/cases/case-3', '/cases/case-4', '/cases/case-5', '/cases/case-6']);
 		const big = (c: string) => `/cases/${c.repeat(2000)}`;
 		await post(kind, ORIGIN_A, big('x'), jar);
+		tick();
 		await post(kind, ORIGIN_A, big('y'), jar);
-		expect(jar.get(SIGN_IN_RETURN_COOKIE[kind])!.length).toBeLessThanOrEqual(3800);
+		expect(attemptBytes(kind, jar)).toBeLessThanOrEqual(3800);
+		for (const [name, value] of attemptsOf(kind, jar)) expect(name.length + value.length + 1, 'one cookie a browser will hold').toBeLessThan(4096);
 		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: big('y') });
 	});
 	it.each(KINDS)('%s: drops an expired, tampered or other-flow entry from the set and keeps the rest', async (kind) => {
 		vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-27T09:00:00Z') });
-		const name = SIGN_IN_RETURN_COOKIE[kind], other = kind === 'staff' ? 'client' : 'staff';
-		const old = await sealSignInReturn(configOf(ORIGIN_A), kind, '/cases/old');
+		const other = kind === 'staff' ? 'client' : 'staff';
+		const old = await sealed(kind, ORIGIN_A, '/cases/old');
 		vi.setSystemTime(new Date('2026-10-27T09:15:01Z'));
-		const fresh = await sealSignInReturn(configOf(ORIGIN_A), kind, '/cases/fresh'), foreign = await sealSignInReturn(configOf(ORIGIN_A), other, '/cases/foreign');
-		const flip = (s: string) => `${s.slice(0, -1)}${s.endsWith('A') ? 'B' : 'A'}`;
-		const tampered = flip((await sealSignInReturn(configOf(ORIGIN_A), kind, '/cases/tampered'))!);
-		expect(await land(kind, ORIGIN_A, new Map([[name, [old, foreign, tampered, fresh].join('~')]]))).toEqual({ location: '/cases/fresh' });
+		const fresh = await sealed(kind, ORIGIN_A, '/cases/fresh'), [foreignName, foreign] = await sealed(other, ORIGIN_A, '/cases/foreign');
+		const [tamperedName, tampered] = await sealed(kind, ORIGIN_A, '/cases/tampered');
+		// The other flow's attempt, renamed into this flow's prefix with its own id, still counts as none.
+		const moved = `${SIGN_IN_RETURN_PREFIX[kind]}${foreignName.slice(SIGN_IN_RETURN_PREFIX[other].length)}`;
+		const jar: Jar = new Map([old, [moved, foreign], [tamperedName, flip(tampered)], fresh]);
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: '/cases/fresh' });
+		expect(attemptsOf(kind, jar), 'the used attempt and the refused ones are deleted').toEqual([]);
 	});
 	it('keeps two staff tabs and a client tab apart in one browser', async () => {
-		const jar: Jar = new Map();
+		const jar: Jar = new Map(), tick = ticking();
 		await post('staff', ORIGIN_A, '/cases/staff-A', jar);
 		await post('client', ORIGIN_A, '/cases/client-A', jar);
+		tick();
 		await post('staff', ORIGIN_A, '/cases/staff-B', jar);
 		expect(await land('client', ORIGIN_A, jar)).toEqual({ location: '/cases/client-A' });
 		expect((await land('staff', ORIGIN_A, jar)).pending?.map((p) => p.to)).toEqual(['/cases/staff-A', '/cases/staff-B']);
 	});
 	it.each(KINDS)('%s: an explicit returnTo on the callback consumes only its own entry', async (kind) => {
-		const jar: Jar = new Map();
+		const jar: Jar = new Map(), tick = ticking();
 		await post(kind, ORIGIN_A, '/cases/tab-A', jar);
+		tick();
 		await post(kind, ORIGIN_A, '/cases/tab-B', jar);
 		expect(await land(kind, ORIGIN_A, jar, query('/cases/elsewhere'))).toEqual({ location: '/cases/elsewhere' });
 		expect(await land(kind, ORIGIN_A, jar, query('//attacker.example.test'))).toEqual({ location: '/cases' });
@@ -213,41 +245,43 @@ describe('a hostile returnTo is refused when the state is set and when it is rea
 		expect(await callback(kind, ORIGIN_A, jar)).toBe('/cases');
 	});
 	it.each(KINDS.flatMap((kind) => HOSTILE.map((returnTo) => [kind, returnTo] as const)))('%s: refuses %j even under a state MAC that verifies', async (kind, returnTo) => {
-		const value = await sealSignInReturn(configOf(ORIGIN_A), kind, returnTo);
-		expect(value).not.toBeNull();
-		expect(await callback(kind, ORIGIN_A, new Map([[SIGN_IN_RETURN_COOKIE[kind], value!]]))).toBe('/cases');
+		expect(await callback(kind, ORIGIN_A, new Map([await sealed(kind, ORIGIN_A, returnTo)]))).toBe('/cases');
 	});
 });
 
 describe('a missing, expired, tampered or foreign state goes to /cases, never elsewhere', () => {
-	const stateOf = async (kind: InstanceKind, origin: Origin, returnTo = '/cases/case-1') => (await post(kind, origin, returnTo)).jar.get(SIGN_IN_RETURN_COOKIE[kind])!;
+	const stateOf = async (kind: InstanceKind, origin: Origin, returnTo = '/cases/case-1') => attemptsOf(kind, (await post(kind, origin, returnTo)).jar)[0]!;
 
 	it.each(KINDS)('expires a %s state after its lifetime', async (kind) => {
 		vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-27T09:00:00Z') });
 		const state = await stateOf(kind, ORIGIN_A);
 		vi.setSystemTime(new Date('2026-10-27T09:14:00Z'));
-		expect(await callback(kind, ORIGIN_A, new Map([[SIGN_IN_RETURN_COOKIE[kind], state]]))).toBe('/cases/case-1');
+		expect(await callback(kind, ORIGIN_A, new Map([state]))).toBe('/cases/case-1');
 		vi.setSystemTime(new Date('2026-10-27T09:15:01Z'));
-		expect(await callback(kind, ORIGIN_A, new Map([[SIGN_IN_RETURN_COOKIE[kind], state]]))).toBe('/cases');
+		expect(await callback(kind, ORIGIN_A, new Map([state]))).toBe('/cases');
 	});
-	it.each(KINDS)('refuses a tampered, truncated, repeated or renamed %s state', async (kind) => {
-		const name = SIGN_IN_RETURN_COOKIE[kind], state = await stateOf(kind, ORIGIN_A), other = await stateOf(kind, ORIGIN_A, '/cases/case-2');
+	it.each(KINDS)('refuses a tampered, truncated, repeated, renamed or moved %s state', async (kind) => {
+		const [name, state] = await stateOf(kind, ORIGIN_A), [otherName, other] = await stateOf(kind, ORIGIN_A, '/cases/case-2');
 		const [target, issued, mac] = state.split('.'), [otherTarget] = other.split('.');
-		const flip = (s: string) => `${s.slice(0, -1)}${s.endsWith('A') ? 'B' : 'A'}`;
+		expect(await callbackWithHeader(kind, ORIGIN_A, `${name}=${state}`)).toBe('/cases/case-1');
 		for (const cookie of [
 			`${name}=${flip(state)}`, `${name}=${otherTarget}.${issued}.${mac}`, `${name}=${target}.${Number(issued) + 1}.${mac}`, `${name}=${target}.${issued}`, `${name}=${target}`, `${name}=`,
 			`${name}=${state}; ${name}=${state}`, `${name}=${state}; ${name}=${other}`, `${name.replace('__Host-', '')}=${state}`,
+			`${otherName}=${state}`, `${SIGN_IN_RETURN_PREFIX[kind].slice(0, -1)}=${state}`, `${name}x=${state}`,
 		]) expect(await callbackWithHeader(kind, ORIGIN_A, cookie), cookie).toBe('/cases');
 	});
 	it.each(KINDS)('refuses a %s state minted on another client origin that shares the staff instance', async (kind) => {
 		const state = await stateOf(kind, ORIGIN_C);
-		expect(await callback(kind, ORIGIN_A, new Map([[SIGN_IN_RETURN_COOKIE[kind], state]]))).toBe('/cases');
-		expect(await callback(kind, ORIGIN_C, new Map([[SIGN_IN_RETURN_COOKIE[kind], state]]))).toBe('/cases/case-1');
+		expect(await callback(kind, ORIGIN_A, new Map([state]))).toBe('/cases');
+		expect(await callback(kind, ORIGIN_C, new Map([state]))).toBe('/cases/case-1');
 	});
 	it('refuses a state minted for the other flow, under either cookie name', async () => {
+		const into = (kind: InstanceKind, [name, value]: [string, string], from: InstanceKind) => new Map([[`${SIGN_IN_RETURN_PREFIX[kind]}${name.slice(SIGN_IN_RETURN_PREFIX[from].length)}`, value]]);
 		const staff = await stateOf('staff', ORIGIN_A), clientState = await stateOf('client', ORIGIN_A);
-		expect(await callback('client', ORIGIN_A, new Map([[SIGN_IN_RETURN_COOKIE.client, staff]]))).toBe('/cases');
-		expect(await callback('staff', ORIGIN_A, new Map([[SIGN_IN_RETURN_COOKIE.staff, clientState]]))).toBe('/cases');
+		expect(await callback('client', ORIGIN_A, into('client', staff, 'staff'))).toBe('/cases');
+		expect(await callback('staff', ORIGIN_A, into('staff', clientState, 'client'))).toBe('/cases');
+		expect(await callback('client', ORIGIN_A, new Map([staff]))).toBe('/cases');
+		expect(await callback('staff', ORIGIN_A, new Map([clientState]))).toBe('/cases');
 	});
 	it.each(KINDS)('sets no %s state on a plain http origin, which cannot hold a __Host- cookie, and returns it to /cases', async (kind) => {
 		const { r, sets, jar } = await post(kind, ORIGIN_L, '/cases/case-1');

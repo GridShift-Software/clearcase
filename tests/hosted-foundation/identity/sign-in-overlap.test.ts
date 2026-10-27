@@ -4,12 +4,16 @@
 // speculative prefetch issue GETs nobody clicked, and such a GET must not consume an attempt. SYNTHETIC keys and hosts;
 // route-handler and SSR markup evidence only, not a browser or a real Clerk instance.
 import { readFileSync } from 'node:fs';
+// @ts-expect-error jsdom ships no types and the root pins no @types/jsdom; the test only reads parsed markup.
 import { JSDOM } from 'jsdom';
 import { render } from 'svelte/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { InstanceKind } from '../../../src/lib/auth/clerk/config.ts';
 import ClientPage from '../../../deploy/client/routes/sign-in/+page.svelte';
 import StaffPage from '../../../deploy/client/routes/sign-in/operator/+page.svelte';
+import { createHandle } from '../../../src/lib/server/runtime/hosted/handle.ts';
+import { id } from '../../../src/lib/server/runtime/ids.ts';
+import { createUnavailableServices } from '../../../src/lib/server/runtime/unavailable.ts';
 import { craftedInstance } from './synthetic.ts';
 
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
@@ -152,5 +156,16 @@ describe('a GET nobody clicked never consumes an attempt (re-check M2)', () => {
 		expect(jar).toEqual(before);
 		expect((await land(kind, jar)).location).toBe(target('A'));
 		expect(stateOf(kind, jar)).toEqual([]);
+	});
+});
+
+describe('a chooser POST passes the hosted exact-Origin check or reaches no route', () => {
+	const handle = createHandle(async () => ({ ready: true, services: createUnavailableServices({ clientId: id('client', 'client-a'), now: () => new Date('2026-10-27T09:00:00.000Z') }) }));
+	it.each(KINDS.flatMap((kind) => [['https://attacker.example.test'], ['https://client-c.clearcase.test'], ['null'], [null]].map(([origin]) => [kind, String(origin), origin] as const)))('%s: refuses a choice with Origin %s before the route', async (kind, _label, origin) => {
+		const request = new Request(`${ORIGIN}${flows[kind].path}`, { method: 'POST', headers: { ...(origin === null ? {} : { origin }), 'content-type': 'application/x-www-form-urlencoded' }, body: 'attempt=AAAAAAAAAAAAAAAAAAAAAA' });
+		const resolve = vi.fn(async () => new Response('route ran'));
+		const response = await handle({ event: { request, url: new URL(request.url), locals: {} }, resolve } as unknown as Parameters<typeof handle>[0]);
+		expect(response.status).toBe(403);
+		expect(resolve).not.toHaveBeenCalled();
 	});
 });

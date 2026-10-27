@@ -168,46 +168,55 @@ export function signInReturnTarget(value: unknown): string {
 }
 
 /**
- * The return targets of the sign-ins in flight, one cookie per flow. Clerk sees one fixed callback per origin and flow
- * (config.ts clerkSignInTarget), because an instance that allows only exact redirect URLs sends any other one to its
- * home URL, so the sign-in POST keeps the target here and the callback reads it. Each POST adds one entry: the target
- * (base64url), its issue time and an HMAC-SHA-256 under the flow's own instance secret key over this app, client,
- * instance and flow, so an entry from another origin, client or flow counts as none. Entries are joined by `~`, oldest
- * first, one per target. It is a `__Host-` cookie a sibling origin cannot plant; a plain http origin cannot hold one,
- * so its sign-ins return to DEFAULT_RETURN.
+ * The return targets of the sign-ins in flight, one `__Host-` cookie per attempt. Clerk sees one fixed callback per
+ * origin and flow (config.ts clerkSignInTarget), because an instance that allows only exact redirect URLs sends any
+ * other one to its home URL, so the sign-in POST keeps the target here and the callback reads it. Each POST sets its own
+ * cookie, the flow's prefix and a random attempt id, so two POSTs in flight at once never write the same cookie and
+ * neither answer drops the other's attempt (a read-modify-write of one shared cookie cannot be made race-free). Its
+ * value is the target (base64url), its issue time and an HMAC-SHA-256 under the flow's own instance secret key over
+ * this app, client, instance, flow and attempt id, so a value from another origin, client, flow or attempt counts as
+ * none. A sibling origin cannot plant a `__Host-` cookie; a plain http origin cannot hold one, so its sign-ins return to
+ * DEFAULT_RETURN.
  *
- * Two tabs of one browser share the cookie and come back to the same callback with the same cookies, so a callback
- * cannot tell which entry is its own. It never guesses: one pending target is followed, and several are offered to
- * the user (signInReturn), each link consuming only its own entry.
+ * Two tabs of one browser share the cookies and come back to the same callback with the same cookies, so a callback
+ * cannot tell which attempt is its own. It never guesses: one pending target is followed, and several are offered as
+ * POST choices (chooseSignInReturn). Only those two consume an attempt; a GET nobody clicked (a hover preload of a
+ * link, a speculative prefetch, a returnTo in the URL) consumes none.
  */
-export const SIGN_IN_RETURN_COOKIE: Readonly<Record<InstanceKind, string>> = { client: '__Host-clearcase_return', staff: '__Host-clearcase_staff_return' };
+export const SIGN_IN_RETURN_PREFIX: Readonly<Record<InstanceKind, string>> = { client: '__Host-clearcase_return-', staff: '__Host-clearcase_staff_return-' };
 /** How long a sign-in may take at the portal before its return target lapses, in seconds. */
 export const SIGN_IN_RETURN_TTL = 900;
-/** How many sign-ins of one flow may be in flight in one browser; a further one drops the oldest. */
+/** How many sign-ins of one flow may be in flight in one browser; a further one evicts the oldest. */
 export const SIGN_IN_RETURN_LIMIT = 4;
-// A browser holds a cookie of up to 4096 bytes, name included; the oldest entries go first to stay under this.
-const RETURN_LABEL = 'clearcase sign-in return v1', RETURN_MAX_BYTES = 2048, RETURN_STATE_MAX = 3800;
+// A browser holds a cookie of up to 4096 bytes, name included. One flow's attempts together stay within
+// RETURN_STATE_MAX bytes of Cookie header, oldest evicted first; POSTs that overlap may each add one before the next
+// request bounds them again. At most RETURN_SCAN of a flow's cookies are read.
+const RETURN_LABEL = 'clearcase sign-in return v2', RETURN_MAX_BYTES = 2048, RETURN_STATE_MAX = 3800, RETURN_SCAN = 2 * SIGN_IN_RETURN_LIMIT;
+const RETURN_ID = /^[A-Za-z0-9_-]{22}$/;
 const RETURN_STATE = /^([A-Za-z0-9_-]{2,2731})\.(\d{1,12})\.([A-Za-z0-9_-]{43})$/;
-const returnParts = (config: ClerkIdentityConfig, kind: InstanceKind, issued: string, to: string) => [kind, config[kind].issuer, issued, to];
+const returnParts = (config: ClerkIdentityConfig, kind: InstanceKind, id: string, issued: string, to: string) => [kind, config[kind].issuer, id, issued, to];
 const returnOptions = { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: SIGN_IN_RETURN_TTL } as const;
-type PendingReturn = { to: string; entry: string };
-/** What a route does with the state cookie: set it to `value`, or delete it when `value` is null. */
-export type SignInReturnState = { name: string; value: string | null; options: typeof returnOptions };
+type Attempt = { name: string; id: string; to: string; issued: number; bytes: number };
+/** The cookies a route changes for the return targets: at most one attempt to set, and the attempt cookies to delete. */
+export type SignInReturnChange = { set: { name: string; value: string; options: typeof returnOptions } | null; delete: string[] };
+/** One sign-in's choice on the callback page: its target and the attempt a choice consumes. */
+export type PendingSignInReturn = { to: string; attempt: string };
 
-/** The state entry for a target exactly as given (signInReturnCookie validates it first), or null on an http origin. */
-export async function sealSignInReturn(config: ClerkIdentityConfig, kind: InstanceKind, returnTo: string): Promise<string | null> {
+/** A new attempt's cookie for a target exactly as given (signInReturnCookie validates it first), or null on an http origin. */
+export async function sealSignInReturn(config: ClerkIdentityConfig, kind: InstanceKind, returnTo: string): Promise<{ name: string; value: string } | null> {
 	if (!hostCookies(config)) return null;
-	const issued = String(Math.floor(Date.now() / 1000));
-	return `${b64url(new TextEncoder().encode(returnTo))}.${issued}.${await macOf(RETURN_LABEL, config, returnParts(config, kind, issued, returnTo), config[kind])}`;
+	const id = b64url(crypto.getRandomValues(new Uint8Array(16))), issued = String(Math.floor(Date.now() / 1000));
+	const mac = await macOf(RETURN_LABEL, config, returnParts(config, kind, id, issued, returnTo), config[kind]);
+	return { name: `${SIGN_IN_RETURN_PREFIX[kind]}${id}`, value: `${b64url(new TextEncoder().encode(returnTo))}.${issued}.${mac}` };
 }
 /**
- * The target one entry carries for this flow, or null: issued for this app, client, instance and flow within
- * SIGN_IN_RETURN_TTL, under a MAC that verifies, naming a target signInReturnTarget keeps unchanged.
+ * The target one attempt carries for this flow, or null: issued for this app, client, instance, flow and attempt id
+ * within SIGN_IN_RETURN_TTL, under a MAC that verifies, naming a target signInReturnTarget keeps unchanged.
  */
-async function openSignInReturn(config: ClerkIdentityConfig, kind: InstanceKind, entry: string): Promise<string | null> {
-	const m = RETURN_STATE.exec(entry);
-	if (!m) return null;
-	const age = Math.floor(Date.now() / 1000) - Number(m[2]);
+async function openSignInReturn(config: ClerkIdentityConfig, kind: InstanceKind, id: string, value: string): Promise<{ to: string; issued: number } | null> {
+	const m = RETURN_STATE.exec(value);
+	if (!RETURN_ID.test(id) || !m) return null;
+	const issued = Number(m[2]), age = Math.floor(Date.now() / 1000) - issued;
 	if (age < -60 || age > SIGN_IN_RETURN_TTL) return null;
 	let to: string;
 	try {
@@ -215,66 +224,79 @@ async function openSignInReturn(config: ClerkIdentityConfig, kind: InstanceKind,
 	} catch {
 		return null;
 	}
-	if (!(await macVerifies(RETURN_LABEL, config, returnParts(config, kind, m[2]!, to), m[3]!, config[kind]))) return null;
-	return signInReturnTarget(to) === to ? to : null;
+	if (!(await macVerifies(RETURN_LABEL, config, returnParts(config, kind, id, m[2]!, to), m[3]!, config[kind]))) return null;
+	return signInReturnTarget(to) === to ? { to, issued } : null;
 }
 /**
- * The targets this flow's state carries, oldest first, one per target: exactly one cookie, at most SIGN_IN_RETURN_LIMIT
- * entries, of which those openSignInReturn refuses are dropped. None on an http origin.
+ * This flow's attempts in `request`, oldest first, within SIGN_IN_RETURN_LIMIT and RETURN_STATE_MAX bytes together with
+ * the attempt a POST is `adding`, and the names to delete: each cookie openSignInReturn refuses or the request repeats,
+ * those for the target being added, and the oldest valid ones beyond the bounds. None on an http origin.
  */
-async function pendingSignInReturns(config: ClerkIdentityConfig, request: Request, kind: InstanceKind): Promise<PendingReturn[]> {
-	if (!hostCookies(config)) return [];
-	const states = cookiePairs(request).filter((c) => c.name === SIGN_IN_RETURN_COOKIE[kind]);
-	if (states.length !== 1 || states[0]!.value.length > RETURN_STATE_MAX) return [];
-	const entries = states[0]!.value.split('~');
-	if (entries.length > SIGN_IN_RETURN_LIMIT) return [];
-	const pending: PendingReturn[] = [];
-	for (const entry of entries) {
-		const to = await openSignInReturn(config, kind, entry);
-		if (to !== null && !pending.some((p) => p.to === to)) pending.push({ to, entry });
+async function signInAttempts(config: ClerkIdentityConfig, request: Request, kind: InstanceKind, adding?: { to: string; bytes: number }): Promise<{ attempts: Attempt[]; drop: string[] }> {
+	if (!hostCookies(config)) return { attempts: [], drop: [] };
+	const prefix = SIGN_IN_RETURN_PREFIX[kind], pairs = cookiePairs(request).filter((c) => c.name.startsWith(prefix));
+	const attempts: Attempt[] = [], drop: string[] = [];
+	for (const name of [...new Set(pairs.map((c) => c.name))].slice(0, RETURN_SCAN)) {
+		const values = pairs.filter((c) => c.name === name), id = name.slice(prefix.length);
+		const opened = values.length === 1 ? await openSignInReturn(config, kind, id, values[0]!.value) : null;
+		if (opened && opened.to !== adding?.to) attempts.push({ name, id, ...opened, bytes: name.length + values[0]!.value.length + 3 });
+		else drop.push(name);
 	}
-	return pending;
+	attempts.sort((a, b) => a.issued - b.issued || (a.name < b.name ? -1 : 1));
+	const count = () => attempts.length + (adding ? 1 : 0), bytes = () => attempts.reduce((n, a) => n + a.bytes, adding?.bytes ?? 0);
+	while (attempts.length && (count() > SIGN_IN_RETURN_LIMIT || bytes() > RETURN_STATE_MAX)) drop.push(attempts.shift()!.name);
+	return { attempts, drop };
 }
-/** The state cookie holding these entries, the oldest dropped to keep within the bounds; a delete when none are left. */
-function signInReturnState(kind: InstanceKind, pending: readonly PendingReturn[]): SignInReturnState {
-	const kept = [...pending];
-	while (kept.length > SIGN_IN_RETURN_LIMIT || kept.map((p) => p.entry).join('~').length > RETURN_STATE_MAX) kept.shift();
-	return { name: SIGN_IN_RETURN_COOKIE[kind], value: kept.length ? kept.map((p) => p.entry).join('~') : null, options: returnOptions };
-}
+/** The targets of these attempts, oldest first, each once, with the oldest attempt for it. */
+const choicesOf = (attempts: readonly Attempt[]): PendingSignInReturn[] => attempts.filter((a, i) => attempts.findIndex((b) => b.to === a.to) === i).map((a) => ({ to: a.to, attempt: a.id }));
+/** Whether the browser marked this GET as speculative (a prefetch or prerender), so nobody has asked for it yet. */
+const speculative = (request: Request) => ['sec-purpose', 'purpose'].some((h) => /\bprefetch\b/i.test(request.headers.get(h) ?? ''));
 /**
- * The state cookie a sign-in POST sets: the entries already pending in `request` for this flow, less any for the same
- * target, then the asked `returnTo`, validated by signInReturnTarget (a target too long for a cookie is
- * DEFAULT_RETURN). Null when Clerk is not configured or on an http origin.
+ * The cookies a sign-in POST changes: a new attempt for the asked `returnTo`, validated by signInReturnTarget (a target
+ * too long for a cookie is DEFAULT_RETURN), and deletes for this flow's refused attempts, those for the same target and
+ * the oldest beyond the bounds. Null when Clerk is not configured or on an http origin.
  */
-export async function signInReturnCookie(env: Readonly<Record<string, unknown>>, kind: InstanceKind, returnTo: unknown, request: Request): Promise<SignInReturnState | null> {
+export async function signInReturnCookie(env: Readonly<Record<string, unknown>>, kind: InstanceKind, returnTo: unknown, request: Request): Promise<SignInReturnChange | null> {
 	const read = readClerkIdentityConfig(env, { keys: 'optional' });
 	if (!read.ok) return null;
 	const target = signInReturnTarget(returnTo), to = new TextEncoder().encode(target).length <= RETURN_MAX_BYTES ? target : DEFAULT_RETURN;
-	const entry = await sealSignInReturn(read.config, kind, to);
-	if (entry === null) return null;
-	const pending = (await pendingSignInReturns(read.config, request, kind)).filter((p) => p.to !== to);
-	return signInReturnState(kind, [...pending, { to, entry }]);
+	const sealed = await sealSignInReturn(read.config, kind, to);
+	if (sealed === null) return null;
+	const { drop } = await signInAttempts(read.config, request, kind, { to, bytes: sealed.name.length + sealed.value.length + 3 });
+	return { set: { ...sealed, options: returnOptions }, delete: drop };
 }
 /**
- * Where a sign-in page sends a session already verified for its flow. An explicit `returnTo` in the page URL goes there
- * and consumes only the entry for that target. Otherwise one pending target goes there and consumes the state, none
- * goes to DEFAULT_RETURN, and several are returned as `pending` links back to this page, unconsumed: the page cannot
- * tell which tab it is, so the user chooses, and the other tab still finds its own entry.
+ * Where a sign-in page sends a session already verified for its flow, on a GET. An explicit `returnTo` in the page URL
+ * goes there. Otherwise one pending target goes there and consumes one attempt for it, none goes to DEFAULT_RETURN, and
+ * several are returned as `pending` choices, unconsumed: the page cannot tell which tab it is, so the user chooses
+ * (chooseSignInReturn), and the other tab still finds its own. A speculative GET consumes nothing and changes no cookie:
+ * one or more pending targets are offered as choices instead.
  */
-export async function signInReturn(env: Readonly<Record<string, unknown>>, request: Request, url: URL, kind: InstanceKind): Promise<{ location: string; state: SignInReturnState } | { pending: { to: string; href: string }[] }> {
+export async function signInReturn(env: Readonly<Record<string, unknown>>, request: Request, url: URL, kind: InstanceKind): Promise<{ location: string; change: SignInReturnChange } | { pending: PendingSignInReturn[]; change: SignInReturnChange }> {
 	const read = readClerkIdentityConfig(env, { keys: 'optional' });
-	const pending = read.ok ? await pendingSignInReturns(read.config, request, kind) : [];
-	if (url.searchParams.has('returnTo')) {
-		const location = signInReturnTarget(url.searchParams.get('returnTo'));
-		return { location, state: signInReturnState(kind, pending.filter((p) => p.to !== location)) };
-	}
-	if (pending.length > 1) return { pending: pending.map(({ to }) => ({ to, href: `${SIGN_IN_PAGE[kind]}?returnTo=${encodeURIComponent(to)}` })) };
-	return { location: pending[0]?.to ?? DEFAULT_RETURN, state: signInReturnState(kind, []) };
+	const { attempts, drop } = read.ok ? await signInAttempts(read.config, request, kind) : { attempts: [], drop: [] };
+	const choices = choicesOf(attempts), unchanged = { set: null, delete: [] }, tidy = { set: null, delete: drop };
+	if (url.searchParams.has('returnTo')) return { location: signInReturnTarget(url.searchParams.get('returnTo')), change: speculative(request) ? unchanged : tidy };
+	if (speculative(request)) return choices.length ? { pending: choices, change: unchanged } : { location: DEFAULT_RETURN, change: unchanged };
+	if (choices.length > 1) return { pending: choices, change: tidy };
+	const one = attempts.find((a) => a.id === choices[0]?.attempt);
+	return { location: one?.to ?? DEFAULT_RETURN, change: { set: null, delete: one ? [...drop, one.name] : drop } };
 }
-/** Applies a SignInReturnState to a route's cookies. */
-export function applySignInReturnState(cookies: { set(name: string, value: string, options: SignInReturnState['options']): void; delete(name: string, options: { path: string; secure: boolean }): void }, state: SignInReturnState): void {
-	if (state.value === null) cookies.delete(state.name, { path: '/', secure: true });
-	else cookies.set(state.name, state.value, state.options);
+/**
+ * The callback page's POST choice for a verified session of this flow: the target of the chosen `attempt`, consuming
+ * only that attempt. An attempt that is no longer pending sends the browser back to the callback page, which offers
+ * what is left.
+ */
+export async function chooseSignInReturn(env: Readonly<Record<string, unknown>>, request: Request, kind: InstanceKind, attempt: unknown): Promise<{ location: string; change: SignInReturnChange }> {
+	const read = readClerkIdentityConfig(env, { keys: 'optional' });
+	const { attempts, drop } = read.ok ? await signInAttempts(read.config, request, kind) : { attempts: [], drop: [] };
+	const chosen = attempts.find((a) => a.id === attempt);
+	return chosen ? { location: chosen.to, change: { set: null, delete: [...drop, chosen.name] } } : { location: SIGN_IN_PAGE[kind], change: { set: null, delete: drop } };
+}
+/** Applies a SignInReturnChange to a route's cookies. */
+export function applySignInReturnChange(cookies: { set(name: string, value: string, options: typeof returnOptions): void; delete(name: string, options: { path: string; secure: boolean }): void }, change: SignInReturnChange): void {
+	for (const name of new Set(change.delete)) cookies.delete(name, { path: '/', secure: true });
+	if (change.set) cookies.set(change.set.name, change.set.value, change.set.options);
 }
 
 /**

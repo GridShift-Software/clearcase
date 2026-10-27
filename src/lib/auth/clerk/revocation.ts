@@ -15,9 +15,9 @@
 //     pending when present, `sub` and a well-formed `sid`. A pending session (Clerk: signed in, session tasks such as
 //     setup-mfa not yet done) never authenticates here, but finishing its task makes the SAME session active without a
 //     new sign-in, so it is revoked like an active one. Clerk signs no token for any other status.
-// Time is read once, and only to refuse: a token whose `exp` lies more than MAX_SESSION_LIFETIME_MS in the past names a
-// session Clerk has already ended, so it is no evidence and costs no Backend API call (a token without `exp` is no Clerk
-// session token). `nbf` and `iat` are not read; time never makes a token an identity here.
+// No clock is read: `exp` must be present (a token without one is no Clerk session token), but a token of any age is
+// evidence, because how long a Clerk session may live is an instance setting this deployment cannot see, so only the
+// Backend API can say the session has ended. `nbf` and `iat` are not read; time never makes a token an identity here.
 // Session ownership is checked by the caller against the instance's Backend API before any revoke (flow.ts).
 import type { SessionId } from '../../server/runtime/contracts.ts';
 import { contractError } from '../../server/runtime/errors.ts';
@@ -32,14 +32,6 @@ export interface RevocationEvidence {
 	readonly sessionId: SessionId;
 }
 
-/**
- * The longest a Clerk session can live: Clerk's default maximum session lifetime, 7 days. A session is created before
- * any token it signs, so one whose token expired longer ago than this has ended at Clerk. Both instances must keep this
- * lifetime or a shorter one (identity.md); a longer one there needs this raised, or sign-out would leave its oldest
- * sessions live.
- */
-export const MAX_SESSION_LIFETIME_MS = 7 * 86_400_000;
-
 const bytes = (b64url: string): Uint8Array => {
 	const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
 	return Uint8Array.from(atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
@@ -47,9 +39,8 @@ const bytes = (b64url: string): Uint8Array => {
 
 /**
  * The revoke-only evidence a presented token gives, or null when it is not a genuine token of a pinned instance
- * (forged, key-confused, wrong issuer, unsigned, malformed) or names a session that has certainly ended. Throws
- * identity-unavailable only when a configured key cannot be imported, which is a deployment fault and no verdict on the
- * token.
+ * (forged, key-confused, wrong issuer, unsigned, malformed, or without `exp`). Throws identity-unavailable only when a
+ * configured key cannot be imported, which is a deployment fault and no verdict on the token.
  */
 export async function revocationEvidenceOf(token: string, config: ClerkIdentityConfig): Promise<RevocationEvidence | null> {
 	if (!inspectToken(token)) return null;
@@ -79,7 +70,7 @@ export async function revocationEvidenceOf(token: string, config: ClerkIdentityC
 	if (typeof sub !== 'string' || !sub || typeof sid !== 'string' || !sid || azp !== config.appOrigin) return null;
 	if (config.audience !== null && !(aud === config.audience || (Array.isArray(aud) && aud.includes(config.audience)))) return null;
 	if (sts !== undefined && sts !== 'active' && sts !== 'pending') return null;
-	if (typeof exp !== 'number' || exp * 1000 + MAX_SESSION_LIFETIME_MS < Date.now()) return null;
+	if (typeof exp !== 'number') return null;
 	try {
 		return Object.freeze({ instance, subject: sub, sessionId: id('session', sid) });
 	} catch {

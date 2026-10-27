@@ -7,6 +7,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import type { LinkedCandidate } from '../../../src/lib/results-review/native/index.ts';
 import { DEFAULT_STEP_BOUNDS, stepCost } from '../../../src/lib/results-review/native/staging/index.ts';
 import { WORKERS_PAID_REQUEST } from '../../../src/lib/server/runtime/hosted/import-composition.ts';
+import { ids } from '../../hosted-foundation/storage/fixture.ts';
 import { BIG_BUDGETS, Durable, Killed, OP, TEST_BOUNDS, completeAll, driveStaged, dump, importWhole, realPackage, rowsOf, startProcess, uploaded, type KillAt, type RealPackage, type StepRecord } from './stepped-world.ts';
 
 function rng(seed: number) { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -152,6 +153,31 @@ describe('the stepped import equals the one-request import', () => {
     const finished = linked(await completeAll(await startProcess(durable), durable));
     expect(JSON.stringify(finished)).toBe(JSON.stringify(reference.candidate));
     expect(dump(durable)).toEqual(reference.dump);
+  }, 600_000);
+
+  it('sweeps the staged objects of the finished import and leaves every object the candidate references, still readable', async () => {
+    const { durable, revisionId } = await uploaded(pkg);
+    const p = await startProcess(durable, { sweepObjects: 25 });
+    const done = linked(await driveStaged(p, durable, pkg, revisionId));
+    const staged = [...durable.bucket.objects.keys()].filter((k) => k.startsWith('native-import/'));
+    expect(staged.length).toBeGreaterThan(pkg.files.size - 1);
+    const before = dump(durable).objects;
+    let steps = 0;
+    for (;;) {
+      const out = await p.staged.sweep(p.token, { operationId: OP });
+      if (out.kind !== 'swept') throw new Error(JSON.stringify(out));
+      steps++;
+      if (out.state === 'done') break;
+    }
+    expect(steps).toBeGreaterThan(1);
+    expect([...durable.bucket.objects.keys()].filter((k) => k.startsWith('native-import/'))).toEqual([]);
+    expect(dump(durable).objects).toEqual(before);
+    expect(dump(durable)).toEqual(reference.dump);
+    // The candidate still reads, and its stored package still verifies from the objects it references.
+    expect((await p.service.readCandidate(p.token, done.candidateId))?.candidateId).toBe(done.candidateId);
+    const stored = await p.packages.files({ clientId: ids.clientA, caseId: pkg.caseId as never, resultsVersion: done.link.candidate.resultsVersion });
+    expect(stored?.size).toBe(pkg.files.size);
+    expect(await p.staged.complete(p.token, { operationId: OP })).toMatchObject({ kind: 'linked', repeated: true });
   }, 600_000);
 
   it('refuses a tampered original as the one-request import does, writes no version, and succeeds once the original is back', async () => {

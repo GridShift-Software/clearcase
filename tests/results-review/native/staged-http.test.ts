@@ -5,7 +5,10 @@ import * as open from '../../../deploy/client/routes/operator/results/[caseId]/i
 import * as status from '../../../deploy/client/routes/operator/results/[caseId]/imports/staged/[operationId]/+server.ts';
 import * as files from '../../../deploy/client/routes/operator/results/[caseId]/imports/staged/[operationId]/files/+server.ts';
 import * as complete from '../../../deploy/client/routes/operator/results/[caseId]/imports/staged/[operationId]/complete/+server.ts';
+import * as sweep from '../../../deploy/client/routes/operator/results/[caseId]/imports/staged/[operationId]/sweep/+server.ts';
+import * as sweepExpired from '../../../deploy/client/routes/operator/results/[caseId]/imports/staged/sweep/+server.ts';
 import { decodeBase64Strict, encodeBase64 } from '../../../src/lib/results-review/native/staging/base64.ts';
+import { DEFAULT_STEP_BOUNDS } from '../../../src/lib/results-review/native/staging/index.ts';
 import { ValidatingStager, trackedBody, who } from './doubles.ts';
 import { buildFixture, pdf } from './fixtures.ts';
 import { compose } from './harness.ts';
@@ -14,7 +17,7 @@ import { Durable, sha256Hex, stagedPorts, submissionOf } from './staged-world.ts
 const OP = 'op-http-0001-0b7c2f3e1d2a4c5b';
 const REVISION = 'subrev-http';
 const base = 'https://client-a.clearcase.test';
-const modules = { open, status, files, complete } as unknown as Record<string, Record<string, (e: never) => Promise<Response>>>;
+const modules = { open, status, files, complete, sweep, sweepExpired } as unknown as Record<string, Record<string, (e: never) => Promise<Response>>>;
 
 async function call(route: keyof typeof modules, method: 'GET' | 'POST', path: string, params: Record<string, string>, o: { body?: unknown; raw?: BodyInit; origin?: string | null; type?: string } = {}) {
   const url = new URL(path, base);
@@ -24,13 +27,16 @@ async function call(route: keyof typeof modules, method: 'GET' | 'POST', path: s
   return { status: res.status, json: await res.json() as Record<string, any> };
 }
 const doc = { ref: 'OD-001', path: 'Letters/A.pdf', bytes: pdf('a') };
-async function world(o: { operate?: boolean; staging?: boolean } = {}) {
+async function world(o: { operate?: boolean; staging?: boolean; stepped?: (calls: number) => unknown } = {}) {
   const fx = buildFixture({ docs: [doc] });
   const stager = new ValidatingStager();
   stager.folder = new Map([[doc.path, doc.bytes]]);
   const durable = new Durable();
   const submissions = await submissionOf('case-a', [{ path: doc.path, sha256: sha256Hex(doc.bytes), size: doc.bytes.byteLength }], REVISION);
-  const ports = stagedPorts({ durable, caseId: 'case-a', stager: stager as never, submissions, ...o });
+  const { stepped, ...rest } = o;
+  let calls = 0;
+  const ports = { ...stagedPorts({ durable, caseId: 'case-a', stager: stager as never, submissions, ...rest }),
+    ...(stepped ? { stepped: { stager: { step: async () => stepped(++calls) }, bounds: { ...DEFAULT_STEP_BOUNDS, stepsPerRequest: 1 }, clock: () => 0 } } : {}) };
   compose(ports as never);
   return { fx, durable, stager };
 }
@@ -125,5 +131,59 @@ describe('strict base64', () => {
       expect(Array.from(decodeBase64Strict(encodeBase64(bytes))!)).toEqual(Array.from(bytes));
     }
     for (const bad of ['A', 'AA', 'AAA', 'AAAA\n', ' AAAA', 'AA=A', '=AAA', 'AB==', 'AAC=', 'AA-_', 'AAAA=AAA', 'ÄAAA']) expect(decodeBase64Strict(bad)).toBeNull();
+  });
+});
+
+describe('the stepped completion and the sweep over HTTP', () => {
+  const stage = async (w: Awaited<ReturnType<typeof world>>) => {
+    await call('open', 'POST', root, { caseId: 'case-a' }, { body: { operationId: OP, submissionRevisionId: REVISION, manifest: text(w.fx.files.get('manifest.json')!) } });
+    const batch = Object.fromEntries(listed(w.fx.files).map((p) => [p, encodeBase64(w.fx.files.get(p)!)]));
+    expect((await call('files', 'POST', step('/files'), { caseId: 'case-a', operationId: OP }, { body: { files: batch } })).status).toBe(200);
+  };
+
+  it('answers 202 with the phase while the stepper is still staging, and 409 busy while another request holds a step', async () => {
+    const w = await world({ stepped: (n) => (n === 1 ? { kind: 'staging', phase: 'originals-a', steps: 1, done: 3, total: 9 } : { kind: 'busy' }) });
+    await stage(w);
+    const first = await call('complete', 'POST', step('/complete'), { caseId: 'case-a', operationId: OP });
+    expect(first).toMatchObject({ status: 202, json: { kind: 'staging', phase: 'originals-a', steps: 1, done: 3, total: 9 } });
+    const second = await call('complete', 'POST', step('/complete'), { caseId: 'case-a', operationId: OP });
+    expect(second).toMatchObject({ status: 409, json: { code: 'busy' } });
+    expect(w.stager.calls).toHaveLength(0);
+  });
+
+  it('answers a refusal from a step as the one-request import does', async () => {
+    const w = await world({ stepped: () => ({ kind: 'refused', reason: 'validator-rejected', detail: ['DS_REQUIRED_MISSING'] }) });
+    await stage(w);
+    expect(await call('complete', 'POST', step('/complete'), { caseId: 'case-a', operationId: OP })).toMatchObject({ status: 422, json: { code: 'validator-refused', detail: ['validator-rejected', 'DS_REQUIRED_MISSING'] } });
+  });
+
+  it('refuses a step the plan\'s request budget cannot afford before it runs one', async () => {
+    const durable = new Durable();
+    const fx = buildFixture({ docs: [doc] });
+    const submissions = await submissionOf('case-a', [{ path: doc.path, sha256: sha256Hex(doc.bytes), size: doc.bytes.byteLength }], REVISION);
+    let ran = 0;
+    const ports = { ...stagedPorts({ durable, caseId: 'case-a', stager: new ValidatingStager() as never, submissions, requestBudget: { d1: 45, external: 45, rowsPerBatch: 3 } }),
+      stepped: { stager: { step: async () => { ran++; return { kind: 'busy' }; } }, bounds: DEFAULT_STEP_BOUNDS, clock: () => 0 } };
+    compose(ports as never);
+    await call('open', 'POST', root, { caseId: 'case-a' }, { body: { operationId: OP, submissionRevisionId: REVISION, manifest: text(fx.files.get('manifest.json')!) } });
+    const batch = Object.fromEntries(listed(fx.files).map((p) => [p, encodeBase64(fx.files.get(p)!)]));
+    await call('files', 'POST', step('/files'), { caseId: 'case-a', operationId: OP }, { body: { files: batch } });
+    const out = await call('complete', 'POST', step('/complete'), { caseId: 'case-a', operationId: OP });
+    expect(out.status).toBe(413);
+    expect(out.json.code).toBe('over-budget');
+    expect(ran).toBe(0);
+  });
+
+  it('sweeps over HTTP: refuses a session still wanted, then deletes a finished one step by step', async () => {
+    const w = await world();
+    await stage(w);
+    expect(await call('sweep', 'POST', step('/sweep'), { caseId: 'case-a', operationId: OP })).toMatchObject({ status: 409, json: { code: 'not-finished' } });
+    expect(await call('complete', 'POST', step('/complete'), { caseId: 'case-a', operationId: OP })).toMatchObject({ status: 201 });
+    let last: Awaited<ReturnType<typeof call>> | null = null;
+    for (let i = 0; i < 20 && last?.json.state !== 'done'; i++) last = await call('sweep', 'POST', step('/sweep'), { caseId: 'case-a', operationId: OP });
+    expect(last).toMatchObject({ status: 200, json: { kind: 'swept', state: 'done' } });
+    expect([...w.durable.r2.objects.keys()].filter((k) => k.startsWith('native-import/'))).toEqual([]);
+    expect(await call('sweepExpired', 'POST', `${root}/sweep`, { caseId: 'case-a' })).toMatchObject({ status: 200, json: { kind: 'swept', operationId: null, deleted: 0 } });
+    expect((await call('status', 'GET', step(), { caseId: 'case-a', operationId: OP })).json).toMatchObject({ state: 'complete', missingFiles: 0 });
   });
 });

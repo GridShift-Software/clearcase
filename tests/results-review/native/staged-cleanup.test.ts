@@ -166,6 +166,23 @@ describe('after the session time to live', () => {
     expect(await later.service.staged!.complete(later.token, { operationId: OP_B })).toMatchObject({ kind: 'linked' });
   });
 
+  it('is run a step at a time by the next import that opens', async () => {
+    let now = T0;
+    const { durable, fx, other, start } = await world({ now: () => new Date(now) });
+    const p = await start();
+    await upload(p, OP_A, fx);
+    const before = stagedKeys(durable).length;
+    now = T0 + 8 * DAY;
+    const later = await start({ now: () => new Date(now) });
+    const opened = await later.service.staged!.open(later.token, { operationId: OP_B, submissionRevisionId: REVISION_B, manifest: other.files.get('manifest.json')! });
+    expect(opened).toMatchObject({ kind: 'progress', state: 'open' });
+    // One bounded step of A's sweep ran before the open answered (3 objects), and the new session's manifest is there.
+    expect(durable.deletes.length).toBeGreaterThan(0);
+    expect(durable.deletes.length).toBeLessThanOrEqual(3);
+    expect(stagedKeys(durable).length).toBe(before - durable.deletes.length + 1);
+    expect(durable.db.rows("SELECT state FROM native_import_cleanup WHERE operation_id = 'op-staged-aaaa-0b7c2f3e1d2a4c5b'")).toEqual([{ state: 'sweeping' }]);
+  });
+
   it('does not touch a session that is still inside its life, or a finished one before it is swept', async () => {
     let now = T0;
     const { durable, fx, start } = await world({ now: () => new Date(now) });

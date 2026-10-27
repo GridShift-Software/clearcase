@@ -166,7 +166,7 @@ class ChaosD1 implements NativeD1, CloudD1 {
   }
 }
 
-export interface ProcessOptions { kill?: KillAt | null; bounds?: Partial<StepBounds>; operate?: boolean; interleave?: () => Promise<void> }
+export interface ProcessOptions { kill?: KillAt | null; bounds?: Partial<StepBounds>; operate?: boolean; interleave?: () => Promise<void>; sweepObjects?: number }
 const operator = (): Identity => ({
   kind: 'verified', principal: { issuer: 'synthetic', subject: 'staff', kind: 'staff' }, sessionId: 'synthetic-session' as SessionId, clientId: ids.clientA,
   async checkRevocation() {}, async authorize() { throw new Error('client published visibility must not be used'); },
@@ -189,9 +189,9 @@ export async function startProcess(d: Durable, o: ProcessOptions = {}) {
   const whole = { stage: (a: Parameters<typeof stager.stager.stage>[0]) => { d.counts.wholeStage++; return stager.stager.stage(a); } };
   const service = createNativeResultsImport({ ...stager, stager: whole, clientId: ids.clientA, budget: IMPORT_BUDGET, authorizeOperate, observeOperate: authorizeOperate, operateCondition, submissions: submissionSnapshotReader(db), repository: d1NativeCandidateRepository(db),
     audit, now: () => NOW, requestBudget: null,
-    staging: { ledger: d1StagingLedger(db, { rowsPerBatch: BIG_BUDGETS.maxRowsPerBatch }), store: r2StagingStore(bucket, { maxBytes: IMPORT_BUDGET.maxFileBytes }), rowsPerBatch: BIG_BUDGETS.maxRowsPerBatch } })!;
+    staging: { ledger: d1StagingLedger(db, { rowsPerBatch: BIG_BUDGETS.maxRowsPerBatch }), store: r2StagingStore(bucket, { maxBytes: IMPORT_BUDGET.maxFileBytes }), rowsPerBatch: BIG_BUDGETS.maxRowsPerBatch, ...(o.sweepObjects ? { sweepObjects: o.sweepObjects } : {}) } })!;
   const token = await service.admit({ identity, caseId, access: 'write' });
-  return { service, token, staged: service.staged!, bounds };
+  return { service, token, staged: service.staged!, bounds, packages: stager.packages };
 }
 export type Process = Awaited<ReturnType<typeof startProcess>>;
 

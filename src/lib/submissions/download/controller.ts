@@ -3,7 +3,8 @@ import { codeOf } from '../../server/runtime/errors.ts';
 import { id } from '../../server/runtime/ids.ts';
 import { revisionIdOf } from '../repository.ts';
 import { finalizedSnapshotIdentity } from '../snapshot-identity.ts';
-import type { SubmissionFile, SubmissionManifest, UploadRecord } from '../ports.ts';
+import { fileSetDigest } from '../file-set.ts';
+import type { SetRecord, SubmissionFile, SubmissionManifest, UploadRecord } from '../ports.ts';
 import { digest } from '../../server/runtime/data.ts';
 import type { OperatorDownloadPorts } from './ports.ts';
 
@@ -11,17 +12,22 @@ import type { OperatorDownloadPorts } from './ports.ts';
 export interface OperatorRequest { request: Request; url: URL; params: Partial<Record<'caseId' | 'operationId', string>>; identity: Identity }
 
 /**
- * One finalized submission as the operator sees it. It names the exact manifest (and its digest) and the path that downloads
- * the one PDF. It carries no processing state: nothing here claims that anyone has started, claimed or finished the case.
+ * One finalized submission as the operator sees it: one PDF (`file`) or a sealed set of PDFs (`set`, U16). It names the exact
+ * manifest (and its digest) and the path that downloads each PDF. It carries no processing state: nothing here claims that
+ * anyone has started, claimed or finished the case.
  */
 export interface OperatorSubmissionView {
-  operationId: string; revisionId: string; sequence: number; caseId: string; clientId: string;
+  kind: 'file' | 'set'; operationId: string; revisionId: string; sequence: number; caseId: string; clientId: string;
+  fileCount: number;
+  /** A set's file-list digest, fixed at its seal; null for one file. */
+  filesSha256: string | null;
   manifest: SubmissionManifest;
   /** SHA-256 of the exact bytes the manifest route serves. It authenticates the download, and is NOT the finalized snapshot identity. */
   manifestSha256: string;
   /** SHA-256 of the finalized snapshot (canonical manifest text), the identity a candidate link and readiness pin as `submissionManifestSha256`. */
   finalizedSnapshotSha256: string;
-  manifestHref: string; downloadHref: string;
+  /** The one PDF of a one-file submission; null for a set, whose files each have their own link. */
+  manifestHref: string; downloadHref: string | null;
   files: { path: string; filename: string; mediaType: string; size: number; sha256: string; downloadHref: string }[];
 }
 
@@ -204,25 +210,52 @@ export function createOperatorDownloadController(ports: OperatorDownloadPorts | 
     if (f.assetId !== u.assetId || f.path !== u.path || f.size !== u.size || f.sha256 !== u.sha256 || f.mediaType !== 'application/pdf') return bad();
     return { manifest: m, file: f };
   }
-  async function viewOf(a: Admitted, manifest: SubmissionManifest, file: SubmissionFile): Promise<OperatorSubmissionView> {
-    const href = hrefOf(a.caseId, manifest.operationId, '/download');
+  // A sealed set's revision must agree with the set: this client, case and set, exactly its declared count of PDFs, and a file
+  // list whose digest is the one fixed at the seal. Each file's match to its declaration was enforced when it was recorded.
+  async function consistentSet(a: Admitted, s: SetRecord, m: SubmissionManifest | null): Promise<Finalized> {
+    const bad = () => refuse(503, 'submission-inconsistent', 'This submission\'s records do not agree, so it is not served. Tell the service team.');
+    if (!m || m.format !== 'clearcase.submission-manifest/1' || m.clientId !== a.scope.clientId || m.caseId !== a.caseId || m.operationId !== s.setId || m.revisionId !== revisionIdOf(s.setId)) return bad();
+    if (m.files.length !== s.fileCount || m.files.some((f) => f.mediaType !== 'application/pdf') || (await fileSetDigest(m.files)) !== s.filesSha256) return bad();
+    return { kind: 'set', manifest: m, files: m.files, filesSha256: s.filesSha256 };
+  }
+  type Finalized = { kind: 'file' | 'set'; manifest: SubmissionManifest; files: readonly SubmissionFile[]; filesSha256: string | null };
+  async function viewOf(a: Admitted, x: Finalized): Promise<OperatorSubmissionView> {
+    const { manifest } = x, href = hrefOf(a.caseId, manifest.operationId, '/download');
+    const fileHref = (f: SubmissionFile) => (x.kind === 'file' ? href : `${href}?file=${encodeURIComponent(f.assetId)}`);
     return {
-      operationId: manifest.operationId, revisionId: manifest.revisionId, sequence: manifest.sequence, caseId: manifest.caseId, clientId: manifest.clientId, manifest,
-      manifestSha256: await digest(manifestBytes(manifest)), finalizedSnapshotSha256: (await finalizedSnapshotIdentity(manifest)).sha256, manifestHref: hrefOf(a.caseId, manifest.operationId, '/manifest'), downloadHref: href,
-      files: [{ path: file.path, filename: file.filename, mediaType: file.mediaType, size: file.size, sha256: file.sha256, downloadHref: href }],
+      kind: x.kind, operationId: manifest.operationId, revisionId: manifest.revisionId, sequence: manifest.sequence, caseId: manifest.caseId, clientId: manifest.clientId,
+      fileCount: x.files.length, filesSha256: x.filesSha256, manifest,
+      manifestSha256: await digest(manifestBytes(manifest)), finalizedSnapshotSha256: (await finalizedSnapshotIdentity(manifest)).sha256, manifestHref: hrefOf(a.caseId, manifest.operationId, '/manifest'),
+      downloadHref: x.kind === 'file' ? href : null,
+      files: x.files.map((f) => ({ path: f.path, filename: f.filename, mediaType: f.mediaType, size: f.size, sha256: f.sha256, downloadHref: fileHref(f) })),
     };
   }
-  // The one finalized submission of this case named by the request. An unknown id is the uniform not-found; an upload that is
-  // not yet final is refused truthfully (the caller is already authorized for this case).
-  async function finalized(a: Admitted) {
+  // The one finalized submission of this case named by the request: an upload's or a set's. An unknown id is the uniform
+  // not-found; an upload or a set that is not yet final is refused truthfully (the caller is already authorized for this case).
+  async function finalized(a: Admitted): Promise<Finalized> {
     const u = await storage(a.repository.upload({ ...a.scope, operationId: a.operationId }));
-    if (!u) return notFound();
-    if (u.state !== 'finalized') return refuse(409, 'not-finalized', 'This upload is not a finalized submission yet, so it is not available.', { stage: u.state === 'received' ? 'received' : 'stored-not-finalized' });
-    const { manifest, file } = consistent(a, u, await storage(a.repository.revision({ ...a.scope, operationId: a.operationId })));
-    return { manifest, file };
+    if (u) {
+      if (u.state !== 'finalized') return refuse(409, 'not-finalized', 'This upload is not a finalized submission yet, so it is not available.', { stage: u.state === 'received' ? 'received' : 'stored-not-finalized' });
+      const m = await storage(a.repository.revision({ ...a.scope, operationId: a.operationId }));
+      // A file of a set has no revision of its own: it is served through its set's revision only.
+      if (!m && await storage(a.repository.setOf({ ...a.scope, operationId: a.operationId }))) return notFound();
+      const { manifest, file } = consistent(a, u, m);
+      return { kind: 'file', manifest, files: [file], filesSha256: null };
+    }
+    const s = await storage(a.repository.set({ ...a.scope, setId: a.operationId }));
+    if (!s) return notFound();
+    if (s.state !== 'sealed') return refuse(409, 'not-finalized', 'This set is not sealed yet, so it is not available.', { stage: s.state });
+    return consistentSet(a, s, await storage(a.repository.revision({ ...a.scope, operationId: s.setId })));
   }
-  const identityHeaders = (a: Admitted, m: SubmissionManifest, f: SubmissionFile) => ({
-    'x-clearcase-case': a.caseId, 'x-clearcase-submission': m.operationId, 'x-clearcase-revision': m.revisionId, 'x-clearcase-sha256': f.sha256,
+  // The one PDF a download names: a one-file submission's file (a `file` parameter, when given, must name it), or the set file
+  // the `file` parameter names by its asset id.
+  function fileOf(r: OperatorRequest, x: Finalized): SubmissionFile {
+    const wanted = r.url.searchParams.get('file');
+    if (x.kind === 'file') return wanted === null || wanted === x.files[0]!.assetId ? x.files[0]! : notFound();
+    return x.files.find((f) => f.assetId === wanted) ?? notFound();
+  }
+  const identityHeaders = (a: Admitted, m: SubmissionManifest, f?: SubmissionFile) => ({
+    'x-clearcase-case': a.caseId, 'x-clearcase-submission': m.operationId, 'x-clearcase-revision': m.revisionId, ...(m.files.length === 1 || f ? { 'x-clearcase-sha256': (f ?? m.files[0]!).sha256 } : {}),
   });
 
   return {
@@ -230,28 +263,34 @@ export function createOperatorDownloadController(ports: OperatorDownloadPorts | 
     list: (r: OperatorRequest) => handle(async () => {
       const a = await admit(r, false);
       const rows = await storage(a.repository.list(a.scope));
-      const done = rows.filter((x) => x.upload.state === 'finalized').map((x) => consistent(a, x.upload, x.manifest)).sort((x, y) => x.manifest.sequence - y.manifest.sequence);
-      const submissions = await Promise.all(done.map((x) => viewOf(a, x.manifest, x.file)));
+      const sets = await storage(a.repository.sets(a.scope));
+      const singles = rows.filter((x) => x.upload.state === 'finalized').map((x): Finalized => {
+        const { manifest, file } = consistent(a, x.upload, x.manifest);
+        return { kind: 'file', manifest, files: [file], filesSha256: null };
+      });
+      const sealed = sets.filter((x) => x.state === 'sealed');
+      const done = [...singles, ...await Promise.all(sealed.map(async (x) => consistentSet(a, x, await storage(a.repository.revision({ ...a.scope, operationId: x.setId })))))]
+        .sort((x, y) => x.manifest.sequence - y.manifest.sequence);
+      const submissions = await Promise.all(done.map((x) => viewOf(a, x)));
       return release(a, 'operator.submission.list', { kind: 'case', id: a.caseId, caseId: a.caseId },
-        new TextEncoder().encode(JSON.stringify({ submissions, pendingCount: rows.length - done.length })));
+        new TextEncoder().encode(JSON.stringify({ submissions, pendingCount: rows.length - singles.length + sets.length - sealed.length })));
     }),
 
     /** GET .../finalized/[operationId]: the manifest, its digest and the paths to the manifest and the PDF. */
     read: (r: OperatorRequest) => handle(async () => {
       const a = await admit(r, true);
-      const { manifest, file } = await finalized(a);
-      const view = await viewOf(a, manifest, file);
-      return release(a, 'operator.submission.read', { kind: 'submission', id: manifest.operationId, caseId: a.caseId },
+      const view = await viewOf(a, await finalized(a));
+      return release(a, 'operator.submission.read', { kind: 'submission', id: view.operationId, caseId: a.caseId },
         new TextEncoder().encode(JSON.stringify(view)));
     }),
 
     /** GET .../finalized/[operationId]/manifest: the exact immutable manifest bytes as a download-safe attachment. */
     manifest: (r: OperatorRequest) => handle(async () => {
       const a = await admit(r, true);
-      const { manifest, file } = await finalized(a);
+      const { manifest } = await finalized(a);
       const bytes = manifestBytes(manifest), sha = await digest(bytes);
       return release(a, 'operator.submission.manifest', { kind: 'submission', id: manifest.operationId, caseId: a.caseId }, bytes, {
-        ...identityHeaders(a, manifest, file), 'content-length': String(bytes.byteLength),
+        ...identityHeaders(a, manifest), 'content-length': String(bytes.byteLength),
         'content-disposition': `attachment; filename="submission-${manifest.operationId}.manifest.json"`, 'x-clearcase-manifest-sha256': sha, etag: `"sha256-${sha}"`,
       });
     }),
@@ -259,9 +298,10 @@ export function createOperatorDownloadController(ports: OperatorDownloadPorts | 
     /** GET or HEAD .../finalized/[operationId]/download: the complete PDF (or one range), integrity-bound to the manifest. */
     download: (r: OperatorRequest) => handle(async () => {
       const a = await admit(r, true);
-      const { manifest, file } = await finalized(a);
+      const x = await finalized(a), { manifest } = x, file = fileOf(r, x);
       const asset: AssetRef = { kind: 'original', caseId: a.caseId, assetId: file.assetId };
-      const object = { kind: 'submission', id: manifest.operationId, caseId: a.caseId };
+      // A set file's download is audited by its own asset, so the log names which file of the set left.
+      const object = x.kind === 'file' ? { kind: 'submission', id: manifest.operationId, caseId: a.caseId } : { kind: 'original', id: file.assetId, caseId: a.caseId };
       // The stored original must be the very file the manifest records, before anything is released.
       const meta = await a.assets.metadata({ asset }).catch(assetRefusal);
       if (meta.size !== file.size || meta.sha256 !== file.sha256 || meta.mediaType !== 'application/pdf') return refuse(410, 'changed-original', 'This original failed its integrity check.');

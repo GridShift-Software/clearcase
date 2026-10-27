@@ -10,6 +10,9 @@
 //     (`rs_case_original` plus a finalized `rs_original_upload` of the same case, asset and bytes). The path is the submission
 //     file's `path`; the association's `filename` (the basename) is not used. A reserved, stored or received upload is not in
 //     the folder, whatever GRS-115 already bound.
+//   - Set originals (U16): each file of a SEALED set of this client and case (`submissions_set` sealed, the set's revision and
+//     its `submissions_file` rows, each matched to its member upload, finalized), bound by GRS-115 the same way. The revision
+//     id is the set's revision, so a selection by revision takes every file of the set. A set still sealing is not in the folder.
 //   - Direct originals (the GRS-115 upload contract without an intake submission): the case's own finalized association whose
 //     asset id is the package key and whose `filename` is the case-relative path. An association whose asset has any intake
 //     declaration is never direct, so a reserved intake upload cannot enter this way.
@@ -70,8 +73,19 @@ export async function caseFolder(db: CloudD1, clientId: ClientId, caseId: CaseId
     SELECT 'direct', c.asset_id, c.filename, c.sha256, o.size, o.size, o.object_key, NULL
       FROM rs_case_original c JOIN rs_original o ON o.sha256 = c.sha256
       WHERE c.case_id = ? AND ${finalizedUpload}
-        AND NOT EXISTS (SELECT 1 FROM submissions_upload u WHERE u.case_id = c.case_id AND u.asset_id = c.asset_id)`)
-    .bind(clientId, caseId, caseId).all<FolderOriginal>().catch(unreachable);
+        AND NOT EXISTS (SELECT 1 FROM submissions_upload u WHERE u.case_id = c.case_id AND u.asset_id = c.asset_id)
+    UNION ALL
+    SELECT 'submission', f.asset_id, f.path, f.sha256, f.size, o.size, o.object_key, f.revision_id
+      FROM submissions_file f
+      JOIN submissions_revision r ON r.client_id = f.client_id AND r.case_id = f.case_id AND r.revision_id = f.revision_id
+      JOIN submissions_set s ON s.client_id = r.client_id AND s.case_id = r.case_id AND s.set_id = r.operation_id AND s.state = 'sealed'
+      JOIN submissions_set_member m ON m.client_id = s.client_id AND m.case_id = s.case_id AND m.set_id = s.set_id AND m.path_key = f.path_key
+      JOIN submissions_upload u ON u.client_id = m.client_id AND u.case_id = m.case_id AND u.operation_id = m.operation_id
+        AND u.asset_id = f.asset_id AND u.path = f.path AND u.sha256 = f.sha256 AND u.size = f.size AND u.state = 'finalized'
+      JOIN rs_case_original c ON c.case_id = f.case_id AND c.asset_id = f.asset_id AND c.sha256 = f.sha256
+      JOIN rs_original o ON o.sha256 = c.sha256
+      WHERE f.client_id = ? AND f.case_id = ? AND ${finalizedUpload}`)
+    .bind(clientId, caseId, caseId, clientId, caseId).all<FolderOriginal>().catch(unreachable);
   return results;
 }
 

@@ -20,7 +20,7 @@ function fixture(client = 'client-a') {
 	const append = vi.fn(async (event: { eventId: string }) => ({ eventId: event.eventId }));
 	const identity: Identity = { kind: 'verified', clientId, principal: { issuer: 'https://synthetic.clerk.test', subject: 'user_' + client, kind: 'staff' },
 		sessionId: id('session', 'session_' + client), checkRevocation: async () => {}, authorize: async () => {} };
-	const repository: SubmissionRepository = { declare: unused, upload: unused, markStored: unused, reserveRevision: unused, commitRevision: unused, revision: unused, list };
+	const repository: SubmissionRepository = { declare: unused, upload: unused, markStored: unused, reserveRevision: unused, commitRevision: unused, revision: unused, list, openSet: unused, set: unused, sets: async () => [], setOf: unused, declareSetFile: unused, setFiles: unused, reserveSet: unused, markSetFilesFinalized: unused, commitSet: unused };
 	const work: Promise<void>[] = [];
 	const scheduler = { waitUntil: vi.fn((job: Promise<void>) => { work.push(job); }) };
 	const downloads: OperatorDownloadPorts = { clientId, authorizeOperate: async () => {}, repository, assets: { metadata: unused, get: unused }, audit: { append },

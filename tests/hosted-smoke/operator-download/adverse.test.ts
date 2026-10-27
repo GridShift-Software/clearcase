@@ -337,7 +337,7 @@ describe('every release is audited first and read-only', () => {
     const before = JSON.stringify([w.db.rows('SELECT * FROM submissions_upload'), w.db.rows('SELECT * FROM submissions_revision'), w.db.rows('SELECT * FROM submissions_file')]);
     for (const route of ROUTES) await bytes(await call(route, CASE_A, s.operationId));
     expect(JSON.stringify([w.db.rows('SELECT * FROM submissions_upload'), w.db.rows('SELECT * FROM submissions_revision'), w.db.rows('SELECT * FROM submissions_file')])).toBe(before);
-    expect(w.repoCalls.filter((c) => !['list', 'upload', 'revision'].includes(c))).toEqual([]);
+    expect(w.repoCalls.filter((c) => !['list', 'upload', 'revision', 'set', 'sets', 'setOf'].includes(c))).toEqual([]);
   });
 });
 

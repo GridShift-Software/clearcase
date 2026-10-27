@@ -14,6 +14,7 @@ const root = path.join(import.meta.dirname, '../../..');
 const migration = (p: string) => path.join(root, p);
 export const MIGRATIONS: readonly string[] = [
   migration('src/lib/submissions/migrations/0001_submissions_intake.sql'),
+  migration('src/lib/submissions/migrations/0002_submissions_file_sets.sql'),
   migration('src/lib/results-review/native/migrations/0001_native_candidate_import.sql'),
 ];
 

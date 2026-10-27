@@ -6,7 +6,7 @@ import type { SubmissionRepository } from '../ports.ts';
  * The reads the operator download needs from the intake's own durable records. Structurally the intake's
  * `SubmissionRepository`; nothing here writes. The parent passes the same D1 repository over the client's `DB`.
  */
-export type OperatorSubmissionReader = Pick<SubmissionRepository, 'upload' | 'revision' | 'list'>;
+export type OperatorSubmissionReader = Pick<SubmissionRepository, 'upload' | 'revision' | 'list' | 'set' | 'sets' | 'setOf'>;
 
 /**
  * The original bytes, through the assets service (GRS-115/118): `metadata` names the stored size and digest, `get` answers

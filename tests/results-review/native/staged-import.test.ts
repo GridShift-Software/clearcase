@@ -4,7 +4,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { LIMITS } from '../../../src/lib/case-package/limits.ts';
 import { buildPackage } from '../../../src/lib/case-package/writer.ts';
-import { nativeImportBudget, type LinkedCandidate } from '../../../src/lib/results-review/native/index.ts';
+import { nativeImportBudget, type CandidateStager, type LinkedCandidate } from '../../../src/lib/results-review/native/index.ts';
 import { planBatches, stagedBatchCost, type StagedImport, type StagedOutcome } from '../../../src/lib/results-review/native/staging/index.ts';
 import { ValidatingStager } from './doubles.ts';
 import { buildFixture, pdf as syntheticPdf } from './fixtures.ts';
@@ -136,7 +136,7 @@ describe('the poc package imports in batches and survives a kill at any write', 
 
     const refusal = await staged.put(p.token, { operationId: OP, files: new Map([[good, poc.files.get(good)!], [victim, flipped]]) });
     expect(refusal).toMatchObject({ kind: 'refused', code: 'file-mismatch' });
-    expect((refusal as { detail: string[] }).detail.join(' ')).toContain(victim);
+    expect((refusal as unknown as { detail: string[] }).detail.join(' ')).toContain(victim);
     expect(durable.r2.objects.size).toBe(objectsBefore);
     expect(rowCount(durable)).toBe(rowsBefore);
 
@@ -208,7 +208,7 @@ describe('a package past the old 1,024-file cap', () => {
     stager.folder = new Map(docs.map((d) => [d.path, d.bytes]));
     const durable = new Durable();
     const reader = await submissionOf('case-a', docs.map((d) => ({ path: d.path, sha256: sha256Hex(d.bytes), size: d.bytes.byteLength })), REVISION);
-    const p = await startProcess({ durable, caseId: 'case-a', stager, submissions: reader, rowsPerBatch: 50 });
+    const p = await startProcess({ durable, caseId: 'case-a', stager: stager as unknown as CandidateStager, submissions: reader, rowsPerBatch: 50 });
     const pkg: Package = { caseId: 'case-a', files, originals: [] };
 
     const perRequest: { files: number; r2: number; d1: number }[] = [];

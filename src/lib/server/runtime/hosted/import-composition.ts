@@ -10,6 +10,8 @@ import type { StorageQuotas } from '../../../storage/cloud/quotas.ts';
 import { createHostedCandidateStager } from './candidate-stager.ts';
 import { nativeImportBudget, type RequestBudget } from '../../../results-review/native/budget.ts';
 import { d1NativeCandidateRepository } from '../../../results-review/native/repository.ts';
+import { d1StagingLedger } from '../../../results-review/native/staging/ledger.ts';
+import { r2StagingStore } from '../../../results-review/native/staging/store.ts';
 import { submissionSnapshotReader } from '../../../results-review/native/submission-reader.ts';
 import type { CandidateAuditRecovery, NativeImportPorts } from '../../../results-review/native/ports.ts';
 import { canonicalText } from '../../../case-package/canonical.ts';
@@ -58,7 +60,9 @@ export function nativeImportPorts(a: {
 	const staged = createHostedCandidateStager({ bindings: { db: a.db, bucket: a.bucket },
 		clientId, budgets, quotas: a.quotas, identity, authorizeOperate: observeOperate, operateCondition, requestBudget: a.requestBudget, audit, now });
 	const candidates = d1NativeCandidateRepository(a.db);
-	return { clientId, budget: importBudget, authorizeOperate: operate, observeOperate, operateCondition,
+	// The chunked import: progress in the client's D1 and verified bytes in its private bucket, under the same budget and operator fences.
+	const staging = { ledger: d1StagingLedger(a.db, { rowsPerBatch: budgets.maxRowsPerBatch }), store: r2StagingStore(a.bucket, { maxBytes: importBudget.maxFileBytes }), rowsPerBatch: budgets.maxRowsPerBatch };
+	return { clientId, budget: importBudget, authorizeOperate: operate, observeOperate, operateCondition, staging,
 		requestBudget: a.requestBudget && { ...a.requestBudget, rowsPerBatch: budgets.maxRowsPerBatch },
 		submissions: submissionSnapshotReader(a.db), stager: staged.stager, packages: staged.packages, repository: candidates, now,
 		audit: { append: async (event) => {

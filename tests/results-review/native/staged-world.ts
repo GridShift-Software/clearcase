@@ -64,7 +64,7 @@ export async function submissionOf(caseId: string, files: readonly { path: strin
   return { finalized: async (a) => (a.revisionId === revisionId && a.caseId === caseId ? snapshot : { state: 'absent' as const }) };
 }
 
-export class Killed extends Error { constructor(readonly where: string) { super(`killed ${where}`); } }
+export class Killed extends Error { readonly where: string; constructor(where: string) { super(`killed ${where}`); this.where = where; } }
 export type KillPhase = 'before-r2-put' | 'after-r2-put' | 'before-d1-rows' | 'after-d1-rows';
 export const KILL_PHASES: readonly KillPhase[] = ['before-r2-put', 'after-r2-put', 'before-d1-rows', 'after-d1-rows'];
 export interface Kill { phase: KillPhase; nth: number }
@@ -82,7 +82,9 @@ export class Durable {
 /** R2 that dies at the nth staged put: before it writes, or after it has written but before the caller hears. */
 class ChaosR2 implements CloudR2 {
   private seen = 0;
-  constructor(private readonly d: Durable, private readonly kill: Kill | null) {}
+  private readonly d: Durable;
+  private readonly kill: Kill | null;
+  constructor(d: Durable, kill: Kill | null) { this.d = d; this.kill = kill; }
   head(key: string): Promise<CloudR2Head | null> { this.d.counts.r2++; return this.d.r2.head(key); }
   get(key: string): Promise<CloudR2Body | null> { this.d.counts.r2++; return this.d.r2.get(key); }
   async put(key: string, value: Uint8Array, options: { sha256: string; onlyIf?: { etagDoesNotMatch: '*' } }) {
@@ -101,7 +103,9 @@ class ChaosR2 implements CloudR2 {
 class ChaosD1 implements NativeD1, CloudD1 {
   private seen = 0;
   private readonly sql = new WeakMap<object, string>();
-  constructor(private readonly d: Durable, private readonly kill: Kill | null) {}
+  private readonly d: Durable;
+  private readonly kill: Kill | null;
+  constructor(d: Durable, kill: Kill | null) { this.d = d; this.kill = kill; }
   prepare(sql: string) {
     // bind() makes a new statement, so every statement the adapter can pass to batch() is tagged with its SQL. A D1 call is an
     // execution (first, all, run) or one batch; preparing and binding cost nothing.
@@ -133,7 +137,7 @@ class ChaosD1 implements NativeD1, CloudD1 {
 export interface Process {
   service: NonNullable<ReturnType<typeof createNativeResultsImport>>;
   token: Awaited<ReturnType<NonNullable<ReturnType<typeof createNativeResultsImport>>['admit']>>;
-  stager: CandidateStager & { received?: ReadonlyMap<string, Uint8Array> | null; calls?: number };
+  stager: CandidateStager;
 }
 export interface ProcessOptions {
   durable: Durable; caseId: string; submissions: FinalizedSubmissionReader; stager: CandidateStager; kill?: Kill | null;
@@ -142,8 +146,8 @@ export interface ProcessOptions {
 }
 export const BUDGET = { maxRequestBytes: 6 << 20, maxFiles: 8192, maxFileBytes: 64 << 20, maxPackageBytes: 512 << 20 };
 
-/** A new "process" over the durable state: fresh service, fresh ledger and store, nothing remembered from a dead one. */
-export async function startProcess(o: ProcessOptions): Promise<Process> {
+/** The ports of a new "process" over the durable state: fresh ledger and store, nothing remembered from a dead one. */
+export function stagedPorts(o: ProcessOptions): NativeImportPorts {
   const kill = o.kill ?? null;
   const db = new ChaosD1(o.durable, kill), bucket = new ChaosR2(o.durable, kill);
   const caseRef = id('case', o.caseId) as CaseId;
@@ -153,9 +157,14 @@ export async function startProcess(o: ProcessOptions): Promise<Process> {
     submissions: o.submissions, stager, packages: new StoredPackages(stager as unknown as ValidatingStager), repository: d1NativeCandidateRepository(db), audit: o.durable.audit, now: () => new Date(NOW),
     ...(o.staging === false ? {} : { staging: { ledger: d1StagingLedger(db, { rowsPerBatch: o.rowsPerBatch ?? 3 }), store: r2StagingStore(bucket), rowsPerBatch: o.rowsPerBatch ?? 3, ...(o.maxBatchFiles ? { maxBatchFiles: o.maxBatchFiles } : {}) } }),
   };
-  const service = createNativeResultsImport(ports)!;
+  return ports;
+}
+
+export async function startProcess(o: ProcessOptions): Promise<Process> {
+  const caseRef = id('case', o.caseId) as CaseId;
+  const service = createNativeResultsImport(stagedPorts(o))!;
   const token = await service.admit({ identity: who(), caseId: caseRef, access: 'write' });
-  return { service, token, stager };
+  return { service, token, stager: o.stager };
 }
 
 export { sha256Hex, submissionSnapshotReader };

@@ -18,7 +18,7 @@ const unused=async():Promise<never>=>{throw Error('unexpected unit collaborator 
 function fixture(client='client-a',kind:'client'|'staff'='client'){
  const clientId=id('client',client),list=vi.fn(async()=>[]),authorizeUpload=vi.fn(async()=>{}),authorize=vi.fn(async()=>{});
  const identity:Identity={kind:'verified',clientId,principal:{issuer:'https://synthetic.clerk.test',subject:'user_'+client,kind},sessionId:id('session','session_'+client),checkRevocation:async()=>{},authorize};
- const repository:SubmissionRepository={declare:unused,upload:unused,markStored:unused,reserveRevision:unused,commitRevision:unused,revision:unused,list};
+ const repository:SubmissionRepository={declare:unused,upload:unused,markStored:unused,reserveRevision:unused,commitRevision:unused,revision:unused,list,openSet:unused,set:unused,sets:async()=>[],setOf:unused,declareSetFile:unused,setFiles:unused,reserveSet:unused,markSetFilesFinalized:unused,commitSet:unused};
  const intake:IntakePorts={clientId,budget:{maxMetadataBytes:4096,maxFileBytes:1024},authorizeUpload,originals:{declare:unused,put:unused,finalize:unused},repository,now:()=>new Date('2026-10-25T10:00:00.000Z')};
  const append=vi.fn(async(event:{eventId:string})=>({eventId:event.eventId}));
  const downloads:OperatorDownloadPorts={clientId,authorizeOperate:async()=>{},repository,assets:{metadata:unused,get:unused},audit:{append},now:intake.now};

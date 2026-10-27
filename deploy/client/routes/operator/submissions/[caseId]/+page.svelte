@@ -13,9 +13,22 @@
 			<ol>
 				{#each data.submissions as s (s.operationId)}
 					<li data-operation={s.operationId}>
-						Submission {s.sequence}: {s.files[0].path} ({s.files[0].size} bytes, SHA-256 {s.files[0].sha256}).
-						<a href={s.manifestHref} download>Manifest</a>
-						(SHA-256 {s.manifestSha256}) · <a href={s.downloadHref} download>Download the PDF</a>
+						{#if s.downloadHref}
+							Submission {s.sequence}: {s.files[0].path} ({s.files[0].size} bytes, SHA-256 {s.files[0].sha256}).
+							<a href={s.manifestHref} download>Manifest</a>
+							(SHA-256 {s.manifestSha256}) · <a href={s.downloadHref} download>Download the PDF</a>
+						{:else}
+							Submission {s.sequence}: a sealed set of {s.fileCount} PDFs (file list SHA-256 {s.filesSha256}).
+							<a href={s.manifestHref} download>Manifest</a> (SHA-256 {s.manifestSha256})
+							<details>
+								<summary>Download each PDF</summary>
+								<ol>
+									{#each s.files as f (f.downloadHref)}
+										<li><a href={f.downloadHref} download>{f.path}</a> ({f.size} bytes, SHA-256 {f.sha256})</li>
+									{/each}
+								</ol>
+							</details>
+						{/if}
 					</li>
 				{/each}
 			</ol>

@@ -62,7 +62,7 @@ export function candidate(): LinkedCandidate {
       linkedAt: '2026-10-25T10:00:00.000Z', attribution: 'manual-operator-link-not-processing-proof', state: 'private-candidate-linked' }, correction: null };
 }
 export function submission(): OperatorSubmissionView {
-  return { operationId: 'op-synthetic00000000', revisionId: 'subrev-synthetic', sequence: 1, clientId: CLIENT, caseId: CASE,
+  return { kind: 'file', fileCount: 1, filesSha256: null, operationId: 'op-synthetic00000000', revisionId: 'subrev-synthetic', sequence: 1, clientId: CLIENT, caseId: CASE,
     manifest: { format: 'clearcase.submission-manifest/1', clientId: CLIENT, caseId: CASE, operationId: 'op-synthetic00000000', revisionId: 'subrev-synthetic', sequence: 1, finalizedAt: '2026-10-25T10:00:00.000Z', files: [] },
     manifestSha256: 'd'.repeat(64), finalizedSnapshotSha256: SHA, manifestHref: '/synthetic-manifest', downloadHref: '/synthetic-download', files: [] };
 }

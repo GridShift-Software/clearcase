@@ -13,6 +13,7 @@ const dir = (d: string) => path.join(import.meta.dirname, '../../../src/lib', d)
 const MIGRATIONS = [
   ...readdirSync(dir('storage/cloud/migrations')).filter((f) => f.endsWith('.sql')).sort().map((f) => path.join(dir('storage/cloud/migrations'), f)),
   path.join(dir('submissions/migrations'), '0001_submissions_intake.sql'),
+  path.join(dir('submissions/migrations'), '0002_submissions_file_sets.sql'),
 ];
 const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 

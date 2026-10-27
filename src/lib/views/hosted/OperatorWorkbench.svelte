@@ -373,7 +373,8 @@
       {#if chosenSubmission}
         <p>Finalized snapshot SHA-256 (the identity a candidate and its sign-off are pinned to): <code>{chosenSubmission.finalizedSnapshotSha256}</code></p>
         <p>Downloaded manifest SHA-256 (the exact bytes of the manifest download below): <code>{chosenSubmission.manifestSha256}</code></p>
-        <a href={chosenSubmission.manifestHref} download>Download exact manifest</a> · <a href={chosenSubmission.downloadHref} download>Download submitted PDF</a>
+        <a href={chosenSubmission.manifestHref} download>Download exact manifest</a> ·
+        {#if chosenSubmission.downloadHref}<a href={chosenSubmission.downloadHref} download>Download submitted PDF</a>{:else}a set of {chosenSubmission.fileCount} PDFs; the submissions page links each one{/if}
       {/if}
       <label>Already-processed results-package folder <input type="file" multiple webkitdirectory onchange={chooseFolder} /></label>
       <p>Accepted transport: package-relative path → exact UTF-8 text, sent as the existing API's files object. Select the root containing manifest.json, assets.json and datasets/*.json. No ZIP, workspace HTML or processing recipes.</p>

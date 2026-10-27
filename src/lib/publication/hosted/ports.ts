@@ -1,6 +1,7 @@
 import type { AuditEvent, AuditSink, CaseId, ClientId, Principal, ResultsVersion, SessionId } from '../../server/runtime/contracts.ts';
 import type { PreviewNavigationObservation, PreviewReasonCode, PreviewRenderStage } from './preview-outcome.ts';
 import type { ImportLinkSignoffBinding } from '../../server/runtime/hosted/alpha-contracts.ts';
+import type { PublicationEvidence } from './signoff-evidence.ts';
 
 // Native exact-version sign-off and publication (ADR-0010). Ports only: the parent composition supplies each one from
 // trusted configuration. A missing port answers 503; nothing here supplies a default, a double, an allow or a role.
@@ -129,6 +130,12 @@ export type PointerOutcome =
   /** Storage refused for its own reason (unknown or unstored version, another case's version); nothing changed. */
   | { kind: 'refused'; reason: string };
 
+/**
+ * The evidence item rows a v2 publish recheck read and hashed, in key order as `[item_key, item_json]`. The commit must hold exactly
+ * these rows in the sealed generation, so the transaction, not the earlier read, decides whether they are still the rows that were checked.
+ */
+export interface CheckedEvidenceRows { readonly signoffId: string; readonly rows: readonly (readonly [key: string, json: string])[] }
+
 /** An operation-bound receipt, stored atomically with the pointer, never inferred from pointer equality. */
 export interface PublicationApplyReceipt { readonly intent: PublicationIntent }
 export interface AtomicPublicationMutation {
@@ -137,8 +144,10 @@ export interface AtomicPublicationMutation {
   readonly authority: Readonly<{ clientId: ClientId; caseId: CaseId; principal: Principal; sessionId: SessionId; capability: 'publish' }>;
   /** Fresh external-authority reads immediately before the primary D1 transaction, never saved booleans.
    * Clerk cannot participate in a D1 lock: a later external revocation can race commit. The transaction still guards
-   * current D1 grants, candidate/sign-off generation, any local revocation fence, pointer and apply receipt. */
-  recheck(): Promise<void>;
+   * current D1 grants, candidate/sign-off generation, any local revocation fence, pointer and apply receipt. The recheck itself runs
+   * BEFORE that transaction. A publish of a v2 sign-off returns the evidence rows it hashed, and the transaction must refuse unless the
+   * sealed generation still holds exactly those rows. */
+  recheck(): Promise<void | CheckedEvidenceRows>;
 }
 /**
  * REQUIRED parent atomic adapter, not an ordinary GRS-115 CAS wrapper. Before applying, load/compare the durable
@@ -168,7 +177,13 @@ export interface StoragePublisher {
  */
 export type AuthorizePublication = (a: { principal: Principal; sessionId: SessionId; caseId: CaseId; capability: 'publish' }) => Promise<void>;
 
-export interface SignoffAcknowledgement { readonly fingerprint: string; readonly reason: string }
+/**
+ * One acknowledged warning and its reason. `code` is the diagnostic code of the group the publisher acknowledged it under (snapshot v2
+ * only); a v1 acknowledgement has none. Warning evidence rows carry fingerprints only, so a code is recorded, not cross-checked.
+ */
+export interface SignoffAcknowledgement { readonly fingerprint: string; readonly reason: string; readonly code?: string }
+/** The sealed evidence run a v2 sign-off binds. `candidateId` is read back from the stored row and must equal the sign-off's own. */
+export interface SignoffEvidence { readonly candidateId: string; readonly generation: string; readonly root: string }
 /** The exact identity a sign-off binds; every field is compared again before publication. */
 export interface SignoffIdentity {
   readonly candidateId: string;
@@ -181,6 +196,8 @@ export interface SignoffIdentity {
   readonly diagnosticsSha256: string;
   readonly validatorVersion: string;
   readonly snapshotRevision: string;
+  /** Snapshot v2 only: the evidence root the sign-off binds. Absent on a v1 sign-off, whose identity is exactly what it always was. */
+  readonly evidence?: SignoffEvidence;
 }
 export interface SignoffRecord extends SignoffIdentity {
   readonly signoffId: string;
@@ -245,5 +262,11 @@ export interface NativePublicationPorts {
   readonly publisher: StoragePublisher | null;
   readonly ledger: PublicationLedger | null;
   readonly audit: AuditSink | null;
+  /**
+   * Snapshot v2 only: where sign-off and publish check the sealed evidence run (`signoff-evidence.ts`). Without it a v2 candidate
+   * answers 503. The ledger must be composed with `{ evidence: true }` too, once migration 0005 is applied. (Readiness takes its own
+   * `evidence` reader; this one also carries the store, so it is a separate port.)
+   */
+  readonly signoffEvidence?: PublicationEvidence | null;
   now(): Date;
 }

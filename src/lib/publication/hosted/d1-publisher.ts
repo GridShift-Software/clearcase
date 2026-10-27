@@ -1,7 +1,7 @@
 import type { CaseId, ClientId } from '../../server/runtime/contracts.ts';
 import { codeOf, contractError } from '../../server/runtime/errors.ts';
 import type { PublicationD1 } from './ledger.ts';
-import type { AtomicPublicationMutation, PointerOutcome, PublicationApplyReceipt, PublicationIntent, PublicationState, StoragePublisher } from './ports.ts';
+import type { AtomicPublicationMutation, CheckedEvidenceRows, PointerOutcome, PublicationApplyReceipt, PublicationIntent, PublicationState, StoragePublisher } from './ports.ts';
 
 /** The real binding, NOT a read-replica session. Each receipt/revision read starts on the primary. */
 export interface PublicationD1Database {
@@ -37,6 +37,53 @@ function decode(value: unknown): PublicationApplyReceipt {
 }
 const same = (a: PublicationIntent, b: PublicationIntent) => canonical(a) === canonical(b);
 
+// Snapshot v2 (real-export design 2): the pointer is written only while the sign-off's evidence row, the sealed run it names and the
+// rows that run holds still agree, decided in the same transaction as the write. A guard that fails inserts nothing; no trigger names it.
+// This is the metadata half of `verifyEvidence` in SQL: the run is complete, bound to the sign-off's candidate, results version and
+// manifest, carries the signed root, and holds exactly the rows its pages cover with the greatest key its build ended on. The
+// recomputation of the root from the rows themselves is the controller's recheck, made BEFORE this batch and outside it; the batch
+// therefore also carries the rows that recheck hashed and compares them with the stored ones (`rowGuards`), in the same transaction.
+const EVIDENCE_GUARD = `WHERE EXISTS (
+  SELECT 1 FROM pub_signoff s
+  JOIN pub_signoff_evidence e ON e.signoff_id = s.signoff_id AND e.candidate_id = s.candidate_id
+  JOIN pub_evidence_run r ON r.candidate_id = e.candidate_id AND r.generation = e.generation
+  WHERE s.signoff_id = ? AND s.client_id = ? AND s.case_id = ? AND e.generation = ? AND e.evidence_root = ?
+    AND r.state = 'complete' AND r.evidence_root = e.evidence_root AND r.client_id = s.client_id AND r.case_id = s.case_id
+    AND r.results_version = s.results_version AND r.manifest_sha256 = s.manifest_sha256
+    AND json_extract(r.cursor, '$.done') = 1 AND json_extract(r.cursor, '$.inPage') = 0
+    AND json_extract(r.cursor, '$.pages') = (SELECT count(*) FROM pub_evidence_page p WHERE p.candidate_id = r.candidate_id AND p.generation = r.generation)
+    AND (SELECT count(*) FROM pub_evidence_item i WHERE i.candidate_id = r.candidate_id AND i.generation = r.generation)
+      = (SELECT coalesce(sum(p.item_count), 0) FROM pub_evidence_page p WHERE p.candidate_id = r.candidate_id AND p.generation = r.generation)
+    AND (SELECT max(i.item_key) FROM pub_evidence_item i WHERE i.candidate_id = r.candidate_id AND i.generation = r.generation) IS json_extract(r.cursor, '$.last'))`;
+
+
+// SQLite has no digest function, so the commit cannot rehash the rows. It compares them instead: the recheck's exact [key, json] pairs
+// go in as bound JSON, chunked so no statement binds more than one parameter or more than CHUNK_BYTES of rows, however many items the
+// run holds (the 100-bound-parameter and statement-size limits of D1 never apply). Any difference makes `json()` fail, which aborts the
+// whole batch (D1 rolls back every statement of a failed batch), so neither the receipt nor the pointer is written. The pairs are
+// checked against the sign-off's own evidence row, and the stored count must equal the pairs' count, so no row can be changed,
+// removed or added. Nothing here depends on the seal triggers, which a corrupted or restored database may lack.
+const CHUNK_BYTES = 64_000;
+const ABORT = 'malformed JSON'; // what SQLite says when `json('pub:signoff-stale')` fails; D1 wraps it, so match by inclusion
+const abortUnless = (ok: string) => `SELECT json(CASE WHEN ${ok} THEN '0' ELSE 'pub:signoff-stale' END)`;
+const bytes = new TextEncoder();
+function rowGuards(primary: PublicationD1, checked: CheckedEvidenceRows) {
+  const chunks: (readonly [string, string])[][] = [[]];
+  let size = 0;
+  for (const row of checked.rows) {
+    const n = bytes.encode(row[0]).length + bytes.encode(row[1]).length + 16;
+    if (size + n > CHUNK_BYTES && chunks[chunks.length - 1]!.length) { chunks.push([]); size = 0; }
+    chunks[chunks.length - 1]!.push(row); size += n;
+  }
+  return [
+    primary.prepare(abortUnless(`(SELECT count(*) FROM pub_signoff_evidence e JOIN pub_evidence_item i ON i.candidate_id = e.candidate_id AND i.generation = e.generation
+      WHERE e.signoff_id = ?) = ?`)).bind(checked.signoffId, checked.rows.length),
+    ...chunks.map((chunk) => primary.prepare(abortUnless(`NOT EXISTS (SELECT 1 FROM json_each(?) c JOIN pub_signoff_evidence e ON e.signoff_id = ?
+      LEFT JOIN pub_evidence_item i ON i.candidate_id = e.candidate_id AND i.generation = e.generation AND i.item_key = json_extract(c.value, '$[0]')
+      WHERE i.item_key IS NULL OR i.item_json IS NOT json_extract(c.value, '$[1]'))`)).bind(JSON.stringify(chunk), checked.signoffId)),
+  ];
+}
+
 /**
  * SQL, not a process lock, serializes the current grant, sign-off, candidate generation, expected pointer and receipt.
  * Migration 0002_atomic_publication.sql owns those predicates and the pointer-writing receipt trigger.
@@ -45,6 +92,7 @@ const same = (a: PublicationIntent, b: PublicationIntent) => canonical(a) === ca
  * imaginary D1/Clerk transaction. D1 grant revocation and locally recorded session revocation are serialized with the
  * mutation. Clerk revocation AFTER the final successful check can race the commit. The parent's literal global-lock
  * wording in atomic-publication/1 MUST be corrected before composition; see docs/acceptance/atomic-d1-publication.md.
+ * A v2 publish's recheck hashes the evidence rows outside the transaction; it returns those rows and the transaction compares them.
  */
 export function d1PublicationPublisher(options: D1PublicationOptions): StoragePublisher {
   const { db, clientId, checkSession } = options;
@@ -74,14 +122,21 @@ export function d1PublicationPublisher(options: D1PublicationOptions): StoragePu
     if (prior) return same(prior.intent, intent) ? { kind: 'applied', repeated: true } : { kind: 'refused', reason: 'intent-mismatch' };
 
     const primary = db.withSession('first-primary');
-    const insert = primary.prepare(`INSERT INTO pub_apply_receipt
+    const evidence = kind === 'publish' ? intent.signedIdentity?.evidence : undefined;
+    const receiptValues = [intent.operationId, clientId, intent.caseId, canonical(intent), authority.principal.issuer, authority.principal.subject, authority.principal.kind, authority.sessionId];
+    const insert = evidence && intent.signoffId
+      ? primary.prepare(`INSERT INTO pub_apply_receipt
       (operation_id, client_id, case_id, intent_json, authority_issuer, authority_subject, authority_kind, authority_session_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(intent.operationId, clientId, intent.caseId, canonical(intent), authority.principal.issuer, authority.principal.subject, authority.principal.kind, authority.sessionId);
+      SELECT ?, ?, ?, ?, ?, ?, ?, ? ${EVIDENCE_GUARD}`).bind(...receiptValues, intent.signoffId, clientId, intent.caseId, evidence.generation, evidence.root)
+      : primary.prepare(`INSERT INTO pub_apply_receipt
+      (operation_id, client_id, case_id, intent_json, authority_issuer, authority_subject, authority_kind, authority_session_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(...receiptValues);
     const readback = primary.prepare('SELECT intent_json FROM pub_apply_receipt WHERE client_id = ? AND case_id = ? AND operation_id = ?')
       .bind(clientId, intent.caseId, intent.operationId);
     // Recheck errors are outside the storage catch. Preserve the controller's private Refusal object unchanged.
-    await mutation.recheck();
+    const checked = await mutation.recheck();
+    // A signed v2 publish with no rows to hold the commit to is refused, never committed on the metadata guard alone.
+    if (evidence && (!checked || checked.signoffId !== intent.signoffId)) return { kind: 'guard-refused', reason: 'signoff-stale' };
     try {
       const checked: unknown = await checkSession(authority);
       if (checked === false) return { kind: 'guard-refused', reason: 'invalid-session' };
@@ -93,8 +148,15 @@ export function d1PublicationPublisher(options: D1PublicationOptions): StoragePu
       throw error;
     }
     try {
-      const result = await primary.batch([insert, readback]);
-      const last = result[1] as { results?: { intent_json?: unknown }[] } | undefined;
+      const guards = evidence && checked ? rowGuards(primary, checked) : [];
+      const result = await primary.batch([...guards, insert, readback]);
+      const last = result[result.length - 1] as { results?: { intent_json?: unknown }[] } | undefined;
+      if (evidence && !last?.results?.[0]) {
+        // The guard inserted nothing. Another isolate may have won this very operation; otherwise the evidence moved after the recheck.
+        const raced = await receipt(key);
+        if (raced) return same(raced.intent, intent) ? { kind: 'applied', repeated: true } : { kind: 'refused', reason: 'intent-mismatch' };
+        return { kind: 'guard-refused', reason: 'signoff-stale' };
+      }
       const saved = decode(last?.results?.[0]?.intent_json);
       if (!same(saved.intent, intent)) return unavailable();
       return { kind: 'applied', repeated: false };
@@ -106,7 +168,7 @@ export function d1PublicationPublisher(options: D1PublicationOptions): StoragePu
       const message = error instanceof Error ? error.message : '';
       if (message.includes('pub:forbidden')) return { kind: 'guard-refused', reason: 'forbidden' };
       if (message.includes('pub:invalid-session')) return { kind: 'guard-refused', reason: 'invalid-session' };
-      if (message.includes('pub:signoff-stale')) return { kind: 'guard-refused', reason: 'signoff-stale' };
+      if (message.includes('pub:signoff-stale') || (evidence && message.includes(ABORT))) return { kind: 'guard-refused', reason: 'signoff-stale' };
       if (message.includes('pub:pointer-conflict')) return { kind: 'conflict', current: await current(intent.caseId) };
       if (message.includes('pub:intent-mismatch')) return { kind: 'refused', reason: 'intent-mismatch' };
       if (message.includes('pub:version-refused')) return { kind: 'refused', reason: 'version-unavailable' };

@@ -8,6 +8,7 @@ import { prepareHostedPdfAssets } from '../../../scripts/hosted-pdf-assets.ts';
 import { installWorkerdRedirectContract } from '../workerd-redirect-contract.ts';
 import { createNativePdfEvidenceChecker, NATIVE_PDF_EVIDENCE_CEILINGS, pdfEvidenceStepCost } from '../../../src/lib/viewer/hosted/native-render-check.ts';
 import type { NativePdfEvidenceBudget } from '../../../src/lib/viewer/hosted/render-check-contract.ts';
+import { receiptJson } from '../../../src/lib/viewer/hosted/pdf-content-receipts.ts';
 import { doc, evidenceOptions, pdfBrowser, pdfDatabase, step, syntheticPdf, DAY_MS, type PdfScript } from './pdf-evidence-world.ts';
 
 const sdk = vi.hoisted(() => ({ launch: vi.fn() }));
@@ -144,5 +145,50 @@ describe('M2: the browser lives inside the lease its admission reserved', () => 
   const r = await (await w.checker).step(step('candidate-1', 'a', pdfs.map((p, i) => doc(`asset-${i}`, p, []))));
   expect(r.outcomes.map(o => [o.assetId, o.state])).toEqual([['asset-0', 'rendered']]);
   expect(r.remaining).toEqual(['asset-1']);
+ });
+});
+
+describe('stored receipt rows are bounded by bytes, not by the current citation budget', () => {
+ /** The receipt payload text the step's lookups fetched, in bytes. */
+ function payloadMeter(db: ReturnType<typeof pdfDatabase>) {
+  const fetched = { bytes: 0 }, prepare = db.primary.prepare.bind(db.primary);
+  db.primary.prepare = sql => {
+   const s = prepare(sql), all = s.all.bind(s);
+   if (sql.includes('FROM npr_content_receipts')) s.all = async <T>() => {
+    const r = await all<T>();
+    for (const row of r.results as Record<string, unknown>[]) for (const k of ['receipt_json', 'page_set']) if (typeof row[k] === 'string') fetched.bytes += new TextEncoder().encode(row[k] as string).byteLength;
+    return r;
+   };
+   return s;
+  };
+  return fetched;
+ }
+ const wideBudget = { maxDocumentsPerStep: 1, maxRendersPerSession: 1 };
+ const narrowBudget = { ...wideBudget, maxCheckedPagesPerFile: 1 };
+
+ it('a genuine 256-page receipt reused after the budget narrows to one page fits the receipt allowance the step reserves', async () => {
+  const pdf = syntheticPdf('wide receipt'), db = pdfDatabase();
+  const wide = world(new Map([[pdf.sha256, { totalPages: 100_000 }]]), wideBudget, db);
+  const pages = [1, ...Array.from({ length: 255 }, (_, i) => 99_746 + i)];
+  expect((await (await wide.checker).step(step('wide', 'a', [doc('wide', pdf, pages)]))).outcomes[0]).toMatchObject({ state: 'rendered', receipt: 'created' });
+  const narrow = world(new Map([[pdf.sha256, { totalPages: 100_000 }]]), narrowBudget, db);
+  const fetched = payloadMeter(db);
+  const reused = await (await narrow.checker).step(step('narrow', 'b', [doc('narrow', pdf, [])]));
+  expect(reused.outcomes[0]).toMatchObject({ state: 'rendered', receipt: 'reused' });
+  expect(fetched.bytes).toBeGreaterThan(30_000);
+  // Each fetched row is held three times: the D1 reply, the parsed row and the validation parse.
+  expect(3 * fetched.bytes).toBeLessThanOrEqual(pdfEvidenceStepCost({ ...NATIVE_PDF_EVIDENCE_CEILINGS, ...narrowBudget }).receiptBytes);
+ });
+
+ it('a stored row over the renderer\'s fixed receipt bound is never fetched whole and holds its document', async () => {
+  const pdf = syntheticPdf('oversized receipt'), db = pdfDatabase();
+  const w = world(new Map([[pdf.sha256, { totalPages: 100_000 }]]), narrowBudget, db), checker = await w.checker;
+  const pages = Array.from({ length: 400 }, (_, i) => ({ number: i + 1, width: 10, height: 10, pixelBytes: 400, pixelSha256: 'a'.repeat(64) }));
+  db.sqlite.prepare('INSERT INTO npr_content_receipts VALUES (?,?,?,?,?,?)').run(pdf.sha256, pdf.size, checker.rendererVersion,
+   JSON.stringify(pages.map(p => p.number)), 100_000, receiptJson({ sha256: pdf.sha256, size: pdf.size, rendererVersion: checker.rendererVersion, totalPages: 100_000, pages }));
+  const fetched = payloadMeter(db), reads = { n: 0 };
+  const r = await checker.step(step('candidate-1', 'a', [doc('asset-a', pdf, [], reads)]));
+  expect(r.outcomes).toEqual([expect.objectContaining({ state: 'pending', reason: 'render-receipt-integrity', receipt: null })]);
+  expect([fetched.bytes, reads.n, sdk.launch.mock.calls.length]).toEqual([0, 0, 0]);
  });
 });

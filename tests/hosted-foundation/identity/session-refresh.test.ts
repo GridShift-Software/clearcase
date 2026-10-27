@@ -420,3 +420,49 @@ describe('a renewal cookie this app did not set (review M3)', () => {
 		expect(calls).toEqual([]);
 	});
 });
+
+// The live development handshake of 27 October (Astra auth matrix at b76ca49e, finding 1; session-renewal-live probe):
+// Clerk set `__refresh_<suffix>` to a 48-character value of letters, digits and `:`, not the standard-base64 class the
+// fixtures above use. The hold refused that value, so no hold was ever set, nothing renewed, and 60 seconds after any
+// page load a note save answered 401 and a `__data.json` load carried "Your session has ended". The directives below
+// copy the live set's names, attributes and value classes (SYNTHETIC values): a clear and a set of `__client_uat`, the
+// session and refresh tokens and the dev browser with a year's Expires and SameSite=None, and no Domain but on the uat.
+const LIVE_RT = (n: number) => `${`rt${n}`.padEnd(15, 'x')}:${'Synthetic0Refresh0Token0Value'.padEnd(32, '0')}`;
+const YEAR = () => new Date(Date.now() + 365 * 86_400_000).toUTCString();
+const liveHandshake = (token: string, refresh: string) => [
+	'__client_uat=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; SameSite=None',
+	'__client_uat=1761400000; Path=/; Domain=clearcase.test; Max-Age=315360000; Secure; SameSite=None',
+	`__session=${token}; Path=/; Expires=${YEAR()}; Secure; SameSite=None`,
+	`${REFRESH_A}=${refresh}; Path=/; Expires=${YEAR()}; HttpOnly; Secure; SameSite=None`,
+	`__clerk_db_jwt=dvb_synthetic0123456789abcdefgh; Path=/; Expires=${YEAR()}; Secure; SameSite=None`,
+];
+const clientData = (cookie: string) => new Request(`${ORIGIN}/cases/case-a/__data.json?x-sveltekit-invalidated=01`, { headers: { 'sec-fetch-dest': 'empty', 'sec-fetch-mode': 'cors', accept: '*/*', cookie } });
+
+describe('a refresh token of the shape a live Clerk handshake returns (session-renewal-live)', () => {
+	beforeEach(() => void vi.useFakeTimers({ toFake: ['Date'] }));
+	afterEach(() => void vi.useRealTimers());
+
+	it('saves a note 61 s after sign-in, and loads page data 61 s after that, renewing with the refresh token Clerk rotates to', async () => {
+		const s = session(), b = browser(), row = sessions.get(s.sid)!;
+		row.refresh = LIVE_RT(n);
+		expect(row.refresh).toMatch(/^[A-Za-z0-9:]{48}$/);
+		// Clerk's refresh answer: a new session token and, like its handshake, a rotated refresh token of the same class
+		refreshAnswer = (sid) => {
+			if (sid !== s.sid) return null;
+			const token = A.token({ sub: s.user, sid, azp: ORIGIN });
+			row.refresh = LIVE_RT(++n);
+			return { status: 200, body: { object: 'cookies', cookies: [`__session=${token}; Path=/; Expires=${YEAR()}; Secure; SameSite=None`, `${REFRESH_A}=${row.refresh}; Path=/; Expires=${YEAR()}; HttpOnly; Secure; SameSite=None`] } };
+		};
+		const signedIn = b.take(await invoke(documentGet(`/cases?__clerk_handshake=${A.sign({ handshake: liveHandshake(A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), row.refresh) })}`, '')));
+		expect(signedIn.status).toBe(303);
+		expect(b.names()).toContain(HOLD_A);
+		later(61_000);
+		const saved = b.take(await invoke(saveNote(b.cookie())));
+		expect(saved.status).toBe(201);
+		expect(b.cookie()).toContain(row.refresh);
+		later(61_000);
+		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(201);
+		expect(refreshCalls()).toHaveLength(2);
+		expect(trap.blocked).toEqual([]);
+	});
+});

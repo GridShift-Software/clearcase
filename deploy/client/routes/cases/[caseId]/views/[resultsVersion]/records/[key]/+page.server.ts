@@ -6,7 +6,7 @@ import { parseStrictJson } from '$lib/case-package/strict-json';
 import { originalAttributions } from '$lib/results/hosted/published-reads';
 import { readCase, requireCurrent } from '$lib/views/hosted/case.server';
 import { caseHref } from '$lib/views/hosted/paths';
-import { recordsContext, renderRecords, verifyDatasetBytes } from '$lib/views/hosted/records';
+import { recordsContext, recordsOriginals, renderRecords, verifyDatasetBytes } from '$lib/views/hosted/records';
 import { refuse } from '$lib/server/runtime/hosted/http';
 
 export async function load({ locals, params }: RequestEvent) {
@@ -30,9 +30,7 @@ export async function load({ locals, params }: RequestEvent) {
     locals.assets.originals({ caseId }),
   ]).catch(refuse);
   if (!bytes) error(503, 'Published results are unavailable.');
-  const assets = new Set(originals.map(o => o.assetId));
-  const refs = new Map(attribution.filter(a => assets.has(a.assetId)).map(a => [a.ref, a.assetId]));
-  const context = recordsContext(caseId, refs);
+  const context = recordsContext(caseId, recordsOriginals(attribution, originals.map(o => o.assetId)));
   try {
     const dataset = verifyDatasetBytes(entries[0]!, bytes);
     return { caseHref: caseHref(caseId), label: info.caseLabel ?? caseId, html: renderRecords(dataset, context).html };

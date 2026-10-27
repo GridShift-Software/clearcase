@@ -47,7 +47,7 @@ export class Sqlite {
   withSession(_: 'first-primary') { return this; }
   prepare(sql: string) {
     const db = this;
-    const make = (values: Value[]): PublicationD1Statement & { exec(): { results: unknown[]; meta: { changes: number } } } => ({
+    const make = (values: Value[]): PublicationD1Statement & { exec(): { success: true; results: unknown[]; meta: { changes: number } } } => ({
       bind: (...v: Value[]) => make(v),
       exec() {
         db.sql.push(sql);
@@ -55,8 +55,8 @@ export class Sqlite {
         for (const v of values) if (typeof v === 'string') db.widest.bytes = Math.max(db.widest.bytes, Buffer.byteLength(v));
         if (db.failReads?.test(sql)) throw new Error('injected read failure');
         const q = db.sqlite.prepare(sql);
-        if (SELECTS.test(sql) || RETURNING.test(sql)) return { results: q.all(...values), meta: { changes: 0 } };
-        return { results: [], meta: { changes: Number(q.run(...values).changes) } };
+        if (SELECTS.test(sql) || RETURNING.test(sql)) return { success: true, results: q.all(...values), meta: { changes: 0 } };
+        return { success: true, results: [], meta: { changes: Number(q.run(...values).changes) } };
       },
       first: async <T>() => (make(values).exec().results[0] ?? null) as T | null,
       all: async <T>() => ({ results: make(values).exec().results as T[] }),

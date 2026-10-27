@@ -51,15 +51,15 @@ describe('0006 chunked-import staging increment', () => {
     expect(db.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' });
 
     db.exec(session('op1'));
-    db.exec(`INSERT INTO native_import_staged_file VALUES ('client','case','op1','datasets/a.json','${'e'.repeat(64)}',5,'2026-10-27T00:00:00Z')`);
+    db.exec(`INSERT INTO native_import_staged_file (client_id, case_id, operation_id, path, sha256, size, accepted_at) VALUES ('client','case','op1','datasets/a.json','${'e'.repeat(64)}',5,'2026-10-27T00:00:00Z')`);
     expect(() => db.exec(session('op1'))).toThrow();
-    expect(() => db.exec(`INSERT INTO native_import_staged_file VALUES ('client','case','missing-session','datasets/a.json','${'e'.repeat(64)}',5,'t')`)).toThrow();
-    expect(() => db.exec(`INSERT INTO native_import_staged_file VALUES ('client','case','op1','datasets/a.json','${'f'.repeat(64)}',5,'t')`)).toThrow();
+    expect(() => db.exec(`INSERT INTO native_import_staged_file (client_id, case_id, operation_id, path, sha256, size, accepted_at) VALUES ('client','case','missing-session','datasets/a.json','${'e'.repeat(64)}',5,'t')`)).toThrow();
+    expect(() => db.exec(`INSERT INTO native_import_staged_file (client_id, case_id, operation_id, path, sha256, size, accepted_at) VALUES ('client','case','op1','datasets/a.json','${'f'.repeat(64)}',5,'t')`)).toThrow();
     for (const table of ['native_import_session', 'native_import_staged_file']) {
       expect(() => db.exec(`UPDATE ${table} SET case_id='other'`)).toThrow();
       expect(() => db.exec(`DELETE FROM ${table}`)).toThrow();
     }
-    expect(() => db.exec(`INSERT OR REPLACE INTO native_import_staged_file VALUES ('client','case','op1','datasets/a.json','${'f'.repeat(64)}',9,'t')`)).toThrow();
+    expect(() => db.exec(`INSERT OR REPLACE INTO native_import_staged_file (client_id, case_id, operation_id, path, sha256, size, accepted_at) VALUES ('client','case','op1','datasets/a.json','${'f'.repeat(64)}',9,'t')`)).toThrow();
     const sealed = snapshot(db);
     try { migrate(db, sql); } catch { /* the ledger or CREATE can refuse replay */ }
     expect(snapshot(db)).toEqual(sealed);

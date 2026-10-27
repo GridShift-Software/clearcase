@@ -38,7 +38,7 @@ export const NATIVE_EVIDENCE_APPLIED_RENDER_CASE_LIMIT = freeze({ path: RENDER_C
 	sha256: 'sha256:d57584cbb1c197c6d2392471f02751dc36ce1a2084adfe02136b874fe02af72e', source: NATIVE_RENDER_CASE_LIMIT_MIGRATION_SOURCE });
 export const NATIVE_IMPORT_STAGING_MIGRATION_MODE = 'import-staging-0006';
 export const NATIVE_IMPORT_STAGING_MIGRATION_INPUTS = freeze([
-	{ path: 'src/lib/results-review/native/migrations/0002_native_import_staging.sql', bytes: 3140, sha256: 'sha256:f16720402276db1f02cbb94c517d0675e334acc827ee06642b9d7531e65177a8' },
+	{ path: 'src/lib/results-review/native/migrations/0002_native_import_staging.sql', bytes: 8258, sha256: 'sha256:2eb9b1f2669f6ca2d012838499ae671c4da6b6905dcd99c15e7a4300821cf927' },
 ]);
 // The already applied increment this one runs after: a dependency record only, never emitted, rewritten or replayed.
 export const NATIVE_IMPORT_STAGING_APPLIED_EVIDENCE = freeze({ path: 'migrations/0005_native_evidence.sql', bytes: 4529,

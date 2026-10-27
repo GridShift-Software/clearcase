@@ -5,7 +5,7 @@ import path from 'node:path';
 import { generateCorpus } from '../../../../../../../../scripts/fixtures/synthetic/corpus.ts';
 import { sha256Hex } from '../../../../../../../../src/lib/case-package/hash.ts';
 import { CASE, OLD_RV, RV, event, fake, outcome } from '../../../../../../../../tests/hosted-smoke/case-overview/doubles.ts';
-import { load } from './+page.server.ts';
+import { load } from './[key]/+page.server.ts';
 
 let root: string;
 let files: Map<string, Uint8Array>;
@@ -32,7 +32,7 @@ function setup() {
   } });
   return f;
 }
-const request = (f: ReturnType<typeof setup>, key: string, version = RV, caseId = CASE) => outcome(load(event(f.services, { caseId, resultsVersion: version, key })));
+const request = (f: ReturnType<typeof setup>, key: string, version = RV, caseId: string = CASE) => outcome(load(event(f.services, { caseId, resultsVersion: version, key })));
 describe('records route', () => {
   it('opens every registered dataset for a published reader', async () => {
     for (const key of keys) {
@@ -41,6 +41,24 @@ describe('records route', () => {
       if ('value' in r) expect(r.value.html).toContain('Source records');
     }
   }, 120_000);
+  it('uses the published original attribution for a cited page and refuses changed dataset bytes', async () => {
+    const originalManifest = files.get('manifest.json')!, originalMatter = files.get('datasets/matter.json')!;
+    try {
+      const manifest = JSON.parse(new TextDecoder().decode(originalManifest));
+      const matter = JSON.parse(new TextDecoder().decode(originalMatter));
+      matter.data.title = 'Evidence [[DOC-001#p2]]';
+      const bytes = new TextEncoder().encode(JSON.stringify(matter));
+      const entry = manifest.files.find((f: { key?: string }) => f.key === 'matter');
+      entry.sha256 = sha256Hex(bytes); entry.size = bytes.length;
+      files.set('manifest.json', new TextEncoder().encode(JSON.stringify(manifest)));
+      files.set('datasets/matter.json', bytes);
+      const result = await request(setup(), 'matter');
+      expect(result).toHaveProperty('value');
+      if ('value' in result) expect(result.value.html).toContain(`href="/cases/${CASE}/originals/DOC-001/view?page=2"`);
+      files.set('datasets/matter.json', new TextEncoder().encode('corrupt'));
+      expect(await request(setup(), 'matter')).toMatchObject({ thrown: { status: 503 } });
+    } finally { files.set('manifest.json', originalManifest); files.set('datasets/matter.json', originalMatter); }
+  });
   it('refuses a candidate and another case before loading data', async () => {
     const f = setup();
     expect(await request(f, keys[0]!, OLD_RV)).toMatchObject({ thrown: { status: 403 } });

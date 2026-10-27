@@ -149,6 +149,9 @@ const tokenClaims = (token: string) => JSON.parse(new TextDecoder().decode(fromB
 // rate limit, remembered too, which says nothing about the credential.
 type Refreshed = { token: string; session: string; uat: string | null; hold: SessionHold; setCookies: string[]; until: number };
 const refreshes = new Map<string, Promise<Refreshed | null | 'refused' | 'limited' | 'fault'>>();
+// The instance a handoff verified its token at, for the handshake it starts: a dropped or withheld session names none, and
+// the path alone names the client's (r4 review M1).
+const handoffKind = new WeakMap<Request, InstanceKind>();
 const REFRESHES_LIMIT = 4096;
 // The expired tokens this isolate renewed, keyed like `refreshes` without the refresh token: a browser may already hold
 // that renewal, so a refusal of the same token with another refresh token clears nothing (review H1 sets nothing).
@@ -393,7 +396,7 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			if (url.searchParams.has('__clerk_handshake_nonce') || pairs.some((c) => c.name === '__clerk_handshake_nonce')) return refuse(400, 'handshake-format-unsupported');
 			const hasToken = url.searchParams.has('__clerk_handshake');
 			const path = url.pathname, operator = path === OPERATOR_PATH || path.startsWith(`${OPERATOR_PATH}/`);
-			const kind = (!operator && hasToken ? await signerOf(url.searchParams.get('__clerk_handshake')!) : null) ?? handshakeKind(request, config), instance = config[kind];
+			const kind = (!operator && hasToken ? await signerOf(url.searchParams.get('__clerk_handshake')!) : null) ?? handoffKind.get(request) ?? handshakeKind(request, config), instance = config[kind];
 			// only the browser's own hints reach the SDK: no Authorization header, no forwarded host or proto
 			const headers = new Headers();
 			for (const h of ['accept', 'sec-fetch-dest']) if (request.headers.has(h)) headers.set(h, request.headers.get(h)!);
@@ -489,11 +492,12 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 		 */
 		async handoff(request, page) {
 			if (!secure || page.origin !== config.appOrigin || isSignInFlowPage(page.pathname) || page.pathname === '/sign-out' || request.headers.has('authorization')) return null;
-			if (cookiePairs(request).some((c) => c.name === REAUTH_COOKIE)) return null;
+			if (cookiePairs(request).some((c) => c.name === REAUTH_COOKIE && c.value === '1')) return null;
 			const presented = presentedToken(request);
 			if (presented === 'malformed') return null;
 			const hold = sessionHoldOf(request), token = presented ?? hold?.token ?? null;
-			if (token === null || !(await revocationEvidenceOf(token, config).catch(() => null))) return null;
+			const evidence = token === null ? null : await revocationEvidenceOf(token, config).catch(() => null);
+			if (token === null || !evidence || (presented === null && evidence.instance !== config[hold!.kind])) return null;
 			// a live session only when its hold is spent: the handshake is asked without it, so it starts one (round 4b)
 			const live = (tokenClaims(token).exp as number) * 1000 > Date.now();
 			if (live && !(hold?.spent && hold.token === token)) return null;
@@ -502,7 +506,9 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			const headers = new Headers({ 'sec-fetch-dest': 'document', accept: 'text/html' });
 			const cookie = live ? cookiePairs(request).filter((c) => !SESSION_COOKIE_NAME.test(c.name)).map((c) => `${c.name}=${c.value}`).join('; ') : request.headers.get('cookie');
 			if (cookie) headers.set('cookie', cookie);
-			const started = await api.handle(new Request(doc, { method: 'GET', headers }));
+			const start = new Request(doc, { method: 'GET', headers });
+			handoffKind.set(start, evidence.instance === config.staff ? 'staff' : 'client');
+			const started = await api.handle(start);
 			// only a handshake start, at the instance's Frontend API, is a handoff
 			return started.kind === 'redirect' && new URL(started.location).origin !== config.appOrigin ? { location: started.location, setCookies: started.setCookies } : null;
 		},

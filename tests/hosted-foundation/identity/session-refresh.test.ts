@@ -343,17 +343,19 @@ async function signIn(b: ReturnType<typeof browser>, s: ReturnType<typeof sessio
 }
 // A sign-out or sign-in form action, with the locals the real hook gives its request and the browser applying its clears.
 async function act(action: (event: never) => unknown, path: string, b: ReturnType<typeof browser>) {
-	const request = new Request(`${ORIGIN}${path}`, { method: 'POST', headers: { origin: ORIGIN, cookie: b.cookie() } });
+	const request = new Request(`${ORIGIN}${path}`, { method: 'POST', headers: { origin: ORIGIN, cookie: b.cookie(path) } });
 	let locals: unknown;
 	await handle({ event: { request, url: new URL(request.url), locals: {}, isSubRequest: false }, resolve: async (e: { locals: unknown }) => ((locals = e.locals), new Response(null)) } as never);
+	// SvelteKit's cookies.delete as the browser applies it: at the Path and Domain it names (host-only without one)
 	const deleted: string[] = [];
+	const remove = (name: string, o: { path?: string; domain?: string } = {}) => deleted.push(`${name}=; Path=${o.path ?? '/'}; ${o.domain ? `Domain=${o.domain}; ` : ''}Max-Age=0; Secure`);
 	let thrown: unknown;
 	try {
-		await action({ locals, request, url: new URL(request.url), cookies: { delete: (name: string) => deleted.push(name), set: () => {} } } as never);
+		await action({ locals, request, url: new URL(request.url), cookies: { delete: remove, set: () => {} } } as never);
 	} catch (e) {
 		thrown = e;
 	}
-	b.drop(deleted);
+	for (const d of deleted) b.set(d);
 	return thrown;
 }
 const revoked = (sid: string) => calls.some((c) => c.method === 'POST' && c.path === `/v1/sessions/${sid}/revoke`);
@@ -537,6 +539,7 @@ describe('a session Clerk renews under its suffixed cookie name (session-renewal
 // each live handshake and refresh directive captured on 27 October was Path=/). A copy at any other scope (a narrower
 // Path, which only a planted cookie has) keeps the ambiguity refusal: no token is ever picked. And only the session cookie
 // names this deployment owns are cleared or written: `__session` and the suffixes of its client and staff instances (M2).
+const SESSION_NAME = /^__session(?:_|$)/;
 const SIBLING = 'https://client-b.clearcase.test/', PARENT = 'Domain=clearcase.test; Path=/', NARROW = 'Path=/cases';
 const SESSION_B = `__session_${suffix(B.publishableKey)}`, SESSION_C = `__session_${suffix(C.publishableKey)}`;
 const plant = (b: ReturnType<typeof browser>, name: string, token: string, scope: string) =>
@@ -590,5 +593,43 @@ describe('the scope and ownership of the session cookies a handshake or renewal 
 		expect(r.status).toBe(401);
 		expect(refreshCalls()).toHaveLength(0);
 		expect(r.headers.getSetCookie()).toEqual([]);
+	});
+});
+
+// The Sol re-check of 059237e0 (session-renewal-live-2-fix1-recheck.md), probes ported. M3: sign-out deleted only the
+// host-only copy of an ambiguous session, so a live parent-Domain `__session` it left behind authorised the next request.
+// Sign-out now clears every owned session name at the scopes the handshake clears, and never reports success while a
+// session cookie it may not clear (another instance's name) survives. L2: a signed handshake never writes such a name.
+describe('sign-out and the handshake against session cookies at other scopes or names (session-renewal-live-2 re-check)', () => {
+	it('sign-out clears a live parent-domain session beside an ambiguous host-only copy, so nothing authorises afterwards (M3)', async () => {
+		const s = session(), b = browser();
+		plant(b, '__session', A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), PARENT);
+		b.set(`__session=${s.stale()}; Path=/; Secure; HttpOnly`);
+		expect(presentedToken(documentGet('/cases', b.cookie()))).toBe('malformed');
+		expect((await invoke(saveNote(b.cookie(NOTES)))).status).toBe(401);
+		expect(await act(signOut.actions.default!, '/sign-out', b)).toMatchObject({ status: 303, location: '/sign-in' });
+		expect((await invoke(saveNote(b.cookie(NOTES)))).status).toBe(401);
+		expect(b.names().filter((n) => SESSION_NAME.test(n))).toEqual([]);
+	});
+	it.each([[SESSION_SFX], [SESSION_B]])('sign-out clears an owned %s on the parent domain (M3)', async (name) => {
+		const s = session(), b = browser();
+		plant(b, name, A.token({ sub: s.user, sid: s.sid, azp: ORIGIN }), PARENT);
+		expect(await act(signOut.actions.default!, '/sign-out', b)).toMatchObject({ status: 303, location: '/sign-in' });
+		expect(b.names().filter((n) => SESSION_NAME.test(n))).toEqual([]);
+	});
+	it('sign-out never reports success while another instance\'s session cookie, which it may not clear, survives (M3)', async () => {
+		const s = session(), other = session(), b = browser();
+		b.set(`__session=${s.stale()}; Path=/; Secure; HttpOnly`);
+		b.set(`${SESSION_C}=${A.token({ sub: other.user, sid: other.sid, azp: ORIGIN })}; Path=/; Secure; HttpOnly`);
+		const out = await act(signOut.actions.default!, '/sign-out', b);
+		expect(out).not.toMatchObject({ location: '/sign-in' });
+		expect(out).toMatchObject({ status: 409 });
+		expect(b.names()).not.toContain('__session');
+		expect(b.names()).toContain(SESSION_C);
+	});
+	it('a configured instance\'s signed handshake never writes a session cookie name it does not own (L2)', async () => {
+		const s = session(), token = A.token({ sub: s.user, sid: s.sid, azp: ORIGIN });
+		const r = await invoke(documentGet(`/cases?__clerk_handshake=${A.sign({ handshake: [`${SESSION_C}=${token}; Path=/; Secure`] })}`, ''));
+		expect(r.headers.getSetCookie().filter((d) => d.startsWith(`${SESSION_C}=`))).toEqual([]);
 	});
 });

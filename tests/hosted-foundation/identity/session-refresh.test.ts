@@ -8,7 +8,7 @@
 // real Clerk, browser, cookie jar or workerd has run.
 import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const trap = vi.hoisted(() => {
 	const blocked: string[] = [];
@@ -26,13 +26,19 @@ const trap = vi.hoisted(() => {
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown>, waitUntil: () => {} }));
 vi.mock('cloudflare:workers', () => workers);
 
+import { MAX_SESSION_LIFETIME_MS } from '../../../src/lib/auth/clerk/revocation.ts';
 import { handle } from '../../../src/lib/server/runtime/hosted/hooks.server.ts';
 import { craftedInstance } from './synthetic.ts';
+
+const signOut = await import('../../../deploy/client/routes/sign-out/+page.server.ts');
+const operator = await import('../../../deploy/client/routes/sign-in/operator/+page.server.ts');
 
 const ORIGIN = 'https://client-a.clearcase.test';
 const A = craftedInstance('client-a.clerk.test'), B = craftedInstance('staff-b.clerk.test'), C = craftedInstance('client-c.clerk.test');
 const suffix = (pk: string) => createHash('sha1').update(pk).digest('base64url').slice(0, 8);
 const REFRESH_A = `__refresh_${suffix(A.publishableKey)}`, REFRESH_B = `__refresh_${suffix(B.publishableKey)}`;
+// the app-owned cookies that hold what renewal needs, one per instance kind
+const HOLD_A = '__Host-clearcase_refresh', HOLD_B = '__Host-clearcase_staff_refresh';
 // a standard-base64 value, the class a real development handshake returned (browser-session.test.ts)
 const RT = 'Zm9v+YmFy/YmF6cXV4+cXV1eA/c3ludGhldGljLXJlZnJlc2g=';
 const STALE = () => Date.now() - 120_000; // issued two minutes ago: expired one minute ago
@@ -76,7 +82,7 @@ beforeAll(async () => {
 		CLEARCASE_CLIENT_ID: 'client-a', CLEARCASE_APP_ORIGIN: ORIGIN,
 		CLERK_CLIENT_PUBLISHABLE_KEY: A.publishableKey, CLERK_CLIENT_SECRET_KEY: A.secretKey, CLERK_CLIENT_JWT_KEY: A.jwtKey,
 		CLERK_STAFF_PUBLISHABLE_KEY: B.publishableKey, CLERK_STAFF_SECRET_KEY: B.secretKey, CLERK_STAFF_JWT_KEY: B.jwtKey,
-		CLERK_API_URL: api,
+		CLERK_STAFF_SIGN_IN_URL: 'https://staff-b.clerk.test/sign-in', CLERK_API_URL: api,
 	};
 });
 afterAll(() => new Promise<void>((r) => server.close(() => r())));
@@ -85,7 +91,8 @@ let n = 0;
 const session = (instance = A, status = 'active') => {
 	const sid = `sess_r${++n}`, user = `user_r${n}`;
 	sessions.set(sid, { status, user_id: user, instance, refresh: `${RT}${n}` });
-	return { sid, user, refresh: `${RT}${n}`, stale: () => instance.token({ sub: user, sid, azp: ORIGIN, now: STALE() }) };
+	const stale = instance.token({ sub: user, sid, azp: ORIGIN, now: STALE() });
+	return { sid, user, refresh: `${RT}${n}`, stale: () => stale };
 };
 beforeEach(() => {
 	calls.length = 0;
@@ -111,7 +118,9 @@ const saveNote = (cookie: string, headers: Record<string, string> = {}) => new R
 });
 const dataRequest = (cookie: string) => new Request(`${ORIGIN}/operator/cases/case-a/preview/cand-1/__data.json?q=JN-001&x-sveltekit-invalidated=01`, { headers: { 'sec-fetch-dest': 'empty', accept: '*/*', cookie } });
 const documentGet = (path: string, cookie: string) => new Request(`${ORIGIN}${path}`, { headers: { 'sec-fetch-dest': 'document', accept: 'text/html', cookie } });
-const jar = (s: ReturnType<typeof session>, extra = '') => `__client_uat=1761400000; __session=${s.stale()}; ${REFRESH_A}=${s.refresh}${extra}`;
+// What a browser holds for renewal beside its expired session token: the instance's refresh token.
+const held = (s: ReturnType<typeof session>, refresh = s.refresh) => `${REFRESH_A}=${refresh}`;
+const jar = (s: ReturnType<typeof session>, refresh = s.refresh) => `__client_uat=1761400000; __session=${s.stale()}; ${held(s, refresh)}`;
 const refreshCalls = () => calls.filter((c) => c.path.endsWith('/refresh'));
 const sessionCookie = (r: Response) => r.headers.getSetCookie().find((c) => /^__session=/.test(c));
 
@@ -238,5 +247,148 @@ describe('what the refresh never changes', () => {
 			await invoke(new Request(`${ORIGIN}${path}`, { method: 'POST', headers: { origin: ORIGIN, cookie: jar(s), 'content-type': 'application/x-www-form-urlencoded' }, body: '' }));
 			expect(refreshCalls(), path).toEqual([]);
 		}
+	});
+});
+
+describe('the credential a refresh is answered for (review H1)', () => {
+	it('never answers a wrong refresh token with the session the right one renewed for the same expired token', async () => {
+		const s = session();
+		expect((await invoke(saveNote(jar(s)))).status).toBe(201);
+		const r = await invoke(saveNote(jar(s, `${RT}wrong`)));
+		expect(r.status).toBe(401);
+		expect(r.headers.getSetCookie()).toEqual([]);
+		expect(refreshCalls()).toHaveLength(2);
+		expect(refreshCalls()[1]!.body).toMatchObject({ refresh_token: `${RT}wrong` });
+	});
+	it('never lets a wrong refresh token settle the right one as refused', async () => {
+		const s = session();
+		expect((await invoke(saveNote(jar(s, `${RT}wrong`)))).status).toBe(401);
+		expect((await invoke(saveNote(jar(s)))).status).toBe(201);
+		expect(refreshCalls()).toHaveLength(2);
+	});
+});
+
+// A browser's cookie jar for this origin on the (faked) clock, as RFC 6265bis has it: a cookie goes when its Max-Age runs
+// out, and a `__Host-` cookie is refused without Secure, with a Domain, or with a Path other than /.
+function browser() {
+	const kept = new Map<string, { value: string; until: number }>();
+	const live = () => [...kept].filter(([, c]) => c.until > Date.now());
+	const set = (directive: string) => {
+		const [pair = '', ...attrs] = directive.split(';').map((a) => a.trim());
+		const name = pair.slice(0, pair.indexOf('=')), value = pair.slice(pair.indexOf('=') + 1);
+		const attr = (k: string) => attrs.find((a) => a.toLowerCase().startsWith(`${k}=`))?.slice(k.length + 1);
+		if (name.startsWith('__Host-') && (!attrs.some((a) => a.toLowerCase() === 'secure') || attr('domain') !== undefined || attr('path') !== '/')) return;
+		const age = attr('max-age'), until = age === undefined ? Infinity : Date.now() + Number(age) * 1000;
+		if (until <= Date.now()) kept.delete(name);
+		else kept.set(name, { value, until });
+	};
+	return {
+		take(r: Response) {
+			for (const d of r.headers.getSetCookie()) set(d);
+			return r;
+		},
+		drop(names: string[]) {
+			for (const name of names) kept.delete(name);
+		},
+		names: () => live().map(([name]) => name),
+		cookie: () => live().map(([name, c]) => `${name}=${c.value}`).join('; '),
+	};
+}
+const later = (ms: number) => vi.setSystemTime(Date.now() + ms);
+// A browser signs in through the real handshake return: Clerk's directive set, with the session token live for 60 seconds.
+async function signIn(b: ReturnType<typeof browser>, s: ReturnType<typeof session>) {
+	const directives = [
+		'__client_uat=1761400000; Path=/; Domain=clearcase.test; Max-Age=315360000; SameSite=Lax; Secure',
+		`__session=${A.token({ sub: s.user, sid: s.sid, azp: ORIGIN })}; Path=/; Domain=clearcase.test; Max-Age=60; SameSite=Lax; Secure`,
+		`${REFRESH_A}=${s.refresh}; Path=/; Domain=clearcase.test; Max-Age=315360000; HttpOnly; SameSite=Lax; Secure`,
+	];
+	const r = b.take(await invoke(documentGet(`/cases?__clerk_handshake=${A.sign({ handshake: directives })}`, b.cookie())));
+	expect(r.status).toBe(303);
+	expect(b.names()).toContain('__session');
+	calls.length = 0;
+	return r;
+}
+// A sign-out or sign-in form action, with the locals the real hook gives its request and the browser applying its clears.
+async function act(action: (event: never) => unknown, path: string, b: ReturnType<typeof browser>) {
+	const request = new Request(`${ORIGIN}${path}`, { method: 'POST', headers: { origin: ORIGIN, cookie: b.cookie() } });
+	let locals: unknown;
+	await handle({ event: { request, url: new URL(request.url), locals: {}, isSubRequest: false }, resolve: async (e: { locals: unknown }) => ((locals = e.locals), new Response(null)) } as never);
+	const deleted: string[] = [];
+	let thrown: unknown;
+	try {
+		await action({ locals, request, url: new URL(request.url), cookies: { delete: (name: string) => deleted.push(name), set: () => {} } } as never);
+	} catch (e) {
+		thrown = e;
+	}
+	b.drop(deleted);
+	return thrown;
+}
+const revoked = (sid: string) => calls.some((c) => c.method === 'POST' && c.path === `/v1/sessions/${sid}/revoke`);
+
+describe('a browser that drops each cookie at its Max-Age', () => {
+	beforeEach(() => void vi.useFakeTimers({ toFake: ['Date'] }));
+	afterEach(() => void vi.useRealTimers());
+
+	it('saves the note after the browser dropped the expired session cookie, and again a minute later (review M1)', async () => {
+		const s = session(), b = browser();
+		await signIn(b, s);
+		later(61_000);
+		expect(b.names()).not.toContain('__session');
+		expect(b.take(await invoke(saveNote(b.cookie()))).status).toBe(201);
+		later(61_000);
+		expect(b.names()).not.toContain('__session');
+		expect(b.take(await invoke(saveNote(b.cookie()))).status).toBe(201);
+		expect(refreshCalls()).toHaveLength(2);
+		expect(trap.blocked).toEqual([]);
+	});
+	it('keeps nothing that renews a session past the longest a Clerk session lives (review M1)', async () => {
+		const s = session(), b = browser();
+		await signIn(b, s);
+		later(MAX_SESSION_LIFETIME_MS + 120_000);
+		expect(b.cookie()).not.toContain(s.refresh);
+		expect((await invoke(saveNote(b.cookie()))).status).toBe(401);
+		expect(calls).toEqual([]);
+	});
+	it('keeps the renewal credential only in an app-owned __Host- cookie: Secure, HttpOnly, Path=/, no Domain (review M3)', async () => {
+		const s = session(), b = browser();
+		const r = await signIn(b, s);
+		expect(b.names().filter((n) => /refresh/.test(n))).toEqual([HOLD_A]);
+		const directive = r.headers.getSetCookie().find((c) => c.startsWith(`${HOLD_A}=`))!;
+		expect(directive).toMatch(new RegExp(`^${HOLD_A}=[^;]+; Path=/; Max-Age=(\\d+); SameSite=Lax; HttpOnly; Secure$`));
+		const age = Number(/Max-Age=(\d+)/.exec(directive)![1]);
+		expect(age).toBeGreaterThan(MAX_SESSION_LIFETIME_MS / 1000);
+		expect(age).toBeLessThanOrEqual(MAX_SESSION_LIFETIME_MS / 1000 + 60);
+	});
+	it.each([0, 61_000])('signs out %d ms after sign-in: the session is revoked and every renewal cookie cleared (review M2)', async (idle) => {
+		const s = session(), b = browser();
+		await signIn(b, s);
+		later(idle);
+		expect(await act(signOut.actions.default!, '/sign-out', b)).toMatchObject({ status: 303, location: '/sign-in' });
+		expect(revoked(s.sid)).toBe(true);
+		expect(b.cookie()).not.toContain(s.refresh);
+		expect(b.names().filter((n) => /__session|__client_uat|refresh/.test(n))).toEqual([]);
+	});
+	it.each([0, 61_000])('switches to the operator sign-in %d ms after a client sign-in: the client session is revoked and its renewal cookie cleared (review M2)', async (idle) => {
+		const s = session(), b = browser();
+		await signIn(b, s);
+		later(idle);
+		expect(await act(operator.actions.default!, '/sign-in/operator', b)).toMatchObject({ status: 303 });
+		expect(revoked(s.sid)).toBe(true);
+		expect(b.cookie()).not.toContain(s.refresh);
+	});
+});
+
+describe('a renewal cookie this app did not set (review M3)', () => {
+	it('never renews from a Clerk-named refresh cookie, which a sibling host under the parent domain can plant', async () => {
+		const s = session();
+		const r = await invoke(saveNote(`__client_uat=1761400000; __session=${s.stale()}; ${REFRESH_A}=${s.refresh}`));
+		expect(r.status).toBe(401);
+		expect(calls).toEqual([]);
+	});
+	it('never renews with two renewal cookies of one name', async () => {
+		const s = session();
+		const r = await invoke(saveNote(`__client_uat=1761400000; __session=${s.stale()}; ${held(s)}; ${held(s)}`));
+		expect(r.status).toBe(401);
+		expect(calls).toEqual([]);
 	});
 });

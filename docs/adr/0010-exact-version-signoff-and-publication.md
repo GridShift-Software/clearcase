@@ -15,6 +15,8 @@ The reviewer checks document counts, missing originals, citation problems, valid
 
 Unrecognized analysis sections may be retained privately for review and repair. Unsupported or invalid required sections block publication until they validate and display correctly; opaque storage with a warning is not complete presentation. A failed required file preview holds the whole update in the same way ([ADR-0011](0011-originals-and-complete-in-app-file-viewing.md)); the prior publication stays available. This boundary is confirmed in the [POC and export reconciliation decision](https://linear.app/vaper/issue/GRS-92/reconcile-poc-demo-and-newer-export-work-with-the-hosted-plan).
 
+See [ADR-0013](0013-real-exports-publish-from-step-built-evidence-and-records-views.md) for the accepted records-view interpretation for required datasets without a native view.
+
 Authorized publishers may restore a previous approved version without losing client user work, recording the action. If no safe version exists, they may withdraw results from client access.
 
 Later submissions extend the existing case. Operators receive full case context with added or changed files identified. Processing produces a new complete results version and preserves client notes, registers and other user work.

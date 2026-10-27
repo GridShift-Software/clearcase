@@ -38,7 +38,78 @@ export interface CandidateSnapshot {
   readonly requiredPreviews: readonly Readonly<{ assetId: string; state: RequiredPreviewState; reasonCode?: PreviewReasonCode; stage?: PreviewRenderStage; navigation?: PreviewNavigationObservation }>[];
 }
 
-/** Reads one private candidate of this deployment's client. Null: no such candidate. A fault rejects (503). */
+// ---- Snapshot v2 (real-export design 2) -------------------------------------------------------------------------------
+// v1 above is frozen: a candidate imported before evidence runs keeps its snapshot, its caps and its state set. A v2 snapshot
+// carries no list. It names one sealed evidence run (the generation and its root) and the counts of what that run holds; the
+// items themselves are paged out of the run. A later unit adds a state by adding it to the union here and one row to its table in
+// `rules.ts`; the compiler refuses the build until that row exists, and v1 is never touched.
+
+/** What an evidence item observes. The item key of every observation is `<kind>/<subject>`, so a kind is a contiguous key range. */
+export type EvidenceKind = 'section' | 'preview' | 'warning' | 'error';
+/**
+ * v2 section states. `records-rendered` (ADR-0013, built by U6) is a required dataset shown in full by the schema-driven records
+ * view; it is never `valid`, which means a native view rendered. `disagrees` (ADR-0014, Proposed; built by U12) is a META whose
+ * counts disagree with its records. Until U12 gives it an acknowledgement path it holds sign-off like any other unmet state.
+ */
+export type SectionStateV2 = 'valid' | 'integrity-verified' | 'records-rendered' | 'disagrees' | 'invalid' | 'unsupported' | 'missing';
+/** v2 preview states. A reason code beside a non-rendered state names why (`PREVIEW_REASON_CODES`); later units add states and reasons. */
+export type PreviewStateV2 = 'rendered' | 'failed' | 'pending';
+
+/** One evidence observation, as the build stored it (inside `{"input": ..., "observation": ...}`). Fixed vocabularies only. */
+export type EvidenceObservation =
+  | { readonly kind: 'section'; readonly key: string; readonly state: SectionStateV2 }
+  | { readonly kind: 'preview'; readonly assetId: string; readonly state: PreviewStateV2; readonly reasonCode?: PreviewReasonCode; readonly stage?: PreviewRenderStage; readonly navigation?: PreviewNavigationObservation }
+  | { readonly kind: 'warning'; readonly fingerprint: string }
+  | { readonly kind: 'error'; readonly fingerprint: string };
+
+/** One group of the evidence counts. `subject` is a section's key and is null for every other kind; `state` and `reason` are null where the kind has none. */
+export interface EvidenceCountGroup {
+  readonly kind: EvidenceKind;
+  readonly subject: string | null;
+  readonly state: string | null;
+  readonly reason: string | null;
+  readonly count: number;
+}
+
+/**
+ * Facts about one candidate whose publication evidence is persisted. Like v1 there is no `ready` flag, and any other key makes it
+ * unreadable (503). The counts are SQL aggregates over the sealed run, so no count depends on how many items there are.
+ */
+export interface CandidateSnapshotV2 {
+  readonly format: 'clearcase.candidate-snapshot/2';
+  readonly link: ImportLinkSignoffBinding;
+  readonly preparedBy: Readonly<Pick<Principal, 'issuer' | 'subject'>>;
+  /** Covers the case's warning baseline too (migration 0003), which is why no baseline list travels with a v2 snapshot. */
+  readonly snapshotRevision: string;
+  readonly validation: Readonly<{ verdict: 'accept' | 'report' | 'reject'; validatorVersion: string; diagnosticsSha256: string }>;
+  readonly evidence: Readonly<{
+    generation: string;
+    /** The evidence root the run sealed under (`evidence/canonical.ts`). Sign-off binds it (U5). */
+    root: string;
+    /** Item rows in the run. The counts add up to exactly this. */
+    items: number;
+    groups: readonly EvidenceCountGroup[];
+    /** Warnings whose fingerprint is not in the case's trusted baseline: exactly the set a sign-off must acknowledge. */
+    newWarnings: number;
+  }>;
+}
+
+/** One stored evidence row. `baseline` is whether the case's trusted baseline holds this warning's fingerprint; null for every other kind. */
+export interface EvidenceItemRow { readonly key: string; readonly json: string; readonly baseline: boolean | null }
+/**
+ * Reads persisted evidence. It never builds, hashes or recomputes any: a page is rows the sealed run already holds, in ascending key
+ * order, and the pages of one run together are exactly its rows.
+ */
+export interface EvidenceReader {
+  /**
+   * At most `limit` rows after `after` (exclusive; null starts at the first), in key order, optionally only one kind. Null when this
+   * client's case has no completed run for the candidate and generation with exactly this root, or when the run's stored rows are not
+   * exactly the ones its seal covers (a row added after sealing): rows outside the root are never served.
+   */
+  page(a: { clientId: ClientId; caseId: CaseId; candidateId: string; generation: string; root: string; after: string | null; kind: EvidenceKind | null; limit: number }): Promise<readonly EvidenceItemRow[] | null>;
+}
+
+/** Reads one private candidate of this deployment's client. Null: no such candidate. A fault rejects (503). Returns a v1 or a v2 snapshot. */
 export interface CandidateReader {
   read(a: { clientId: ClientId; caseId: CaseId; candidateId: string }): Promise<unknown>;
 }

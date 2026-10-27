@@ -190,18 +190,47 @@ async function world(o: { pdfBudget?: boolean; metaDisagrees?: boolean } = {}) {
     expect(done.body.kind).toBe('linked');
     return (done.body.candidate as { candidateId: string }).candidateId;
   }
+  /** One build request, the clock untouched. */
+  const step = (candidateId: string, restart = false) =>
+    call(operator, evidenceRoute, 'POST', `/operator/publication/${caseId}/evidence`, scope, { candidateId, ...(restart ? { restart } : {}) }).then(json);
   /** Build requests until the run answers something other than 202; the last answer and how many requests it took. */
   async function build(candidateId: string, restart = false) {
     let requests = 0, out: { status: number; body: Record<string, unknown> };
     do {
-      out = await json(await call(operator, evidenceRoute, 'POST', `/operator/publication/${caseId}/evidence`, scope, { candidateId, ...(restart && requests === 0 ? { restart } : {}) }));
+      out = await step(candidateId, restart && requests === 0);
       // One PDF session per client at a time, each reserving its lease (U9): the operator calls again once it has passed.
       vi.setSystemTime(Date.now() + 125_000);
     } while (out.status === 202 && ++requests < 400);
     return { ...out, requests: requests + 1 };
   }
   const readiness = (candidateId: string, q = '') => call(owner, readinessRoute, 'GET', `/operator/publication/${caseId}/readiness?candidateId=${candidateId}${q}`, scope).then(json);
-  return { corpus, pkg, originals, caseId, raw, db, bucket, boundary, env, call, json, imported, build, readiness };
+  /** The owner reads every warning the run holds and acknowledges each new one, grouped by its code with one reason per group. */
+  async function acknowledgementsFor(candidateId: string) {
+    const codes = new Map(validateHostedPackage({ files: pkg, originals: new Map() }).result.diagnostics.map((d) => [d.fingerprint, d.code]));
+    const warnings: { fingerprint: string; missing: boolean }[] = [];
+    for (let cursor: string | null = null, n = 0; n < 100; n++) {
+      const page = await readiness(candidateId, `&kind=warning${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+      expect(page.status).toBe(200);
+      const p = page.body.page as { items: { observation: { fingerprint: string }; acknowledgementRequired?: boolean; policy?: unknown }[]; next: string | null };
+      for (const item of p.items) if (item.acknowledgementRequired) warnings.push({ fingerprint: item.observation.fingerprint, missing: item.policy !== undefined });
+      cursor = p.next; if (!cursor) break;
+    }
+    const byCode = new Map<string, string[]>();
+    for (const x of warnings) {
+      const code = x.missing ? ASSET_ACK_CODE : codes.get(x.fingerprint) ?? META_DISAGREEMENT_CODE;
+      byCode.set(code, [...byCode.get(code) ?? [], x.fingerprint]);
+    }
+    return { count: warnings.length, codes: [...byCode.keys()], groups: [...byCode].map(([code, fingerprints]) => ({ code, reason: `Synthetic owner reviewed ${code}.`, fingerprints })) };
+  }
+  /** The owner's sign-off of the exact candidate identity and evidence root readiness showed. */
+  async function signOff(candidateId: string, view: Record<string, unknown>, acknowledgements: unknown[], operationId = 'u14-signoff-operation-0001') {
+    const { candidateId: _c, ...claimed } = view.identity as Record<string, string>;
+    return json(await call(owner, signoffRoute, 'POST', `/operator/publication/${caseId}/signoffs`, scope,
+      { operationId, candidateId, identity: { ...claimed, evidenceRoot: (view.evidence as { root: string }).root }, acknowledgements, selfApproval: false }));
+  }
+  const publish = (signoffId: string, operationId = 'u14-publish-operation-0001') =>
+    call(owner, publishRoute, 'POST', `/operator/publication/${caseId}/publish`, scope, { operationId, signoffId, expected: { kind: 'none' } }).then(json);
+  return { corpus, pkg, originals, caseId, raw, db, bucket, boundary, env, call, json, imported, step, build, readiness, acknowledgementsFor, signOff, publish };
 }
 
 const AUDIT = { maxEventBytes: 4096, maxRows: 100_000, maxReadRows: 100, maxDenialRows: 100, maxDenialsPerActor: 10, maxPageRows: 20, maxPagesPerRequest: 5 };
@@ -226,7 +255,12 @@ describe('U14 real-export end to end (synthetic, local): intake, import, evidenc
     // 1-2. Intake and the staged import through the operator's routes: a private candidate, linked to the finalized submission.
     const candidateId = await w.imported();
 
-    // 3. Evidence: bounded build requests until the run is sealed.
+    // 3. Evidence: bounded build requests until the run is sealed. A request releases its lease as it ends, so the operator's next
+    // request, at once and with the clock unchanged, continues the run rather than answering 409 leased.
+    expect((await w.step(candidateId)).status).toBe(202);
+    const continued = await w.step(candidateId);
+    expect(continued.status, JSON.stringify(continued.body)).toBe(202);
+    expect(continued.body.state).not.toBe('leased');
     const built = await w.build(candidateId);
     expect(built.status, JSON.stringify(built.body)).toBe(200);
     expect(built.body).toMatchObject({ state: 'complete', generation: '1' });
@@ -245,30 +279,13 @@ describe('U14 real-export end to end (synthetic, local): intake, import, evidenc
     expect(before.body).toMatchObject({ format: 'clearcase.readiness/2', evidence: { generation: '1', root } });
     expect(before.body.blocker).toEqual({ code: 'required-section', detail: ['meta:disagrees'] });
 
-    // The owner reads every warning the run holds and acknowledges each new one, grouped by its code with one reason per group.
-    const codes = new Map(validateHostedPackage({ files: w.pkg, originals: new Map() }).result.diagnostics.map((d) => [d.fingerprint, d.code]));
-    const warnings: { fingerprint: string; missing: boolean }[] = [];
-    for (let cursor: string | null = null, n = 0; n < 100; n++) {
-      const page = await w.json(await w.call(owner, readinessRoute, 'GET', readinessAt(`&kind=warning${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`), scope));
-      expect(page.status).toBe(200);
-      const p = page.body.page as { items: { observation: { fingerprint: string }; acknowledgementRequired?: boolean; policy?: unknown }[]; next: string | null };
-      for (const item of p.items) if (item.acknowledgementRequired) warnings.push({ fingerprint: item.observation.fingerprint, missing: item.policy !== undefined });
-      cursor = p.next; if (!cursor) break;
-    }
-    expect(warnings.length).toBe(before.body.acknowledgementsRequired);
-    const byCode = new Map<string, string[]>();
-    for (const x of warnings) {
-      const code = x.missing ? ASSET_ACK_CODE : codes.get(x.fingerprint) ?? META_DISAGREEMENT_CODE;
-      byCode.set(code, [...byCode.get(code) ?? [], x.fingerprint]);
-    }
-    expect([...byCode.keys()]).toEqual(expect.arrayContaining([ASSET_ACK_CODE, META_DISAGREEMENT_CODE]));
-    const acknowledgements = [...byCode].map(([code, fingerprints]) => ({ code, reason: `Synthetic owner reviewed ${code}.`, fingerprints }));
+    const acks = await w.acknowledgementsFor(candidateId);
+    expect(acks.count).toBe(before.body.acknowledgementsRequired);
+    expect(acks.codes).toEqual(expect.arrayContaining([ASSET_ACK_CODE, META_DISAGREEMENT_CODE]));
 
     // 5. Owner sign-off of the exact candidate and run, then readiness naming it shows no blocker.
     const identityOf = before.body.identity as Record<string, string>;
-    const { candidateId: _c, ...claimed } = identityOf;
-    const signed = await w.json(await w.call(owner, signoffRoute, 'POST', `/operator/publication/${caseId}/signoffs`, scope,
-      { operationId: 'u14-signoff-operation-0001', candidateId, identity: { ...claimed, evidenceRoot: root }, acknowledgements, selfApproval: false }));
+    const signed = await w.signOff(candidateId, before.body, acks.groups);
     expect(signed.status, JSON.stringify(signed.body)).toBe(201);
     const signoffId = signed.body.signoffId as string;
     const after = await w.json(await w.call(owner, readinessRoute, 'GET', readinessAt(`&signoffId=${signoffId}`), scope));
@@ -306,6 +323,51 @@ describe('U14 real-export end to end (synthetic, local): intake, import, evidenc
 
     console.info(`U14 e2e timings (SQLite, MemoryR2, ${DOCUMENTS} documents): readiness read ${readinessMs.toFixed(1)} ms, publish guard ${publishMs.toFixed(1)} ms, ${steps + 1} evidence requests`);
   }, 900_000);
+
+  // Review H1 (P3): a restart that begins after publish's final recheck and before its D1 batch makes the signed generation older. The
+  // batch itself must refuse it: the guard requires that no newer generation exists, in the same transaction as the pointer write.
+  it('refuses to publish a sign-off whose generation a restart replaced between the final recheck and the commit, and publishes nothing', async () => {
+    const w = await world();
+    const candidateId = await w.imported();
+    expect((await w.build(candidateId)).status).toBe(200);
+    const ready = await w.readiness(candidateId);
+    expect(ready.status, JSON.stringify(ready.body)).toBe(200);
+    const signed = await w.signOff(candidateId, ready.body, (await w.acknowledgementsFor(candidateId)).groups);
+    expect(signed.status, JSON.stringify(signed.body)).toBe(201);
+
+    // The restart's first claim, exactly as d1EvidenceStore writes it, lands just before the publish batch runs.
+    const sql = new WeakMap<object, string>();
+    const prepare = w.db.prepare.bind(w.db), batch = w.db.batch.bind(w.db);
+    const tag = (st: ReturnType<typeof prepare>, query: string): ReturnType<typeof prepare> => {
+      sql.set(st, query);
+      const bind = st.bind.bind(st);
+      st.bind = ((...v: Parameters<typeof bind>) => tag(bind(...v) as ReturnType<typeof prepare>, query)) as typeof st.bind;
+      return st;
+    };
+    w.db.prepare = ((query: string) => tag(prepare(query), query)) as typeof w.db.prepare;
+    let restarted = false;
+    w.db.batch = (async (statements: Parameters<typeof batch>[0]) => {
+      if (!restarted && statements.some((st) => sql.get(st as object)?.includes('INSERT INTO pub_apply_receipt'))) {
+        restarted = true;
+        w.raw.exec(`INSERT INTO pub_evidence_run (candidate_id, generation, client_id, case_id, results_version, manifest_sha256, validator_version, renderer_version, state, cursor, lease_token, lease_until_ms, evidence_root)
+          SELECT candidate_id, '2', client_id, case_id, results_version, manifest_sha256, validator_version, renderer_version, 'building', NULL, 'concurrent-restart', ?, NULL
+          FROM pub_evidence_run WHERE candidate_id = ? AND generation = '1'`, Date.now() + 75_000, candidateId);
+      }
+      return batch(statements);
+    }) as typeof w.db.batch;
+    const refused = await w.publish(signed.body.signoffId as string);
+    w.db.prepare = prepare; w.db.batch = batch;
+    expect(restarted).toBe(true);
+    expect(refused.status, JSON.stringify(refused.body)).toBe(409);
+    expect(w.raw.rows('SELECT * FROM rs_publication')).toEqual([]);
+    expect(w.raw.rows('SELECT * FROM pub_apply_receipt')).toEqual([]);
+    // Readiness reads only the latest generation, which is still building; once rebuilt, the old sign-off still never publishes.
+    expect((await w.readiness(candidateId)).status).toBe(503);
+    w.raw.exec("UPDATE pub_evidence_run SET lease_until_ms = 0 WHERE generation = '2'");
+    expect(await w.build(candidateId)).toMatchObject({ status: 200, body: { state: 'complete', generation: '2' } });
+    expect((await w.publish(signed.body.signoffId as string, 'u14-publish-operation-0002')).status).toBe(409);
+    expect(w.raw.rows('SELECT * FROM rs_publication')).toEqual([]);
+  }, 300_000);
 
   it('replaces a run sealed by an older producer: readiness answers 503 until the operator restarts the build, then 200 from the new generation', async () => {
     const w = await world();

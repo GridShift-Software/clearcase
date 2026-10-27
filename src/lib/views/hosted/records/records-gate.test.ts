@@ -123,6 +123,14 @@ describe('Medium 3: a wrong or relabelled citation fails the check', () => {
     expect(rendered.html).toContain('href="/original/SY-0001?page=1"');
     expect(recordsSectionState(dataset, rendered, context)).toBe('records-rendered');
   });
+  it('compares record identities without sorting, so the check stays linear', async () => {
+    const { dataset, rendered } = await citing();
+    const sort = vi.spyOn(Array.prototype, 'sort');
+    try {
+      expect(recordsSectionState(dataset, rendered, context)).toBe('records-rendered');
+      expect(sort).not.toHaveBeenCalled();
+    } finally { sort.mockRestore(); }
+  });
   it('rejects a link to another original', async () => {
     const { dataset, rendered } = await citing();
     const html = rendered.html.replace('href="/original/SY-0001?page=1"', 'href="/original/SY-9999"');

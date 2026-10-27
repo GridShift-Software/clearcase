@@ -45,7 +45,7 @@ beforeEach(() => {
     const status = putStatus.length > 1 ? putStatus.shift()! : putStatus[0]!;
     return status === 200 ? reply(200, { stage: 'finalized' }) : reply(status, { message: 'The store is unavailable.' });
   }));
-  component = mount(Page, { target: document.body, props: { data: { caseId: CASE, available: true, submissions: [] } } });
+  component = mount(Page, { target: document.body, props: { data: { caseId: CASE, available: true, canUpload: true, submissions: [] } } });
   flushSync();
 });
 afterEach(async () => { if (component) await unmount(component); component = null; dom.window.close(); vi.unstubAllGlobals(); });

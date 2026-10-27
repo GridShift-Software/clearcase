@@ -24,7 +24,9 @@ export type HandshakeOutcome =
 	 */
 	| { kind: 'redirect'; location: string; setCookies: string[]; refresh?: true }
 	/** Answer `status` and stop: a handshake that must not be followed. */
-	| { kind: 'refuse'; status: 400 | 502; code: 'wrong-origin' | 'handshake-invalid' | 'handshake-format-unsupported' | 'handshake-cookie-refused' };
+	| { kind: 'refuse'; status: 400 | 502; code: 'wrong-origin' | 'handshake-invalid' | 'handshake-format-unsupported' | 'handshake-cookie-refused' }
+	/** Answer the session-ended page for a browser the last handshake could not sign in: it kept none of its cookies. */
+	| { kind: 'stop'; signIn: string };
 /**
  * A refresh outcome for one request: a renewed session (the credential the provider verifies in place of the request's,
  * and the cookies to set), or, with no credential, only cookies to set on the request as it is (a refused renewal's
@@ -67,19 +69,20 @@ export const MAX_SESSION_LIFETIME_MS = 7 * 86_400_000;
  */
 export const SESSION_HOLD_COOKIE: Readonly<Record<InstanceKind, string>> = { client: '__Host-clearcase_refresh', staff: '__Host-clearcase_staff_refresh' };
 /**
- * Each kind's hold has two names, the handshake's (SESSION_HOLD_COOKIE) and its alternate, and a renewal moves the hold
- * to the other one. A Clerk refresh token renews once, so of two isolates renewing one hold at once, one is refused; it
- * clears the name it was sent, which the winner has already left, so the winner's hold survives in either arrival order
- * (session-renewal-live-3 fix 1).
+ * Each kind's hold has three names, the first SESSION_HOLD_COOKIE, and every renewal and every handshake return moves the
+ * hold on to the next one. A Clerk refresh token renews once, so of two isolates renewing one hold at once, one is
+ * refused; it clears the name it was sent, which the winner has already left, so the winner's hold survives in either
+ * arrival order (session-renewal-live-3 fix 1), and so does the hold the winner's handshake moved on to the third name
+ * before the refusal arrived (heavy review M1): two names brought it back to the refused one.
  */
-const HOLD_SLOTS: Readonly<Record<InstanceKind, readonly [string, string]>> = {
-	client: [SESSION_HOLD_COOKIE.client, `${SESSION_HOLD_COOKIE.client}_2`],
-	staff: [SESSION_HOLD_COOKIE.staff, `${SESSION_HOLD_COOKIE.staff}_2`],
+const HOLD_SLOTS: Readonly<Record<InstanceKind, readonly [string, string, string]>> = {
+	client: [SESSION_HOLD_COOKIE.client, `${SESSION_HOLD_COOKIE.client}_2`, `${SESSION_HOLD_COOKIE.client}_3`],
+	staff: [SESSION_HOLD_COOKIE.staff, `${SESSION_HOLD_COOKIE.staff}_2`, `${SESSION_HOLD_COOKIE.staff}_3`],
 };
 const HOLD_KIND: ReadonlyMap<string, InstanceKind> = new Map((Object.entries(HOLD_SLOTS) as Array<[InstanceKind, readonly string[]]>).flatMap(([kind, names]) => names.map((n) => [n, kind] as const)));
 const HOLD_NAMES: ReadonlySet<string> = new Set(HOLD_KIND.keys());
-/** The other name of a hold's kind: where a renewal of the hold under `name` sets the next one. */
-export const nextHoldName = (name: string) => { const [first, second] = HOLD_SLOTS[HOLD_KIND.get(name)!]; return name === first ? second : first; };
+/** The next name of a hold's kind: where a renewal or a handshake return of the hold under `name` sets the next one. */
+export const nextHoldName = (name: string) => { const slots = HOLD_SLOTS[HOLD_KIND.get(name)!]; return slots[(slots.indexOf(name) + 1) % slots.length]!; };
 /**
  * A Clerk refresh token value: any RFC 6265 cookie-octet, which is all a value Clerk sets as a cookie can hold and all the
  * hold can carry back. Its format is Clerk's: the live development handshake of 27 October set letters, digits and `:`,
@@ -279,7 +282,13 @@ const HTML_ESCAPES: Readonly<Record<string, string>> = { '&': '&amp;', '<': '&lt
 export function handshakeResponse(o: HandshakeOutcome): Response | null {
 	if (o.kind === 'continue') return null;
 	if (o.kind === 'refuse') return new Response(null, { status: o.status, headers: { 'cache-control': 'no-store', 'x-clearcase-auth': o.code } });
-	const headers = new Headers(o.refresh ? { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } : { location: o.location, 'cache-control': 'no-store' });
+	// the bridge and stop pages render outside SvelteKit: no script, style or frame, and never stored (heavy review L1)
+	const page = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'none'; frame-ancestors 'none'", 'x-frame-options': 'DENY' };
+	if (o.kind === 'stop') {
+		const href = o.signIn.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]!);
+		return new Response(`<!doctype html><title>Your session has ended</title><h1>Your session has ended</h1><p>ClearCase could not keep you signed in: this browser did not keep the cookies sign-in sets. Allow cookies for this site, then sign in again.</p><p><a href="${href}">Sign in</a></p>`, { status: 401, headers: { ...page, 'x-clearcase-auth': 'cookies-refused' } });
+	}
+	const headers = new Headers(o.refresh ? page : { location: o.location, 'cache-control': 'no-store' });
 	for (const c of o.setCookies) headers.append('set-cookie', c);
 	if (!o.refresh) return new Response(null, { status: 303, headers });
 	const href = o.location.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]!);

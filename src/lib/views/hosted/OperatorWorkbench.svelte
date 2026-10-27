@@ -4,6 +4,7 @@
   import type { ReadinessView } from '../../publication/hosted/readiness.ts';
   import type { PublicationState } from '../../publication/hosted/ports.ts';
   import { canonicalJson } from '../../case-package/canonical.ts';
+  import { reloadForSignIn } from './reauth.ts';
   import { candidateIdOf, linkIdOf, sha256Text } from '../../results-review/native/digest.ts';
 
   type ImportBody = { operationId: string; submissionRevisionId: string; files: Record<string, string> };
@@ -207,6 +208,7 @@
     let r: Response;
     try { r = await fetch(path, { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', headers: body === undefined ? {} : { 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); }
     catch { throw new Error('Network failure. Outcome is unconfirmed; keep the operation id and retry the unchanged request.'); }
+    if (reloadForSignIn(r)) throw new Error('Your session ended while the page was idle. The page is reloading to sign you in again; the request was refused and not sent again, so repeat it once the page has loaded.');
     let value;
     try { value = await r.json(); } catch { throw new Error(`HTTP ${r.status}: invalid JSON response. Outcome is unconfirmed.`); }
     if (!r.ok) {

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import { signInHref } from '$lib/auth/sign-in-link';
+	import { reloadForSignIn } from '$lib/views/hosted/reauth';
 	import type { SubmissionView } from '$lib/submissions';
 	// `canUpload` is the server's advisory answer for this reader; absent means unknown, and the audited send decides.
 	let { data }: { data: { caseId: string; available: boolean; canUpload?: boolean; submissions: SubmissionView[] } } = $props();
@@ -36,10 +37,12 @@
 			const bytes = await chosen.arrayBuffer();
 			const meta = { operationId, path: name, size: bytes.byteLength, sha256: await sha256(bytes), mediaType: 'application/pdf' };
 			const d = await fetch(base(), { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(meta) });
+			if (reloadForSignIn(d)) { status = 'Your session ended while the page was idle. The page is reloading to sign you in again; send the file again once it has loaded.'; return; }
 			if (!d.ok) { signInNeeded = d.status === 401; status = ((await d.json()) as { message?: string }).message ?? `Refused (${d.status}).`; return; }
 			status = 'Sending the file…';
 			const u = await fetch(`${base()}/${operationId}`, { method: 'PUT', credentials: 'same-origin', headers: { 'content-type': 'application/pdf' }, body: bytes });
 			const body = (await u.json()) as { message?: string; stage?: string };
+			if (reloadForSignIn(u)) { status = 'Your session ended while the page was idle. The page is reloading to sign you in again; send the file again once it has loaded.'; return; }
 			if (!u.ok) { signInNeeded = u.status === 401; status = body.message ?? `Refused (${u.status}).`; return; }
 			if (pending === attempt) pending = null;
 			status = 'Finalized. No results yet.';

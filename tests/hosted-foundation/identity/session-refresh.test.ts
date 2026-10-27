@@ -219,8 +219,9 @@ describe('what the refresh never changes', () => {
 	it('still hands an expired session on a document GET to the handshake, with no Backend API call', async () => {
 		const s = session();
 		const r = await invoke(documentGet('/cases', `__clerk_db_jwt=dvb_synthetic0123456789abcdef; ${jar(s)}`));
-		expect(r.status).toBe(303);
-		expect(new URL(r.headers.get('location')!).pathname).toBe('/v1/client/handshake');
+		// by the bridge page, which form-action does not refuse (heavy review M3)
+		expect(r.status).toBe(200);
+		expect((await handshakeAt(r))?.pathname).toBe('/v1/client/handshake');
 		expect(calls).toEqual([]);
 	});
 	it('makes no Backend API call for an expired session with no refresh token, and refuses it as before', async () => {
@@ -808,7 +809,8 @@ describe('a renewal Clerk refuses, and two isolates renewing one hold (session-r
 		later(90_000);
 		expect(b.take(await invoke(clientData(b.cookie()))).status).toBe(201);
 		expect(refreshCalls()).toHaveLength(3);
-		expect(b.names().filter((n) => /refresh/.test(n))).toEqual([HOLD_A]);
+		// the hold moves on to the third name, never back to the first (heavy review M1)
+		expect(b.names().filter((n) => /refresh/.test(n))).toEqual([`${HOLD_A}_3`]);
 		expect(sessionValues(b).size).toBe(1);
 	});
 	it('sign-out after a renewal clears the hold under either name', async () => {
@@ -1138,7 +1140,7 @@ describe('session renewal heavy review (round 5)', () => {
 		later(31_000);
 		const old = await invoke(documentGet(`${CASE_NOTES}?__clearcase_reauth=${Math.floor(Date.now() / 1000) - 31}`, b.cookie(CASE_NOTES)));
 		expect(old.status).toBe(303);
-		expect(old.headers.get('location')).toBe(CASE_NOTES);
+		expect(new URL(old.headers.get('location')!, ORIGIN).href).toBe(`${ORIGIN}${CASE_NOTES}`);
 	});
 	it('M3 (probe 3): an expired session\'s page load, as a native GET form submits it, reaches the handshake by the bridge page, not a 303', async () => {
 		const s = session();

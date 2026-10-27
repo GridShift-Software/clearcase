@@ -9,6 +9,14 @@ import type { EvidenceCountGroup, EvidenceItemRow, EvidenceKind, EvidenceReader 
 const END = '\u007f';
 const range = (kind: EvidenceKind | null): [string, string] => kind ? [`${kind}/`, `${kind}0`] : ['', END];
 const COMPLETE = `r.candidate_id = ? AND r.generation = ? AND r.client_id = ? AND r.case_id = ? AND r.state = 'complete'`;
+// The rows the run's seal covers, evaluated inside the reading statement so a row inserted after sealing (nothing in the schema stops
+// one) cannot be served: the stored item rows are exactly the items of the sealed pages, the greatest key is the one the build ended on,
+// and the page count is the sealed one. The same facts `verifyEvidence` checks, from the same columns, without hashing anything.
+const SEALED = `json_extract(r.cursor, '$.done') = 1 AND json_extract(r.cursor, '$.inPage') = 0
+  AND (SELECT count(*) FROM pub_evidence_item WHERE candidate_id = r.candidate_id AND generation = r.generation)
+    = (SELECT coalesce(sum(item_count), 0) FROM pub_evidence_page WHERE candidate_id = r.candidate_id AND generation = r.generation)
+  AND (SELECT max(item_key) FROM pub_evidence_item WHERE candidate_id = r.candidate_id AND generation = r.generation) IS json_extract(r.cursor, '$.last')
+  AND (SELECT count(*) FROM pub_evidence_page WHERE candidate_id = r.candidate_id AND generation = r.generation) = json_extract(r.cursor, '$.pages')`;
 type Row = Record<string, string | number | null>;
 
 export interface EvidenceSummary { readonly root: string; readonly items: number; readonly groups: EvidenceCountGroup[]; readonly newWarnings: number }
@@ -37,12 +45,12 @@ export function d1EvidenceReader(d1: EvidenceD1): D1EvidenceReader {
            CASE WHEN i.item_key >= 'warning/' AND i.item_key < 'warning0'
              THEN EXISTS (SELECT 1 FROM rs_trusted_fingerprint t WHERE t.case_id = r.case_id AND t.fingerprint = json_extract(i.item_json, '$.observation.fingerprint')) END AS baseline
          FROM pub_evidence_run r JOIN pub_evidence_item i ON i.candidate_id = r.candidate_id AND i.generation = r.generation
-         WHERE ${COMPLETE} AND r.evidence_root = ? AND i.item_key > ? AND i.item_key >= ? AND i.item_key < ?
+         WHERE ${COMPLETE} AND r.evidence_root = ? AND ${SEALED} AND i.item_key > ? AND i.item_key >= ? AND i.item_key < ?
          ORDER BY i.item_key LIMIT ?`)
         .bind(...where, a.root, a.after ?? '', from, to, a.limit).all<Row>();
       if (results.length === 0) {
         // An empty page is the end of the range, unless there is no such run at all.
-        const run = await session.prepare(`SELECT 1 AS found FROM pub_evidence_run r WHERE ${COMPLETE} AND r.evidence_root = ?`).bind(...where, a.root).first<{ found: number }>();
+        const run = await session.prepare(`SELECT 1 AS found FROM pub_evidence_run r WHERE ${COMPLETE} AND r.evidence_root = ? AND ${SEALED}`).bind(...where, a.root).first<{ found: number }>();
         return run ? [] : null;
       }
       return results.map((r): EvidenceItemRow => ({ key: r.key as string, json: r.json as string, baseline: r.baseline === null ? null : r.baseline === 1 }));

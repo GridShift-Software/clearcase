@@ -90,17 +90,21 @@ const signedIdentity = (s: SignoffRecord): SignoffIdentity => ({
   diagnosticsSha256: s.diagnosticsSha256, validatorVersion: s.validatorVersion, snapshotRevision: s.snapshotRevision,
 });
 
-// A page cursor names the sealed run it was issued for (its root), the kind it filters and the last key it returned. It is opaque to a
-// client, and a cursor issued for another root or kind is refused, so the pages of one request series can never mix two runs.
-const CURSOR = /^[A-Za-z0-9_-]{1,512}$/, ROOT = /^[0-9a-f]{64}$/, ITEM_KEY = /^[A-Za-z0-9._:/-]{1,200}$/;
-const encodeCursor = (c: { root: string; kind: EvidenceKind | null; after: string }) => btoa(JSON.stringify({ v: 1, r: c.root, k: c.kind, a: c.after })).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-function decodeCursor(text: string): { root: string; kind: EvidenceKind | null; after: string } | null {
+// A page cursor names the series it was issued for and the last key it returned. The series is the candidate, the evidence generation, the
+// sealed root and the snapshot revision (which covers the case's warning baseline), folded into one digest `b`; the root `r` and the kind
+// `k` travel in clear. A continuation is served only if the digest matches the snapshot being read now, otherwise it is refused with the
+// restart signal, so the pages of one series always come from one generation, one root and one baseline. Opaque to a client.
+const CURSOR = /^[A-Za-z0-9_-]{1,512}$/, HEX64 = /^[0-9a-f]{64}$/, ITEM_KEY = /^[A-Za-z0-9._:/-]{1,200}$/;
+interface PageCursor { binding: string; root: string; kind: EvidenceKind | null; after: string }
+const seriesOf = (s: CandidateSnapshotV2) => sha256Canonical({ candidateId: s.link.candidate.candidateId, generation: s.evidence.generation, root: s.evidence.root, snapshotRevision: s.snapshotRevision });
+const encodeCursor = (c: PageCursor) => btoa(JSON.stringify({ v: 2, b: c.binding, r: c.root, k: c.kind, a: c.after })).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+function decodeCursor(text: string): PageCursor | null {
   if (!CURSOR.test(text)) return null;
   try {
     const v = JSON.parse(atob(text.replaceAll('-', '+').replaceAll('_', '/'))) as Record<string, unknown>;
-    if (v === null || typeof v !== 'object' || Object.keys(v).sort().join() !== 'a,k,r,v' || v.v !== 1 || typeof v.r !== 'string' || !ROOT.test(v.r)
+    if (v === null || typeof v !== 'object' || Object.keys(v).sort().join() !== 'a,b,k,r,v' || v.v !== 2 || typeof v.b !== 'string' || !HEX64.test(v.b) || typeof v.r !== 'string' || !HEX64.test(v.r)
       || typeof v.a !== 'string' || !ITEM_KEY.test(v.a) || !(v.k === null || EVIDENCE_KINDS.includes(v.k as EvidenceKind))) return null;
-    return { root: v.r, kind: v.k as EvidenceKind | null, after: v.a };
+    return { binding: v.b, root: v.r, kind: v.k as EvidenceKind | null, after: v.a };
   } catch { return null; }
 }
 
@@ -206,7 +210,8 @@ export function createPublicationReadiness(ports: PublicationReadinessPorts | nu
         if (kindParam !== null && !EVIDENCE_KINDS.includes(kindParam as EvidenceKind)) return refuse(422, 'invalid-request', 'Name a known evidence kind.');
         const kind = kindParam as EvidenceKind | null, cursor = cursorParam === null ? null : decodeCursor(cursorParam);
         if (cursorParam !== null && (!cursor || cursor.kind !== kind)) return refuse(422, 'invalid-request', 'The cursor does not belong to this request.');
-        if (cursor && cursor.root !== s.evidence.root) return await stale();
+        const series = await seriesOf(s);
+        if (cursor && (cursor.root !== s.evidence.root || cursor.binding !== series)) return await stale();
         const so = await signoff(false);
         let rows: Awaited<ReturnType<EvidenceReader['page']>>;
         try { rows = await reader.page({ ...scope, candidateId, generation: s.evidence.generation, root: s.evidence.root, after: cursor?.after ?? null, kind, limit: size + 1 }); } catch { return unavailable(); }
@@ -222,7 +227,7 @@ export function createPublicationReadiness(ports: PublicationReadinessPorts | nu
         }
         // The whole range fitted in this one page, so it must be exactly as many items as the snapshot counts.
         if (cursor === null && !more && items.length !== (kind ? evidenceCount(s, kind) : s.evidence.items)) return unavailable();
-        const next = more ? encodeCursor({ root: s.evidence.root, kind, after: items.at(-1)!.key }) : null;
+        const next = more ? encodeCursor({ binding: series, root: s.evidence.root, kind, after: items.at(-1)!.key }) : null;
         const blocker = signoffBlockerV2(s);
         const blockers: NonNullable<ReadinessView['signoff']>['blockers'] = [];
         if (so) {

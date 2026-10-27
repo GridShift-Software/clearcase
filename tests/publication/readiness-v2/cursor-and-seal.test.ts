@@ -74,7 +74,7 @@ describe('a page cursor is bound to the generation, the root and the baseline it
     const parsed = JSON.parse(atob(cursor.replaceAll('-', '+').replaceAll('_', '/'))) as Record<string, unknown>;
     const encode = (v: unknown) => btoa(JSON.stringify(v)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
     const { r, k, a } = parsed;
-    const edited = encode({ ...parsed, a: 'warning/' + fp(0) });
+    const edited = encode({ ...parsed, b: '0'.repeat(64) });
     const legacy = encode({ v: 1, r, k, a });
     for (const bad of [edited, legacy]) {
       const status = (await createPublicationReadiness(w.ports).read(w.request({ kind: 'warning', cursor: bad }))).status;

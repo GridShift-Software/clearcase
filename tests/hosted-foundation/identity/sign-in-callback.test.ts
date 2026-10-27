@@ -258,6 +258,22 @@ describe('a callback that cleared other tabs\' attempts leaves no false singleto
 		expect(await land(kind, ORIGIN_A, jar), 'tab B, after C\'s attempt would have lapsed').toEqual({ location: HOME });
 		expect(attemptsOf(kind, jar)).toEqual([]);
 	});
+	it.each(KINDS)('%s: a delayed callback response that lands last cannot shorten the marker and reopen M5', async (kind) => {
+		const jar: Jar = new Map(), tick = ticking();
+		await post(kind, ORIGIN_A, target('A'), jar);
+		tick();
+		await post(kind, ORIGIN_A, target('C'), jar);
+		const slowA = new Map(jar);
+		expect(await land(kind, ORIGIN_A, slowA), 'tab A, its response held back').toEqual({ location: HOME });
+		vi.setSystemTime(new Date('2026-10-27T09:00:10Z'));
+		await post(kind, ORIGIN_A, target('B'), jar);
+		expect(await land(kind, ORIGIN_A, jar), 'tab C clears A, C and B').toEqual({ location: HOME });
+		for (const [name, value] of markersOf(slowA)) jar.set(name, value); // A's response reaches the browser last
+		vi.setSystemTime(new Date('2026-10-27T09:15:02Z'));
+		await post(kind, ORIGIN_A, target('E'), jar);
+		expect(await land(kind, ORIGIN_A, jar), 'tab B, still inside its own lifetime').toEqual({ location: HOME });
+		expect(attemptsOf(kind, jar)).toEqual([]);
+	});
 	it.each(KINDS)('%s: the marker lasts until the newest cleared attempt would lapse, then a single attempt routes normally', async (kind) => {
 		const { jar } = await clearedTwo(kind);
 		const still = new Map(jar);

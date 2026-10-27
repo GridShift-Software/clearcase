@@ -267,3 +267,33 @@ describe('a sibling origin under the same parent domain cannot plant the correla
 		expect(await forwarded(ORIGIN_L, jar)).toBeNull();
 	});
 });
+
+// Astra auth matrix, 27 Oct, High finding 2: staff signed in on origin B, then opened A's operator sign-in. A already held
+// the client instance's dev browser (its signed-out client handshake after the operator 401), so the staff SDK saw a dev
+// browser with no session, answered signed out and started no staff handshake. Nothing tied, the operator POST handed the
+// staff portal no dev browser, and the portal fell back to the dev browser it keeps for itself, B's signed-in one, and
+// sent the browser to B. A dev browser this origin cannot tie to the staff instance is never handed to the staff Frontend
+// API, so the operator page asks for a fresh one, ties it and forwards it, as a fresh profile does.
+describe('an untied dev browser on this origin does not stop the operator sign-in from tying its own (Astra finding 2)', () => {
+	const CLIENT_DVB = 'dvb_synthetic_client_0123456789abcdef', TARGET = '/sign-in/operator?returnTo=/operator/cases/synthetic-case-a';
+	const clientJars: Array<[string, Jar]> = [
+		['the client instance\'s signed-out handshake', new Map([['__clerk_db_jwt', CLIENT_DVB], ['__client_uat', '0']])],
+		['the same with suffixed client cookies', new Map([['__clerk_db_jwt', CLIENT_DVB], ['__clerk_db_jwt_Cl1entSf', CLIENT_DVB], ['__client_uat', '0'], ['__client_uat_Cl1entSf', '0']])],
+		['a client dev browser that replaced a tied staff one', new Map([['__clerk_db_jwt', CLIENT_DVB], ['__client_uat', '0'], [STAFF_DEV_BROWSER_TIE, 'A'.repeat(43)]])],
+	];
+	for (const [what, jar] of clientJars) {
+		it(`starts a staff handshake that hands nothing, then ties and forwards the fresh staff dev browser: ${what}`, async () => {
+			const s = await start(ORIGIN_A, TARGET, jar);
+			expect(s.handedDvb).toBeNull();
+			const after = apply(s.jar, await handle(ORIGIN_A, handedBack(s.back, OWN_DVB), s.jar));
+			expect(after.get('__clerk_db_jwt')).toBe(OWN_DVB);
+			expect(tied(after)).toBe(true);
+			expect(await forwarded(ORIGIN_A, after)).toBe(OWN_DVB);
+		});
+	}
+	it('leaves a tied staff dev browser alone: the operator page continues and the POST forwards it', async () => {
+		const jar = await ownStaffJar();
+		expect(await handle(ORIGIN_A, `${ORIGIN_A}${TARGET}`, jar)).toEqual({ kind: 'continue' });
+		expect(await forwarded(ORIGIN_A, jar)).toBe(OWN_DVB);
+	});
+});

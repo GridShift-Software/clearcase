@@ -79,7 +79,7 @@ export function newWarnings(s: CandidateSnapshot): string[] {
 // added by adding it to its union in `ports.ts` and one row to its table below; `Record` makes the build fail until the row exists.
 
 export const SNAPSHOT_V2_FORMAT = 'clearcase.candidate-snapshot/2' as const;
-export const EVIDENCE_KINDS: readonly EvidenceKind[] = ['error', 'preview', 'section', 'warning'];
+export const EVIDENCE_KINDS: readonly EvidenceKind[] = ['error', 'original', 'preview', 'section', 'warning'];
 /** `always` clears; `integrity-key` clears only a registered integrity dataset (ADR 0012); `never` holds sign-off. */
 type Clearing = 'always' | 'integrity-key' | 'never';
 const SECTION_CLEARING: Readonly<Record<SectionStateV2, Clearing>> = {
@@ -104,7 +104,7 @@ function groupOk(g: unknown): g is EvidenceCountGroup {
   switch (g.kind) {
     case 'section': return text(g.subject) && sectionState(g.state) && g.reason === null && g.count === 1;
     case 'preview': return g.subject === null && previewState(g.state) && (g.reason === null || (g.state !== 'rendered' && PREVIEW_REASONS_V2.has(g.reason)));
-    case 'warning': case 'error': return g.subject === null && g.state === null && g.reason === null;
+    case 'warning': case 'error': case 'original': return g.subject === null && g.state === null && g.reason === null;
     default: return false;
   }
 }
@@ -165,6 +165,10 @@ function observationOf(o: unknown): { observation: EvidenceObservation; subject:
         || (k === 'navigation' && isPreviewNavigationObservation(o[k]))) ? { observation: o as unknown as EvidenceObservation, subject: o.assetId } : null;
     case 'warning': case 'error':
       return keys(o, ['kind', 'fingerprint']) && typeof o.fingerprint === 'string' && FP.test(o.fingerprint) ? { observation: o as unknown as EvidenceObservation, subject: o.fingerprint } : null;
+    case 'original':
+      // An etag is whatever R2 gave: opaque text, bounded. The size is a safe integer, as the object's size is.
+      return keys(o, ['kind', 'assetId', 'sha256', 'size', 'etag']) && text(o.assetId) && typeof o.sha256 === 'string' && SHA.test(o.sha256) && safeCount(o.size) && text(o.etag, 128)
+        ? { observation: o as unknown as EvidenceObservation, subject: o.assetId } : null;
     default: return null;
   }
 }

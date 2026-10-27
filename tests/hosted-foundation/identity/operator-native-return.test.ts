@@ -39,22 +39,22 @@ const identityOf = async (token: string) => {
 const staffToken = () => B.token({ sub: 'user_b1', sid: 'sess_b1', azp: ORIGIN });
 const clientToken = () => A.token({ sub: 'user_a1', sid: 'sess_a1', azp: ORIGIN });
 const operatorPage = (query = '') => new URL(`${ORIGIN}/sign-in/operator${query}`);
-const load = (identity: unknown, query = '') => outcome(() => operator.load({ locals: locals(identity), url: operatorPage(query) } as never));
+const cookies = { set: () => {}, delete: () => {} };
+const load = (identity: unknown, query = '') => outcome(() => operator.load({ locals: locals(identity), url: operatorPage(query), request: new Request(operatorPage(query)), cookies } as never));
 const callbackOf = (href: string) => new URL(new URL(href).searchParams.get('redirect_url')!);
 
 describe('the staff portal returns to the operator route', () => {
-	it('names the operator route, carrying the safe final target, as the staff portal\'s redirect_url', async () => {
+	it('names the bare operator route as the staff portal\'s redirect_url, whatever the final target', async () => {
 		const r = await load(anonymous, `?returnTo=${encodeURIComponent('/cases/case-1?tab=documents')}`);
 		const back = callbackOf(r.value!.href!);
-		expect(`${back.origin}${back.pathname}`).toBe(`${ORIGIN}/sign-in/operator`);
-		expect([...back.searchParams]).toEqual([['returnTo', '/cases/case-1?tab=documents']]);
-		expect(callbackOf((await load(anonymous)).value!.href!).searchParams.get('returnTo')).toBe('/cases');
+		expect(back.href).toBe(`${ORIGIN}/sign-in/operator`);
+		expect(callbackOf((await load(anonymous)).value!.href!).href).toBe(`${ORIGIN}/sign-in/operator`);
 	});
 	it('sends the sign-in POST to the staff portal with the same operator callback', async () => {
-		const r = await outcome(() => operator.actions.default!({ locals: locals(anonymous), url: operatorPage('?returnTo=%2Fcases%2Fcase-1'), request: new Request(operatorPage('?returnTo=%2Fcases%2Fcase-1'), { method: 'POST', headers: { cookie: `__clerk_db_jwt=${DEV_BROWSER}` } }), cookies: { delete: () => {} } } as never));
+		const r = await outcome(() => operator.actions.default!({ locals: locals(anonymous), url: operatorPage('?returnTo=%2Fcases%2Fcase-1'), request: new Request(operatorPage('?returnTo=%2Fcases%2Fcase-1'), { method: 'POST', headers: { cookie: `__clerk_db_jwt=${DEV_BROWSER}` } }), cookies } as never));
 		expect(r.thrown).toMatchObject({ status: 303 });
 		expect(new URL(r.thrown!.location!).searchParams.has('__clerk_db_jwt')).toBe(false);
-		expect(callbackOf(r.thrown!.location!).href).toBe(`${ORIGIN}/sign-in/operator?returnTo=${encodeURIComponent('/cases/case-1')}`);
+		expect(callbackOf(r.thrown!.location!).href).toBe(`${ORIGIN}/sign-in/operator`);
 	});
 	it('takes the staff handshake on the first unsigned callback, which only carries a dev browser', async () => {
 		const read = readClerkIdentityConfig(configured());
@@ -68,14 +68,13 @@ describe('the staff portal returns to the operator route', () => {
 		expect(`${to.origin}${to.pathname}`).toBe(`${B.iss}/v1/client/handshake`);
 		expect(new URL(to.searchParams.get('redirect_url')!).pathname).toBe('/sign-in/operator');
 	});
-	it('keeps the client portal returning to the asked target, and the client dev browser away from the staff portal', () => {
-		expect(clerkSignInTarget(workers.env, '/cases/case-1', 'client')?.href).toBe(`${CLIENT_SIGN_IN}?redirect_url=${encodeURIComponent(`${ORIGIN}/cases/case-1`)}`);
-		expect(new URL(clerkSignInTarget(workers.env, '/cases', 'staff', DEV_BROWSER)!.href).searchParams.has('__clerk_db_jwt')).toBe(false);
-		expect(clerkSignInTarget(workers.env, 'https://attacker.example.test/cases', 'staff')).toBeNull();
+	it('keeps the client portal returning to the client sign-in page, and the client dev browser away from the staff portal', () => {
+		expect(clerkSignInTarget(workers.env, 'client')?.href).toBe(`${CLIENT_SIGN_IN}?redirect_url=${encodeURIComponent(`${ORIGIN}/sign-in`)}`);
+		expect(new URL(clerkSignInTarget(workers.env, 'staff', DEV_BROWSER)!.href).searchParams.has('__clerk_db_jwt')).toBe(false);
 	});
 	it.each(['/sign-in/operator?returnTo=/cases', '/sign-in', '/sign-out', '/SIGN-IN/operator', '/sign-in%2Foperator', '/cases/../sign-in/operator', '/%73ign-in/operator', '/sign-in%252Foperator', '/%2F%2Fsign-in/operator'])(
-		'never nests a sign-in or sign-out page (%s) as the staff callback\'s final target', (back) => {
-			expect(callbackOf(clerkSignInTarget(workers.env, back, 'staff')!.href).href).toBe(`${ORIGIN}/sign-in/operator`);
+		'never nests a sign-in or sign-out page (%s) in the staff callback', async (back) => {
+			expect(callbackOf((await load(anonymous, `?returnTo=${encodeURIComponent(back)}`)).value!.href!).href).toBe(`${ORIGIN}/sign-in/operator`);
 		},
 	);
 });

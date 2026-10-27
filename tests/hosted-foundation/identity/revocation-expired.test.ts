@@ -71,7 +71,7 @@ async function anonymousFor(token: string) {
 	return identity;
 }
 const outcome = async (f: () => unknown) => { try { return { value: await f() }; } catch (e) { return { thrown: e as { status?: number; location?: string; code?: string; body?: { code?: string } } }; } };
-const jar = () => { const deleted: string[] = []; return { deleted, cookies: { delete: (name: string) => deleted.push(name) } }; };
+const jar = () => { const deleted: string[] = []; return { deleted, cookies: { delete: (name: string) => deleted.push(name), set: () => {} } }; };
 const localsOf = (identity: unknown) => ({ runtime: { testIdentity: null }, identity }) as unknown as App.Locals;
 
 describe('an expired token is still never an Identity (authentication is unchanged)', () => {

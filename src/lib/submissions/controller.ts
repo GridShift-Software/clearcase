@@ -75,7 +75,7 @@ export function createIntakeController(ports: IntakePorts | null) {
       if (write) await ports.authorizeUpload({ principal, sessionId, clientId: ports.clientId, caseId });
       else await who.authorize({ caseId, operation: 'read' });
     } catch (e) { authorityRefusal(e, write ? 'write' : 'read'); }
-    return { caseId, principal, budget: ports.budget, repository: ports.repository, originals: ports.originals, scope: { clientId: ports.clientId, caseId } };
+    return { caseId, principal, mayUpload: ports.mayUpload ?? null, budget: ports.budget, repository: ports.repository, originals: ports.originals, scope: { clientId: ports.clientId, caseId } };
   }
   const operationOf = (r: IntakeRequest) => {
     const op = r.params.operationId;
@@ -172,11 +172,14 @@ export function createIntakeController(ports: IntakePorts | null) {
       return json(200, view(u, m));
     }),
 
-    /** GET /client/intake/[caseId]/submissions: every upload of the case, oldest first, with its stage. */
+    /** GET /client/intake/[caseId]/submissions: every upload of the case, oldest first, with its stage, and whether this reader may upload when the deployment can say. */
     list: (r: IntakeRequest) => handle(async () => {
       const a = await admit(r, null);
       const rows = await storage(a.repository.list(a.scope));
-      return json(200, { submissions: rows.map((x) => view(x.upload, x.manifest)) });
+      // Advisory and unaudited: lets the page explain a missing upload grant. A fault or no port leaves the field out (unknown);
+      // the page then offers no form, and the audited send still decides every upload.
+      const canUpload = a.mayUpload ? await a.mayUpload({ principal: a.principal, clientId: a.scope.clientId, caseId: a.caseId }).catch(() => undefined) : undefined;
+      return json(200, { submissions: rows.map((x) => view(x.upload, x.manifest)), ...(typeof canUpload === 'boolean' ? { canUpload } : {}) });
     }),
   };
 }

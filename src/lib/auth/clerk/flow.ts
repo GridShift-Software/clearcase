@@ -5,7 +5,7 @@
 // against a real Clerk instance or browser.
 import type { Identity, Principal, SessionId } from '../../server/runtime/contracts.ts';
 import { contractError } from '../../server/runtime/errors.ts';
-import { readClerkIdentityConfig, type ClerkIdentityConfig, type ClerkInstanceConfig, type InstanceKind, type StaffDevBrowser } from './config.ts';
+import { isSignInFlowPage, readClerkIdentityConfig, type ClerkIdentityConfig, type ClerkInstanceConfig, type InstanceKind, type StaffDevBrowser } from './config.ts';
 import { revocationEvidenceOf, type RevocationEvidence } from './revocation.ts';
 import { CLEARABLE_COOKIE_NAME, REFRESH_COOKIE_NAME, cookiePairs, inspectToken, presentedToken } from './session.ts';
 
@@ -67,12 +67,13 @@ const TIE_LABEL = 'clearcase staff dev browser v2', HANDSHAKE_LABEL = 'clearcase
 const B64URL = /^[A-Za-z0-9_-]{43}$/;
 const CORRELATION = /^([A-Za-z0-9_-]{43})\.(\d{1,12})\.([01])\.([A-Za-z0-9_-]{43})$/;
 const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const fromB64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='), (c) => c.charCodeAt(0));
+const fromB64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
 const macKey = (staff: ClerkInstanceConfig) => crypto.subtle.importKey('raw', new TextEncoder().encode(staff.secretKey), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
 // Every MAC names what it is for and the receiving app, client and staff instance, so no value counts in another scope.
+// It is keyed by the staff secret unless a flow names its own instance.
 const macData = (label: string, config: ClerkIdentityConfig, parts: readonly string[]) => new TextEncoder().encode([label, config.appOrigin, config.clientId, config.staff.issuer, ...parts].join('\0'));
-const macOf = async (label: string, config: ClerkIdentityConfig, parts: readonly string[]) => b64url(new Uint8Array(await crypto.subtle.sign('HMAC', await macKey(config.staff), macData(label, config, parts))));
-const macVerifies = async (label: string, config: ClerkIdentityConfig, parts: readonly string[], mac: string) => crypto.subtle.verify('HMAC', await macKey(config.staff), fromB64url(mac), macData(label, config, parts));
+const macOf = async (label: string, config: ClerkIdentityConfig, parts: readonly string[], key = config.staff) => b64url(new Uint8Array(await crypto.subtle.sign('HMAC', await macKey(key), macData(label, config, parts))));
+const macVerifies = async (label: string, config: ClerkIdentityConfig, parts: readonly string[], mac: string, key = config.staff) => crypto.subtle.verify('HMAC', await macKey(key), fromB64url(mac), macData(label, config, parts));
 
 /** The tie's value for a staff dev browser: base64url HMAC-SHA-256 under the staff secret key, over this app's scope. */
 export function staffDevBrowserTie(config: ClerkIdentityConfig, devBrowser: string): Promise<string> {
@@ -159,6 +160,73 @@ export function safeReturnTo(value: unknown): string {
 	if (typeof value !== 'string' || !/^\/(?![/\\])[^\\\u0000-\u001f\u007f]*$/.test(value)) return DEFAULT_RETURN;
 	const path = value.split(/[?#]/)[0]!;
 	return path === '/sign-out' || path.startsWith('/sign-out/') ? DEFAULT_RETURN : value;
+}
+/** Where a finished sign-in may go on to: a safeReturnTo path that is not a sign-in or sign-out page (that would loop). */
+export function signInReturnTarget(value: unknown): string {
+	const to = safeReturnTo(value);
+	return isSignInFlowPage(new URL(to, 'https://path.invalid').pathname) ? DEFAULT_RETURN : to;
+}
+
+/**
+ * The return target of a sign-in in flight, one cookie per flow. Clerk sees one fixed callback per origin and flow
+ * (config.ts clerkSignInTarget), because an instance that allows only exact redirect URLs sends any other one to its
+ * home URL, so the sign-in POST keeps the target here and the callback reads it once. The value is the target
+ * (base64url), its issue time and an HMAC-SHA-256 under the flow's own instance secret key over this app, client,
+ * instance and flow: a state from another origin, client or flow counts as none. It is a `__Host-` cookie a sibling
+ * origin cannot plant; a plain http origin cannot hold one, so its sign-ins return to DEFAULT_RETURN.
+ */
+export const SIGN_IN_RETURN_COOKIE: Readonly<Record<InstanceKind, string>> = { client: '__Host-clearcase_return', staff: '__Host-clearcase_staff_return' };
+/** How long a sign-in may take at the portal before its return target lapses, in seconds. */
+export const SIGN_IN_RETURN_TTL = 900;
+const RETURN_LABEL = 'clearcase sign-in return v1', RETURN_MAX_BYTES = 2048;
+const RETURN_STATE = /^([A-Za-z0-9_-]{2,2731})\.(\d{1,12})\.([A-Za-z0-9_-]{43})$/;
+const returnParts = (config: ClerkIdentityConfig, kind: InstanceKind, issued: string, to: string) => [kind, config[kind].issuer, issued, to];
+
+/** The state value for a target exactly as given (signInReturnCookie validates it first), or null on an http origin. */
+export async function sealSignInReturn(config: ClerkIdentityConfig, kind: InstanceKind, returnTo: string): Promise<string | null> {
+	if (!hostCookies(config)) return null;
+	const issued = String(Math.floor(Date.now() / 1000));
+	return `${b64url(new TextEncoder().encode(returnTo))}.${issued}.${await macOf(RETURN_LABEL, config, returnParts(config, kind, issued, returnTo), config[kind])}`;
+}
+/**
+ * The state cookie a sign-in POST sets for the asked `returnTo`, validated by signInReturnTarget (a target too long for
+ * a cookie is DEFAULT_RETURN); null when Clerk is not configured or on an http origin.
+ */
+export async function signInReturnCookie(env: Readonly<Record<string, unknown>>, kind: InstanceKind, returnTo: unknown) {
+	const read = readClerkIdentityConfig(env, { keys: 'optional' });
+	if (!read.ok) return null;
+	const target = signInReturnTarget(returnTo), to = new TextEncoder().encode(target).length <= RETURN_MAX_BYTES ? target : DEFAULT_RETURN;
+	const value = await sealSignInReturn(read.config, kind, to);
+	return value === null ? null : { name: SIGN_IN_RETURN_COOKIE[kind], value, options: { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: SIGN_IN_RETURN_TTL } as const };
+}
+/**
+ * The target a callback's state carries for this flow, or null: exactly one cookie, issued for this app, client, instance
+ * and flow within SIGN_IN_RETURN_TTL, under a MAC that verifies, naming a target signInReturnTarget keeps unchanged.
+ */
+export async function signInReturnOf(env: Readonly<Record<string, unknown>>, request: Request, kind: InstanceKind): Promise<string | null> {
+	const read = readClerkIdentityConfig(env, { keys: 'optional' });
+	if (!read.ok || !hostCookies(read.config)) return null;
+	const states = cookiePairs(request).filter((c) => c.name === SIGN_IN_RETURN_COOKIE[kind]);
+	const m = states.length === 1 ? RETURN_STATE.exec(states[0]!.value) : null;
+	if (!m) return null;
+	const age = Math.floor(Date.now() / 1000) - Number(m[2]);
+	if (age < -60 || age > SIGN_IN_RETURN_TTL) return null;
+	let to: string;
+	try {
+		to = new TextDecoder('utf-8', { fatal: true }).decode(fromB64url(m[1]!));
+	} catch {
+		return null;
+	}
+	if (!(await macVerifies(RETURN_LABEL, read.config, returnParts(read.config, kind, m[2]!, to), m[3]!, read.config[kind]))) return null;
+	return signInReturnTarget(to) === to ? to : null;
+}
+/**
+ * Where a sign-in page sends a session already verified for its flow: an explicit `returnTo` in the page URL, else the
+ * target its state carries, else DEFAULT_RETURN. The state is read once, so `clear` names the cookie to delete.
+ */
+export async function signInReturn(env: Readonly<Record<string, unknown>>, request: Request, url: URL, kind: InstanceKind): Promise<{ location: string; clear: string }> {
+	const location = url.searchParams.has('returnTo') ? signInReturnTarget(url.searchParams.get('returnTo')) : ((await signInReturnOf(env, request, kind)) ?? DEFAULT_RETURN);
+	return { location, clear: SIGN_IN_RETURN_COOKIE[kind] };
 }
 
 /**

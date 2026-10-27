@@ -87,7 +87,7 @@ export async function world(o: { cases?: string[]; bound?: Bound } = {}) {
     provisioning.grant({ operator: extra.operator ?? OPERATOR, operationId, target: TUPLE(p), caseId: caseId as CaseId, expiresAt: extra.expiresAt ?? null });
   const request = (p: Principal, caseId: string = CASE_1, sessionId: SessionId = SESSION) => ({ principal: p, sessionId, clientId: CLIENT_A, caseId: caseId as CaseId });
   return {
-    db, handle, events, state, revoked, session, deployment, rows, seedCase, issue, request, provisioning, caseAuthorizer,
+    db, handle, events, state, revoked, session, deployment, uploads, now, rows, seedCase, issue, request, provisioning, caseAuthorizer,
     authorize: authorizeUpload, audit: provisioningAudit, requestAudit, ledger: () => db.prepare('SELECT operation_id, operation, state, actor_kind, actor_subject FROM tenant_upload_grant_operations ORDER BY operation_id').all(),
     advance: (ms: number) => { clock = new Date(clock.getTime() + ms); },
   };

@@ -6,6 +6,10 @@ import { generateCorpus } from '../../../../../../../../scripts/fixtures/synthet
 import { sha256Hex } from '../../../../../../../../src/lib/case-package/hash.ts';
 import { CASE, OLD_RV, RV, event, fake, outcome } from '../../../../../../../../tests/hosted-smoke/case-overview/doubles.ts';
 import { load } from './[key]/+page.server.ts';
+import { createCloudResults } from '../../../../../../../../src/lib/results/hosted/index.ts';
+import { createResultsStaging } from '../../../../../../../../src/lib/storage/cloud/staging.ts';
+import { id } from '../../../../../../../../src/lib/server/runtime/ids.ts';
+import { BUDGETS, QUOTAS, deployment, grantedIdentity, ids, provideOriginals, publish, syntheticPackage } from '../../../../../../../../tests/hosted-foundation/storage/fixture.ts';
 
 let root: string;
 let files: Map<string, Uint8Array>;
@@ -34,6 +38,20 @@ function setup() {
 }
 const request = (f: ReturnType<typeof setup>, key: string, version = RV, caseId: string = CASE) => outcome(load(event(f.services, { caseId, resultsVersion: version, key })));
 describe('records route', () => {
+  it('reads a published dataset through the actual hosted reader and refuses an unassigned case', async () => {
+    const dep = deployment('client-a', ['case-a', 'case-b']);
+    const who = grantedIdentity(ids.clientA, ['case-a']);
+    const options = { bindings: dep, clientId: ids.clientA, budgets: BUDGETS, identity: who.identity, record: async () => {}, stateRevision: async () => id('case-revision', 'r1'), now: () => new Date('2001-01-01T00:00:00Z') };
+    const pkg = await syntheticPackage('case-a', 'records-route');
+    await provideOriginals(dep, 'case-a', pkg);
+    const staging = createResultsStaging({ ...options, quotas: QUOTAS, authorize: async () => {} });
+    expect(await staging.stage({ caseId: ids.caseA, operationId: 'records-import', files: pkg.files, identity: pkg.identity, validation: pkg.validation, projection: pkg.projection })).toMatchObject({ kind: 'stored' });
+    publish(dep.db, 'case-a', pkg.identity.resultsVersion);
+    const services = { ...fake({ publication: { kind: 'none' } }).services, ...createCloudResults(options), identity: who.identity };
+    const response = await outcome(load(event(services, { caseId: 'case-a', resultsVersion: pkg.identity.resultsVersion, key: 'chronology' })));
+    expect(response).toHaveProperty('value');
+    expect(await outcome(load(event(services, { caseId: 'case-b', resultsVersion: pkg.identity.resultsVersion, key: 'chronology' })))).toMatchObject({ thrown: { status: 404 } });
+  });
   it('opens every registered dataset for a published reader', async () => {
     for (const key of keys) {
       const r = await request(setup(), key);

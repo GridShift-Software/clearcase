@@ -155,6 +155,19 @@ describe('the stepped import equals the one-request import', () => {
     expect(dump(durable)).toEqual(reference.dump);
   }, 600_000);
 
+  it('cuts a step by bytes: an original that would pass the step\'s byte bound waits for the next, and the import is the same', async () => {
+    const { durable, revisionId } = await uploaded(pkg);
+    // The one original is 17 KB: two do not fit under 20,000 bytes, so each step of a pass reads one.
+    const p = await startProcess(durable, { bounds: { bytesPerStep: 20_000, originalsPerStep: 50, objectsPerStep: 1000 } });
+    const steps: StepRecord[] = [];
+    const out = linked(await driveStaged(p, durable, pkg, revisionId, { steps }));
+    expect(JSON.stringify(out)).toBe(JSON.stringify(reference.candidate));
+    expect(dump(durable)).toEqual(reference.dump);
+    expect(Math.max(...steps.map((s) => s.originalGets))).toBe(1);
+    // A pass takes one step per original (all documents point at that one original), three passes, and so many more steps than the default.
+    expect(steps.filter((s) => s.originalGets === 1).length).toBe(3 * pkg.documents);
+  }, 600_000);
+
   it('stops a step at its wall time, with everything it reached recorded, and still equals the one-request import', async () => {
     const { durable, revisionId } = await uploaded(pkg);
     durable.tick = 10;

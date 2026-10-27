@@ -50,5 +50,6 @@ code, pre { font-family: ui-monospace, monospace; }
 	}
 	.hosted { min-height: var(--topbar); display: flex; align-items: center; padding: 0 1.5rem; background: var(--navy); font-weight: 600; }
 	.hosted a { color: var(--surface); }
+	.hosted a:focus-visible { outline-color: var(--surface); }
 	main { padding: 1.5rem; max-width: 80rem; margin: 0 auto; }
 </style>

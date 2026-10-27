@@ -737,8 +737,11 @@ describe('a renewal Clerk refuses, and two isolates renewing one hold (session-r
 	it('after a refusal, the next page load signs the browser in again through the handshake, with one hold', async () => {
 		const s = session(), b = carrying(s);
 		sessions.get(s.sid)!.refresh = LIVE_RT(9997);
-		// round 4: the refused data request itself is the page load through the handshake (navigate follows its handoff)
-		expect(await navigate(b, s)).toEqual({ status: 201, handoff: true });
+		// round 4: the refused data request is handed to the handshake (its data redirect), and its answer already clears
+		// the hold, before the browser follows it (r4 review S1)
+		expect(await dataRedirect(b.take(await invoke(clientData(b.cookie()))))).not.toBeNull();
+		expect(b.names().filter((n) => /refresh/.test(n))).toEqual([]);
+		expect((await load(b, s, CASE_NOTES)).status).toBe(201);
 		expect(b.names().filter((n) => /refresh/.test(n))).toEqual([HOLD_A]);
 	});
 	it.each([['an outage', 503], ['a rate limit', 429]])('clears nothing when Clerk answers %s', async (_name, status) => {
@@ -1003,5 +1006,21 @@ describe('a save after an idle, when an earlier renewal spent the refresh token 
 		expect(await visit(b, s, CASE_NOTES)).toEqual({ status: 201, handshake: false });
 		expect(await navigate(b, s)).toEqual({ status: 201, handoff: false });
 		expect(spentAgain).toBeLessThanOrEqual(1);
+	});
+});
+
+describe('the handshake a handoff starts (session-renewal-live-3 r4 review)', () => {
+	it('hands a staff browser that dropped its expired session, but keeps its staff hold, to the staff handshake (M1, probe 3)', async () => {
+		const staff = session(B);
+		sessions.get(staff.sid)!.refresh = LIVE_RT(99998);
+		const r = await invoke(dataRequest(`__client_uat=1761400000; ${hold(staff.stale(), staff.refresh, HOLD_B)}; __clerk_db_jwt=dvb_synthetic0123456789abcdefgh`));
+		expect((await dataRedirect(r))?.origin).toBe(B.iss);
+		expect(r.headers.getSetCookie()).toContain(HOLD_CLEAR(HOLD_B));
+		expect(trap.blocked).toEqual([]);
+	});
+	it('takes only the mark it sets as a recent handoff: another value of the cookie stops nothing (Low)', async () => {
+		const s = session();
+		const r = await invoke(clientData(`__client_uat=1761400000; __session=${s.stale()}; __Host-clearcase_reauth=planted`));
+		expect(await dataRedirect(r)).not.toBeNull();
 	});
 });

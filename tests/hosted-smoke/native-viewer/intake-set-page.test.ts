@@ -139,3 +139,33 @@ it('never shows an earlier selection’s set state on a newer selection', async 
   expect(sent.filter((s) => s.method === 'POST' && s.url.endsWith('/files')).map((s) => json(s).path)).toEqual(['new-c.pdf', 'new-d.pdf']);
   expect(stages()).toEqual({ 'new-c.pdf': 'stored', 'new-d.pdf': 'stored' });
 });
+
+// U16 fix 2 (re-check M3): a one-file send keeps going after a new pick, as it always has, but its late outcome names the
+// file it sent. It never reads as the outcome of the newer pick, which stays unsent, whether that pick is one file or a set.
+it.each([['finalized', 'one-file'], ['finalized', 'set'], ['refused', 'one-file']] as const)('scopes a late %s one-file outcome to the file it sent, not to a newer %s pick', async (outcome, kind) => {
+  const old = pdfFile('old.pdf'), next = kind === 'set' ? [pdfFile('new-a.pdf'), pdfFile('new-b.pdf')] : [pdfFile('new-a.pdf')];
+  const realFetch = fetch as unknown as ReturnType<typeof vi.fn>, inner = realFetch.getMockImplementation()! as (url: string, init: RequestInit) => Promise<Response>;
+  let release!: () => void, puts = 0;
+  const held = new Promise<void>((r) => { release = r; });
+  realFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
+    if (init.method === 'PUT') {
+      puts++;
+      const out = outcome === 'refused' ? reply(503, { code: 'storage-unavailable', message: 'File storage is unavailable. Try again with the same upload.' }) : inner(url, init);
+      await held; return out;
+    }
+    return inner(url, init);
+  });
+  pick([old.file]); submit();
+  await vi.waitFor(() => expect(puts).toBe(1));
+  pick(next.map((f) => f.file));
+  release();
+  const expected = outcome === 'refused' ? 'old.pdf: File storage is unavailable. Try again with the same upload.' : 'Finalized old.pdf. No results yet.';
+  await vi.waitFor(() => expect(document.querySelector('[role=status]')!.textContent).toBe(expected));
+  expect(stages()).toEqual(kind === 'set' ? { 'new-a.pdf': 'waiting', 'new-b.pdf': 'waiting' } : {});
+  expect(setState()).toBeUndefined();
+  expect(sent.map((s) => [s.method, s.url])).toEqual([['POST', `/client/intake/${CASE}/submissions`], ['PUT', `/client/intake/${CASE}/submissions/${json(sent[0]!).operationId}`]]);
+  expect(json(sent[0]!).path).toBe('old.pdf');
+  // The newer pick is then sent on its own.
+  submit();
+  await vi.waitFor(() => expect(sent.some((s) => s.method === 'POST' && (s.url.endsWith('/files') || s.url.endsWith('/submissions')) && json(s).path === 'new-a.pdf')).toBe(true));
+});

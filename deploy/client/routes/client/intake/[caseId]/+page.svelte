@@ -35,6 +35,16 @@
 	// another pick replaces it, so an answer that arrives late never shows its set state against files it did not send. The
 	// picker is disabled while a set is sent. One file keeps its own behaviour: its send finishes and reports for that file.
 	let selection = 0;
+	// A set's file or seal refused 401 marked x-clearcase-reauth: the page reloads once, through the handshake, and the uploads
+	// in flight send nothing more. Choosing the same files again resumes the set; stored files are not sent again.
+	let reloading = false;
+	function reloadsForSignIn(r: Response) {
+		if (reloading) return true;
+		if (!reloadForSignIn(r)) return false;
+		reloading = true;
+		status = 'Your session ended. The page is reloading to sign you in again; choose the same files again once it has loaded. Stored files are not sent again.';
+		return true;
+	}
 
 	const base = () => `/client/intake/${encodeURIComponent(data.caseId)}/submissions`;
 	const sets = () => `/client/intake/${encodeURIComponent(data.caseId)}/sets`;
@@ -110,8 +120,8 @@
 			if (first.state === 'open') {
 				status = 'Sending the files…';
 				const queue = chosen.filter((r) => r.stage !== 'stored');
-				await Promise.all(Array.from({ length: Math.min(UPLOADS_AT_ONCE, queue.length) }, async () => { for (let r = queue.shift(); r && live(); r = queue.shift()) await sendOne(setId, r); }));
-				if (!live()) return;
+				await Promise.all(Array.from({ length: Math.min(UPLOADS_AT_ONCE, queue.length) }, async () => { for (let r = queue.shift(); r && live() && !reloading; r = queue.shift()) await sendOne(setId, r); }));
+				if (!live() || reloading) return;
 				if (chosen.some((r) => r.stage === 'failed')) { status = 'Some files did not finish. Retry sends only those; the stored files are kept.'; return; }
 			}
 			await seal(setId, digest, live);
@@ -138,8 +148,10 @@
 		r.error = '';
 		try {
 			const d = await post(`${sets()}/${setId}/files`, { operationId: r.operationId, path: r.path, size: r.size, sha256: r.sha256, mediaType: 'application/pdf' });
+			if (reloadsForSignIn(d)) { r.stage = 'waiting'; return; }
 			if (!d.ok) { r.stage = 'failed'; r.error = await message(d); return; }
 			const u = await fetch(`${sets()}/${setId}/files/${r.operationId}`, { method: 'PUT', credentials: 'same-origin', headers: { 'content-type': 'application/pdf' }, body: await r.file.arrayBuffer() });
+			if (reloadsForSignIn(u)) { r.stage = 'waiting'; return; }
 			if (!u.ok) { r.stage = 'failed'; r.error = await message(u); return; }
 			r.stage = 'stored';
 		} catch {
@@ -151,7 +163,7 @@
 		for (;;) {
 			status = set && set.state === 'sealing' ? `Sealing: ${set.finalized} of ${set.fileCount} files finalized…` : 'Sealing the set…';
 			const r = await post(`${sets()}/${setId}/seal`, { filesSha256: digest });
-			if (!live()) return;
+			if (!live() || reloadsForSignIn(r)) return;
 			if (!r.ok) { const text = await message(r); if (live()) { signInNeeded = r.status === 401; status = text; } return; }
 			const next = ((await r.json()) as { set: SetView }).set;
 			if (!live()) return;

@@ -124,6 +124,19 @@ describe('the evidence root is checked again at publish', () => {
     expect(w.receipts()).toEqual([]);
   });
 
+  it('refuses a row changed in place, with the count unchanged, after the last recheck and before the pointer write', async () => {
+    const w = await world();
+    const signed = await w.signOff();
+    // The same fault model as the decisive test: the update seal is gone, so only the commit's own guard can see the change.
+    w.db.exec('DROP TRIGGER pub_evidence_item_update_seal');
+    w.db.beforeBatch = () => w.db.exec("UPDATE pub_evidence_item SET item_json = replace(item_json, 'renderer/1', 'renderer/2') WHERE item_key = 'preview/asset-00007'");
+    const refused = await w.publish(signed.body.signoffId as string);
+    expect(w.db.rows("SELECT item_json FROM pub_evidence_item WHERE item_key = 'preview/asset-00007'")[0]!.item_json).toContain('renderer/2');
+    expect(refused).toMatchObject({ status: 409, body: { code: 'signoff-stale' } });
+    expect(w.pointer()).toBeNull();
+    expect(w.receipts()).toEqual([]);
+  });
+
   it('refuses a sign-off whose evidence row names another candidate', async () => {
     const w = await world();
     const signed = await w.signOff();

@@ -41,6 +41,11 @@ describe('what the producer records', () => {
     const o = observation as Record<string, unknown>;
     for (const bad of [{ ...o, extra: 1 }, { ...o, sha256: 'xyz' }, { ...o, size: -1 }, { ...o, size: 1.5 }, { ...o, etag: '' }, { ...o, etag: 'e'.repeat(129) }, { ...o, assetId: '' },
       { kind: 'original', assetId: o.assetId, sha256: o.sha256, size: o.size }]) expect(checkEvidenceItem(row(bad), bound), JSON.stringify(bad)).toBeNull();
+    // Every leaf deleted, nulled and retyped is refused.
+    for (const leaf of ['kind', 'assetId', 'sha256', 'size', 'etag']) {
+      const { [leaf]: _gone, ...without } = o;
+      for (const changed of [without, { ...o, [leaf]: null }, { ...o, [leaf]: typeof o[leaf] === 'number' ? String(o[leaf]) : 7 }, { ...o, [leaf]: { x: 1 } }]) expect(checkEvidenceItem(row(changed), bound), `${leaf} ${JSON.stringify(changed)}`).toBeNull();
+    }
     expect(checkEvidenceItem(row(observation, 'original/other'), bound)).toBeNull();
     expect(checkEvidenceItem(row(observation, `preview/${(o as { assetId: string }).assetId}`), bound)).toBeNull();
     expect(checkEvidenceItem({ ...row(observation), baseline: false }, bound)).toBeNull();

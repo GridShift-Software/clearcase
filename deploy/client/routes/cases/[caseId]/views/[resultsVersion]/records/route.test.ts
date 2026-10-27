@@ -2,9 +2,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { generateCorpus } from '../../../../../../../../../scripts/fixtures/synthetic/corpus.ts';
-import { sha256Hex } from '../../../../../../../../../src/lib/case-package/hash.ts';
-import { CASE, OLD_RV, RV, event, fake, outcome } from '../../../../../../../../../tests/hosted-smoke/case-overview/doubles.ts';
+import { generateCorpus } from '../../../../../../../../scripts/fixtures/synthetic/corpus.ts';
+import { sha256Hex } from '../../../../../../../../src/lib/case-package/hash.ts';
+import { CASE, OLD_RV, RV, event, fake, outcome } from '../../../../../../../../tests/hosted-smoke/case-overview/doubles.ts';
 import { load } from './+page.server.ts';
 
 let root: string;

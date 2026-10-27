@@ -212,7 +212,7 @@ export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, kind: 
 
 // The sign-in page of each instance: its form posts to itself and is redirected (303) to that instance's portal, which
 // returns to it.
-const SIGN_IN_PAGE: Readonly<Record<InstanceKind, string>> = { client: '/sign-in', staff: '/sign-in/operator' };
+export const SIGN_IN_PAGE: Readonly<Record<InstanceKind, string>> = { client: '/sign-in', staff: '/sign-in/operator' };
 const SIGN_IN_PAGES: Readonly<Record<string, InstanceKind>> = { [SIGN_IN_PAGE.client]: 'client', [SIGN_IN_PAGE.staff]: 'staff' };
 const SIGN_IN_FLOW = /^\/sign-(?:in|out)(?:\/|$)/;
 

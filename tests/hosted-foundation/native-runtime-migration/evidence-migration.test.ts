@@ -1,9 +1,11 @@
 // Synthetic SQLite migration evidence, not provider evidence.
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { assembleNativeSchema, NATIVE_SCHEMA_INPUTS } from '../../../deploy/native-alpha/schema.ts';
-import { assembleNativeRuntimeMigration, NATIVE_RUNTIME_MIGRATION_INPUTS, assembleNativeRenderCaseLimitMigration, NATIVE_RENDER_CASE_LIMIT_MIGRATION_INPUTS, assembleNativeEvidenceMigration, NATIVE_EVIDENCE_MIGRATION_INPUTS } from '../../../deploy/native-alpha/runtime-migration.ts';
+import { assembleNativeRuntimeMigration, NATIVE_RUNTIME_MIGRATION_INPUTS, assembleNativeRenderCaseLimitMigration, NATIVE_RENDER_CASE_LIMIT_MIGRATION_INPUTS, assembleNativeEvidenceMigration, NATIVE_EVIDENCE_MIGRATION_INPUTS, prepareNativeEvidenceMigration, readNativeEvidenceMigration, checkNativeEvidenceMigrationInvocation } from '../../../deploy/native-alpha/runtime-migration.ts';
 
 const sources = (pins: readonly {path: string}[]) => pins.map(p => ({ path: p.path, bytes: readFileSync(p.path) }));
 function migrate(db: DatabaseSync, sql: string) {
@@ -41,9 +43,38 @@ describe('0005 evidence increment', () => {
       expect(() => db.exec(`UPDATE ${table} SET candidate_id='other'`)).toThrow();
       expect(() => db.exec(`DELETE FROM ${table}`)).toThrow();
     }
+    expect(() => db.exec(`INSERT OR REPLACE INTO pub_evidence_item VALUES ('c','g','i','{"changed":true}')`)).toThrow();
+    expect(() => db.exec(`INSERT OR REPLACE INTO pub_evidence_page VALUES ('c','g',0,'${'b'.repeat(64)}',1)`)).toThrow();
     const sealed = snapshot(db);
     try { migrate(db, sql); } catch { /* migration ledger or CREATE can refuse replay */ }
     expect(snapshot(db)).toEqual(sealed);
     db.close();
+  });
+  it('rolls back the whole increment on a mid-migration failure', () => {
+    const db = world(), before = snapshot(db);
+    const sql = assembleNativeEvidenceMigration(sources(NATIVE_EVIDENCE_MIGRATION_INPUTS)).sql;
+    expect(() => migrate(db, `${sql}\nINSERT INTO absent_synthetic_table VALUES (1);`)).toThrow();
+    expect(snapshot(db)).toEqual(before);
+    expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    db.close();
+  });
+  it('pins its inputs and stages a distinct, tamper-evident 0005 packet', () => {
+    const inputs = sources(NATIVE_EVIDENCE_MIGRATION_INPUTS);
+    const plan = assembleNativeEvidenceMigration(inputs);
+    expect(plan.manifest.output.path).toBe('migrations/0005_native_evidence.sql');
+    expect(plan.manifest.appliedRenderCaseLimitDependency.path).toBe('migrations/0004_native_render_case_limit.sql');
+    inputs[0]!.bytes[0] ^= 1;
+    expect(() => assembleNativeEvidenceMigration(inputs)).toThrow();
+    const root = process.cwd(), dir = mkdtempSync(path.join(tmpdir(), 'cc-evidence-'));
+    try {
+      const staged = prepareNativeEvidenceMigration({ root, out: path.join(dir, 'stage') });
+      expect(readNativeEvidenceMigration({ root, stage: staged.stage }).sql).toBe(plan.sql);
+      for (const target of staged.manifest.targets) {
+        expect(checkNativeEvidenceMigrationInvocation({ root, stage: staged.stage, cwd: staged.stage, slot: target.slot, argv: target.argv }).target).toEqual(target);
+        expect(() => checkNativeEvidenceMigrationInvocation({ root, stage: staged.stage, cwd: staged.stage, slot: target.slot, argv: [...target.argv, '--local'] })).toThrow();
+      }
+      writeFileSync(path.join(staged.stage, plan.manifest.output.path), 'tampered');
+      expect(() => readNativeEvidenceMigration({ root, stage: staged.stage })).toThrow();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

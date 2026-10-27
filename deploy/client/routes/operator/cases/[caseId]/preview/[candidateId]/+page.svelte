@@ -101,12 +101,12 @@
 </main>
 
 <style>
-	main { max-width: 80rem; margin: 1rem auto; padding: 1rem; font-family: system-ui, sans-serif; }
-	header.private { border: .25rem solid #b91c1c; border-radius: .4rem; padding: .5rem 1rem; }
-	header.private h1 { color: #b91c1c; margin-block: .3rem; }
+	main { max-width: 80rem; margin: 1rem auto; padding: 1rem; }
+	header.private { border: .25rem solid var(--danger); border-radius: var(--radius); padding: .5rem 1rem; }
+	header.private h1 { color: var(--danger); margin-block: .3rem; }
 	dl div { display: flex; gap: .5rem; }
-	dt { font-weight: 700; }
+	dt { font-weight: 600; }
 	code { white-space: pre-wrap; overflow-wrap: anywhere; }
 	table { border-collapse: collapse; width: 100%; }
-	th, td { border-bottom: 1px solid #8b93a0; padding: .3rem; text-align: left; vertical-align: top; }
+	th, td { border-bottom: 1px solid var(--border); padding: .3rem; text-align: left; vertical-align: top; }
 </style>

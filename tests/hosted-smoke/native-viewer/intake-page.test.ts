@@ -60,7 +60,7 @@ it('sends the file that was selected when Send was pressed, though the picker mo
   await settled(1);
   expect(metas()).toEqual([{ operationId: expect.any(String), path: 'first.pdf', size: first.bytes.byteLength, sha256: sha(first.bytes), mediaType: 'application/pdf' }]);
   expect(puts()).toEqual([{ url: `${BASE}/${metas()[0]!.operationId}`, bytes: first.bytes }]);
-  await vi.waitFor(() => expect(status()).toBe('Finalized. No results yet.'));
+  await vi.waitFor(() => expect(status()).toBe('Finalized first.pdf. No results yet.'));
 });
 
 it('treats the later pick as its own upload: new operation, its own name, bytes and hash, never the first one\'s', async () => {
@@ -70,7 +70,7 @@ it('treats the later pick as its own upload: new operation, its own name, bytes 
   pick(second.file);
   first.release();
   await settled(1);
-  await vi.waitFor(() => expect(status()).toBe('Finalized. No results yet.'));
+  await vi.waitFor(() => expect(status()).toBe('Finalized first.pdf. No results yet.'));
   expect(second.started).toBe(0);
   submit();
   await settled(2);
@@ -89,7 +89,7 @@ it('retries the captured first file under its own operation, and a different pic
   pick(second.file);
   first.release();
   await settled(1);
-  await vi.waitFor(() => expect(status()).toBe('The store is unavailable.'));
+  await vi.waitFor(() => expect(status()).toBe('first.pdf: The store is unavailable.'));
   pick(first.file); submit();
   await settled(2);
   pick(second.file); submit();

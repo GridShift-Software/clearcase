@@ -150,7 +150,7 @@ it.each([['finalized', 'one-file'], ['finalized', 'set'], ['refused', 'one-file'
   realFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
     if (init.method === 'PUT') {
       puts++;
-      const out = outcome === 'refused' ? reply(503, { code: 'storage-unavailable', message: 'File storage is unavailable. Try again with the same upload.' }) : inner(url, init);
+      const out = outcome === 'refused' ? inner(url, init).then(() => reply(503, { code: 'storage-unavailable', message: 'File storage is unavailable. Try again with the same upload.' })) : inner(url, init);
       await held; return out;
     }
     return inner(url, init);

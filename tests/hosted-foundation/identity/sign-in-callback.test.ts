@@ -172,9 +172,11 @@ describe('two tabs signing in through the same flow each reach their own target 
 		for (const n of [1, 2, 3, 4, 5, 6]) await post(kind, ORIGIN_A, `/cases/case-${n}`, jar);
 		expect(jar.get(SIGN_IN_RETURN_COOKIE[kind])!.length).toBeLessThanOrEqual(3800);
 		expect((await land(kind, ORIGIN_A, jar)).pending?.map((p) => p.to)).toEqual(['/cases/case-3', '/cases/case-4', '/cases/case-5', '/cases/case-6']);
-		await post(kind, ORIGIN_A, `/cases/${'x'.repeat(2000)}`, jar);
+		const big = (c: string) => `/cases/${c.repeat(2000)}`;
+		await post(kind, ORIGIN_A, big('x'), jar);
+		await post(kind, ORIGIN_A, big('y'), jar);
 		expect(jar.get(SIGN_IN_RETURN_COOKIE[kind])!.length).toBeLessThanOrEqual(3800);
-		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: `/cases/${'x'.repeat(2000)}` });
+		expect(await land(kind, ORIGIN_A, jar)).toEqual({ location: big('y') });
 	});
 	it.each(KINDS)('%s: drops an expired, tampered or other-flow entry from the set and keeps the rest', async (kind) => {
 		vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-27T09:00:00Z') });

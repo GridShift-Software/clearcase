@@ -139,15 +139,15 @@ export function customDomainBindProblems(list: unknown): string[] {
 	return problems;
 }
 
-/** The rollback: DELETE only the two reviewed bindings, found in a fresh list by hostname AND their own Worker AND zone. Throws otherwise. */
+/** The rollback: DELETE only the two reviewed bindings, found in a fresh list by hostname AND their own Worker AND zone AND the production environment (the same facts the bind verification demands). Throws otherwise. */
 export function planCustomDomainUnbind(list: unknown): readonly UnbindOperation[] {
 	const problems: string[] = [];
 	const rows = readDomains(list, problems);
 	const ops = SCOPE.clients.flatMap((c): UnbindOperation[] => {
 		const bound = rows.filter((d) => d.hostname === c.hostname);
 		if (!bound.length) return [];
-		if (bound.length !== 1 || bound[0]!.service !== c.worker || bound[0]!.zoneId !== SCOPE.zone.id || !/^[0-9a-f]{32}$/.test(bound[0]!.id)) {
-			problems.push(`${c.hostname} is not exactly one binding of ${c.worker} in the approved zone; not detached`);
+		if (bound.length !== 1 || bound[0]!.service !== c.worker || bound[0]!.zoneId !== SCOPE.zone.id || bound[0]!.environment !== 'production' || !/^[0-9a-f]{32}$/.test(bound[0]!.id)) {
+			problems.push(`${c.hostname} is not exactly one production binding of ${c.worker} in the approved zone; not detached`);
 			return [];
 		}
 		return [{ kind: 'unbind-custom-domain', client: c.client, method: 'DELETE', path: `/accounts/${SCOPE.accountId}/workers/domains/${bound[0]!.id}`, hostname: c.hostname, source: `${SDK} workers.domains.delete ("Detaches a Worker from a zone and hostname")` }];

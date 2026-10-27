@@ -24,7 +24,7 @@ this brief. The manifest records desired policy, not a new provider readback.
 D1 jurisdiction is not a Wrangler binding field. R2 jurisdiction is `eu` in the
 config; the parent must keep both buckets private with development URLs disabled.
 
-Every config has `workers_dev: true`, `preview_urls: false`, `routes: []`,
+Every config has `workers_dev: true` (a client under the `'custom-domain'` origin: `false`), `preview_urls: false`, `routes: []`,
 `no_bundle: true`, `find_additional_modules: false`, `minify: false` and
 `ASSETS` pointing only to `artifact/public`. The entry is
 `artifact/cloudflare/_worker.js`. Compatibility flags must be exactly
@@ -131,9 +131,13 @@ one origin: `CLEARCASE_APP_ORIGIN`, the manifest hostname and Clerk's fixed sign
 that differs. `'custom-domain'` requires each client's hostname, deployment tuple and app origin to be exactly its own single label under
 the approved zone, `sbx-a.clearcase.co.za` or `sbx-b.clearcase.co.za`, read from `APPROVED_NATIVE_SCOPE`; a wildcard, another zone, the
 workers.dev name and the other client's host refuse. Under either value the other set refuses, so the switch moves both clients together.
-The config keeps `workers_dev: true` and `routes: []` in both modes: the domain is bound by the reviewed free Workers Custom Domain PUT
-(`custom-domain-bind.ts`), never by a route, and workers.dev stays on as a static fallback that cannot sign in while the custom domain is
-the pinned origin. Rolling back is a redeploy of the workers-dev stage, then detaching the two bindings. The merge then puts the planner's public vars after
+The config keeps `routes: []` and `preview_urls: false` in both modes: the domain is bound by the reviewed free Workers Custom Domain PUT
+(`custom-domain-bind.ts`), never by a route. Under `'custom-domain'` a client Worker also gets `workers_dev: false`, so workers.dev does not
+serve it at all (the unconfigured staff shell has no custom domain and keeps its workers.dev URL). The production hook adds a second layer:
+a request whose URL origin is not `CLEARCASE_APP_ORIGIN` is refused with a plain 403, for every method, before identity or routing
+(`origin-guard.ts`). Rolling back is a redeploy with `'workers-dev'`, which turns workers.dev back on, and only then detaching the two
+bindings (`planCustomDomainUnbind`, which refuses the whole rollback if either binding is not exactly its own Worker, in the approved zone
+and in `production`). The merge then puts the planner's public vars after
 `CLEARCASE_INSTANCE_ROLE` and `CLEARCASE_CLIENT_ID` in that client's config (the planned client id must equal the slot, so role and
 client stay locked). Only these names are admitted: the planner's public Clerk values, `CLEARCASE_APP_ORIGIN`, `AUTH_MFA_REQUIRED`
 and `CLEARCASE_NATIVE_CONFIG`; each value is a string of at most 5000 UTF-8 bytes. Secret names, the role variable and anything else

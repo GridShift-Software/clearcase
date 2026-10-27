@@ -2,7 +2,8 @@
 // The file-checking owner explicitly needs Node types, including in native-alpha's types:[] private check.
 // Separate first-deployment profile. Does not relax native/1's custom-domain policy.
 // One Worker serves ONE origin: CLEARCASE_APP_ORIGIN, the manifest hostname and Clerk's fixed sign-in callbacks all name it, and the runtime
-// refuses any pair that differs. `origin` is the single switch between the two pinned sets; workers.dev stays enabled as a static fallback.
+// refuses any pair that differs. `origin` is the single switch between the two pinned sets. Under 'custom-domain' a client Worker's workers.dev and preview
+// URLs are off, so no second origin serves it; the rollback is a redeploy with 'workers-dev', which turns workers.dev back on before the domain is detached.
 // No provider/process/environment access. Only prepare/read touch files; plan is deterministic.
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -197,7 +198,7 @@ export function planWorkersDevBootstrap(value: unknown) {
 			main: NATIVE_STAGED.entry, no_bundle: true, find_additional_modules: false, minify: false,
 			compatibility_date: s.compatibilityDate, compatibility_flags: s.compatibilityFlags,
 			// Workers Free enforces its own CPU ceiling and rejects even a 10ms custom limit.
-			send_metrics: false, workers_dev: true, preview_urls: false, routes: [],
+			send_metrics: false, workers_dev: !(client && s.origin === 'custom-domain'), preview_urls: false, routes: [],
 			assets: { directory: NATIVE_STAGED.assets, binding: 'ASSETS' },
 			// Role and client id come first and are locked: the planned CLEARCASE_CLIENT_ID is checked equal, so the merge never moves them.
 			vars: { CLEARCASE_INSTANCE_ROLE: client ? 'client' : 'staff', CLEARCASE_CLIENT_ID: client ? slot : '', ...planned?.vars },

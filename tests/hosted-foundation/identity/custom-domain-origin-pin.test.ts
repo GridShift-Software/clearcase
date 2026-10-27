@@ -90,21 +90,22 @@ describe('the pinned origin is the only origin that is served', () => {
 		expect(out.body).not.toMatch(/clearcase|workers\.dev|CLEARCASE_/i);
 		expect(out.headers.getSetCookie()).toEqual([]);
 	});
-	it('canonicalises the pin, so a trailing slash or an explicit default port still serves the same origin', async () => {
-		pin(`${CUSTOM}/`);
-		expect((await invoke(CUSTOM, 'GET')).code).toBe(200);
-		pin('https://sbx-a.clearcase.co.za:443');
-		expect((await invoke(CUSTOM, 'GET')).code).toBe(200);
-		expect((await invoke(DEV, 'GET')).code).toBe(403);
+	it('compares against the canonical pin, so an unusual spelling of it still refuses every other origin', async () => {
+		for (const spelling of [`${CUSTOM}/`, 'https://sbx-a.clearcase.co.za:443', 'HTTPS://SBX-A.CLEARCASE.CO.ZA']) {
+			pin(spelling);
+			expect([spelling, (await invoke(DEV, 'HEAD')).code]).toEqual([spelling, 403]);
+			expect([spelling, (await invoke(DEV, 'POST')).session]).toEqual([spelling, 'active']);
+		}
 	});
 	it('follows the pin: under the workers.dev pin the custom origin is the refused one', async () => {
 		pin(DEV);
 		expect((await invoke(CUSTOM, 'HEAD')).code).toBe(403);
 	});
-	it('leaves an unconfigured deployment to its readiness refusal (no pin to compare, no identity service built)', async () => {
+	it('adds nothing for an unconfigured deployment: with no pin there is no identity service, so nothing resolves and nothing is revoked', async () => {
 		pin(undefined);
-		const out = await invoke(DEV, 'GET');
-		expect(out.code).toBe(503);
-		expect(out.resolved).toBe(false);
+		for (const method of ['GET', 'HEAD', 'POST']) {
+			const out = await invoke(DEV, method);
+			expect([method, out.code >= 400, out.resolved, out.session]).toEqual([method, true, false, 'active']);
+		}
 	});
 });

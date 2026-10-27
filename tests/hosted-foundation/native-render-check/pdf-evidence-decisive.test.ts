@@ -23,7 +23,7 @@ beforeEach(() => { sdk.launch.mockReset(); clock = 20_000 * DAY_MS + 10_000; });
 describe('U9 scaled PDF evidence: first and cited pages, content receipts', () => {
  it('a 40-page PDF cited at p37 records pages=40 and renders only p1 and p37; p41 fails out of range; a new candidate reuses the receipt with no browser', async () => {
   const db = pdfDatabase(), bundle = syntheticPdf('forty-page bundle'), boundary = pdfBrowser(new Map([[bundle.sha256, { totalPages: 40 }]]));
-  sdk.launch.mockResolvedValue(boundary.browser);
+  sdk.launch.mockImplementation(async () => boundary.launch());
   const checker = (await createNativePdfEvidenceChecker(evidenceOptions(db, pins, root, () => clock, {}, NATIVE_PDF_EVIDENCE_CEILINGS)))!;
   expect(checker).not.toBeNull();
 
@@ -49,7 +49,7 @@ describe('U9 scaled PDF evidence: first and cited pages, content receipts', () =
 
  it('a p41 citation on bytes never rendered before fails out of range after one session that renders p1 only', async () => {
   const db = pdfDatabase(), bundle = syntheticPdf('fresh forty-page bundle'), boundary = pdfBrowser(new Map([[bundle.sha256, { totalPages: 40 }]]));
-  sdk.launch.mockResolvedValue(boundary.browser);
+  sdk.launch.mockImplementation(async () => boundary.launch());
   const checker = (await createNativePdfEvidenceChecker(evidenceOptions(db, pins, root, () => clock, {}, NATIVE_PDF_EVIDENCE_CEILINGS)))!;
   const r = await checker.step(step('candidate-1', 'a', [doc('asset-bundle', bundle, [41])]));
   expect(r.outcomes).toEqual([expect.objectContaining({ state: 'failed', reason: 'page-reference-out-of-range', pages: 40 })]);

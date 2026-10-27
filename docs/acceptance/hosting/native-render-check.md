@@ -177,6 +177,38 @@ paid changes, quota upgrades, account/limits probes, or API retries to bypass ho
 A killed Worker cannot guarantee Browser.close delivery; the charged idle tail and
 provider-enforced Free limit are the fallback, not evidence of confirmed closure.
 
+## Scaled PDF evidence (real-export U9; ADR-0014 Proposed)
+
+`createNativePdfEvidenceChecker(options)` is a second port for real-size candidates. It takes the same bindings and pins as
+the single-file checker, plus a `NativePdfEvidenceBudget` within `NATIVE_PDF_EVIDENCE_CEILINGS`. Each `step` takes a window
+of a candidate's PDFs, each with its cited pages, and returns outcomes for the documents it settled and `remaining` for the
+rest. Calling again with the remaining documents resumes. So does calling again with all of them.
+
+- **Pages.** It checks page 1 and every cited page, never the whole document, and records the document's page count. A
+  citation past the last page fails with `page-reference-out-of-range`.
+- **Content receipts.** A clean render seals one `npr_content_receipts` row (viewer migration 0003). The row is keyed by
+  the bytes' SHA-256 and size, the renderer version and the page set, not by candidate. A later step in any candidate
+  settles a covered document, or an out-of-range citation, from that row. It does so with no byte read and no browser.
+  A row that fails any check holds the document with `render-receipt-integrity`. The checks cover a missing page, other
+  bytes, another renderer, a page count that disagrees with its row, a missing page 1 and non-canonical JSON. Such a row
+  is never repaired or replaced. A receipt from another renderer version is not read, so the document renders again.
+- **Renderer version.** `clearcase.native-pdf-pages/1;sha256:<digest>` uses the same inputs as v1, with a page program
+  derived from the v1 program by five exact edits. The v1 program bytes and v1 renderer version are unchanged.
+- **Sessions.** The documents still to render share one browser session. It is admitted once in `npr_pdf_sessions`
+  (viewer migration 0004): one session at a time per client, at most 96 a day, and no refund. Each document gets its
+  own browser context and page, closed before the next opens, with the same request interception as v1. A violation, a
+  deadline or a context that does not close ends the session, and the later documents wait for the next step. A launch
+  that lands after its deadline is terminated.
+- **Bounds.** `pdfEvidenceStepCost(budget)` gives one step's worst case. At the ceilings that is about 260 subrequests,
+  87 MB of Worker memory (one PDF at a time) and 62 s of wall time. The parent reserves it within Workers Paid's per-invocation
+  limits. A kill loses only the document in flight. Its sealed receipts stand, and the session lease
+  (session deadline plus cleanup plus the 60 s idle tail) delays the resume.
+
+Not run: real Browser Rendering, `createBrowserContext` on the provider, PDF.js on a real 40-page PDF, workerd or deployed
+D1. Migration 0004 is not yet in `deploy/native-alpha/runtime-migration.ts`. The tests in
+`tests/hosted-foundation/native-render-check/pdf-evidence-*.test.ts` use SDK-boundary doubles over the real migrations in
+SQLite, so they are not renderer acceptance.
+
 ## Parent integration hooks and module closure
 
 1. Add the owned SQL migration to the schema assembler. Pass the **raw** DB, not

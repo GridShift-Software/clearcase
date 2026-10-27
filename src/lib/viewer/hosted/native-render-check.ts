@@ -589,12 +589,11 @@ export const NATIVE_PDF_EVIDENCE_CEILINGS: Readonly<NativePdfEvidenceBudget> = O
  maxFileBytes: 32 * 1024 * 1024, maxCheckedPagesPerFile: 256, maxPagePixels: 4096 * 4096, maxDocumentMs: 20_000, maxSessionMs: 60_000,
  maxDocumentsPerStep: 90, maxRendersPerSession: 32, maxSessionBytes: 256 * 1024 * 1024, maxSessionsPerClientPerDay: 96,
 });
-/** What one step may cost at most, for the parent to reserve: Workers Paid allows 10,000 subrequests and 128 MB per invocation. */
-export const PDF_EVIDENCE_STEP_LIMITS = Object.freeze({ subrequests: 1_000, memoryBytes: 100 * 1024 * 1024 });
 const PDF_PINNED_FILES = 191, MAX_RECEIPT_LOOKUPS = 1, CONTEXT_CLOSE_MS = 1_000;
 
 /**
- * Worst case of one step under a budget. Subrequests: the receipt lookup, the session admission, a read and a sealed receipt
+ * Worst case of one step under a budget, for the parent to reserve within Workers Paid's 10,000 subrequests and 128 MB per
+ * invocation; at the ceilings it is about 260 subrequests and 87 MB. Subrequests: the receipt lookup, the session admission, a read and a sealed receipt
  * per render, launch plus upgrade, and each pinned static file once (cached for the session). Memory: one PDF at a time, its
  * copy handed to the page, and the pinned static bytes. Wall time: the session deadline plus its cleanup.
  */
@@ -630,9 +629,7 @@ type DocumentRun = { transcript: ContentReceipt | null; reason: PreviewReasonCod
 function validEvidenceBudget(b: NativePdfEvidenceBudget | null): b is NativePdfEvidenceBudget {
  if (!b) return false;
  for (const k of Object.keys(NATIVE_PDF_EVIDENCE_CEILINGS) as (keyof NativePdfEvidenceBudget)[]) if (!integer(b[k], NATIVE_PDF_EVIDENCE_CEILINGS[k])) return false;
- const cost = pdfEvidenceStepCost(b);
- return b.maxDocumentMs <= b.maxSessionMs && b.maxFileBytes <= b.maxSessionBytes && b.maxRendersPerSession <= b.maxDocumentsPerStep
-  && cost.subrequests <= PDF_EVIDENCE_STEP_LIMITS.subrequests && cost.memoryBytes <= PDF_EVIDENCE_STEP_LIMITS.memoryBytes;
+ return b.maxDocumentMs <= b.maxSessionMs && b.maxFileBytes <= b.maxSessionBytes && b.maxRendersPerSession <= b.maxDocumentsPerStep;
 }
 
 /** Missing bindings, an invalid budget or unreviewed pins make the port unavailable. No fallback renderer and no v1 fallback. */
@@ -649,7 +646,7 @@ export async function createNativePdfEvidenceChecker(o: NativePdfEvidenceOptions
   const scope = input && input.clientId === prepared.clientId && [input.caseId, input.candidateId].every(identifier)
    && typeof input.resultsVersion === 'string' && /^sha256:[a-f0-9]{64}$/.test(input.resultsVersion) && Array.isArray(input.documents)
    ? { caseId: input.caseId, candidateId: input.candidateId, resultsVersion: input.resultsVersion } : null;
-  const listed = scope ? [...input.documents] : [];
+  const listed = Array.isArray(input?.documents) ? [...input.documents] : [];
   const window = listed.slice(0, budget.maxDocumentsPerStep);
   const settled = new Map<number, Settled>();
   const fail = (i: number, assetId: string, state: RequiredPreviewState, reason: PreviewReasonCode, extra: Partial<Settled> = {}) =>
@@ -807,11 +804,11 @@ async function inspectInContext(a: PreparedRenderer & {
  sessionLeft(): number; sessionViolated(): boolean; violate(): void;
 }): Promise<DocumentRun> {
  const stopAt = performance.now() + Math.min(a.budget.maxDocumentMs, a.sessionLeft());
- let stage: PreviewRenderStage = 'page-setup', settled = false, violated = false, timer: ReturnType<typeof setTimeout> | undefined;
+ let stage: PreviewRenderStage = 'page-setup', settled = false, violated = false, expired = false, timer: ReturnType<typeof setTimeout> | undefined;
  let context: Awaited<ReturnType<Browser['createBrowserContext']>> | undefined, page: Page | undefined;
  const remaining = () => Math.max(0, stopAt - performance.now());
  const violate = () => { if (!settled) { violated = true; a.violate(); } };
- const check = () => { if (settled || remaining() <= 0 || violated || a.sessionViolated()) throw Error('inspection refused'); };
+ const check = () => { if (settled || expired || remaining() <= 0 || violated || a.sessionViolated()) throw Error('inspection refused'); };
  const binding = await sha(encode([a.token, a.d.assetId, a.d.sha256, a.d.size, a.d.pages, a.rendererVersion]));
  const serve = intercept({ origin: a.origin, files: a.files, assets: a.assets, signal: a.signal, program: PAGES_INSPECTOR, input: a.bytes,
   cache: a.cache, statics: a.statics, isMainFrame: frame => frame === page?.mainFrame(), check, violate, acknowledged: () => {} });
@@ -847,11 +844,11 @@ async function inspectInContext(a: PreparedRenderer & {
  };
  let run: DocumentRun;
  try {
-  const transcript = await Promise.race([work(), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(Error('document deadline')), remaining()); })]);
+  const transcript = await Promise.race([work(), new Promise<never>((_, reject) => { timer = setTimeout(() => { expired = true; reject(Error('document deadline')); }, remaining()); })]);
   const receipt = pagesTranscript(transcript, { ...a.d, binding, rendererVersion: a.rendererVersion, maxPagePixels: a.budget.maxPagePixels });
   run = receipt ? { transcript: receipt, reason: null, stage, fatal: false } : { transcript: null, reason: 'incomplete-render-transcript', stage, fatal: false };
  } catch {
-  const timedOut = remaining() <= 0;
+  const timedOut = expired || remaining() <= 0;
   run = { transcript: null, reason: timedOut ? 'render-timeout' : 'render-failed', stage, fatal: timedOut || violated || a.sessionViolated() };
  } finally {
   if (timer) clearTimeout(timer);

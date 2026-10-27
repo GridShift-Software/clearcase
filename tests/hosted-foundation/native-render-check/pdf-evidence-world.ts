@@ -57,7 +57,7 @@ export function pdfDatabase(sqlite = new DatabaseSync(':memory:')) {
  return { sqlite, state, primary, withSession: vi.fn((_constraint: 'first-primary') => primary) };
 }
 
-export type PdfScript = { totalPages: number; behaviour?: 'corrupt' | 'violate' | 'omit-page' };
+export type PdfScript = { totalPages: number; behaviour?: 'corrupt' | 'violate' | 'omit-page' | 'hang' };
 /**
  * A browser double with one isolated context per document. `evaluate` answers from `script` by input digest, for exactly the
  * pages the server asked for that exist, the way the page program does. It records every document it was asked to inspect.
@@ -98,6 +98,7 @@ export function pdfBrowser(script: Map<string, PdfScript>) {
     inspected.push({ sha256: args.sha256, pages: [...args.pages] });
     if (!s || s.behaviour === 'corrupt') throw Error('inspection refused');
     if (s.behaviour === 'violate') await request('https://app.example/private/case-data', 'fetch');
+    if (s.behaviour === 'hang') await new Promise(() => {});
     const pages = args.pages.filter(n => n <= s.totalPages).slice(0, s.behaviour === 'omit-page' ? -1 : undefined);
     return { binding: args.binding, sha256: args.sha256, size: args.size, pdfjsVersion: '6.4.299', totalPages: s.totalPages,
      pages: pages.map(number => ({ number, width: 10, height: 10, pixelBytes: 400, pixelSha256: 'c'.repeat(64) })) };
@@ -117,7 +118,9 @@ export function pdfBrowser(script: Map<string, PdfScript>) {
    send: async () => { await browser.close(); connected = false; for (const listener of closedListeners) listener(); return {}; },
   }) }) }),
  };
- return { browser, inspected, contexts };
+ /** Each launch is a new connected browser over the same script and records. */
+ const launch = () => { connected = true; return browser; };
+ return { browser, launch, inspected, contexts };
 }
 
 export function evidenceOptions(db: ReturnType<typeof pdfDatabase>, pins: NativePreviewRenderPins, root: string, clock: () => number,

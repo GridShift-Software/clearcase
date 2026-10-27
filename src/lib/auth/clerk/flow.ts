@@ -189,10 +189,18 @@ export const SIGN_IN_RETURN_TTL = 900;
 /** How many sign-ins of one flow may be in flight in one browser; a further one evicts the oldest. */
 export const SIGN_IN_RETURN_LIMIT = 4;
 /**
- * A callback that clears attempts it does not follow leaves the flow's marker: its expiry, when the newest cleared
- * attempt would have lapsed, under a MAC like an attempt's. A cleared tab's callback still to come cannot tell its own
- * attempt is gone, so while the marker is valid every callback that finds an attempt clears them all and lands home,
- * and none takes a later tab's attempt for its own. A sign-in POST keeps it; an invalid or expired one is deleted.
+ * Seconds a multi-tab marker outlives the newest attempt any clear could have seen. Responses can reach the browser out
+ * of order, and the last marker written wins: an earlier clear's response landing after a later one's must not shorten
+ * the protection. Basing the expiry on the clearing time, not on the attempts seen, keeps every rewrite within the
+ * delivery delay of the one it replaces, and Cloudflare closes a response after about 100 seconds, well inside this.
+ */
+const MARKER_SLACK = 300;
+/**
+ * A callback that clears attempts it does not follow leaves the flow's marker: its expiry, under a MAC like an
+ * attempt's, is the clearing time plus SIGN_IN_RETURN_TTL plus MARKER_SLACK. A cleared tab's callback still to come
+ * cannot tell its own attempt is gone, so while the marker is valid every callback that finds an attempt clears them all
+ * and lands home, and none takes a later tab's attempt for its own. A sign-in POST keeps it; an invalid or expired one
+ * is deleted.
  */
 const SIGN_IN_RETURN_MARKER: Readonly<Record<InstanceKind, string>> = { client: '__Host-clearcase_multi_tab', staff: '__Host-clearcase_staff_multi_tab' };
 // A browser holds a cookie of up to 4096 bytes, name included. One flow's attempts together stay within
@@ -266,7 +274,7 @@ async function multiTabMarker(config: ClerkIdentityConfig, request: Request, kin
 	const m = values.length === 1 ? MARKER_STATE.exec(values[0]!.value) : null;
 	if (!m) return { expires: null, present: values.length > 0 };
 	const expires = Number(m[1]), left = expires - Math.floor(Date.now() / 1000);
-	const valid = left >= 0 && left <= SIGN_IN_RETURN_TTL + 60 && (await macVerifies(MARKER_LABEL, config, markerParts(config, kind, m[1]!), m[2]!, config[kind]));
+	const valid = left >= 0 && left <= SIGN_IN_RETURN_TTL + MARKER_SLACK + 60 && (await macVerifies(MARKER_LABEL, config, markerParts(config, kind, m[1]!), m[2]!, config[kind]));
 	return { expires: valid ? expires : null, present: true };
 }
 async function sealMultiTabMarker(config: ClerkIdentityConfig, kind: InstanceKind, expires: number): Promise<NonNullable<SignInReturnChange['set']>> {
@@ -298,7 +306,7 @@ export const MULTI_TAB_RETURN = `${DEFAULT_RETURN}?signIn=multiple-tabs`;
 /**
  * A verified callback consumes only on document navigation. One valid, fresh attempt goes to its signed target;
  * several, or any under a valid marker, clear every cookie for this flow and land home, never on another tab's target,
- * and leave the marker (SIGN_IN_RETURN_MARKER) until the newest of them would have lapsed. No chooser or consumed-id
+ * and leave the marker (SIGN_IN_RETURN_MARKER) past any attempt they could have seen. No chooser or consumed-id
  * store exists. With none, retain the explicit safe returnTo fallback or DEFAULT_RETURN.
  */
 export async function signInReturn(env: Readonly<Record<string, unknown>>, request: Request, url: URL, kind: InstanceKind, isDataRequest = false): Promise<{ location: string; change: SignInReturnChange }> {
@@ -313,7 +321,7 @@ export async function signInReturn(env: Readonly<Record<string, unknown>>, reque
 	const multiple = attempts.length > 1 || names.length > RETURN_SCAN || (marker.expires !== null && attempts.length > 0);
 	if (!multiple) return { location: attempts[0]?.to ?? fallback, change: { set: null, delete: [...names, ...stale] } };
 	if (!attempts.length) return { location: MULTI_TAB_RETURN, change: { set: null, delete: [...names, ...stale] } };
-	const expires = Math.max(marker.expires ?? 0, ...attempts.map((a) => a.issued + SIGN_IN_RETURN_TTL));
+	const expires = Math.max(marker.expires ?? 0, Math.floor(Date.now() / 1000) + SIGN_IN_RETURN_TTL + MARKER_SLACK);
 	return { location: MULTI_TAB_RETURN, change: { set: await sealMultiTabMarker(read.config, kind, expires), delete: names } };
 }
 /** Applies a SignInReturnChange to a route's cookies. */

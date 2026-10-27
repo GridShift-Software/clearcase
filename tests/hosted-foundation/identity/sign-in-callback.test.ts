@@ -274,13 +274,13 @@ describe('a callback that cleared other tabs\' attempts leaves no false singleto
 		expect(await land(kind, ORIGIN_A, jar), 'tab B, still inside its own lifetime').toEqual({ location: HOME });
 		expect(attemptsOf(kind, jar)).toEqual([]);
 	});
-	it.each(KINDS)('%s: the marker lasts until the newest cleared attempt would lapse, then a single attempt routes normally', async (kind) => {
+	it.each(KINDS)('%s: the marker lasts the attempt lifetime plus its delivery slack after the clear, then a single attempt routes normally', async (kind) => {
 		const { jar } = await clearedTwo(kind);
 		const still = new Map(jar);
-		vi.setSystemTime(new Date('2026-10-27T09:15:01Z'));
+		vi.setSystemTime(new Date('2026-10-27T09:20:02Z'));
 		await post(kind, ORIGIN_A, target('B'), still);
-		expect(await land(kind, ORIGIN_A, still), 'at the last second C\'s attempt was valid').toEqual({ location: HOME });
-		vi.setSystemTime(new Date('2026-10-27T09:15:02Z'));
+		expect(await land(kind, ORIGIN_A, still), 'at the last second of the marker (cleared at 09:00:02, plus 900 and 300)').toEqual({ location: HOME });
+		vi.setSystemTime(new Date('2026-10-27T09:20:03Z'));
 		await post(kind, ORIGIN_A, target('B'), jar);
 		expect(await land(kind, ORIGIN_A, jar), 'after it lapsed').toEqual({ location: target('B') });
 		expect(attemptsOf(kind, jar)).toEqual([]);

@@ -57,6 +57,8 @@ function authorityRefusal(e: unknown, access: 'read' | 'write'): never {
   }
   return refuse(503, 'identity-unavailable', 'Sign-in is unavailable. Try again shortly.');
 }
+// The refusals of the identity and upload authority ports. Any other fault, an identity outage included (writerAccess), is retryable.
+const AUTHORITY = new Set(['unauthenticated', 'invalid-session', 'wrong-client', 'forbidden']);
 
 // GRS-115 refusals. Retryable faults throw `storage-unavailable` and answer 503; a refusal is final for this operation.
 function storeRefusal(o: Exclude<OriginalOutcome, { kind: 'declared' | 'stored' | 'finalized' }>): never {
@@ -99,8 +101,10 @@ export function createIntakeController(ports: IntakePorts | null) {
     const op = r.params.operationId;
     return op && OPERATION.test(op) ? op : refuse(404, 'not-found', 'Not found.');
   };
+  // The original store asks the upload authority again at each step (services.ts), so a session that ends during the request
+  // (a ~60 s Clerk token, 3 to 8 s requests) is refused there: it answers as admission would, a 401 the page reloads for.
   const storage = <T>(work: Promise<T>): Promise<T> => work.catch((e) => {
-    if (codeOf(e) === 'forbidden') refuse(403, 'forbidden', 'You cannot supply files for this case.');
+    if (AUTHORITY.has(codeOf(e)!)) authorityRefusal(e, 'write');
     return refuse(503, 'storage-unavailable', 'File storage is unavailable. Try again with the same upload.');
   });
   const handle = (work: () => Promise<Response>) => work().catch((e) => { if (e instanceof Refusal) return e.response; throw e; });

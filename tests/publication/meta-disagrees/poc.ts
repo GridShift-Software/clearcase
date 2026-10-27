@@ -22,12 +22,12 @@ export function pocChronology(): Record<string, unknown>[] {
 const envelope = (key: string, schema: string, sourcePath: string, data: unknown): DatasetEnvelope => ({ envelope: 'clearcase.dataset/1', key, kind: 'source', schema, required: true,
   count: Array.isArray(data) ? data.length : 1, provenance: { source: 'v5-workspace-html', sourcePath, adapter: 'synthetic/1' }, data }) as unknown as DatasetEnvelope;
 
-export interface PocOptions { meta?: Record<string, unknown>; people?: unknown; rows?: Record<string, unknown>[] }
+export interface PocOptions { meta?: Record<string, unknown>; /** The whole META, replacing the exact one, so a test can remove a count. */ replaceMeta?: Record<string, unknown>; people?: unknown; rows?: Record<string, unknown>[] }
 export function pocDatasets(o: PocOptions = {}): DatasetEnvelope[] {
   const rows = o.rows ?? pocChronology();
   const count = (field: string, value: string) => rows.filter((r) => r[field] === value).length;
   const tally = (field: string) => { const t: Record<string, number> = {}; for (const r of rows) t[r[field] as string] = (t[r[field] as string] ?? 0) + 1; return t; };
-  const meta = { builtAt: '2200-01-01T00:00:00Z', docCount: rows.length, dataFolderName: 'SYNTHETIC ONLY', bundles: tally('bundle'), emails: count('doc_type', 'email'), invoices: count('doc_type', 'invoice'),
+  const meta = o.replaceMeta ?? { builtAt: '2200-01-01T00:00:00Z', docCount: rows.length, dataFolderName: 'SYNTHETIC ONLY', bundles: tally('bundle'), emails: count('doc_type', 'email'), invoices: count('doc_type', 'invoice'),
     people: PEOPLE, textNone: count('text_status', 'none'), textPending: count('text_status', 'pending'), dateSpan: ['2200-01-01', '2200-01-01'], docTypes: tally('doc_type'), ...o.meta };
   const people = o.people ?? Array.from({ length: PEOPLE }, (_, i) => ({ name: `Synthetic ${i}`, email: '', org: '', sent: 0, received: 0, total: 0, role: '' }));
   return [envelope('chronology', 'v5.chronology@1', 'DATA.chronology', rows), envelope('people', 'v5.people@1', 'DATA.people', people), envelope('meta', 'v5.meta@1', 'META', meta)];

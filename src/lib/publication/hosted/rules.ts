@@ -1,5 +1,6 @@
 import type { CandidateSnapshot, CandidateSnapshotV2, EvidenceCountGroup, EvidenceItemRow, EvidenceKind, EvidenceObservation, PreviewStateV2, SectionStateV2 } from './ports.ts';
 import { isIntegrityKey } from '../../case-package/registry.ts';
+import { META_DISAGREEMENT_CODE, metaDisagreementFingerprint, type MetaBinding, type MetaCountDetail, type MetaDisagreement } from '../../case-package/meta-integrity.ts';
 import { PREVIEW_REASON_CODES, detachedData, isPreviewNavigationObservation, isPreviewReasonCode, isPreviewRenderStage } from './preview-outcome.ts';
 
 // Pure sign-off rules over a candidate snapshot (ADR-0010, ADR-0011, results-package acknowledgement contract). There
@@ -80,18 +81,21 @@ export function newWarnings(s: CandidateSnapshot): string[] {
 
 export const SNAPSHOT_V2_FORMAT = 'clearcase.candidate-snapshot/2' as const;
 export const EVIDENCE_KINDS: readonly EvidenceKind[] = ['error', 'preview', 'section', 'warning'];
-/** `always` clears; `integrity-key` clears only a registered integrity dataset (ADR 0012); `never` holds sign-off. */
-type Clearing = 'always' | 'integrity-key' | 'never';
+/**
+ * `always` clears; `integrity-key` clears only a registered integrity dataset (ADR 0012); `acknowledged` clears only META, and only
+ * when exactly its derived disagreements are acknowledged with a reason (ADR-0014, Proposed); `never` holds sign-off.
+ */
+type Clearing = 'always' | 'integrity-key' | 'acknowledged' | 'never';
 const SECTION_CLEARING: Readonly<Record<SectionStateV2, Clearing>> = {
   valid: 'always',
   'integrity-verified': 'integrity-key',
   // ADR-0013 (Accepted): a required dataset with no native view clears as its complete records view. Never reported as `valid`.
   'records-rendered': 'always',
-  // ADR-0014 (Proposed): holds until U12 adds the acknowledgement path that clears it.
-  disagrees: 'never',
+  // ADR-0014 (Proposed): holds until exactly the gate-derived disagreements are acknowledged (`metaAcknowledged`). Never clears alone.
+  disagrees: 'acknowledged',
   invalid: 'never', unsupported: 'never', missing: 'never',
 };
-const PREVIEW_CLEARING: Readonly<Record<PreviewStateV2, Exclude<Clearing, 'integrity-key'>>> = { rendered: 'always', failed: 'never', pending: 'never' };
+const PREVIEW_CLEARING: Readonly<Record<PreviewStateV2, Exclude<Clearing, 'integrity-key' | 'acknowledged'>>> = { rendered: 'always', failed: 'never', pending: 'never' };
 export const SECTION_STATES_V2 = Object.keys(SECTION_CLEARING) as SectionStateV2[];
 export const PREVIEW_STATES_V2 = Object.keys(PREVIEW_CLEARING) as PreviewStateV2[];
 const PREVIEW_REASONS_V2: ReadonlySet<unknown> = new Set<string>(PREVIEW_REASON_CODES);
@@ -134,16 +138,55 @@ const countOf = (s: CandidateSnapshotV2, kind: EvidenceKind) => s.evidence.group
 /** How many items of a kind the snapshot says the run holds, for a reader to check a page against. */
 export const evidenceCount = countOf;
 
+/** One reasoned acknowledgement of a group of warnings of one code: every fingerprint in it is acknowledged with this one reason. */
+export interface AcknowledgementGroup { readonly code: string; readonly reason: string; readonly fingerprints: readonly string[] }
+/**
+ * What the `disagrees` rule needs beyond the counts: the META disagreements the sealed run holds (`metaDisagreementsOf`, read from its
+ * warning items) and the acknowledgements a sign-off offers. Absent, `disagrees` holds like any other unmet state.
+ */
+export interface MetaEvidence { readonly disagreements: readonly MetaDisagreement[]; readonly acknowledgements: readonly AcknowledgementGroup[] }
+const MAX_ACK_REASON = 1000;
+
+/**
+ * Whether the acknowledgements are exactly the META disagreements this snapshot's run holds. Each disagreement's fingerprint must
+ * recompute from this snapshot's candidate and validation and its own values, so evidence derived for another candidate or validation,
+ * or an acknowledgement of an earlier value, never matches. Every group of the META code needs a reason; each fingerprint is named
+ * once; none is missing and none is extra. Groups of any other code are not about META and are ignored.
+ */
+function metaAcknowledged(s: CandidateSnapshotV2, meta: MetaEvidence | undefined): boolean {
+  if (!meta || meta.disagreements.length === 0) return false;
+  const bound: MetaBinding = { resultsVersion: s.link.candidate.resultsVersion, manifestSha256: s.link.candidate.manifestSha256,
+    validatorVersion: s.validation.validatorVersion, diagnosticsSha256: s.validation.diagnosticsSha256 };
+  const derived = new Set<string>();
+  for (const d of meta.disagreements) { if (d.fingerprint !== metaDisagreementFingerprint(bound, d)) return false; derived.add(d.fingerprint); }
+  if (derived.size !== meta.disagreements.length) return false;
+  const groups = meta.acknowledgements.filter((g) => g.code === META_DISAGREEMENT_CODE);
+  if (groups.length === 0) return false;
+  const named = new Set<string>();
+  for (const g of groups) {
+    if (typeof g.reason !== 'string' || g.reason.trim() === '' || g.reason.length > MAX_ACK_REASON || !Array.isArray(g.fingerprints)) return false;
+    for (const f of g.fingerprints) { if (typeof f !== 'string' || !derived.has(f) || named.has(f)) return false; named.add(f); }
+  }
+  return named.size === derived.size;
+}
+
 /**
  * The first rule that blocks sign-off, or null: the v1 order and meaning over counts. Its detail lists one entry per group, which is
  * bounded by the vocabularies and the registered sections, never by the number of items: `<section>:<state>` for a section,
  * `<state>[:<reason>]=<count>` for previews, and `errors=<count>`.
  */
-export function signoffBlockerV2(s: CandidateSnapshotV2): Blocker | null {
+export function signoffBlockerV2(s: CandidateSnapshotV2, meta?: MetaEvidence): Blocker | null {
   const errors = countOf(s, 'error');
   if (s.validation.verdict === 'reject' || errors > 0) return { code: 'validation-failed', detail: [`errors=${errors}`] };
-  const sections = s.evidence.groups.filter((g) => g.kind === 'section' && !(SECTION_CLEARING[g.state as SectionStateV2] === 'always' || (SECTION_CLEARING[g.state as SectionStateV2] === 'integrity-key' && isIntegrityKey(g.subject!))))
-    .map((g) => `${g.subject}:${g.state}`).sort();
+  const clears = (g: EvidenceCountGroup): boolean => {
+    switch (SECTION_CLEARING[g.state as SectionStateV2]) {
+      case 'always': return true;
+      case 'integrity-key': return isIntegrityKey(g.subject!);
+      case 'acknowledged': return g.subject === 'meta' && metaAcknowledged(s, meta);
+      case 'never': return false;
+    }
+  };
+  const sections = s.evidence.groups.filter((g) => g.kind === 'section' && !clears(g)).map((g) => `${g.subject}:${g.state}`).sort();
   if (sections.length) return { code: 'required-section', detail: sections };
   const previews = s.evidence.groups.filter((g) => g.kind === 'preview' && PREVIEW_CLEARING[g.state as PreviewStateV2] !== 'always')
     .map((g) => `${g.state}${g.reason ? `:${g.reason}` : ''}=${g.count}`).sort();
@@ -152,9 +195,17 @@ export function signoffBlockerV2(s: CandidateSnapshotV2): Blocker | null {
 }
 
 export interface EvidenceBound { readonly clientId: string; readonly caseId: string; readonly resultsVersion: string; readonly manifestSha256: string }
-export interface CheckedEvidenceItem { readonly key: string; readonly observation: EvidenceObservation; readonly acknowledgementRequired?: boolean }
+/** `meta` is present only on a warning that is a META count disagreement (`metaEvidenceItems`). */
+export interface CheckedEvidenceItem { readonly key: string; readonly observation: EvidenceObservation; readonly acknowledgementRequired?: boolean; readonly meta?: MetaCountDetail }
 
-function observationOf(o: unknown): { observation: EvidenceObservation; subject: string } | null {
+const metaDetail = (m: unknown): m is MetaCountDetail => plain(m) && keys(m, ['carried', 'derived', 'diagnostic', 'subject']) && (m.carried === null || safeCount(m.carried))
+  && safeCount(m.derived) && typeof m.diagnostic === 'string' && FP.test(m.diagnostic) && text(m.subject, 200);
+
+/** The META disagreements among checked warning items, as `MetaEvidence` wants them. A fingerprint listed twice is returned twice, so the rule refuses it. */
+export const metaDisagreementsOf = (items: readonly CheckedEvidenceItem[]): MetaDisagreement[] =>
+  items.flatMap((i) => (i.meta && i.observation.kind === 'warning' ? [{ ...i.meta, fingerprint: i.observation.fingerprint }] : []));
+
+function observationOf(o: unknown): { observation: EvidenceObservation; subject: string; meta?: MetaCountDetail } | null {
   if (!plain(o)) return null;
   switch (o.kind) {
     case 'section':
@@ -163,8 +214,15 @@ function observationOf(o: unknown): { observation: EvidenceObservation; subject:
       if (!text(o.assetId) || !previewState(o.state) || (o.state === 'rendered' && Object.keys(o).length !== 3)) return null;
       return Object.keys(o).every((k) => k === 'kind' || k === 'assetId' || k === 'state' || (k === 'reasonCode' && PREVIEW_REASONS_V2.has(o[k])) || (k === 'stage' && isPreviewRenderStage(o[k]))
         || (k === 'navigation' && isPreviewNavigationObservation(o[k]))) ? { observation: o as unknown as EvidenceObservation, subject: o.assetId } : null;
-    case 'warning': case 'error':
-      return keys(o, ['kind', 'fingerprint']) && typeof o.fingerprint === 'string' && FP.test(o.fingerprint) ? { observation: o as unknown as EvidenceObservation, subject: o.fingerprint } : null;
+    case 'warning': case 'error': {
+      if (typeof o.fingerprint !== 'string' || !FP.test(o.fingerprint)) return null;
+      if (keys(o, ['kind', 'fingerprint'])) return { observation: o as unknown as EvidenceObservation, subject: o.fingerprint };
+      // A META count disagreement carries its counts. It is a warning only, and never its own diagnostic's fingerprint.
+      if (o.kind === 'warning' && keys(o, ['kind', 'fingerprint', 'meta']) && metaDetail(o.meta) && o.meta.diagnostic !== o.fingerprint) {
+        return { observation: { kind: 'warning', fingerprint: o.fingerprint }, subject: o.fingerprint, meta: o.meta };
+      }
+      return null;
+    }
     default: return null;
   }
 }
@@ -184,6 +242,6 @@ export function checkEvidenceItem(row: EvidenceItemRow, bound: EvidenceBound): C
     || !text(parsed.input.rendererVersion) || !text(parsed.input.validatorVersion)) return null;
   const found = observationOf(parsed.observation);
   if (!found || row.key !== `${found.observation.kind}/${found.subject}`) return null;
-  if (found.observation.kind === 'warning') return typeof row.baseline === 'boolean' ? { key: row.key, observation: found.observation, acknowledgementRequired: !row.baseline } : null;
+  if (found.observation.kind === 'warning') return typeof row.baseline === 'boolean' ? { key: row.key, observation: found.observation, acknowledgementRequired: !row.baseline, ...(found.meta && { meta: found.meta }) } : null;
   return row.baseline === null ? { key: row.key, observation: found.observation } : null;
 }

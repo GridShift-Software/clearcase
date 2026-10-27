@@ -147,7 +147,7 @@ describe('what stays invalid', () => {
   ])('holds %s', (_what, edit) => {
     const meta = { ...metaData(), ...disagreeingMeta };
     edit(meta);
-    expect(derive(meta).state).toBe('invalid');
+    expect(metaSectionV2(pocDatasets({ replaceMeta: meta }), { binding: BINDING, warningFingerprints: bothDiagnostics(), diagnostics: 2 }).state).toBe('invalid');
   });
 });
 

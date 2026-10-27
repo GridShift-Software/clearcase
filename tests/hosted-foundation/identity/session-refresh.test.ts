@@ -143,9 +143,10 @@ describe('a signed-in user whose session token expired between page loads', () =
 		expect(refreshCalls()).toHaveLength(1);
 		expect(refreshCalls()[0]).toMatchObject({ path: `/v1/sessions/${s.sid}/refresh`, bearer: A.secretKey, body: { refresh_token: s.refresh, request_origin: ORIGIN, format: 'cookie' } });
 		expect(trap.blocked).toEqual([]);
-		// the hold moves on to the refreshed token
+		// the hold moves on to the refreshed token, under the other name of its kind (session-renewal-live-3 fix 1)
 		const token = set!.split(';')[0]!.slice('__session='.length);
-		expect(r.headers.getSetCookie().find((c) => c.startsWith(`${HOLD_A}=`))).toMatch(new RegExp(`^${HOLD_A}=${token}~${s.refresh.replace(/[+/=]/g, '\\$&')}; Path=/; Max-Age=\\d+; SameSite=Lax; HttpOnly; Secure$`));
+		expect(r.headers.getSetCookie().find((c) => c.startsWith(`${HOLD_A}_2=`))).toMatch(new RegExp(`^${HOLD_A}_2=${token}~${s.refresh.replace(/[+/=]/g, '\\$&')}; Path=/; Max-Age=\\d+; SameSite=Lax; HttpOnly; Secure$`));
+		expect(r.headers.getSetCookie()).toContain(`${HOLD_A}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly; Secure`);
 		// the refreshed cookie alone is a verified session at this origin
 		const again = await invoke(saveNote(`__client_uat=1761400000; ${set!.split(';')[0]}`));
 		expect(again.status).toBe(201);

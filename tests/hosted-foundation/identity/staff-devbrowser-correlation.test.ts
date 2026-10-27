@@ -429,7 +429,7 @@ describe('no untied dev browser reaches staff Clerk by any transport the SDK rea
 		const SANDBOX = 'https://cc-sbx-a-20261023.shiny-sunset-211d.workers.dev';
 		const made = clerkBrowserHandshakeFromEnv({ ...app(ORIGIN_A), CLEARCASE_APP_ORIGIN: SANDBOX });
 		if (!made.ok) throw new Error(made.reason);
-		const o = await made.handshake.handle(new Request(`${SANDBOX}/operator/cases/case-a/preview/candidate-a`, { headers: { ...doc, cookie: `__clerk_db_jwt=${ATTACKER_DVB}` } }));
+		const o = await made.handshake.handle(new Request(`${SANDBOX}/operator/cases/case-a/preview/candidate-a`, { headers: { ...doc, cookie: `__clerk_db_jwt=${ATTACKER_DVB}; __client_uat=1700000000; __session=${B.token({ sub: 'user_synthetic_staff', sid: 'sess_synthetic_staff', azp: SANDBOX })}` } }));
 		if (o.kind !== 'redirect') throw new Error(`expected a handshake redirect, got ${JSON.stringify(o)}`);
 		const clears = o.setCookies.filter((d) => d.startsWith('__clerk_db_jwt=;'));
 		expect(clears).toHaveLength(30);

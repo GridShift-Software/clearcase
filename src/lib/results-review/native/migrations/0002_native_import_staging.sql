@@ -36,5 +36,10 @@ CREATE TRIGGER IF NOT EXISTS native_session_insert_once BEFORE INSERT ON native_
   BEGIN SELECT RAISE(ABORT, 'import session is written once'); END;
 CREATE TRIGGER IF NOT EXISTS native_session_no_update BEFORE UPDATE ON native_import_session BEGIN SELECT RAISE(ABORT, 'import session is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS native_session_no_delete BEFORE DELETE ON native_import_session BEGIN SELECT RAISE(ABORT, 'import session is retained'); END;
+-- OR REPLACE would delete the old row without firing a delete trigger, so a second row for one path is refused here; the adapter inserts
+-- only where no row exists, which makes a repeated or racing acceptance of the same file a no-op.
+CREATE TRIGGER IF NOT EXISTS native_staged_file_insert_once BEFORE INSERT ON native_import_staged_file
+  WHEN EXISTS (SELECT 1 FROM native_import_staged_file WHERE client_id = NEW.client_id AND case_id = NEW.case_id AND operation_id = NEW.operation_id AND path = NEW.path)
+  BEGIN SELECT RAISE(ABORT, 'staged file is written once'); END;
 CREATE TRIGGER IF NOT EXISTS native_staged_file_no_update BEFORE UPDATE ON native_import_staged_file BEGIN SELECT RAISE(ABORT, 'staged file is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS native_staged_file_no_delete BEFORE DELETE ON native_import_staged_file BEGIN SELECT RAISE(ABORT, 'staged file is retained'); END;

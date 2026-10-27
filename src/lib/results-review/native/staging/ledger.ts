@@ -50,9 +50,10 @@ export function d1StagingLedger(db: NativeD1, o: { rowsPerBatch: number }): Stag
     async accept(a) {
       for (let i = 0; i < a.rows.length; i += o.rowsPerBatch) {
         const chunk = a.rows.slice(i, i + o.rowsPerBatch);
-        const statements: NativeD1Statement[] = chunk.map((r) => db.prepare(`INSERT OR IGNORE INTO native_import_staged_file (client_id, case_id, operation_id, path, sha256, size, accepted_at)
-          SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM native_import_session WHERE client_id = ? AND case_id = ? AND operation_id = ?)${a.guard ? ` AND ${a.guard.sql}` : ''}`)
-          .bind(a.clientId, a.caseId, a.operationId, r.path, r.sha256, r.size, a.at, a.clientId, a.caseId, a.operationId, ...(a.guard?.values ?? [])));
+        const statements: NativeD1Statement[] = chunk.map((r) => db.prepare(`INSERT INTO native_import_staged_file (client_id, case_id, operation_id, path, sha256, size, accepted_at)
+          SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM native_import_session WHERE client_id = ? AND case_id = ? AND operation_id = ?)
+            AND NOT EXISTS (SELECT 1 FROM native_import_staged_file WHERE client_id = ? AND case_id = ? AND operation_id = ? AND path = ?)${a.guard ? ` AND ${a.guard.sql}` : ''}`)
+          .bind(a.clientId, a.caseId, a.operationId, r.path, r.sha256, r.size, a.at, a.clientId, a.caseId, a.operationId, a.clientId, a.caseId, a.operationId, r.path, ...(a.guard?.values ?? [])));
         await db.batch(statements).catch(unavailable);
       }
       // Read back what was asked for: a row that is missing means the guard or the session did not hold; a different one is corruption.

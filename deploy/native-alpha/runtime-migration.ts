@@ -36,6 +36,13 @@ export const NATIVE_EVIDENCE_MIGRATION_INPUTS = freeze([
 ]);
 export const NATIVE_EVIDENCE_APPLIED_RENDER_CASE_LIMIT = freeze({ path: RENDER_CASE_LIMIT_SQL_FILE, bytes: 7849,
 	sha256: 'sha256:d57584cbb1c197c6d2392471f02751dc36ce1a2084adfe02136b874fe02af72e', source: NATIVE_RENDER_CASE_LIMIT_MIGRATION_SOURCE });
+export const NATIVE_IMPORT_STAGING_MIGRATION_MODE = 'import-staging-0006';
+export const NATIVE_IMPORT_STAGING_MIGRATION_INPUTS = freeze([
+	{ path: 'src/lib/results-review/native/migrations/0002_native_import_staging.sql', bytes: 3140, sha256: 'sha256:f16720402276db1f02cbb94c517d0675e334acc827ee06642b9d7531e65177a8' },
+]);
+// The already applied increment this one runs after: a dependency record only, never emitted, rewritten or replayed.
+export const NATIVE_IMPORT_STAGING_APPLIED_EVIDENCE = freeze({ path: 'migrations/0005_native_evidence.sql', bytes: 4529,
+	sha256: 'sha256:3fd4aab4b8f89adbf62a34a1cf67ac2941fd4ee30977f48af9980107d3f001db' });
 const CLIENTS = freeze([
 	{ slot: 'client-a', name: 'cc-sbx-a-20261023-db', id: 'cd257736-7bf3-49f6-8544-ac58c2207802' },
 	{ slot: 'client-b', name: 'cc-sbx-b-20261025-r1-db', id: '7c340891-9fcc-4398-8128-68abe726f130' },
@@ -129,6 +136,14 @@ const EVIDENCE_PACKET = {
 		inputs: NATIVE_EVIDENCE_MIGRATION_INPUTS, output, targets, providerProof: false, provisioned: false }),
 };
 
+const IMPORT_STAGING_PACKET = {
+	tag: NATIVE_IMPORT_STAGING_MIGRATION_MODE, inputs: NATIVE_IMPORT_STAGING_MIGRATION_INPUTS, sqlFile: 'migrations/0006_native_import_staging.sql', manifestFile: 'import-staging-migration.json', privateStage: true,
+	header: '-- ClearCase native chunked-import staging increment 0006. Requires applied 0001, 0002, 0004 and 0005; 0003 remains reserved.\n',
+	manifest: (output: Output, targets: Target[]) => ({ schema: 'clearcase.native-import-staging-migration/1', mode: NATIVE_IMPORT_STAGING_MIGRATION_MODE,
+		initialSchemaDependency: NATIVE_RUNTIME_INITIAL_SCHEMA, appliedRuntimeDependency: NATIVE_RENDER_CASE_LIMIT_APPLIED_RUNTIME, appliedRenderCaseLimitDependency: NATIVE_EVIDENCE_APPLIED_RENDER_CASE_LIMIT,
+		appliedEvidenceDependency: NATIVE_IMPORT_STAGING_APPLIED_EVIDENCE, inputs: NATIVE_IMPORT_STAGING_MIGRATION_INPUTS, output, targets, providerProof: false, provisioned: false }),
+};
+
 function assemble<M extends { readonly targets: readonly Target[] }>(packet: Packet<M>, inputs: readonly { path: string; bytes: Uint8Array }[]) {
 	const items = dense(inputs, packet.inputs.length, 'inputs');
 	const chunks: string[] = [];
@@ -156,6 +171,11 @@ export function assembleNativeRenderCaseLimitMigration(inputs: readonly { path: 
 
 export function assembleNativeEvidenceMigration(inputs: readonly { path: string; bytes: Uint8Array }[]) {
 	return assemble(EVIDENCE_PACKET, inputs);
+}
+
+/** The single pinned chunked-import input only, under the same one-copy capture. Emits a separately named 0006 after the applied 0005. */
+export function assembleNativeImportStagingMigration(inputs: readonly { path: string; bytes: Uint8Array }[]) {
+	return assemble(IMPORT_STAGING_PACKET, inputs);
 }
 
 function realPath(file: string, directory: boolean) {
@@ -278,3 +298,6 @@ export const checkNativeRenderCaseLimitMigrationInvocation = (value: { root: str
 export const prepareNativeEvidenceMigration = (value: { root: string; out: string }) => prepare(EVIDENCE_PACKET, value);
 export const readNativeEvidenceMigration = (value: { root: string; stage: string }) => read(EVIDENCE_PACKET, value);
 export const checkNativeEvidenceMigrationInvocation = (value: { root: string; stage: string; cwd: string; slot: NativeRuntimeMigrationSlot; argv: readonly string[] }) => checkInvocation(EVIDENCE_PACKET, value);
+export const prepareNativeImportStagingMigration = (value: { root: string; out: string }) => prepare(IMPORT_STAGING_PACKET, value);
+export const readNativeImportStagingMigration = (value: { root: string; stage: string }) => read(IMPORT_STAGING_PACKET, value);
+export const checkNativeImportStagingMigrationInvocation = (value: { root: string; stage: string; cwd: string; slot: NativeRuntimeMigrationSlot; argv: readonly string[] }) => checkInvocation(IMPORT_STAGING_PACKET, value);

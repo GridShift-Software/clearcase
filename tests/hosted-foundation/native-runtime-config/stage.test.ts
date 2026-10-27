@@ -20,8 +20,8 @@ describe('prepare and read', () => {
 		const staged = prepareNativeRuntimeConfig({ input: exampleInput(), out });
 		expect(names(out)).toEqual(['client-a.runtime.json', 'client-b.runtime.json', NATIVE_RUNTIME_CONFIG_MANIFEST]);
 		for (const [name, bytes] of plan.files) expect(readFileSync(path.join(out, name), 'utf8')).toBe(bytes);
-		expect(lstatSync(out).mode & 0o777).toBe(0o700);
-		expect(lstatSync(path.join(out, NATIVE_RUNTIME_CONFIG_MANIFEST)).mode & 0o777).toBe(0o600);
+		expect(lstatSync(out).mode & 0o7777).toBe(0o700);
+		expect(lstatSync(path.join(out, NATIVE_RUNTIME_CONFIG_MANIFEST)).mode & 0o7777).toBe(0o600);
 		expect(staged.stage).toBe(out);
 		expect(staged.manifest).toMatchObject({ providerProof: false, provisioned: false, deployed: false });
 		expect(JSON.parse(readFileSync(path.join(out, NATIVE_RUNTIME_CONFIG_MANIFEST), 'utf8'))).toMatchObject({ providerProof: false, provisioned: false, deployed: false });

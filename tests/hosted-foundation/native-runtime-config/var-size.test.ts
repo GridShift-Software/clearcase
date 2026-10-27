@@ -39,6 +39,21 @@ describe('the per-variable byte cap', () => {
 			throw new Error(`${key} accepted`);
 		}
 	});
+	it('keeps a native config with long valid deployment fields and issuers within the cap', () => {
+		const input = exampleInput(), client = input.clients[0]!, manifest = input.manifest.clients[0]!;
+		const host = (letter: string) => [letter.repeat(63), letter.repeat(63), letter.repeat(63), letter.repeat(50), 'test'].join('.');
+		const appHost = host('a'), clientHost = host('b'), staffHost = host('d');
+		Object.assign(client.deployment, { clientId: 'x'.repeat(63), hostname: appHost, worker: 'w'.repeat(63), d1DatabaseName: 'n'.repeat(63), r2Bucket: 'r'.repeat(63) });
+		Object.assign(manifest, client.deployment, { clientIssuer: `https://${clientHost}` });
+		input.manifest.staffIssuer = `https://${staffHost}`;
+		client.appOrigin = `https://${appHost}`;
+		client.clerk.clientPublishableKey = `pk_test_${Buffer.from(`${clientHost}$`).toString('base64')}`;
+		for (const c of input.clients) c.clerk.staffPublishableKey = `pk_test_${Buffer.from(`${staffHost}$`).toString('base64')}`;
+		const plan = planNativeRuntimeConfig(input), nativeConfig = plan.clients[0]!.vars.CLEARCASE_NATIVE_CONFIG!;
+		expect(Buffer.byteLength(nativeConfig)).toBe(plan.manifest.clients[0]!.nativeConfigBytes);
+		expect(Buffer.byteLength(nativeConfig)).toBeGreaterThan(3000);
+		expect(Buffer.byteLength(nativeConfig)).toBeLessThanOrEqual(NATIVE_RUNTIME_CONFIG_MAX_BYTES);
+	});
 	it('holds every emitted variable of every planned client to the cap', () => {
 		for (const input of [exampleInput(), exampleWithBrowserAllocation(), withSignIn(CAP)])
 			for (const file of planNativeRuntimeConfig(input).clients)

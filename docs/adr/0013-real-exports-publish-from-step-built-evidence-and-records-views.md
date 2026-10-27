@@ -19,12 +19,4 @@ Publication evidence is persisted per observation, bound to the candidate and ex
 
 The deployment stays on Workers Free. Evidence steps are sized to Free's per-request CPU limit using measured safe bounds; import, readiness and publication reads must also fit that limit, with staging split as needed. A step that cannot fit holds honestly, refused or retryable; the budget is never silently raised.
 
-## Originals and integrity metadata
-
-A PDF is `rendered` when its exact bytes open in the pinned renderer, its page count is known, and the first and every cited page rasterise. A non-PDF needs a faithful pipeline-generated preview bound to the original's hash, with generated pagination labelled. Embedded attachments must be extracted as originals with their parent recorded. An uncited missing original is shown as not supplied and clears only with acknowledgement; a cited missing original holds.
-
-[ADR-0011](0011-originals-and-complete-in-app-file-viewing.md)'s no-download-only rule for published results is unchanged. These evidence and missing-original rules do not waive its in-app viewing, fidelity or citation requirements.
-
-This also amends the proposed [ADR-0012](0012-integrity-metadata-is-not-a-view.md): META counts derived from records that disagree may be `disagrees`, not `integrity-verified`, only when each disagreement has its matching diagnostic fingerprint acknowledged with a reason. Unverifiable counts or unmatched disagreements remain `invalid`; displayed counts come from records, not incorrect META. New exports should compute META from emitted records.
-
 These decisions do not claim that the implementation or real-export publication has been verified.

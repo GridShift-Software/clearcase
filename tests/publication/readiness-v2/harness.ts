@@ -1,8 +1,7 @@
 import { createEvidenceEngine, type EvidenceBinding, type EvidenceProducer } from '../../../src/lib/publication/hosted/evidence/index.ts';
 import { d1EvidenceReader } from '../../../src/lib/publication/hosted/readiness-evidence.ts';
 import type { CandidateSnapshotV2, EvidenceCountGroup } from '../../../src/lib/publication/hosted/ports.ts';
-import type { PublicationReadinessPorts } from '../../../src/lib/publication/hosted/readiness.ts';
-import type { ReadinessFence } from '../../../src/lib/publication/hosted/readiness-fence.ts';
+import type { EvidenceReadinessFence, PublicationReadinessPorts } from '../../../src/lib/publication/hosted/readiness.ts';
 import { canonicalJson } from '../../../src/lib/case-package/canonical.ts';
 import { d1, database } from '../evidence/harness.ts';
 import { CASE, CLIENT, RV, SHA, snapshot, world } from '../../hosted-smoke/operator-workbench/fixtures.ts';
@@ -74,8 +73,8 @@ export async function snapshotV2(built: Built): Promise<CandidateSnapshotV2> {
     evidence: { generation: built.binding.generation, root: summary.root, items: summary.items, groups: summary.groups, newWarnings: summary.newWarnings } };
 }
 /** Synthetic fence for unit ports (the D1 fence for v2 is not part of U4): compares the observation to the live one, as syntheticFence does for v1. */
-export function evidenceFence(current: () => CandidateSnapshotV2): ReadinessFence {
-  return { protocol: 'coherent-readiness/1', evidence: 'coherent-evidence/1',
+export function evidenceFence(current: () => CandidateSnapshotV2): EvidenceReadinessFence {
+  return { protocol: 'coherent-evidence/1',
     async check(o) { return canonicalJson(current()) === canonicalJson(o.snapshot) ? 'current' : 'stale'; } };
 }
 export function worldV2(built: Built, options: { pageSize?: number; snapshot?: CandidateSnapshotV2 } = {}) {
@@ -84,7 +83,7 @@ export function worldV2(built: Built, options: { pageSize?: number; snapshot?: C
   let reads = 0;
   const load = async () => (current ??= await snapshotV2(built));
   const ports: PublicationReadinessPorts = { ...w.ports, candidates: { read: async () => { reads++; return structuredClone(await load()); } },
-    readinessFence: evidenceFence(() => current!), evidence: built.reader, evidencePageSize: options.pageSize ?? 100 };
+    evidenceFence: evidenceFence(() => current!), evidence: built.reader, evidencePageSize: options.pageSize ?? 100 };
   const request = (params: Record<string, string> = {}) => {
     const r = w.request();
     for (const [k, v] of Object.entries(params)) r.url.searchParams.set(k, v);

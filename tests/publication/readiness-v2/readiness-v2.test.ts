@@ -75,7 +75,7 @@ describe('readiness v2 over persisted evidence', () => {
     expect(JSON.stringify(so).length).toBeGreaterThan(256 * 1024);
     w.current = snap;
     const ports = { ...w.ports, ledger: { ...w.ports.ledger!, signoff: async () => structuredClone(so) },
-      readinessFence: { ...w.ports.readinessFence!, check: async () => 'current' as const } };
+      evidenceFence: { protocol: 'coherent-evidence/1' as const, check: async () => 'current' as const } };
     const r = w.request({ signoffId: so.signoffId });
     const response = await createPublicationReadiness(ports).read(r);
     expect(response.status).toBe(200);
@@ -106,10 +106,10 @@ describe('readiness v2 over persisted evidence', () => {
       expect(response.status).toBe(409);
       expect((await response.json()).code).toBe('readiness-stale');
     });
-    it('answers 503 for a v2 snapshot with no evidence reader, or with a fence that does not understand evidence', async () => {
+    it('answers 503 for a v2 snapshot with no evidence reader, or with no evidence fence', async () => {
       const built = await small(), w = worldV2(built);
       expect((await createPublicationReadiness({ ...w.ports, evidence: null }).read(w.request())).status).toBe(503);
-      expect((await createPublicationReadiness({ ...w.ports, readinessFence: { protocol: 'coherent-readiness/1', check: async () => 'current' } }).read(w.request())).status).toBe(503);
+      expect((await createPublicationReadiness({ ...w.ports, evidenceFence: null }).read(w.request())).status).toBe(503);
       expect((await createPublicationReadiness({ ...w.ports, evidencePageSize: 0 }).read(w.request())).status).toBe(503);
       expect((await createPublicationReadiness({ ...w.ports, evidencePageSize: 501 }).read(w.request())).status).toBe(503);
     });

@@ -59,8 +59,7 @@ describe('checkSnapshotV2', () => {
     ['a repeated group', [group({ kind: 'warning' }), group({ kind: 'warning' })]],
   ])('refuses %s', (_name, groups) => {
     const s = v2(groups);
-    s.evidence = { ...s.evidence, items: groups.reduce((n, g) => n + (Number.isInteger(g.count) ? g.count : 1), 0) };
-    expect(checkSnapshotV2(s)).toBeNull();
+    expect(checkSnapshotV2({ ...s, evidence: { ...s.evidence, items: groups.reduce((n, g) => n + (Number.isInteger(g.count) ? g.count : 1), 0) } })).toBeNull();
   });
   it('refuses counts that do not add up to the item total, new warnings beyond the warnings, and a malformed root', () => {
     const ok = v2([group({ kind: 'warning', count: 5 })], { newWarnings: 5 });
@@ -77,7 +76,7 @@ describe('checkEvidenceItem', () => {
   const bound = { resultsVersion: 'v', manifestSha256: 'm', clientId: 'k', caseId: 'c' };
   it('accepts each kind under its own key prefix and nothing else', () => {
     expect(checkEvidenceItem(row('preview/a1', { kind: 'preview', assetId: 'a1', state: 'rendered' }), bound)).toEqual({ key: 'preview/a1', observation: { kind: 'preview', assetId: 'a1', state: 'rendered' } });
-    expect(checkEvidenceItem(row('warning/' + 'b'.repeat(32), { kind: 'warning', fingerprint: 'b'.repeat(32) }), bound)?.observation.kind).toBe('warning');
+    expect(checkEvidenceItem({ ...row('warning/' + 'b'.repeat(32), { kind: 'warning', fingerprint: 'b'.repeat(32) }), baseline: false }, bound)?.observation.kind).toBe('warning');
     expect(checkEvidenceItem(row('preview/a1', { kind: 'warning', fingerprint: 'b'.repeat(32) }), bound)).toBeNull();
     expect(checkEvidenceItem(row('preview/a2', { kind: 'preview', assetId: 'a1', state: 'rendered' }), bound)).toBeNull();
     expect(checkEvidenceItem(row('preview/a1', { kind: 'preview', assetId: 'a1', state: 'rendered', extra: 1 }), bound)).toBeNull();

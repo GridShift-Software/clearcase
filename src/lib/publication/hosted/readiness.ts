@@ -4,13 +4,33 @@ import { id } from '../../server/runtime/ids.ts';
 import { canonicalJson } from '../../case-package/canonical.ts';
 import { sha256Canonical } from '../../results-review/native/digest.ts';
 import type { PublicationRequest } from './controller.ts';
-import type { CandidateSnapshot, NativePublicationPorts, RequiredPreviewState, SignoffIdentity, SignoffRecord } from './ports.ts';
+import type { CandidateSnapshot, CandidateSnapshotV2, EvidenceCountGroup, EvidenceKind, EvidenceObservation, EvidenceReader, NativePublicationPorts, RequiredPreviewState, SignoffIdentity, SignoffRecord } from './ports.ts';
 import type { PreviewNavigationObservation, PreviewReasonCode, PreviewRenderStage } from './preview-outcome.ts';
-import { checkSnapshot, newWarnings, signoffBlocker, type Blocker } from './rules.ts';
-import type { ReadinessFence, ReadinessFenceResult } from './readiness-fence.ts';
+import { EVIDENCE_KINDS, checkEvidenceItem, checkSnapshot, checkSnapshotV2, evidenceCount, newWarnings, signoffBlocker, signoffBlockerV2, type Blocker } from './rules.ts';
+import type { ReadinessFence, ReadinessFenceResult, ReadinessObservation } from './readiness-fence.ts';
 
-/** Own read-only contract; ordinary publication ports alone must remain unavailable. */
-export type PublicationReadinessPorts = NativePublicationPorts & { readonly readinessFence?: ReadinessFence | null };
+/** The observation a fence is given for a v2 snapshot. */
+export type ReadinessObservationV2 = Omit<ReadinessObservation, 'snapshot'> & { snapshot: CandidateSnapshotV2 };
+/**
+ * The fence for a v2 snapshot, a separate port from `readinessFence`: a v1 fence compares lists a v2 snapshot does not carry, so it is
+ * never handed one. Without this port a v2 candidate answers 503. Its D1 implementation is not part of snapshot v2 itself.
+ */
+export interface EvidenceReadinessFence {
+  readonly protocol: 'coherent-evidence/1';
+  check(observation: ReadinessObservationV2): Promise<ReadinessFenceResult>;
+}
+/**
+ * Own read-only contract; ordinary publication ports alone must remain unavailable. `evidenceFence`, `evidence` and `evidencePageSize`
+ * matter only to a v2 snapshot: the reader supplies persisted evidence pages, and the page size (1 to 500, default 100) is injected here.
+ */
+export type PublicationReadinessPorts = NativePublicationPorts & {
+  readonly readinessFence?: ReadinessFence | null;
+  readonly evidenceFence?: EvidenceReadinessFence | null;
+  readonly evidence?: EvidenceReader | null;
+  readonly evidencePageSize?: number;
+};
+export const DEFAULT_EVIDENCE_PAGE_SIZE = 100;
+export const MAX_EVIDENCE_PAGE_SIZE = 500;
 
 /** Observations only. Never a signed decision, pointer, apply receipt, or substitute for controller validation. */
 export interface ReadinessView {
@@ -31,6 +51,21 @@ export interface ReadinessView {
   };
 }
 
+/** Readiness for a candidate whose evidence is persisted (snapshot v2): the counts, the blocker and one page of the evidence items. */
+export interface ReadinessViewV2 {
+  format: 'clearcase.readiness/2';
+  caseId: string;
+  identity: SignoffIdentity;
+  materialSha256: string;
+  blocker: Blocker | null;
+  evidence: { generation: string; root: string; items: number; groups: readonly EvidenceCountGroup[]; newWarnings: number };
+  acknowledgementsRequired: number;
+  selfApprovalRequired: boolean;
+  signoff: ReadinessView['signoff'];
+  /** `items` are this page, in key order; `next` is the cursor for the page after it, or null at the end of the range. */
+  page: { kind: EvidenceKind | null; size: number; items: { key: string; observation: EvidenceObservation; acknowledgementRequired?: boolean }[]; next: string | null };
+}
+
 const PART = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SIGNOFF = /^so-[A-Za-z0-9][A-Za-z0-9-]{15,63}$/;
 const headers = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' };
@@ -41,7 +76,7 @@ class Refusal {
 }
 const refuse = (status: number, code: string, message: string): never => { throw new Refusal(status, code, message); };
 const unavailable = (): never => refuse(503, 'readiness-unavailable', 'Exact publication material is unavailable. No approval or publication is implied.');
-const identityOf = (s: CandidateSnapshot): SignoffIdentity => ({
+const identityOf = (s: CandidateSnapshot | CandidateSnapshotV2): SignoffIdentity => ({
   candidateId: s.link.candidate.candidateId, linkId: s.link.linkId,
   submissionRevisionId: s.link.submissionRevisionId, submissionManifestSha256: s.link.submissionManifestSha256,
   resultsVersion: s.link.candidate.resultsVersion, manifestSha256: s.link.candidate.manifestSha256,
@@ -54,6 +89,20 @@ const signedIdentity = (s: SignoffRecord): SignoffIdentity => ({
   manifestSha256: s.manifestSha256, packageInputRevisionId: s.packageInputRevisionId,
   diagnosticsSha256: s.diagnosticsSha256, validatorVersion: s.validatorVersion, snapshotRevision: s.snapshotRevision,
 });
+
+// A page cursor names the sealed run it was issued for (its root), the kind it filters and the last key it returned. It is opaque to a
+// client, and a cursor issued for another root or kind is refused, so the pages of one request series can never mix two runs.
+const CURSOR = /^[A-Za-z0-9_-]{1,512}$/, ROOT = /^[0-9a-f]{64}$/, ITEM_KEY = /^[A-Za-z0-9._:/-]{1,200}$/;
+const encodeCursor = (c: { root: string; kind: EvidenceKind | null; after: string }) => btoa(JSON.stringify({ v: 1, r: c.root, k: c.kind, a: c.after })).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+function decodeCursor(text: string): { root: string; kind: EvidenceKind | null; after: string } | null {
+  if (!CURSOR.test(text)) return null;
+  try {
+    const v = JSON.parse(atob(text.replaceAll('-', '+').replaceAll('_', '/'))) as Record<string, unknown>;
+    if (v === null || typeof v !== 'object' || Object.keys(v).sort().join() !== 'a,k,r,v' || v.v !== 1 || typeof v.r !== 'string' || !ROOT.test(v.r)
+      || typeof v.a !== 'string' || !ITEM_KEY.test(v.a) || !(v.k === null || EVIDENCE_KINDS.includes(v.k as EvidenceKind))) return null;
+    return { root: v.r, kind: v.k as EvidenceKind | null, after: v.a };
+  } catch { return null; }
+}
 
 /** Own hook: parent must resolve the exact original Request to its real publication ports. No defaults/adapters here. */
 export type ReadinessComposition = (a: { request: Request; platform: unknown }) => PublicationReadinessPorts | null | Promise<PublicationReadinessPorts | null>;
@@ -114,11 +163,14 @@ export function createPublicationReadiness(ports: PublicationReadinessPorts | nu
       if (!candidateId || !PART.test(candidateId) || (signoffId !== null && !SIGNOFF.test(signoffId))) return refuse(422, 'invalid-request', 'Name one candidate and optionally one exact sign-off.');
       await audit('succeeded', 'publication.readiness.intent', candidateId);
       await session();
-      const snapshot = async () => {
+      const readRaw = async (): Promise<unknown> => {
         let rawSnapshot: unknown;
         // The reader audits its own failure. Its denial stands as one here; any other fault holds readiness unavailable.
         try { rawSnapshot = await p.candidates!.read({ ...scope, candidateId }); } catch (e) { return isDenial(e) ? denied(e) : unavailable(); }
         if (rawSnapshot === null) return refuse(404, 'not-found', 'Not found.');
+        return rawSnapshot;
+      };
+      const snapshot = async (rawSnapshot: unknown) => {
         // Fail unavailable rather than truncate any acknowledgement/blocker set. Bound before checkSnapshot clones it.
         if (JSON.stringify(rawSnapshot).length > 256 * 1024) return unavailable();
         const s = checkSnapshot(rawSnapshot);
@@ -128,15 +180,83 @@ export function createPublicationReadiness(ports: PublicationReadinessPorts | nu
         if ([s.validation.errorFingerprints, s.validation.warningFingerprints, s.trustedBaseline, s.requiredSections, s.requiredPreviews].some((xs) => xs.length > 200)) return unavailable();
         return s;
       };
-      const signoff = async () => {
+      // `capped` is v1: a v2 candidate has no 200-entry or 256 KiB limit on its sign-off either.
+      const signoff = async (capped = true) => {
         if (!signoffId) return null;
         const so = await p.ledger!.signoff({ ...scope, signoffId });
         if (!so || so.clientId !== p.clientId || so.caseId !== caseId || so.signoffId !== signoffId || so.candidateId !== candidateId) return refuse(404, 'not-found', 'Not found.');
-        if (JSON.stringify(so).length > 256 * 1024 || !['recorded', 'audited'].includes(so.state)
-          || so.warningFingerprints.length > 200 || so.acknowledgements.length > 200) return unavailable();
+        if (!['recorded', 'audited'].includes(so.state)) return unavailable();
+        if (capped && (JSON.stringify(so).length > 256 * 1024 || so.warningFingerprints.length > 200 || so.acknowledgements.length > 200)) return unavailable();
         return structuredClone(so);
       };
-      const s = await snapshot(), so = await signoff();
+      const stale = async () => {
+        await audit('refused', 'publication.readiness.refused', candidateId);
+        return refuse(409, 'readiness-stale', 'The candidate or sign-off changed during the read. Refresh and review again.');
+      };
+      // Snapshot v2: counts and the blocker from the snapshot, one page of items from the sealed run, nothing recomputed and nothing capped.
+      const releaseV2 = async (rawV2: unknown): Promise<Response> => {
+        const s = checkSnapshotV2(rawV2);
+        if (!s) return unavailable();
+        if (s.link.clientId !== p.clientId || s.link.caseId !== caseId || s.link.candidate.clientId !== p.clientId
+          || s.link.candidate.caseId !== caseId || s.link.candidate.candidateId !== candidateId) return refuse(404, 'not-found', 'Not found.');
+        const reader = p.evidence, fence = p.evidenceFence, size = p.evidencePageSize ?? DEFAULT_EVIDENCE_PAGE_SIZE;
+        if (!reader || typeof reader.page !== 'function' || fence?.protocol !== 'coherent-evidence/1' || typeof fence.check !== 'function'
+          || !Number.isInteger(size) || size < 1 || size > MAX_EVIDENCE_PAGE_SIZE) return unavailable();
+        const kindParam = r.url.searchParams.get('kind'), cursorParam = r.url.searchParams.get('cursor');
+        if (kindParam !== null && !EVIDENCE_KINDS.includes(kindParam as EvidenceKind)) return refuse(422, 'invalid-request', 'Name a known evidence kind.');
+        const kind = kindParam as EvidenceKind | null, cursor = cursorParam === null ? null : decodeCursor(cursorParam);
+        if (cursorParam !== null && (!cursor || cursor.kind !== kind)) return refuse(422, 'invalid-request', 'The cursor does not belong to this request.');
+        if (cursor && cursor.root !== s.evidence.root) return await stale();
+        const so = await signoff(false);
+        let rows: Awaited<ReturnType<EvidenceReader['page']>>;
+        try { rows = await reader.page({ ...scope, candidateId, generation: s.evidence.generation, root: s.evidence.root, after: cursor?.after ?? null, kind, limit: size + 1 }); } catch { return unavailable(); }
+        if (rows === null) return await stale();
+        if (!Array.isArray(rows) || rows.length > size + 1) return unavailable();
+        const more = rows.length > size, bound = { clientId: p.clientId, caseId, resultsVersion: s.link.candidate.resultsVersion, manifestSha256: s.link.candidate.manifestSha256 };
+        const items: ReadinessViewV2['page']['items'] = [];
+        for (const row of rows.slice(0, size)) {
+          const item = checkEvidenceItem(row, bound), previous = items.at(-1)?.key ?? cursor?.after ?? null;
+          // Served rows are in strictly ascending key order after the cursor, and all of the requested kind.
+          if (!item || (previous !== null && item.key <= previous) || (kind !== null && item.observation.kind !== kind)) return unavailable();
+          items.push(item.acknowledgementRequired === undefined ? { key: item.key, observation: item.observation } : { key: item.key, observation: item.observation, acknowledgementRequired: item.acknowledgementRequired });
+        }
+        // The whole range fitted in this one page, so it must be exactly as many items as the snapshot counts.
+        if (cursor === null && !more && items.length !== (kind ? evidenceCount(s, kind) : s.evidence.items)) return unavailable();
+        const next = more ? encodeCursor({ root: s.evidence.root, kind, after: items.at(-1)!.key }) : null;
+        const blocker = signoffBlockerV2(s);
+        const blockers: NonNullable<ReadinessView['signoff']>['blockers'] = [];
+        if (so) {
+          if (so.state !== 'audited' || so.invalidatedAt !== null) blockers.push('signoff-not-effective');
+          // The identity carries the revision, which covers the baseline; U5 additionally binds the evidence root to the sign-off.
+          if (canonicalJson(signedIdentity(so)) !== canonicalJson(identityOf(s)) || blocker
+            || so.acknowledgements.length !== s.evidence.newWarnings || so.warningFingerprints.length !== evidenceCount(s, 'warning')) blockers.push('signoff-stale');
+        }
+        const view: ReadinessViewV2 = {
+          format: 'clearcase.readiness/2', caseId, identity: identityOf(s), materialSha256: await sha256Canonical(s), blocker,
+          evidence: { generation: s.evidence.generation, root: s.evidence.root, items: s.evidence.items, groups: s.evidence.groups, newWarnings: s.evidence.newWarnings },
+          acknowledgementsRequired: s.evidence.newWarnings,
+          selfApprovalRequired: principal.issuer === s.preparedBy.issuer && principal.subject === s.preparedBy.subject,
+          signoff: so ? { signoffId: so.signoffId, identity: signedIdentity(so), state: so.state, invalidated: so.invalidatedAt !== null, blockers } : null,
+          page: { kind, size, items, next },
+        };
+        await audit('succeeded', 'publication.readiness.release-intent', candidateId);
+        await session();
+        const latestSignoff = await signoff(false);
+        if ((latestSignoff ? canonicalJson(latestSignoff) : null) !== (so ? canonicalJson(so) : null)) return await stale();
+        let fenced: ReadinessFenceResult;
+        try { fenced = await fence.check({ ...scope, principal, sessionId, snapshot: s, signoff: so }); } catch { fenced = 'unavailable'; }
+        if (fenced === 'stale') return await stale();
+        if (fenced !== 'current') {
+          await audit(fenced === 'forbidden' || fenced === 'invalid-session' ? 'denied' : 'failed', 'publication.readiness.refused', candidateId);
+          if (fenced === 'forbidden') return refuse(403, 'forbidden', 'Explicit staff publication and preview access are required.');
+          if (fenced === 'invalid-session') return refuse(401, 'unauthenticated', 'Sign in for this client.');
+          return unavailable();
+        }
+        return json(200, view);
+      };
+      const rawSnapshot = await readRaw();
+      if (typeof rawSnapshot === 'object' && rawSnapshot !== null && 'format' in rawSnapshot) return await releaseV2(rawSnapshot);
+      const s = await snapshot(rawSnapshot), so = await signoff();
       const signed = so ? canonicalJson(so) : null;
       const materialSha256 = await sha256Canonical(s);
       const blocker = signoffBlocker(s), requiredAcknowledgements = newWarnings(s);
@@ -159,10 +279,6 @@ export function createPublicationReadiness(ports: PublicationReadinessPorts | nu
       // Early sign-off change detection only. The material is read once: the fence below compares that observation's
       // generation, link, version, validation and baseline coherently, which a second full read could not.
       const latestSignoff = await signoff();
-      const stale = async () => {
-        await audit('refused', 'publication.readiness.refused', candidateId);
-        return refuse(409, 'readiness-stale', 'The candidate or sign-off changed during the read. Refresh and review again.');
-      };
       if ((latestSignoff ? canonicalJson(latestSignoff) : null) !== signed) return await stale();
       // ALL awaited audit/authority/storage/hash work precedes this shared D1 check. It compares the ORIGINAL
       // observations, not copies refreshed independently. Clerk was last observed in session(), not locked by D1.

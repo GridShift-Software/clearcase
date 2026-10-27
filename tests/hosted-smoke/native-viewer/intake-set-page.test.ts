@@ -169,3 +169,35 @@ it.each([['finalized', 'one-file'], ['finalized', 'set'], ['refused', 'one-file'
   submit();
   await vi.waitFor(() => expect(sent.some((s) => s.method === 'POST' && (s.url.endsWith('/files') || s.url.endsWith('/submissions')) && json(s).path === 'new-a.pdf')).toBe(true));
 });
+
+// rx27 (live on B): a set-file declare or PUT refused 401 marked x-clearcase-reauth marked the file failed and the queue
+// went on sending into the dead session, so every later file failed too. Now the page reloads once, through the handshake,
+// and sends nothing more; choosing the same files again resumes the set, skipping stored ones.
+it.each(['declare', 'PUT', 'seal'])('reloads the page once for a marked 401 on a set file %s, and sends nothing after it', async (step) => {
+  const assign = vi.fn();
+  vi.stubGlobal('location', { href: `https://client-a.clearcase.test/client/intake/${CASE}`, assign });
+  const fs = ['a.pdf', 'b.pdf', 'c.pdf', 'd.pdf', 'e.pdf', 'f.pdf'].map(pdfFile);
+  const realFetch = fetch as unknown as ReturnType<typeof vi.fn>, inner = realFetch.getMockImplementation()! as (url: string, init: RequestInit) => Promise<Response>;
+  // the session ends after two files' declarations or stores, or at the first seal step
+  let hits = 0, refused = 0;
+  realFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
+    const method = init.method ?? 'GET';
+    const hit = step === 'declare' ? method === 'POST' && url.endsWith('/files') : step === 'PUT' ? method === 'PUT' : url.endsWith('/seal');
+    if (hit && ++hits > (step === 'seal' ? 0 : 2)) {
+      refused++;
+      sent.push({ method, url, body: init.body });
+      return new Response(JSON.stringify({ code: 'unauthenticated', message: 'Sign in to continue.' }), { status: 401, headers: { 'content-type': 'application/json', 'x-clearcase-reauth': '1' } });
+    }
+    return inner(url, init);
+  });
+  pick(fs.map((f) => f.file));
+  submit();
+  await vi.waitFor(() => expect(assign).toHaveBeenCalled());
+  await new Promise((r) => setTimeout(r, 50));
+  expect(assign).toHaveBeenCalledExactlyOnceWith(`https://client-a.clearcase.test/client/intake/${CASE}`);
+  // the uploads already in flight (three at once) may each meet the refusal, but no new file starts after it
+  expect(refused).toBeLessThanOrEqual(3);
+  expect(sent.filter((s) => s.method === 'POST' && s.url.endsWith('/files')).length).toBeLessThan(step === 'seal' ? 7 : 6);
+  expect(document.body.textContent).toMatch(/reloading to sign you in again/);
+  expect(document.body.textContent).not.toMatch(/Sign in to continue/);
+});

@@ -144,6 +144,17 @@ function sanitizeDirective(directive: string, secure: boolean): string | 'drop' 
 
 /** The payload of a token inspectToken accepted. */
 const tokenClaims = (token: string) => JSON.parse(new TextDecoder().decode(fromB64url(token.split('.')[1]!))) as Record<string, unknown>;
+/** The request presents one session token whose exp has passed, as the identity provider counts it (provider.ts sessionStands). */
+function presentedExpired(request: Request): boolean {
+	const token = presentedToken(request);
+	if (token === null || token === 'malformed') return false;
+	try {
+		const { exp } = tokenClaims(token);
+		return typeof exp === 'number' && exp * 1000 <= Date.now();
+	} catch {
+		return false;
+	}
+}
 // What this isolate learned about one presented refresh credential: the answer (shared by concurrent and repeated
 // requests until the new token expires) or Clerk's refusal (never retried); a fault is forgotten once it settles. Keyed
 // by the SHA-256 of the deployment (origin and Backend API), the issuer, the expired token and the refresh token, so only
@@ -411,7 +422,11 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			// instance's the SDK answered signed out and started no handshake, the operator POST handed the staff portal no dev
 			// browser, and the portal fell back to its own, signed in for another origin (Astra auth matrix, 27 Oct, finding 2).
 			const view = kind === 'staff' && staffDevelopment && secure ? await staffView(request, url) : { url, cookie: sdkCookieHeader(request), vouched: false, clears: [] };
-			if (view.cookie) headers.set('cookie', view.cookie);
+			// Clerk's SDK takes a session token up to 5 s past its expiry as signed in; the identity provider refuses it at expiry.
+			// So the SDK is never shown a token already expired here: a page load (the reload a marked 401 asks for) or a handoff
+			// with one starts the handshake, instead of passing a session every route then refuses (rx27, review M1).
+			const sdkCookie = !hasToken && presentedExpired(request) ? view.cookie.split('; ').filter((p) => !SESSION_COOKIE_NAME.test(p.slice(0, p.indexOf('=')))).join('; ') : view.cookie;
+			if (sdkCookie) headers.set('cookie', sdkCookie);
 			let state: Awaited<ReturnType<ReturnType<typeof createClerkClient>['authenticateRequest']>>;
 			try {
 				state = await clientFor(kind).authenticateRequest(new Request(view.url, { method: 'GET', headers }), {

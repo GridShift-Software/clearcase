@@ -1187,3 +1187,63 @@ describe('session renewal heavy review (round 5)', () => {
 	});
 });
 const save = async (b: ReturnType<typeof browser>) => b.take(await invoke(saveNote(b.cookie(NOTES)))).status;
+
+// rx27 intake (live on B, 27 Oct): a set-file declare about a minute after sign-in answered 401 with no x-clearcase-reauth,
+// so the page showed "Sign in to continue." instead of reloading. Its token was live when the request arrived, so nothing
+// renewed it, and it expired while the request ran; the handoff then asked Clerk's SDK with it, and the SDK's 5 s clock skew
+// still took the just-expired token as signed in (beside a development browser), so no handshake started and nothing marked
+// the 401. 6 s after expiry it was marked.
+describe('a fetch whose session token expires while the request runs (rx27 intake)', () => {
+	beforeEach(() => void vi.useFakeTimers({ toFake: ['Date'] }));
+	afterEach(() => void vi.useRealTimers());
+	it('is answered 401 marked x-clearcase-reauth, with or without the hold, and never a redirect', async () => {
+		for (const withHold of [true, false]) {
+			// on a whole second, so the token's exp (whole seconds) is exactly one second away
+			vi.setSystemTime(Math.ceil(Date.now() / 1000) * 1000);
+			const s = session(), token = A.token({ sub: s.user, sid: s.sid, azp: ORIGIN, now: Date.now() - 59_000 });
+			route.mockImplementationOnce(async (event) => {
+				later(2_000);
+				try { await event.locals.identity.checkRevocation(); } catch { return new Response(JSON.stringify({ code: 'unauthenticated' }), { status: 401 }); }
+				return new Response('{}', { status: 201 });
+			});
+			const r = await invoke(saveNote(`__clerk_db_jwt=dvb_synthetic0123456789abcdefgh; __client_uat=1761400000; __session=${token}${withHold ? `; ${hold(token, s.refresh)}` : ''}`));
+			expect(r.status).toBe(401);
+			expect(r.headers.get('x-clearcase-reauth')).toBe('1');
+			expect(r.headers.get('location')).toBeNull();
+			expect(refreshCalls()).toHaveLength(0);
+		}
+	});
+	// Fix round 1 (review M1): the page's reload, a document GET with the same just-expired cookies, met the SDK's skew too and
+	// answered 401 with no handshake when there was no hold. It must renew or reach the handshake, and both loop guards stand.
+	it.each(['no hold', 'an unspent hold', 'a revoked session'])('follows the marked 401 through the page reload, with %s', async (state) => {
+		vi.setSystemTime(Math.ceil(Date.now() / 1000) * 1000);
+		const s = session(), token = A.token({ sub: s.user, sid: s.sid, azp: ORIGIN, now: Date.now() - 59_000 });
+		const cookie = `__clerk_db_jwt=dvb_synthetic0123456789abcdefgh; __client_uat=1761400000; __session=${token}${state === 'an unspent hold' ? `; ${hold(token, s.refresh)}` : ''}`;
+		route.mockImplementationOnce(async (event) => {
+			later(2_000);
+			try { await event.locals.identity.checkRevocation(); } catch { return new Response(JSON.stringify({ code: 'unauthenticated' }), { status: 401 }); }
+			return new Response('{}', { status: 201 });
+		});
+		const failed = await invoke(saveNote(cookie));
+		expect([failed.status, failed.headers.get('x-clearcase-reauth')]).toEqual([401, '1']);
+		if (state === 'a revoked session') sessions.get(s.sid)!.status = 'revoked';
+		const reload = (path = '/client/intake/case-a') => {
+			const r = documentGet(path, cookie);
+			r.headers.set('sec-fetch-mode', 'navigate');
+			return r;
+		};
+		const landed = await invoke(reload());
+		const to = await handshakeAt(landed);
+		// renewed here (the route answers 201 to a verified identity) or sent to the handshake, never a dead-end 401
+		if (state === 'a revoked session') expect(landed.status).not.toBe(201);
+		expect(landed.status === 201 || to?.origin === A.iss).toBe(true);
+		if (to) {
+			// guard 1: the handshake's return within REAUTH_MAX_AGE that left the browser on the same cookies is a stop, not another handshake
+			const back = await invoke(reload(`/client/intake/case-a?__clearcase_reauth=${Math.floor(Date.now() / 1000)}`));
+			expect(back.status).toBe(401);
+			expect(await handshakeAt(back)).toBeNull();
+		}
+		// guard 2: a data request beside the mark a handoff's return sets is not handed off again
+		expect(await dataRedirect(await invoke(clientData(`${cookie}; __Host-clearcase_reauth=1`)))).toBeNull();
+	});
+});

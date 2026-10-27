@@ -71,8 +71,13 @@ async function anonymousFor(token: string) {
 	return identity;
 }
 const outcome = async (f: () => unknown) => { try { return { value: await f() }; } catch (e) { return { thrown: e as { status?: number; location?: string; code?: string; body?: { code?: string } } }; } };
-// `deleted`: the host-only deletes; sign-out also deletes the owned session names on each parent Domain, which are not these
-const jar = () => { const deleted: string[] = []; return { deleted, cookies: { delete: (name: string, o?: { domain?: string }) => void (o?.domain === undefined && deleted.push(name)), set: () => {} } }; };
+// `all`: every delete, at any scope; `deleted`: the host-only ones (sign-out also deletes the owned session names on each
+// parent Domain). A refusal or an outage must delete nothing at all, so it asserts on `all`.
+const jar = () => {
+	const deleted: string[] = [], all: string[] = [];
+	const remove = (name: string, o?: { domain?: string }) => void (all.push(o?.domain === undefined ? name : `${name}@${o.domain}`), o?.domain === undefined && deleted.push(name));
+	return { deleted, all, cookies: { delete: remove, set: () => {} } };
+};
 const localsOf = (identity: unknown) => ({ runtime: { testIdentity: null }, identity }) as unknown as App.Locals;
 
 describe('an expired token is still never an Identity (authentication is unchanged)', () => {
@@ -136,7 +141,7 @@ describe('sign-out revokes a live session whose signed token has expired', () =>
 				await expect(signOutClerkSession({ env: env(), request: post(`__session=${token}`), identity })).rejects.toMatchObject({ code: 'identity-unavailable' });
 				const r = await outcome(() => signOut.actions.default!({ locals: localsOf(identity), request: post(`__session=${token}`), url: new URL(ORIGIN), cookies: c.cookies } as never));
 				expect(r.thrown).toMatchObject({ status: 503, body: { code: 'identity-unavailable' } });
-				expect(c.deleted).toEqual([]);
+				expect(c.all).toEqual([]);
 			} finally {
 				disarm();
 			}
@@ -199,7 +204,7 @@ describe('the revoke-only evidence refuses everything that is not a genuine toke
 		await expect(signOutClerkSession({ env: env(), request: request(token), identity })).rejects.toMatchObject({ code: 'invalid-session' });
 		const r = await outcome(() => signOut.actions.default!({ locals: localsOf(identity), request: request(token), url: new URL(ORIGIN), cookies: c.cookies } as never));
 		expect(r.thrown).toMatchObject({ status: 401, body: { code: 'invalid-session' } });
-		expect(c.deleted).toEqual([]);
+		expect(c.all).toEqual([]);
 		expect(status.statusOf('sess_own')).toBe('active');
 		expect(status.calls.slice(before).filter((x) => x.startsWith('POST'))).toEqual([]);
 	});
@@ -244,7 +249,7 @@ describe('a cross-kind identity switch revokes the expired session first; same-k
 		status.failRevoke(true);
 		const r = await outcome(() => signIn.actions.default!({ locals: localsOf(identity), request: signInRequest(`__session=${token}`), url: new URL(`${ORIGIN}/sign-in`), cookies: c.cookies } as never));
 		expect(r.thrown).toMatchObject({ status: 503, body: { code: 'identity-unavailable' } });
-		expect(c.deleted).toEqual([]);
+		expect(c.all).toEqual([]);
 		expect(status.statusOf('sess_sw_o')).toBe('active');
 	});
 	it('does not revoke an expired SAME-kind session when signing in again (Clerk replaces it), and still refuses ambiguity', async () => {

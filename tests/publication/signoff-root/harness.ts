@@ -40,6 +40,8 @@ export class Sqlite {
   readonly batches: string[][] = [];
   beforeBatch: (() => void) | null = null;
   failReads: RegExp | null = null;
+  /** The most bound parameters one statement carried, and the longest bound text, in bytes. */
+  readonly widest = { params: 0, bytes: 0 };
   readonly sqlite: DatabaseSync;
   constructor(sqlite: DatabaseSync) { this.sqlite = sqlite; }
   withSession(_: 'first-primary') { return this; }
@@ -49,6 +51,8 @@ export class Sqlite {
       bind: (...v: Value[]) => make(v),
       exec() {
         db.sql.push(sql);
+        db.widest.params = Math.max(db.widest.params, values.length);
+        for (const v of values) if (typeof v === 'string') db.widest.bytes = Math.max(db.widest.bytes, Buffer.byteLength(v));
         if (db.failReads?.test(sql)) throw new Error('injected read failure');
         const q = db.sqlite.prepare(sql);
         if (SELECTS.test(sql) || RETURNING.test(sql)) return { results: q.all(...values), meta: { changes: 0 } };

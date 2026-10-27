@@ -9,6 +9,6 @@ export async function load(e: RequestEvent) {
 	const body = (await r.json()) as { submissions?: SubmissionView[]; canUpload?: boolean; code?: string; message?: string };
 	if (r.status === 503) return { caseId: caseId, available: false as const, submissions: [] as SubmissionView[] };
 	if (!r.ok) error(r.status, { message: body.message ?? 'Not found.', code: body.code });
-	// `canUpload` only explains a missing grant on the page; the audited send still decides, so an absent answer keeps the form.
+	// `canUpload` is advisory: the page shows the form only for `true`; the audited send still decides every upload.
 	return { caseId: caseId, available: true as const, submissions: body.submissions ?? [], ...(typeof body.canUpload === 'boolean' ? { canUpload: body.canUpload } : {}) };
 }

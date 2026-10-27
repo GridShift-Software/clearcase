@@ -176,8 +176,8 @@ export function createIntakeController(ports: IntakePorts | null) {
     list: (r: IntakeRequest) => handle(async () => {
       const a = await admit(r, null);
       const rows = await storage(a.repository.list(a.scope));
-      // Advisory and unaudited: lets the page explain a missing upload grant. A fault or no port leaves the field out (unknown),
-      // so the page keeps its form and the audited send decides.
+      // Advisory and unaudited: lets the page explain a missing upload grant. A fault or no port leaves the field out (unknown);
+      // the page then offers no form, and the audited send still decides every upload.
       const canUpload = a.mayUpload ? await a.mayUpload({ principal: a.principal, clientId: a.scope.clientId, caseId: a.caseId }).catch(() => undefined) : undefined;
       return json(200, { submissions: rows.map((x) => view(x.upload, x.manifest)), ...(typeof canUpload === 'boolean' ? { canUpload } : {}) });
     }),

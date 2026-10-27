@@ -75,6 +75,9 @@
 {:else if data.canUpload === false}
 	<p data-intake-state="no-upload-grant">Your account is not set up to supply files for this case. You can see the files already supplied below. To supply a file, ask the service team to enable uploads for your account.</p>
 	{@render submissions()}
+{:else if data.canUpload !== true}
+	<p data-intake-state="upload-unknown">We could not check whether your account can supply files for this case right now. Reload the page to try again. You can see the files already supplied below.</p>
+	{@render submissions()}
 {:else}
 	<form data-intake-state="available" onsubmit={(e) => { e.preventDefault(); void send(); }}>
 		<label>One PDF file <input type="file" accept="application/pdf,.pdf" onchange={(e) => { file = (e.currentTarget as HTMLInputElement).files?.[0] ?? null; }} /></label>

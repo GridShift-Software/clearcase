@@ -147,7 +147,7 @@ it('fences both simultaneous writers before the first cleanup listing; one settl
   const sweep = () => w.p.service.staged!.sweep(w.p.token, { operationId: w.key.operationId });
   try {
     expect(await sweep()).toMatchObject({ state: 'sweeping', deleted: 0, remaining: 1 });
-    expect(await w.ledger.beginWrite(w.key)).toBeNull(); // Atomic tombstone gate, not just a service-side check.
+    expect(await w.ledger.beginWrite({ ...w.key, at: new Date().toISOString() })).toBeNull(); // Atomic tombstone gate, not just a service-side check.
     releases[0]();
     await pending[0];
     const ended = w.durable.db.rows<{ key: string }>("SELECT key FROM native_import_stage_fact WHERE pass = 'writer-end'");

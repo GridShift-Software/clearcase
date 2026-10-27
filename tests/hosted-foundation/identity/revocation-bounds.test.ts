@@ -26,7 +26,8 @@ const trap = vi.hoisted(() => {
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
 vi.mock('cloudflare:workers', () => workers);
 
-import { prepareSignIn, signOutClerkSession } from '../../../src/lib/auth/clerk/flow.ts';
+import { readClerkIdentityConfig } from '../../../src/lib/auth/clerk/config.ts';
+import { prepareSignIn, revokeOwnedSession, signOutClerkSession } from '../../../src/lib/auth/clerk/flow.ts';
 import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
 
@@ -215,6 +216,25 @@ describe('the Backend API calls an old or foreign token can cause are bounded', 
 		status.outage(false);
 		await expect(signOutWith(token)).resolves.toMatchObject({ revoked: true });
 		expect(status.statusOf('sess_retry')).toBe('revoked');
+	});
+	it('a lookup the runtime abandons mid-flight blocks only its own session, and for at most 30 seconds', async () => {
+		const read = readClerkIdentityConfig(env());
+		if (!read.ok) throw new Error(read.reason);
+		const evidence = { instance: read.config.client, subject: 'user_a1', sessionId: 'sess_hung' as never };
+		status.set('sess_hung', 'user_a1');
+		status.set('sess_beside', 'user_a1');
+		void revokeOwnedSession({ config: read.config, evidence, fetcher: () => new Promise<Response>(() => {}) });
+		await expect(revokeOwnedSession({ config: read.config, evidence })).rejects.toMatchObject({ code: 'identity-unavailable' });
+		await expect(signOutWith(clientToken('sess_beside'))).resolves.toMatchObject({ revoked: true });
+		const later = Date.now() + 30_001;
+		const clock = vi.spyOn(Date, 'now').mockReturnValue(later);
+		try {
+			await expect(revokeOwnedSession({ config: read.config, evidence })).resolves.toBeUndefined();
+		} finally {
+			clock.mockRestore();
+		}
+		expect(status.statusOf('sess_hung')).toBe('revoked');
+		expect(callsFor('sess_hung')).toHaveLength(2);
 	});
 	it("no caller can occupy another user's session: another user's replays, a forged token naming the victim's session, and a settled foreign entry leave the victim's sign-out untouched", async () => {
 		status.set('sess_attacker', 'user_x');

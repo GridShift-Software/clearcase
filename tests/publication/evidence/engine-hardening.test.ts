@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createHash, randomBytes } from 'node:crypto';
-import { Sha256, canonicalJson, pageRows, rootDigest } from '../../../src/lib/publication/hosted/evidence/index.ts';
+import { Sha256, canonicalJson, pageBytes, rootBytes } from '../../../src/lib/publication/hosted/evidence/index.ts';
 import { TOTAL, binding, finish, producer, setup } from './harness.ts';
 
 const hex = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
@@ -130,8 +130,8 @@ describe('integrity and canonicalisation', () => {
     const pages = run.db.prepare('SELECT page_number, page_sha256, item_count FROM pub_evidence_page ORDER BY page_number').all() as { page_number: number; page_sha256: string; item_count: number }[];
     expect(pages.map(p => p.item_count)).toEqual([500, 500, 500, 500, 500, 500]);
     const items = run.db.prepare('SELECT item_key, item_json FROM pub_evidence_item ORDER BY item_key').all() as { item_key: string; item_json: string }[];
-    pages.forEach((page, i) => expect(page.page_sha256).toBe(hex(pageRows(items.slice(i * 500, (i + 1) * 500).map(r => ({ key: r.item_key, json: r.item_json }))))));
-    expect(root).toBe(hex(rootDigest(pages.map(p => p.page_sha256))));
+    pages.forEach((page, i) => expect(page.page_sha256).toBe(hex(pageBytes(items.slice(i * 500, (i + 1) * 500).map(r => ({ key: r.item_key, json: r.item_json }))))));
+    expect(root).toBe(hex(rootBytes(pages.map(p => p.page_sha256))));
     expect(root).toBe((run.db.prepare('SELECT evidence_root AS r FROM pub_evidence_run').get() as { r: string }).r);
     // Every row carries its exact input binding.
     expect(JSON.parse(items[0]!.item_json).input).toEqual({ caseId: 'case', clientId: 'client', manifestSha256: 'a'.repeat(64), rendererVersion: 'renderer', resultsVersion: 'version', validatorVersion: 'validator' });
@@ -141,7 +141,7 @@ describe('integrity and canonicalisation', () => {
     await finish(some.engine('a'));
     expect((some.db.prepare('SELECT item_count AS n FROM pub_evidence_page ORDER BY page_number').all() as { n: number }[]).map(r => r.n)).toEqual([500, 1]);
     const none = setup({ producer: producer(false, 0) });
-    expect(await finish(none.engine('a'))).toBe(hex(rootDigest([])));
+    expect(await finish(none.engine('a'))).toBe(hex(rootBytes([])));
   });
   it('the root depends on the exact inputs but not on how the build was paced', async () => {
     const root = await baselineRoot();
@@ -179,9 +179,9 @@ describe('incremental sha256', () => {
     const rand = seeded(7);
     for (const length of [0, 1, 55, 56, 57, 63, 64, 65, 119, 120, 127, 128, 1000, 70_000]) {
       const data = randomBytes(length);
-      const h = new Sha256();
+      let h = new Sha256();
       let at = 0;
-      while (at < length) { const n = Math.min(length - at, Math.floor(rand() * 150)); h.update(data.subarray(at, at + n)); at += n; if (rand() < 0.3) { const resumed = Sha256.restore(JSON.parse(JSON.stringify(h.snapshot()))); (h as unknown as { state: unknown }).state = (resumed as unknown as { state: unknown }).state; } }
+      while (at < length) { const n = Math.min(length - at, Math.floor(rand() * 150)); h.update(data.subarray(at, at + n)); at += n; if (rand() < 0.3) h = Sha256.restore(JSON.parse(JSON.stringify(h.snapshot()))); }
       expect(h.digestHex()).toBe(hex(data));
     }
   });

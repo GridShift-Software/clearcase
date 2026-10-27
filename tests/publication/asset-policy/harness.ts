@@ -1,5 +1,9 @@
 import { assetPolicyItems, missingAssetDiagnostic, type AssetPolicyInput } from '../../../src/lib/publication/hosted/asset-policy.ts';
 import type { EvidenceProducer } from '../../../src/lib/publication/hosted/evidence/index.ts';
+import { createEvidenceEngine, d1EvidenceStore } from '../../../src/lib/publication/hosted/evidence/index.ts';
+import { d1EvidenceReader } from '../../../src/lib/publication/hosted/readiness-evidence.ts';
+import { d1, database } from '../evidence/harness.ts';
+import { binding as readinessBinding, type Built } from '../readiness-v2/harness.ts';
 import { CASE, RV, hash, world, type World } from '../signoff-root/harness.ts';
 
 // Synthetic only. The four cases of the U10 acceptance, as the evidence asset step receives them, and a candidate whose sealed run
@@ -39,3 +43,16 @@ export async function assetWorld(inputs: readonly AssetPolicyInput[], binding = 
 /** The warnings the case's baseline does not hold, read back from the sealed rows. */
 export const freshOf = (w: World): string[] => w.db.rows<{ f: string }>(`SELECT json_extract(item_json, '$.observation.fingerprint') AS f FROM pub_evidence_item
   WHERE item_key >= 'warning/' AND item_key < 'warning0' AND json_extract(item_json, '$.observation.fingerprint') NOT IN (SELECT fingerprint FROM rs_trusted_fingerprint WHERE case_id = ?) ORDER BY item_key`, CASE).map((r) => r.f);
+
+// Readiness reads the same run through U4's real reader. `Built` is what the readiness harness takes from `buildEvidence`; this builds one over
+// these assets' items instead of the generic ones, by the same real engine into the same real tables.
+export async function buildAssetEvidence(inputs: readonly AssetPolicyInput[], binding = BOUND) {
+  const items = runItems(inputs, binding);
+  const db = database(); db.exec('PRAGMA foreign_keys=OFF');
+  const adapter = d1(db), b = { ...readinessBinding, resultsVersion: RV, manifestSha256: binding.manifestSha256, validatorVersion: binding.validatorVersion };
+  let now = 0, root: string | null = null;
+  const engine = createEvidenceEngine({ binding: b, store: d1EvidenceStore(adapter), producer: producerOf(items), clock: () => now, leaseId: 'builder', leaseMs: 1_000_000, bounds: { itemsPerStep: 500, bytesPerStep: 1024 * 1024 } });
+  for (let step = 0; step < 100 && root === null; step++, now++) { const r = await engine.step(); if (r.kind === 'complete') root = r.root; else if (r.kind !== 'progress') throw new Error(r.kind); }
+  if (!root) throw new Error('evidence did not complete');
+  return { db, adapter, items, root, binding: b, reader: d1EvidenceReader(adapter) } as unknown as Built;
+}

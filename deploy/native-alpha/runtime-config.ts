@@ -2,7 +2,7 @@
 // Offline only: no credentials, environment, Git, subprocess, network or provider access. Staged output is source-only
 // settings: it proves no provider resource, Clerk instance, login, tenant, Browser allocation or running Worker.
 import { createHash } from 'node:crypto';
-import { constants, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { constants, chmodSync, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { types } from 'node:util';
 import { CLERK_ENV, readClerkIdentityConfig } from '../../src/lib/auth/clerk/config.ts';
@@ -310,7 +310,7 @@ function readBytes(file: string, size: number): Buffer {
 	const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
 	try {
 		const stat = fstatSync(fd);
-		if (!stat.isFile() || stat.nlink !== 1 || stat.size !== size || (stat.mode & 0o777) !== PRIVATE_FILE) throw new Error('expected a private unlinked file of the exact size');
+		if (!stat.isFile() || stat.nlink !== 1 || stat.size !== size || (stat.mode & 0o7777) !== PRIVATE_FILE) throw new Error('expected a private unlinked file of the exact size');
 		return readFileSync(fd);
 	} finally { closeSync(fd); }
 }
@@ -337,6 +337,7 @@ export function prepareNativeRuntimeConfig(value: { input: unknown; out: string 
 	try { mkdirSync(out, { mode: PRIVATE_DIRECTORY }); } catch { refuse('prepare.out: must be a new directory'); }
 	const owned = lstatSync(out);
 	try {
+		chmodSync(out, PRIVATE_DIRECTORY);
 		for (const [name, bytes] of plan.files) writeFileSync(path.join(out, name), bytes, { flag: 'wx', mode: PRIVATE_FILE });
 		return readNativeRuntimeConfig({ input: v.input, stage: out });
 	} catch (caught) {
@@ -347,14 +348,14 @@ export function prepareNativeRuntimeConfig(value: { input: unknown; out: string 
 	}
 }
 
-/** Re-plans from `input` and requires the stage to hold exactly the planned entries, byte for byte, as regular unlinked files (0600) in a 0700 directory. */
+/** Re-plans from `input` and requires the stage to hold exactly the planned entries, byte for byte, as regular unlinked files (exact mode 0600) in a directory of exact mode 0700, with no special bits. */
 export function readNativeRuntimeConfig(value: { input: unknown; stage: string }) {
 	const v = shallow(value, ['input', 'stage'], 'read');
 	const plan = planNativeRuntimeConfig(v.input);
 	const stage = location(v.stage, 'read.stage');
 	try {
 		realPath(stage, true);
-		if ((lstatSync(stage).mode & 0o777) !== PRIVATE_DIRECTORY) throw new Error('mode');
+		if ((lstatSync(stage).mode & 0o7777) !== PRIVATE_DIRECTORY) throw new Error('mode');
 		const entries = readdirSync(stage);
 		if (entries.length !== plan.files.size || entries.some((name) => !plan.files.has(name))) throw new Error('entries');
 		for (const [name, bytes] of plan.files) if (!readBytes(path.join(stage, name), Buffer.byteLength(bytes)).equals(Buffer.from(bytes))) throw new Error('bytes');

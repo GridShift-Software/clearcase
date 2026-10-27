@@ -150,6 +150,17 @@ describe('a signed-in user whose session token expired between page loads', () =
 		expect(r.status).toBe(303);
 		expect(r.headers.getSetCookie()).toContain(`${REFRESH_A}=${s.refresh}; Path=/; Max-Age=315360000; SameSite=Lax; HttpOnly; Secure`);
 	});
+	it('keeps no refresh token from a handshake that does not sign the browser in', async () => {
+		const s = session();
+		const directives = [
+			'__client_uat=0; Path=/; Domain=clearcase.test; Max-Age=315360000; SameSite=Lax; Secure',
+			'__session=; Path=/; Domain=clearcase.test; Max-Age=0; SameSite=Lax; Secure',
+			`${REFRESH_A}=${s.refresh}; Path=/; Domain=clearcase.test; Max-Age=315360000; HttpOnly; SameSite=Lax; Secure`,
+		];
+		const r = await invoke(documentGet(`/cases?__clerk_handshake=${A.sign({ handshake: directives })}`, ''));
+		expect(r.status).toBe(303);
+		expect(r.headers.getSetCookie().join('\n')).not.toContain(s.refresh);
+	});
 });
 
 describe('what the refresh never changes', () => {
@@ -209,6 +220,7 @@ describe('what the refresh never changes', () => {
 	});
 	it.each([
 		['refreshed cookies for another instance', (sid: string) => ({ status: 200, body: { object: 'cookies', cookies: [`__session=${C.token({ sub: sessions.get(sid)!.user_id, sid, azp: ORIGIN })}; Path=/`] } })],
+		['a token of the other configured instance for the same user and session', (sid: string) => ({ status: 200, body: { object: 'cookies', cookies: [`__session=${B.token({ sub: sessions.get(sid)!.user_id, sid, azp: ORIGIN })}; Path=/`] } })],
 		['a token for another session', (sid: string) => ({ status: 200, body: { object: 'cookies', cookies: [`__session=${A.token({ sub: sessions.get(sid)!.user_id, sid: 'sess_other', azp: ORIGIN })}; Path=/`] } })],
 		['a cookie outside the allowlist', (sid: string) => ({ status: 200, body: { object: 'cookies', cookies: [`__session=${A.token({ sub: sessions.get(sid)!.user_id, sid, azp: ORIGIN })}; Path=/`, 'theme=dark; Path=/'] } })],
 		['no session cookie', () => ({ status: 200, body: { object: 'cookies', cookies: ['__client_uat=1; Path=/'] } })],

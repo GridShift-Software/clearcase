@@ -194,6 +194,6 @@ export async function world(options: Options = {}) {
 
   return { raw, db, items, binding, store, reader, root, ports, controller, request, signOff, publish, pointer, receipts, signoffRow, groups, fresh, current, claimed, events, checks, read,
     flipSnapshotToV1: () => { flipV1 = true; },
-    /** The candidate reader keeps answering with the snapshot it gives now: a reader that cached, or read before the change. */
-    freezeSnapshot: async () => { frozen = await snapshot(); } };
+    /** The candidate reader keeps answering with the snapshot it gives now: a reader that cached, or read before the change. `edit` changes what it cached. */
+    freezeSnapshot: async (edit: (s: CandidateSnapshotV2) => CandidateSnapshotV2 = (s) => s) => { frozen = edit(await snapshot() as CandidateSnapshotV2); } };
 }

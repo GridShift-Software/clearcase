@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ASSET_ACK_CODE, missingAssetDiagnostic, missingOriginalAcknowledgement, missingOriginalFingerprint } from '../../../src/lib/publication/hosted/asset-policy.ts';
 import { createPublicationReadiness } from '../../../src/lib/publication/hosted/readiness.ts';
-import { worldV2 } from '../readiness-v2/harness.ts';
+import { snapshotV2, worldV2 } from '../readiness-v2/harness.ts';
+import type { CandidateSnapshotV2 } from '../../../src/lib/publication/hosted/ports.ts';
 import { RV } from '../signoff-root/harness.ts';
 import { BOUND, FIXTURE_BOUND, UNCITED_MISSING, assetWorld, buildAssetEvidence, freshOf } from './harness.ts';
 
@@ -77,6 +78,38 @@ describe('the validator warning of a missing original is acknowledged under its 
     w.db.exec(`UPDATE pub_signoff SET acknowledgements = replace(acknowledgements, '"code":"${ASSET_ACK_CODE}","reason":"The validator warning."', '"code":"DS_OTHER","reason":"The validator warning."')`);
     expect(w.db.rows<{ a: string }>('SELECT acknowledgements AS a FROM pub_signoff')[0]!.a).toContain('DS_OTHER');
     expect(await w.publish(signed.body.signoffId as string)).toMatchObject({ status: 409, body: { code: 'signoff-stale', reason: 'warnings-changed' } });
+    expect(w.pointer()).toBeNull();
+  });
+});
+
+describe('fix round 3: a summary computed before the warning check is not evidence of one', () => {
+  // What the summary query wrote before fix round 2, for the same immutable rows: every missing original's warning as `original-not-supplied`.
+  const older = (s: CandidateSnapshotV2): CandidateSnapshotV2 => ({ ...s, evidence: { ...s.evidence,
+    groups: s.evidence.groups.map((g) => (g.kind === 'warning' && g.state !== null ? { ...g, state: 'original-not-supplied' } : g)) } });
+
+  it('readiness refuses an older cached summary of an unwarned exception', async () => {
+    const built = await buildAssetEvidence([UNCITED_MISSING], FIXTURE_BOUND, (items) => items.filter((i) => i.key !== `warning/${diagnostic}`));
+    const w = worldV2(built, { snapshot: older(await snapshotV2(built)) });
+    const response = await createPublicationReadiness(w.ports).read(w.request({ kind: 'warning' }));
+    const body = await response.json() as Record<string, unknown>;
+    expect(response.status, JSON.stringify(body)).toBe(503);
+  });
+
+  it('readiness refuses an older cached summary of a warned exception too, until the summary is computed again', async () => {
+    const built = await buildAssetEvidence([UNCITED_MISSING]);
+    const stale = worldV2(built, { snapshot: older(await snapshotV2(built)) });
+    expect((await createPublicationReadiness(stale.ports).read(stale.request())).status).toBe(503);
+    const fresh = worldV2(built);
+    expect((await createPublicationReadiness(fresh.ports).read(fresh.request())).status).toBe(200);
+  });
+
+  it('sign-off refuses an older cached summary, and records nothing', async () => {
+    const w = await assetWorld([UNCITED_MISSING]);
+    await w.freezeSnapshot(older);
+    const fingerprint = missingOriginalFingerprint(BOUND, UNCITED_MISSING.assetId, diagnostic);
+    const signed = await w.signOff({ acknowledgements: [missingOriginalAcknowledgement([{ diagnostic, fingerprint }], new Set(freshOf(w)), REASON)] });
+    expect(signed.status).toBe(503);
+    expect(w.db.rows('SELECT * FROM pub_signoff')).toEqual([]);
     expect(w.pointer()).toBeNull();
   });
 });

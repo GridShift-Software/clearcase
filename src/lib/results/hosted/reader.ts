@@ -17,7 +17,7 @@ import { readModelDigest } from './read-model.ts';
 import type { PublishedCaseReader } from './published-reads.ts';
 import { resolveOriginalAttributions } from './original-attribution.ts';
 import type { StorageEvent } from './index.ts';
-import { caseOfVersion, caseRow, caseRows, requirePublished, unavailable, versionInfo } from './versions.ts';
+import { caseOfVersion, caseRow, caseRows, publicationRow, requirePublished, unavailable, versionInfo } from './versions.ts';
 
 type FileRow = { path: string; sha256: string; size: number; object_key: string };
 
@@ -224,6 +224,7 @@ export function createCloudReader(a: { open: () => Promise<OpenStorage>; identit
       return { json: JSON.stringify(d.rows.map((r) => r.list)), etag: `"${scope.caseId}:${scope.resultsVersion}:${d.revisions.join(';')}"`, failed: d.failed };
     },
     async activeDocumentRows(scope) { const rv = await store.activeVersionId(scope); return rv ? { resultsVersion: rv, ...await store.documentRows({ ...scope, resultsVersion: rv }) } : { resultsVersion: null, rows: [], failed: [], dropped: [] }; },
+    async publication(scope) { const s = await guard(scope); return freeze(await publicationRow(s.db, scope.caseId)); },
     providers: {
       register(p) { if (!/^[a-z][a-z0-9-]{0,31}$/.test(p.id) || providers.has(p.id)) throw contractError('invalid-package'); providers.set(p.id, p); return () => { if (providers.get(p.id) === p) providers.delete(p.id); }; },
       list: () => [...providers.values()].map(({ id, owner }) => ({ id, owner })),

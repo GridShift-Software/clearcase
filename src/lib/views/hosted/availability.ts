@@ -14,7 +14,7 @@ export const HOSTED_STATUS: Readonly<Record<string, HostedStatus>> = {
 	search: 'ported',
 	people: 'ported',
 	entity_ledger_tab: 'ported',
-	hoa_diff_tab: 'soon',
+	hoa_diff_tab: 'ported',
 	invoice_ledger_tab: 'ported',
 	disbursements_tab: 'ported',
 	timesheet_tab: 'ported',

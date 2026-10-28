@@ -1,4 +1,4 @@
-import type { RequestEvent } from '@sveltejs/kit';
+import type { Actions, RequestEvent } from '@sveltejs/kit';
 import { serveModeOf } from '$lib/case-package/media';
 import type { OriginalLinks } from '$lib/local-case/model';
 import { codeOf, isDenial } from '$lib/server/runtime/errors';
@@ -48,7 +48,7 @@ export async function load({ locals, params, url }: RequestEvent) {
 		notes: (await locals.userWork.notesFor({ caseId: v.caseId, target: { kind: 'document', anchor: {
 			caseId: v.caseId, resultsVersion: v.resultsVersion, refAtCreation: doc.ref,
 			sha256: doc.state.original ? sha256(doc.state.original.sha256) : null,
-		} } })).map(noteView),
+		} } }).catch(e => refuse(e))).map(noteView),
 		operationId: crypto.randomUUID(),
 	};
 }
@@ -58,7 +58,7 @@ const SAY = {
 	refused: 'The note was not saved. Check its text and try again.',
 	failed: 'The note was not saved: something went wrong. Your text is kept; try again.',
 };
-export const actions = {
+export const actions: Actions = {
 	note: async ({ locals, params, request }: RequestEvent) => {
 		const v = await publishedVersion(locals, params);
 		const form = await request.formData(), body = String(form.get('body') ?? '');

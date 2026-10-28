@@ -18,11 +18,12 @@ export function answer<V extends Record<string, string> | null, X extends Record
 	return fail(busy ? 503 : refused ? 400 : 500, { ...extra, op, values, message, retry: busy });
 }
 
-export async function guarded<T, V extends Record<string, string> | null, X extends Record<string, unknown> = {}>(op: string, values: V, write: (work: Work) => Promise<T>, say: Say, extra: X = {} as X, work?: Work):
-	Promise<{ ok: true; value: T } | { ok: false; failure: ActionFailure<X & { op: string; values: V; message: string; retry: boolean }> }> {
+type GuardedResult<T, V, X> = Promise<{ ok: true; value: T } | { ok: false; failure: ActionFailure<X & { op: string; values: V; message: string; retry: boolean }> }>;
+export function guarded<T, V extends Record<string, string> | null, X extends Record<string, unknown> = {}>(op: string, values: V, write: () => Promise<T>, say: Say, extra?: X): GuardedResult<T, V, X>;
+export function guarded<T, V extends Record<string, string> | null, X extends Record<string, unknown> = {}>(op: string, values: V, write: (work: Work) => Promise<T>, say: Say, extra: X, work: Work): GuardedResult<T, V, X>;
+export async function guarded<T, V extends Record<string, string> | null, X extends Record<string, unknown> = {}>(op: string, values: V, write: (() => Promise<T>) | ((work: Work) => Promise<T>), say: Say, extra: X = {} as X, work?: Work): GuardedResult<T, V, X> {
 	try {
-		// Existing zero-argument callbacks keep their lazy access to app().
-		return { ok: true, value: await write(work ?? (write.length ? app().userWork : undefined as unknown as Work)) };
+		return { ok: true, value: await (work ? write(work) : (write as () => Promise<T>)()) };
 	} catch (e) {
 		const failure = answer(op, values, e, say, extra);
 		if (failure.status === 500) console.error('user-work write failed', e);

@@ -1,6 +1,8 @@
 import { render } from 'svelte/server';
 import { describe, expect, test } from 'vitest';
 import { versionPath } from '../local-case/model.ts';
+import { hostedStatus } from '../views/hosted/availability.ts';
+import { VIEWS } from './view-registry.ts';
 import ViewNav from './ViewNav.svelte';
 
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -105,9 +107,14 @@ describe('under a route base', () => {
 		expect(hosted).toHaveLength(39);
 		expect(attr(byView.get('overview')!, 'data-hosted-status')).toBe('ported');
 		expect(attr(byView.get('overview')!, 'aria-disabled')).toBeNull();
-		for (const id of ['chronology', 'popia_tab', 'risk_matrix_tab']) {
-			expect(attr(byView.get(id)!, 'data-hosted-status')).toBe('soon');
-			expect(attr(byView.get(id)!, 'aria-disabled')).toBe('true');
+		// Which views are soon or ported is read from the availability table at run time: a ticket that ports a view flips
+		// its line there and never edits this test.
+		const shown = VIEWS.filter((v) => hostedStatus(v.id) !== 'never').map((v) => v.id);
+		expect([...byView.keys()].sort()).toEqual([...shown].sort());
+		for (const id of shown) {
+			const status = hostedStatus(id);
+			expect([id, attr(byView.get(id)!, 'data-hosted-status')]).toEqual([id, status]);
+			expect([id, attr(byView.get(id)!, 'aria-disabled')]).toEqual([id, status === 'soon' ? 'true' : null]);
 		}
 		expect(nav({ hosted: true }, HOSTED)).not.toMatch(/>System</);
 	});

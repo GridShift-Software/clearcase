@@ -13,7 +13,7 @@ const data = (over: Record<string, unknown>) => ({
   version: { id: RV, titleName: 'Synthetic v Example' }, base: BASE, ref: 'D-1', source: 'results', fields, page: null, attachments: [], children: [], related: [], notes: [], onDisk: null,
   parent: null, links: { presentation: null, open: null, download: null, viewer: null }, state: { file: 'missing', preview: 'none', text: 'extracted', mediaType: 'application/pdf', flags: [], original: null, self: null }, ...over,
 });
-const html = (over: Record<string, unknown>) => render(Page as never, { props: { data: data(over), form: null } }).body;
+const html = (over: Record<string, unknown>) => render(Page as never, { props: { data: data(over), form: null } as never }).body;
 
 describe('12 document page original states', () => {
   test('available: the metadata block holds the original, with Open and Download', () => {

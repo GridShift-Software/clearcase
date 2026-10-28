@@ -20,6 +20,7 @@ const cases = await import('../../../deploy/client/routes/cases/+page.server.ts'
 const ORIGIN = 'https://client-a.clearcase.test';
 const A = craftedInstance('client-a.clerk.test'), B = craftedInstance('staff-b.clerk.test');
 workers.env = {
+	CLEARCASE_SESSION_KEY: 'a'.repeat(64), SESSIONS: { get: async () => null, put: async () => {} },
 	CLEARCASE_CLIENT_ID: 'client-a', CLEARCASE_APP_ORIGIN: ORIGIN,
 	CLERK_CLIENT_SIGN_IN_URL: 'https://accounts.client-a.clerk.test/sign-in', CLERK_STAFF_SIGN_IN_URL: 'https://accounts.staff-b.clerk.test/sign-in',
 	CLERK_CLIENT_PUBLISHABLE_KEY: A.publishableKey, CLERK_CLIENT_SECRET_KEY: A.secretKey, CLERK_CLIENT_JWT_KEY: A.jwtKey,
@@ -46,7 +47,7 @@ const stateOf = (kind: InstanceKind, jar: Jar) => [...jar.keys()].filter((n) => 
 const outcome = async (f: () => unknown) => { try { return { value: await f() }; } catch (e) { return { thrown: e as { status?: number; location?: string } }; } };
 const locals = (identity: unknown) => ({ runtime: { testIdentity: null }, identity }) as unknown as App.Locals;
 const anonymous = { kind: 'anonymous', principal: null, sessionId: null };
-const verified = (kind: InstanceKind) => ({ kind: 'verified', principal: { kind }, sessionId: 'sess_synthetic' });
+const verified = (kind: InstanceKind) => ({ kind: 'verified', principal: { kind, subject: 'user_synthetic', issuer: kind === 'staff' ? B.iss : 'https://client-a.clerk.test' }, sessionId: 'sess_synthetic' });
 const target = (tab: string) => `/cases/tab-${tab}`;
 async function post(kind: InstanceKind, returnTo: string, cookie: string, attempt?: string): Promise<Reply> {
 	const url = new URL(`${ORIGIN}${flows[kind].path}?returnTo=${encodeURIComponent(returnTo)}`), reply: Reply = { sets: [], deletes: [] };

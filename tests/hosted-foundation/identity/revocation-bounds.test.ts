@@ -1,3 +1,4 @@
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // Follow-ups of the GRS-113 revocation supplemental (43e7bcc7), alpha hardening 27 October 2026:
 //  - L-rev-1: a genuinely signed `sts: 'pending'` token. Clerk documents `pending` as "signed in but hasn't completed
 //    session tasks" (@clerk/shared SessionStatus; tasks choose-organization, reset-password, setup-mfa), and finishing a
@@ -29,7 +30,6 @@ vi.mock('cloudflare:workers', () => workers);
 
 import { readClerkIdentityConfig } from '../../../src/lib/auth/clerk/config.ts';
 import { prepareSignIn, revokeOwnedSession, SETTLED_TTL_MS, signOutClerkSession } from '../../../src/lib/auth/clerk/flow.ts';
-import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
 
 const signOut = await import('../../../deploy/client/routes/sign-out/+page.server.ts');

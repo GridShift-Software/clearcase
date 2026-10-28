@@ -1,3 +1,4 @@
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // GRS-113 approved supplemental correction (25 October 2026): a still-live Clerk session is revoked at sign-out and at a
 // cross-kind identity switch even after its short-lived signed session token has EXPIRED (Clerk tokens live about a
 // minute; sign-out is a POST, which the handshake never refreshes). Revocation is a separate, revoke-only evidence path:
@@ -25,7 +26,6 @@ const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
 vi.mock('cloudflare:workers', () => workers);
 
 import { prepareSignIn, signOutClerkSession } from '../../../src/lib/auth/clerk/flow.ts';
-import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 import { craftedInstance, forgedToken, statusDouble } from './synthetic.ts';
 
 const signIn = await import('../../../deploy/client/routes/sign-in/+page.server.ts');

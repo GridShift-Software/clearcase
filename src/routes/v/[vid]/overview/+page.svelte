@@ -6,7 +6,7 @@
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import DegradedRows from '$lib/components/DegradedRows.svelte';
 	import { money, plural } from '$lib/components/format';
-	import { grouped, viewHref, blockedBy } from '$lib/components/views';
+	import { grouped, viewHref, viewById, blockedBy } from '$lib/components/views';
 	let { data, form } = $props();
 	const o = $derived(data.overview);
 	const c = $derived(o.counts);
@@ -17,6 +17,8 @@
 	const count = (m: [string, number][], k: string) => m.find(([x]) => x === k)?.[1] ?? 0;
 	const beside = (k: string, n: number) => { const x = claim(k); return x !== null && String(x) !== String(n) ? ` (the source claims ${x})` : ''; };
 	const content = $derived(data.content);
+	// the four primary tiles open the view that holds their figures
+	const to = (id: string) => viewHref(vid, viewById(id)!, data.base);
 	let ready = $state(false);
 	onMount(() => { ready = true; performance.mark('cc-ready'); });
 </script>
@@ -35,13 +37,13 @@
 	{#if form?.message}<p class="error" role="alert" id="rollback-error">{form.message}</p>{/if}
 
 	<div class="grid kpi-grid">
-		<section class="card" aria-labelledby="kpi-docs"><h2 id="kpi-docs">Documents indexed</h2>
+		<section class="card" aria-labelledby="kpi-docs"><h2 id="kpi-docs"><a class="kpi-link" href={to('documents')}>Documents indexed</a></h2>
 			<p class="num" id="count-documents" data-count={data.documents.total}>{data.documents.total.toLocaleString('en')}</p>
 			<p><small>{content.kpiDocumentsNote ? `${content.kpiDocumentsNote} (source caption) · ` : ''}Counted from the validated register{data.documents.provided ? ` (${data.documents.imported.toLocaleString('en')}) plus ${plural(data.documents.provided, 'row')} from document-row providers` : ''}{claim('docCount') !== null ? `; the source claims ${claim('docCount')}` : ''}. {plural(t.byBundle.length, 'bundle')}.</small></p></section>
-		<section class="card" aria-labelledby="kpi-due"><h2 id="kpi-due">Amount due (to date)</h2>
+		<section class="card" aria-labelledby="kpi-due"><h2 id="kpi-due"><a class="kpi-link" href={to('quantum_tab')}>Amount due (to date)</a></h2>
 			{#if o.quantum}<p class="num" id="amount-due">{money(o.quantum.headlineDue) || '—'}</p><p><small>{o.quantum.headlineRef}{o.quantum.headlineDate ? ` · as at ${o.quantum.headlineDate}` : ''} (source value)</small></p>{:else}<p>Not in this package.</p>{/if}</section>
-		<section class="card" aria-labelledby="kpi-inv"><h2 id="kpi-inv">Invoices</h2><p class="num" id="count-invoices">{(o.quantum?.invoiceCount ?? c.invoices).toLocaleString('en')}</p><p><small>{content.kpiInvoicesNote ? `${content.kpiInvoicesNote} (source caption) · ` : ''}{c.invoices.toLocaleString('en')} register rows of type invoice</small></p></section>
-		<section class="card" aria-labelledby="kpi-contra"><h2 id="kpi-contra">Contradiction flags</h2>
+		<section class="card" aria-labelledby="kpi-inv"><h2 id="kpi-inv"><a class="kpi-link" href={to('invoice_ledger_tab')}>Invoices</a></h2><p class="num" id="count-invoices">{(o.quantum?.invoiceCount ?? c.invoices).toLocaleString('en')}</p><p><small>{content.kpiInvoicesNote ? `${content.kpiInvoicesNote} (source caption) · ` : ''}{c.invoices.toLocaleString('en')} register rows of type invoice</small></p></section>
+		<section class="card" aria-labelledby="kpi-contra"><h2 id="kpi-contra"><a class="kpi-link" href={to('contradictions_tab')}>Contradiction flags</a></h2>
 			{#if o.contradictions}<p class="num">{o.contradictions.total}</p><p><small>{o.contradictions.highCount} high-severity</small></p>{:else}<p>Not in this package.</p>{/if}</section>
 		<section class="card" aria-labelledby="kpi-scan"><h2 id="kpi-scan">Without extracted text</h2><p class="num" id="count-text-none">{count(t.byTextStatus, 'none').toLocaleString('en')}</p>
 			<p><small>Register rows with text status none{claim('textNone') !== null ? `; the source claims ${claim('textNone')}` : ''}.</small></p></section>

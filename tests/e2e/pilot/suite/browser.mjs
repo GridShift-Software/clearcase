@@ -22,13 +22,15 @@ const KEYS = {
 	Enter: { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' },
 	Space: { key: ' ', code: 'Space', windowsVirtualKeyCode: 32, text: ' ' },
 	Backspace: { key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 },
+	Escape: { key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 },
+	k: { key: 'k', code: 'KeyK', windowsVirtualKeyCode: 75 },
 };
 
 export async function openPage(b, opts = {}) {
 	const p = await newPage(b, { initScript: INIT, ...opts });
-	p.key = async (name, { shift = false } = {}) => {
+	p.key = async (name, { shift = false, ctrl = false } = {}) => {
 		const k = KEYS[name];
-		const modifiers = shift ? 8 : 0;
+		const modifiers = (shift ? 8 : 0) | (ctrl ? 2 : 0);
 		await p.s('Input.dispatchKeyEvent', { type: 'keyDown', modifiers, ...k });
 		await p.s('Input.dispatchKeyEvent', { type: 'keyUp', modifiers, key: k.key, code: k.code, windowsVirtualKeyCode: k.windowsVirtualKeyCode });
 	};

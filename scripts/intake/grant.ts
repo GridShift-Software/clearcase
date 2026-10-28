@@ -37,7 +37,7 @@ async function main() {
     try {
       const result = await provisionIntakeGrant({ db: proxy.env.DB, nativeConfig: config.vars.CLEARCASE_NATIVE_CONFIG,
         caseId: values.case, subject: values.subject });
-      if (result.kind !== 'applied') throw new Error('grant not applied');
+      if (result.kind !== 'applied' || result.grant.state !== 'active') throw new Error('grant not active');
       console.log(`intake grant: ${result.repeated ? 'already applied' : 'applied'}, audit confirmed`);
     } finally { await proxy.dispose(); }
   } finally { await rm(dir, { recursive: true, force: true }); }

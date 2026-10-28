@@ -49,7 +49,7 @@ export function intakeNotifications(o: {
           body: JSON.stringify({ caseId: manifest.caseId, submissionId: manifest.operationId,
             files: manifest.files.length, bytes: manifest.files.reduce((sum, f) => sum + f.size, 0), at: claimed.created_at }),
         });
-        await response.body?.cancel();
+        await response.body?.cancel().catch(() => undefined);
         if (response.ok) await o.db.prepare(`UPDATE sub_notification SET delivered_at = ?
           WHERE client_id = ? AND case_id = ? AND submission_id = ? AND delivered_at IS NULL`)
           .bind(o.now().toISOString(), o.clientId, manifest.caseId, manifest.operationId).run();

@@ -334,6 +334,30 @@ jobs:
         run: bunx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
       - name: check:hosted-imports
         run: bun run --bun check:hosted-imports
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        id: setup-node
+        continue-on-error: true
+        with:
+          node-version: 24.22.0
+      - name: node fallback
+        if: steps.setup-node.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/node-fallback"
+          mkdir -p "$dir"
+          cd "$dir"
+          curl -fsSLO https://nodejs.org/dist/v24.22.0/node-v24.22.0-linux-x64.tar.gz
+          curl -fsSLO https://nodejs.org/dist/v24.22.0/SHASUMS256.txt
+          want=28ea0a438de9a13bd7891fd758eee6c7819ee8af5442dfd8d45bd65e56d4228c
+          published=$(grep ' node-v24.22.0-linux-x64.tar.gz$' SHASUMS256.txt | cut -d' ' -f1)
+          [ "$published" = "$want" ] || { echo "nodejs.org publishes $published for the tarball, not the pinned $want" >&2; exit 1; }
+          echo "$want  node-v24.22.0-linux-x64.tar.gz" | sha256sum -c -
+          tar -xzf node-v24.22.0-linux-x64.tar.gz
+          echo "$dir/node-v24.22.0-linux-x64/bin" >> "$GITHUB_PATH"
+      # Tests that --changed reaches (a changed package.json or lockfile reaches all of them) need a real Node and the
+      # identity probe's own install, as in the full job.
+      - name: install identity probe
+        run: (cd tests/hosting-probe/identity && bun install --frozen-lockfile)
       # The fixed set always runs; the second run adds the tests this pull request's diff reaches (vitest --changed
       # compares the merge commit with the sprint branch's tip). Temporary files on tmpfs, as in the full job.
       - name: test
@@ -359,27 +383,6 @@ jobs:
           fi
       - run: scripts/ci/install-chrome.sh
         if: steps.changes.outputs.hosted == 'true'
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: steps.changes.outputs.hosted == 'true'
-        id: setup-node
-        continue-on-error: true
-        with:
-          node-version: 24.22.0
-      - name: node fallback
-        if: steps.changes.outputs.hosted == 'true' && steps.setup-node.outcome == 'failure'
-        run: |
-          set -euo pipefail
-          dir="$RUNNER_TEMP/node-fallback"
-          mkdir -p "$dir"
-          cd "$dir"
-          curl -fsSLO https://nodejs.org/dist/v24.22.0/node-v24.22.0-linux-x64.tar.gz
-          curl -fsSLO https://nodejs.org/dist/v24.22.0/SHASUMS256.txt
-          want=28ea0a438de9a13bd7891fd758eee6c7819ee8af5442dfd8d45bd65e56d4228c
-          published=$(grep ' node-v24.22.0-linux-x64.tar.gz$' SHASUMS256.txt | cut -d' ' -f1)
-          [ "$published" = "$want" ] || { echo "nodejs.org publishes $published for the tarball, not the pinned $want" >&2; exit 1; }
-          echo "$want  node-v24.22.0-linux-x64.tar.gz" | sha256sum -c -
-          tar -xzf node-v24.22.0-linux-x64.tar.gz
-          echo "$dir/node-v24.22.0-linux-x64/bin" >> "$GITHUB_PATH"
       # Same step as the full job's gate-hosted without the receipts wrapper: the run's D1 and R2 state and scratch live on
       # tmpfs, no Cloudflare binding or token reaches it, and Node (not Bun's stand-in) hosts Wrangler.
       - name: gate-hosted

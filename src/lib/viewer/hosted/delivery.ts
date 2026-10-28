@@ -1,3 +1,6 @@
+import { fastOriginals } from './fast-original';
+import type { AssetTicket } from './ticket';
+import { serveFastOriginal } from './original-delivery';
 // How a protected asset (an original, or a derived preview of a published results version) is released to the browser.
 // The AssetsAccess handle decides authority, integrity, ranges, ETags and audit; this module decides only the
 // presentation: inline for the in-app viewer, attachment for everything else.
@@ -20,7 +23,7 @@ const PROBE: ByteRequest = { method: 'GET', range: 'bytes=0-1023', ifRange: null
 export const INLINE_CSP = "sandbox; default-src 'none'; frame-ancestors 'none'";
 const VARY = 'Range, Sec-Fetch-Dest';
 
-export interface DeliveryInput { assets: AssetsAccess; asset: AssetRef; method: 'GET' | 'HEAD'; url: URL; headers: Headers }
+export interface DeliveryInput { assets: AssetsAccess; asset: AssetRef; method: 'GET' | 'HEAD'; url: URL; headers: Headers; ticket?: AssetTicket }
 
 const inlineDestination = (family: string, dest: string | null) => (family === 'pdf' ? dest === 'empty' : dest === 'empty' || dest === 'image');
 const varied = (r: Response) => {
@@ -29,7 +32,9 @@ const varied = (r: Response) => {
   return new Response(r.body, { status: r.status, headers });
 };
 
-export async function deliverAsset({ assets, asset, method, url, headers }: DeliveryInput): Promise<Response> {
+export async function deliverAsset({ assets, asset, method, url, headers, ticket }: DeliveryInput): Promise<Response> {
+  const fast = asset.kind === 'original' ? fastOriginals(assets) : null;
+  if (fast) return serveFastOriginal({fast,asset,method,url,headers,ticket});
   const request: ByteRequest = { method, range: headers.get('range'), ifRange: headers.get('if-range') };
   // Existence and authority first, with no byte read: an inaccessible asset reads as absent before anything is probed.
   // `for: 'read'` only names the operation a refusal is audited under; a refusal here throws and `get` is never reached.

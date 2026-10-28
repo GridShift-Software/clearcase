@@ -40,3 +40,15 @@ export async function writeOnce(bucket: CloudR2, key: string, bytes: Uint8Array,
     return now ? (same(now) ? 'present' : 'conflict') : 'unreachable';
   } catch { return 'unreachable'; }
 }
+
+/** Narrow adapter for native R2's conditional streaming API; operator verifiedRead remains unchanged. */
+export interface StreamingBucket { get(key: string, options: { range?: {offset:number;length:number}; onlyIf: {etagMatches:string} }): Promise<unknown> }
+export type RangedRead = {kind:'ok'; body:ReadableStream<Uint8Array>} | {kind:'missing'|'changed'|'unreachable'};
+export async function rangedRead(bucket: StreamingBucket, key: string, expected: {size:number;etag:string}, range: {start:number;end:number}|null): Promise<RangedRead> {
+ try {
+  const obj = await bucket.get(key, { ...(range ? {range:{offset:range.start,length:range.end-range.start+1}} : {}), onlyIf:{etagMatches:expected.etag} });
+  if (!obj) return {kind:'missing'};
+  if (typeof obj !== 'object' || !('size' in obj) || obj.size !== expected.size || !('etag' in obj) || obj.etag !== expected.etag || !('body' in obj) || !(obj.body instanceof ReadableStream)) return {kind:'changed'};
+  return {kind:'ok',body:obj.body};
+ } catch { return {kind:'unreachable'}; }
+}

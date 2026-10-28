@@ -1,3 +1,5 @@
+import { env } from 'cloudflare:workers';
+import { verifyTicket } from './ticket';
 // The two hosted routes that release protected bytes share this one handler: an original (case-level, reachable through
 // the case grant alone) and a derived preview (reachable only while its exact results version is published).
 import { error, type RequestEvent } from '@sveltejs/kit';
@@ -19,7 +21,10 @@ export function assetRefOf(kind: 'original' | 'preview', params: Record<string, 
   return { kind, caseId: id('case', caseId!), resultsVersion: rv!, assetId: assetId! };
 }
 
-export function serveAsset(event: RequestEvent, kind: 'original' | 'preview', method: 'GET' | 'HEAD'): Promise<Response> {
+export async function serveAsset(event: RequestEvent, kind: 'original' | 'preview', method: 'GET' | 'HEAD'): Promise<Response> {
   const asset = assetRefOf(kind, event.params as Record<string, string | undefined>);
-  return deliverAsset({ assets: event.locals.assets, asset, method, url: event.url, headers: event.request.headers }).catch((e) => refuse(e));
+  const raw = kind === 'original' ? event.url.searchParams.get('t') : null;
+  const ticket = raw ? await verifyTicket(raw, String(env.CLEARCASE_ASSET_TICKET_KEY ?? ''),asset.caseId,asset.assetId) : null;
+  if (raw !== null && (!ticket || event.locals.identity?.kind !== 'verified' || event.locals.identity.principal.subject !== ticket.subject || event.locals.identity.principal.issuer !== ticket.issuer || event.locals.identity.clientId !== ticket.clientId)) return new Response(null,{status:404,headers:{'cache-control':'private, no-store'}});
+  return deliverAsset({ ticket: event.url.searchParams.get('download') === '1' ? undefined : ticket ?? undefined, assets: event.locals.assets, asset, method, url: event.url, headers: event.request.headers }).catch((e) => refuse(e));
 }

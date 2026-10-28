@@ -19,6 +19,8 @@
 	{#key data}
 		<PdfViewer requestedPage={data.requestedPage ?? null} src={data.view.srcHref} downloadHref={data.view.downloadHref} notesHref={data.notesHref} notes={data.notes.items} notesAvailable={data.notes.state === 'available'} />
 	{/key}
+{:else if data.view.mode === 'email'}
+ <iframe title="Original email" sandbox="" src={data.view.srcHref} style="width:100%;height:70vh"></iframe>
 {:else if data.view.mode === 'image'}
 	<img data-viewer-state="image" src={data.view.srcHref} alt={data.view.filename} style="max-width: 100%" referrerpolicy="no-referrer" />
 	<p><a data-action="download-original" href={data.view.downloadHref}>Download the original</a></p>

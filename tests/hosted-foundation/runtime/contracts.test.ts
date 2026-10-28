@@ -19,7 +19,7 @@ describe('runtime boundary contracts', () => {
     await expect(locals.identity.checkRevocation()).rejects.toMatchObject({ code: 'identity-unavailable', retryable: true });
     await expect(locals.store.listCases()).rejects.toMatchObject({ code: 'storage-unavailable' });
     await expect(locals.userWork.notesFor({ caseId: id('case', 'empty'), target: null })).rejects.toMatchObject({ code: 'storage-unavailable' });
-    await expect(locals.shards.read({ caseId: id('case', 'empty'), resultsVersion: resultsVersion('sha256:' + 'b'.repeat(64)), name: 'shell.json' })).rejects.toMatchObject({ code: 'storage-unavailable' });
+    await expect(locals.shards.read({ caseId: id('case', 'empty'), resultsVersion: resultsVersion('sha256:' + 'b'.repeat(64)), name: 'shell.json', bytes: 2 })).rejects.toMatchObject({ code: 'storage-unavailable' });
     await expect(locals.runtime.probe()).rejects.toMatchObject({ code: 'missing-binding' });
     expect(() => locals.runtime.build).toThrow('invalid-build');
     expect(locals.runtime.now().toISOString()).toBe('2026-10-17T00:00:00.000Z');

@@ -108,11 +108,22 @@ if [[ -z $(wrangler d1 execute "$DB" --remote --json -c "$CONFIG" --command "SEL
 	say 'runtime sentinels provisioned'
 fi
 
-upload=$(wrangler versions upload -c "$CONFIG" --tag "$sha" --message "deploy-staging.sh $(git log -1 --format=%s | head -c 80)" 2>&1) || { echo "$upload" >&2; die 'versions upload failed'; }
-version=$(grep -oE 'Worker Version ID: [0-9a-f-]{36}' <<<"$upload" | cut -d' ' -f4)
-[[ -n $version ]] || { echo "$upload" >&2; die 'no Worker Version ID in the upload output'; }
-say "uploaded version $version"
-wrangler versions deploy "$version@100%" -y -c "$CONFIG" --message "deploy-staging.sh $sha" >&2
+message="deploy-staging.sh $(git log -1 --format=%s | head -c 80)"
+if upload=$(wrangler versions upload -c "$CONFIG" --tag "$sha" --message "$message" 2>&1); then
+	version=$(grep -oE 'Worker Version ID: [0-9a-f-]{36}' <<<"$upload" | cut -d' ' -f4)
+	[[ -n $version ]] || { echo "$upload" >&2; die 'no Worker Version ID in the upload output'; }
+	say "uploaded version $version"
+	wrangler versions deploy "$version@100%" -y -c "$CONFIG" --message "deploy-staging.sh $sha" >&2
+elif grep -q 'Worker that does not yet exist' <<<"$upload"; then
+	# Only the very first deploy: `versions upload` needs an existing Worker.
+	say 'the Worker does not exist yet: creating it with wrangler deploy'
+	upload=$(wrangler deploy -c "$CONFIG" --tag "$sha" --message "$message" 2>&1) || { echo "$upload" >&2; die 'wrangler deploy failed'; }
+	version=$(grep -oE 'Current Version ID: [0-9a-f-]{36}' <<<"$upload" | cut -d' ' -f4)
+	[[ -n $version ]] || { echo "$upload" >&2; die 'no Current Version ID in the deploy output'; }
+else
+	echo "$upload" >&2
+	die 'versions upload failed'
+fi
 
 mkdir -p "$(dirname "$LOG")"
 printf '{"at":"%s","sha":"%s","version":"%s","bookmark":"%s"}\n' "$(date -u +%FT%TZ)" "$sha" "$version" "$bookmark" >>"$LOG"

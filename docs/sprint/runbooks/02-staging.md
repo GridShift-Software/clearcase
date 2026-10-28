@@ -60,6 +60,17 @@ scripts/deploy-staging.sh --rollback <version-id> # to that version
 node node_modules/wrangler/bin/wrangler.js d1 time-travel restore clearcase-staging-db --bookmark <bookmark> -c deploy/staging/wrangler.jsonc
 ```
 
+## Audit capacity
+
+Every signed-in page read, original download and user-work write appends one protected audit event. At `auditLimits.maxRows` the log refuses the append and the action with it, so every signed-in page answers 503. One day of journeys and probes on 28 October wrote about 10,000 events, which is why staging's cap is 1,000,000 (GRS-270); the ceiling is 50,000,000. Any client Worker built from `deploy/native-alpha/runtime-config.ts` takes its `policy.auditLimits` from its manifest and has no default, so set `maxRows` there the same way before the demo: 1,000,000 covers it.
+
+Check the count before a gate run or the demo, and raise the cap in the config and redeploy once it passes half:
+
+```sh
+node node_modules/wrangler/bin/wrangler.js d1 execute clearcase-staging-db --remote -c deploy/staging/wrangler.jsonc \
+  --command "select event_count from native_audit_binding"
+```
+
 ## Secrets
 
 `scripts/deploy-staging.sh --secrets` puts `CLERK_CLIENT_SECRET_KEY`, `CLERK_STAFF_SECRET_KEY`, `CLERK_CLIENT_JWT_KEY` and `CLERK_STAFF_JWT_KEY` on the Worker and on the Preview base config, through Wrangler's stdin. The JWT keys are each instance's public RSA key, read from the Backend API (`GET /v1/jwks`) and converted to PEM. Rerun it after a Clerk key rotation; secrets survive deploys.

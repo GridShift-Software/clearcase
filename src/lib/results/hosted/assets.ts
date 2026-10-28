@@ -45,7 +45,7 @@ export function createCloudAssets(a: { open: () => Promise<OpenStorage>; identit
     const s = await open();
     await authorize(s, asset);
     const row = asset.kind === 'original'
-      ? await s.db.prepare('SELECT o.sha256, o.size, o.object_key, o.etag, o.media_family, c.media_type, c.filename FROM rs_case_original c JOIN rs_original o ON o.sha256 = c.sha256 WHERE c.case_id = ? AND c.asset_id = ?').bind(asset.caseId, asset.assetId).first<Located>().catch(failed)
+      ? await s.db.prepare(`SELECT o.sha256, o.size, o.object_key, ${a.fastOriginals ? 'o.etag, o.media_family,' : ''} c.media_type, c.filename FROM rs_case_original c JOIN rs_original o ON o.sha256 = c.sha256 WHERE c.case_id = ? AND c.asset_id = ?`).bind(asset.caseId, asset.assetId).first<Located>().catch(failed)
       : await s.db.prepare('SELECT p.sha256, p.size, p.object_key, p.media_type, p.filename FROM rs_preview p JOIN rs_results_version v ON v.version_id = p.version_id WHERE p.version_id = ? AND p.asset_id = ? AND v.case_id = ?').bind(asset.resultsVersion, asset.assetId, asset.caseId).first<Located>().catch(failed);
     if (!row) throw contractError('not-found');
     return { s, row };

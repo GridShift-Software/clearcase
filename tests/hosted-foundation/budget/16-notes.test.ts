@@ -1,7 +1,7 @@
 // Synthetic SQLite/D1-double call budgets. These do not measure a deployed Worker or save latency.
 import { expect, it } from 'vitest';
 import { createD1UserWork } from '../../../src/lib/user-work/hosted/d1-user-work.ts';
-import { load as document } from '../../../deploy/client/routes/cases/[caseId]/v/[version]/doc/[ref]/+page.server.ts';
+import { load as document, actions } from '../../../deploy/client/routes/cases/[caseId]/v/[version]/doc/[ref]/+page.server.ts';
 import { counters, countedD1, measure } from './harness.ts';
 import { authority, auditLog, bind, CASE, caseReader, CLIENT, d1, database, LIMITS, RV1, SHA_A } from '../user-work/world.ts';
 import type * as C from '../../../src/lib/server/runtime/contracts.ts';
@@ -59,6 +59,30 @@ it('16 document loader uses one notes query plus one links call beyond publicati
     expect(result.thrown).toBeUndefined();
     expect(result.value?.notes).toMatchObject([{ body: 'Synthetic page note', refAtCreation: 'D-001' }]);
     expect([result.counts.d1, links, anchors]).toEqual([1, 1, 0]);
+  } finally { w.db.close(); }
+});
+
+it('16 document note action survives a loader roundtrip, and the bound read fetches only that document', async () => {
+  const w = notes();
+  try {
+    const doc = { ref: 'D-001', source: 'results', fields: {}, state: { original: { sha256: SHA_A }, flags: [] }, attachments: [], assetIds: {}, mediaType: null, originalState: 'missing' };
+    const locals = {
+      store: { publication: async () => ({ versionId: RV1, shardManifestSha256: 'a'.repeat(64), shards: { 'doc/D-001.json': 100 } }) },
+      userWork: w.work, shards: { read: async () => Response.json(doc) },
+    } as unknown as C.RequestServices;
+    const form = new FormData(); form.set('body', 'Synthetic action roundtrip'); form.set('operationId', 'action-roundtrip');
+    const event = { locals, params: { caseId: CASE, version: RV1, ref: 'D-001' }, url: new URL('https://synthetic.invalid/'),
+      request: new Request('https://synthetic.invalid/?/note', { method: 'POST', body: form }) };
+    expect(await actions.note!(event as never)).toEqual({ saved: true });
+    // Populate many other targets. Their bodies deliberately lack valid hashes: a bounded document read must never fetch/decode them.
+    const insert = w.db.prepare(`INSERT INTO uw_note (case_id,note_id,target_kind,anchor_results_version,anchor_ref,anchor_sha256,target_json,body,body_sha256,created_at,version) VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
+    for (let i = 0; i < 200; i++) insert.run(CASE, `other-${i}`, 'document', RV1, 'D-OTHER', SHA_A, '{}', 'Other document', 'invalid', '2200-01-01T00:00:00Z', `other-${i}`);
+    const result = await measure(w.c, () => document(event as never));
+    expect(result.thrown).toBeUndefined(); expect(result.counts.d1).toBe(1);
+    expect(result.value?.notes).toMatchObject([{ body: 'Synthetic action roundtrip', refAtCreation: 'D-001', resultsVersion: RV1, anchorSha256: SHA_A }]);
+    expect(result.value?.notes).toHaveLength(1);
+    w.db.prepare('DELETE FROM uw_note WHERE anchor_ref = ?').run('D-001');
+    expect((await document(event as never)).notes).toEqual([]); // the LEFT JOIN retains the valid binding for an empty document
   } finally { w.db.close(); }
 });
 

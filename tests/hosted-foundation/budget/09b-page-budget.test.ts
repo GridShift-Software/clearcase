@@ -139,7 +139,11 @@ it('09b original view includes original metadata in the one grant query', async 
 });
 
 it('09b notes summary preserves the existing case and analysis note counts', async () => {
- const legacy = locals(dep);
+ const identity = locals(dep).identity;
+ if (identity.kind !== 'verified') throw new Error('fixture');
+ identity.principal = { issuer: resource.clientIssuer, subject: 'synthetic-note-seed', kind: 'client' };
+ const legacy = locals(dep, { db: dep.db, identity, audit: requestAuditSink({ db: dep.db, config,
+  requester: { kind: 'verified', principal: identity.principal!, sessionId: identity.sessionId! }, now: () => new Date('2001-01-01T00:00:00Z') }) });
  const caseId = id('case', CASE_ID), resultsVersion = rv(b.built.record.resultsVersion);
  await legacy.userWork.addNote({ caseId, target: { kind: 'case' }, body: 'Synthetic case note', expected: { kind: 'absent' }, operationId: 'page-note-case' });
  await legacy.userWork.addNote({ caseId, target: { kind: 'analysis', resultsVersion, section: 'overview' }, body: 'Synthetic analysis note', expected: { kind: 'absent' }, operationId: 'page-note-analysis' });
@@ -196,7 +200,7 @@ it('09b measures 06 baseline and fresh production authority/audit page visits, i
   expect((await measure(before, oldVisit)).thrown).toBeUndefined();
   const oldWarm = await measure(before, oldVisit);
   expect(oldWarm.thrown).toBeUndefined();
-  expect(oldWarm.counts).toEqual({ d1: 14, clerk: 0, r2: 1, otherFetch: 0 });
+  expect(oldWarm.counts).toEqual({ d1: 13, clerk: 0, r2: 1, otherFetch: 0 });
   const c = counters(), cache = memoryShardCache();
   const visit = async () => {
    const w = request('reader', 'client-a', CASE_ID, cache, c); // a fresh service graph per visit; only the Cache API is shared

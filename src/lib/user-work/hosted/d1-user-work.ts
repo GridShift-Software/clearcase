@@ -334,11 +334,12 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       const { db, caseId } = await authorize(a, 'read', true);
       if (a.target !== null && !TargetCheck.Check(a.target)) invalid();
       if (a.target?.kind === 'document' && a.target.anchor.caseId !== caseId) throw contractError('forbidden');
+      const document = a.target?.kind === 'document' ? a.target.anchor : null;
       // The binding and rows share one read, including the empty case. A missing/wrong binding never looks like zero notes.
       const rows = await read(() => db.prepare(`SELECT n.note_id, n.target_json, n.body, n.body_sha256, n.created_at, n.version
-        FROM uw_binding b LEFT JOIN uw_note n ON n.case_id = ?
+        FROM uw_binding b LEFT JOIN uw_note n ON n.case_id = ?${document ? " AND n.target_kind = 'document' AND n.anchor_results_version = ? AND n.anchor_ref = ?" : ''}
         WHERE b.singleton = 1 AND b.client_id = ? AND b.schema_version = ? ORDER BY n.rowid`)
-        .bind(caseId, config.clientId, USER_WORK_SCHEMA_VERSION).all<NoteDb>());
+        .bind(caseId, ...(document ? [document.resultsVersion, document.refAtCreation] : []), config.clientId, USER_WORK_SCHEMA_VERSION).all<NoteDb>());
       if (!rows.results.length) throw contractError('storage-unavailable');
       const notes = await Promise.all(rows.results.filter(n => n.note_id !== null).map(noteOf));
       return a.target === null ? notes : notes.filter((n) => sameJson(n.target, a.target));

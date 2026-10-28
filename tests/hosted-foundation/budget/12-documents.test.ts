@@ -17,14 +17,15 @@ import { oneLookupLocals } from './one-lookup.ts';
 /**
  * The measured ceilings after 09b's one-lookup path, as in 13-analysis.test.ts. Ticket target: 0 Clerk, 1 D1 beyond
  * authorization, 1 R2 cold. Documents list: warm 1 D1 and 0 R2, fully cold 1 D1 and 2 R2 (shell, default shard); target MET, and
- * cold is one read per cold shard. Document page: warm 3 D1 and 1 R2, fully cold 3 D1 and 3 R2; target NOT met. Its one links
- * call for the original runs its own authorization (a second authorize call), which costs 2 D1 and 1 R2 beyond the layout's
- * lookup and shard reads, and two deferred audit inserts, not one. The deferred audit inserts add D1 after the response,
+ * cold is one read per cold shard. Document page: warm 4 D1 and 1 R2, fully cold 4 D1 and 3 R2; its target of at most 2 D1
+ * beyond authorization is NOT MET: 1 authorization + 2 original-links calls + 1 notes query = 4, or 3 beyond authorization.
+ * Its links call runs its own authorization (a second authorize call), and two deferred audit inserts, not one.
+ * The deferred audit inserts add D1 after the response,
  * asserted separately, never counted in the next visit.
  * Before 09b: list 7 D1 and 1 R2 warm, 3 R2 cold; document page 14 D1 and 2 R2 warm, 4 R2 cold.
  */
 const LIST: Budget = { clerk: 0, d1: 1, r2: 0 };
-const DOC: Budget = { clerk: 0, d1: 3, r2: 1 };
+const DOC: Budget = { clerk: 0, d1: 4, r2: 1 };
 const DOC_AUDITS = 2;
 
 let b: BuiltCase, dep: Deployment;

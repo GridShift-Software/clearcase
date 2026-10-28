@@ -145,10 +145,14 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
     await standing();
   }
   /** Revocation, then the case grant, on every operation. */
-  async function authorize(scope: C.Scope, operation: 'read' | 'write-user-work'): Promise<{ db: D1; caseId: C.CaseId }> {
+  async function authorize(scope: C.Scope, operation: 'read' | 'write-user-work', inlineBinding = false): Promise<{ db: D1; caseId: C.CaseId }> {
     const caseId = caseOf(scope);
     await standing();
     await identity.authorize({ caseId, operation });
+    if (inlineBinding) {
+      if (!options.db) throw contractError('storage-unavailable');
+      return { db: options.db, caseId };
+    }
     return { db: await gate(), caseId };
   }
   const read = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof Error && 'code' in e) throw e; throw contractError('storage-unavailable', true); } };
@@ -311,9 +315,16 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       return { status: refs.length === 0 ? 'missing' : refs.length === 1 ? 'exact' : 'ambiguous', refs };
     },
     async notesFor(a) {
-      const { db, caseId } = await authorize(a, 'read');
+      const { db, caseId } = await authorize(a, 'read', true);
       if (a.target !== null && !TargetCheck.Check(a.target)) invalid();
-      const notes = await notesOf(db, caseId);
+      if (a.target?.kind === 'document' && a.target.anchor.caseId !== caseId) throw contractError('forbidden');
+      // The binding and rows share one read, including the empty case. A missing/wrong binding never looks like zero notes.
+      const rows = await read(() => db.prepare(`SELECT n.note_id, n.target_json, n.body, n.body_sha256, n.created_at, n.version
+        FROM uw_binding b LEFT JOIN uw_note n ON n.case_id = ?
+        WHERE b.singleton = 1 AND b.client_id = ? AND b.schema_version = ? ORDER BY n.rowid`)
+        .bind(caseId, config.clientId, USER_WORK_SCHEMA_VERSION).all<NoteDb>());
+      if (!rows.results.length) throw contractError('storage-unavailable');
+      const notes = await Promise.all(rows.results.filter(n => n.note_id !== null).map(noteOf));
       return a.target === null ? notes : notes.filter((n) => sameJson(n.target, a.target));
     },
     async summary(a) {

@@ -63,8 +63,10 @@ export function hostedWork(locals: Pick<C.RequestServices, 'userWork'>, rawCaseI
 /** Hosted failures retain the local Answer shape. Never log raw exceptions or return storage details. */
 export async function guarded<T, V extends Record<string, string> | null, X extends Record<string, unknown> = {}>(op: string, values: V, write: (work: Work) => Promise<T>, say: Say, extra: X = {} as X, work?: Work) {
   try {
-    if (!work) throw contractError('invalid');
-    return { ok: true as const, value: await write(work) };
+    if (!work && write.length) throw contractError('invalid');
+    const value = await write(work as Work);
+    if (value && typeof value === 'object' && 'kind' in value && (value.kind === 'stale' || value.kind === 'gone')) throw contractError(value.kind);
+    return { ok: true as const, value };
   } catch (e) {
     if (isDenial(e)) refuse(e, 'write');
     const code = codeOf(e);

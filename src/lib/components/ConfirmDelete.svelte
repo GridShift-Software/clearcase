@@ -85,6 +85,6 @@
 
 <style>
 	.opener[hidden] { display: none; }
-	.confirm { display: inline-flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
-	.question { font-weight: 600; }
+	.confirm { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+	.question { font-size: 13px; font-weight: 600; color: var(--ink); }
 </style>

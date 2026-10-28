@@ -57,15 +57,21 @@ export async function rcWorld() {
   } });
   const slow = new Proxy(raw, { get(t, p) {
     const v = Reflect.get(t, p);
-    if (p === 'prepare') return (...a: unknown[]) => { if (process.env.RC_SQL) console.log('[DEBUG-rc266]', String(a[0]).replace(/\s+/g, ' ').slice(0, 110)); return slowStatement(t.prepare(...a)); };
+    if (p === 'prepare') return (...a: unknown[]) => slowStatement(t.prepare(...a));
     if (p === 'batch') return async (s: unknown[]) => { batches++; await wait(); return t.batch(s); };
     return typeof v === 'function' ? v.bind(t) : v;
   } });
   const db = countedD1(slow, w.counters), pending: Promise<void>[] = [];
-  // An R2 put is held as long as R2_PUT_DELAYS D1 calls, about staging's ratio (250 ms against 40 ms).
+  // An R2 put is held as long as R2_PUT_DELAYS D1 calls, about staging's ratio (250 ms against 40 ms), or until a test
+  // releases the put it holds (`holdPut`).
+  let held: { reached: () => void; released: Promise<void> } | null = null;
   const bucket = countedR2(new Proxy(w.bucket, { get(t, p) {
     const v = Reflect.get(t, p);
-    if (p === 'put') return async (...a: unknown[]) => { if (delay) await new Promise(r => setTimeout(r, delay * R2_PUT_DELAYS)); return Reflect.apply(v, t, a); };
+    if (p === 'put') return async (...a: unknown[]) => {
+      if (held) { held.reached(); await held.released; }
+      if (delay) await new Promise(r => setTimeout(r, delay * R2_PUT_DELAYS));
+      return Reflect.apply(v, t, a);
+    };
     return typeof v === 'function' ? v.bind(t) : v;
   } }), w.counters);
   const env = runtimeEnv(file, { DB: Object.assign(db, { withSession: () => db }), BUCKET: bucket,
@@ -98,7 +104,14 @@ export async function rcWorld() {
       return { ...result, batches, sequential };
     } finally { delay = 0; await Promise.all(pending.splice(0)); }
   }
-  return { ...w, rv, base, origin, request, timed, pending, batches: () => batches,
+  /** Holds the next R2 puts until `release()`; `reached` resolves once one is waiting. */
+  function holdPut() {
+    let reached!: () => void, release!: () => void;
+    const hit = new Promise<void>(r => { reached = r; }), released = new Promise<void>(r => { release = r; });
+    held = { reached, released };
+    return { reached: hit, release: () => { held = null; release(); } };
+  }
+  return { ...w, rv, base, origin, request, timed, holdPut, pending, batches: () => batches,
     async cleanup() { await Promise.all(pending); w.db.sqlite.close(); } };
 }
 export type RcWorld = Awaited<ReturnType<typeof rcWorld>>;

@@ -981,43 +981,36 @@ try {
 		})`);
 		return { pass: link.same && link.type === 'application/pdf' && /^blob:/.test(link.url ?? ''), evidence: { first, link } };
 	});
-	await S('CB-BUILD-RELOAD', 'court_bundle_tab', 'GRS-160: a builder Save stored just before the server dies, while the page reloads its data: the builder leaves Saving…, enables Save again and the page shows the reload error; after the restart the saved bundle is listed and can be removed', async () => {
+	await S('CB-BUILD-SAVE', 'court_bundle_tab', 'GRS-264: a builder Save shows the saved bundle from the save\'s answer, with no reload of the page data (it replaces CB-BUILD-RELOAD, whose reload no longer happens): the builder leaves Saving…, the page opens the saved bundle with its stored PDF link and no error, the bundle is listed, stays after a full reload and can be removed', async () => {
 		const q = await page(b, A.origin);
-		let orig = '';
 		try {
-			const ev = await reloadDies(q, '', undefined, {
-				prepare: async () => {
-					// an unsaved header field makes the page refuse SvelteKit's fallback load, so the page keeps its state
-					orig = await val(q, 'cbh_judge');
-					await setVal(q, 'cbh_judge', 'SYN TYPED BEFORE BUILDING');
-					await q.click('#cb-build');
-					await q.waitFor(`document.getElementById('cbbfile')`, 30000);
-					await pick(q, ['Alpha_Statement.pdf']);
-					await q.waitFor(`document.querySelectorAll('#cbbfiles tbody tr').length === 1 && !document.getElementById('cbbmsg').textContent`, 30000);
-					await q.type('#cbbname', 'Syn Reload');
-					await q.click('#cbbrun');
-					await q.waitFor(`document.getElementById('cbbdownload')`, 60000);
-				},
-				save: '#cbbsave',
-				settled: `!document.querySelector('#cbbout .saving')`,
-			});
-			const now = await q.evaluate(`({ saving: !!document.querySelector('#cbbout .saving'), saveDisabled: document.getElementById('cbbsave')?.disabled ?? null, error: document.getElementById('cb-reload-error')?.textContent.trim() ?? '', alert: document.getElementById('cb-reload-error')?.getAttribute('role') ?? null })`).catch(() => null);
+			await q.go(B, 'court_bundle_tab');
+			await q.click('#cb-build');
+			await q.waitFor(`document.getElementById('cbbfile')`, 30000);
+			await pick(q, ['Alpha_Statement.pdf']);
+			await q.waitFor(`document.querySelectorAll('#cbbfiles tbody tr').length === 1 && !document.getElementById('cbbmsg').textContent`, 30000);
+			await q.type('#cbbname', 'Syn Reload');
+			await q.click('#cbbrun');
+			await q.waitFor(`document.getElementById('cbbdownload')`, 60000);
+			const mk = b.mark();
+			await q.click('#cbbsave');
+			await q.waitFor(`/SYN RELOAD/.test(document.getElementById('cb-bundle-h')?.textContent ?? '')`, 30000);
 			const mine = () => customRows().filter((r) => r.name === 'SYN RELOAD');
-			const stored = mine().length;
+			const sent = b.since(mk).requests;
+			const opened = await q.evaluate(`({ heading: document.getElementById('cb-bundle-h').textContent, open: [...document.querySelectorAll('#cb-bundle .toolbar a')].map((a) => a.getAttribute('href')), error: document.getElementById('cb-reload-error')?.textContent.trim() ?? '' })`);
+			const reloads = sent.filter((r) => /__data\.json/.test(r.url)).length, posts = sent.filter((r) => r.method === 'POST' && /\/assembled$/.test(r.url)).length;
+			const no = mine()[0]?.no;
 			const after = {};
-			try {
-				// back to the list, and the field typed before building back to what it was, so the page lets this tab go
-				await q.click('#cb-builder-back');
-				await q.waitFor(`document.getElementById('cbh_judge')`, 30000);
-				await setVal(q, 'cbh_judge', orig);
-				await q.go(B, 'court_bundle_tab');
-				after.listed = await q.evaluate(`[...document.querySelectorAll('#cb-list tbody tr')].some((r) => r.textContent.includes('SYN RELOAD'))`);
-				await q.evaluate(`window.confirm = () => true`);
-				await q.click(`[data-delete="${mine()[0]?.no}"]`);
-				await until(() => mine().length === 0, 30000);
-				after.removed = mine().length === 0;
-			} catch (e) { after.error = String(e?.message ?? e).slice(0, 200); }
-			return { pass: ev.kills === 1 && ev.settled && now?.saving === false && now.saveDisabled === false && /could not reload/.test(now.error) && now.alert === 'alert' && stored === 1 && after.listed === true && after.removed === true, evidence: { ...ev, now, stored, after } };
+			await q.click('#cb-all');
+			await q.waitFor(`document.getElementById('cb-list')`, 30000);
+			after.row = await q.evaluate(`[...document.querySelectorAll('#cb-list tbody tr')].filter((r) => r.textContent.includes('SYN RELOAD')).map((r) => [...r.querySelectorAll('a')].map((a) => a.getAttribute('href')))`);
+			await q.go(B, 'court_bundle_tab');
+			after.listed = await q.evaluate(`[...document.querySelectorAll('#cb-list tbody tr')].some((r) => r.textContent.includes('SYN RELOAD'))`);
+			await q.evaluate(`window.confirm = () => true`);
+			await q.click(`[data-delete="${no}"]`);
+			await until(() => mine().length === 0, 30000);
+			const link = (hrefs) => hrefs.some((h) => /\/assembled\?id=/.test(h ?? ''));
+			return { pass: posts === 1 && reloads === 0 && /SYN RELOAD/.test(opened.heading) && link(opened.open) && opened.error === '' && mine().length === 0 && after.row.length === 1 && link(after.row[0]) && after.listed === true, evidence: { posts, reloads, opened, no, after } };
 		} finally { await q.close(); }
 	});
 	await S('CB-HEADER-NOJS-CONFIRM', 'court_bundle_tab', 'without JavaScript the Court Bundle header offers no confirmation or Add form', async () => {

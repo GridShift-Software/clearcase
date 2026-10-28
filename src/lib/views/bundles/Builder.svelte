@@ -111,6 +111,7 @@
 		const o = bld.out;
 		if (!o || bld.saving) return;
 		const { no: _, ...entry } = savedBundle(o, '');
+		entry.note = 'Built in this app. The saved PDF and item list are kept.';
 		bld.saving = true;
 		bld.saveError = null;
 		try {

@@ -16,7 +16,7 @@
 	import { blobs } from '$lib/views/bundles/builder.svelte';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
- const NOT_SERVED = $derived(data.hosted ? 'not available on hosted' : LOCAL_NOT_SERVED);
+ const NOT_SERVED = $derived('hosted' in data && data.hosted ? 'not available on hosted' : LOCAL_NOT_SERVED);
 	const vid = $derived(data.version.id);
 	const c = $derived(data.content);
 	const bs = $derived(data.bundles);

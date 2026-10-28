@@ -137,7 +137,7 @@ export interface CustomPart { rel: string; url: string; name: string; from: numb
 export interface CustomRow { n: number; key: string; desc: string; pages: number; from: number; to: number; parts: CustomPart[] }
 export interface Custom { no: string; name: string; pages: number; indexPages: number; filePages: number; note: string; rows: CustomRow[] }
 
-export const SAVED_NOTE = 'Built in this app. The saved PDF and item list are kept.';
+export const SAVED_NOTE = 'Built in this app. The PDF stays available until this window is closed; the item list is kept.';
 /** v5 cbBldSave numbering: the lowest C<i> no custom or shipped bundle uses. */
 export function nextCustomNo(custom: readonly { no: string }[], shipped: readonly { no: string }[]): string {
 	let i = 1;

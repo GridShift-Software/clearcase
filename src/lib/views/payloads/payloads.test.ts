@@ -1,5 +1,5 @@
 // Ticket 04: the shard types follow the local loaders. A read-only view's shard is its loader's return value; a mixed
-// view's shard agrees with its loader on every field they share, and its merge returns exactly what the loader returns.
+// view's shard is its page data less the fields its merge declares it replaces or adds, and its merge returns the loader's value.
 // Checked by tsc (`bunx tsc --noEmit -p .`); the runtime assertions only keep Vitest collecting the file.
 import { describe, expectTypeOf, it } from 'vitest';
 import type { ShellShard, ViewShards, DocShard, OverviewShard } from '../payloads.ts';
@@ -39,9 +39,12 @@ import type { enforcementMerge } from '../litigation/enforcement.ts';
 import type { infoRequiredMerge } from './info-required.ts';
 import type { overviewMerge } from '../overview/merge.ts';
 
-/** The shard's fields that the page data also has, with the page data's types. */
-type Shared<Shard, Data> = Pick<Data, keyof Shard & keyof Data>;
-type Own<Shard, Data> = Pick<Shard, keyof Shard & keyof Data>;
+/**
+ * A mixed view's contract with its loader. `Replaced` names the shard fields the merge consumes or rewrites, and `Added`
+ * the page fields the merge introduces. Everything else must be the same field with the same type on both sides, so a
+ * shard field missing from the page, a page field the shard does not carry, or an undeclared type change all fail.
+ */
+type Rest<T, K extends keyof T> = Omit<T, K>;
 
 describe('payload types', () => {
 	it('read-only views: each loader return is assignable to its shard', () => {
@@ -62,23 +65,32 @@ describe('payload types', () => {
 		expectTypeOf<Prescription>().toExtend<ViewShards['prescription_tab']>();
 	});
 
-	it('mixed views: the loader returns what merge returns, and agrees with the shard on their shared fields', () => {
+	it('mixed views: the loader returns what merge returns, and the shard is the page data less the declared merge work', () => {
 		expectTypeOf<Filings>().toEqualTypeOf<ReturnType<typeof filingsMerge>>();
-		expectTypeOf<Shared<ViewShards['filings_tab'], Filings>>().toExtend<Own<ViewShards['filings_tab'], Filings>>();
+		expectTypeOf<Rest<Filings, 'entries' | 'files' | 'editing'>>().toEqualTypeOf<Rest<ViewShards['filings_tab'], 'fileOf'>>();
 		expectTypeOf<Payments>().toEqualTypeOf<ReturnType<typeof paymentsMerge>>();
-		expectTypeOf<Shared<ViewShards['payments_tab'], Payments>>().toExtend<Own<ViewShards['payments_tab'], Payments>>();
+		expectTypeOf<Rest<Payments, 'payments'>>().toEqualTypeOf<ViewShards['payments_tab']>();
 		expectTypeOf<Interest>().toEqualTypeOf<ReturnType<typeof interestMerge>>();
-		expectTypeOf<Shared<ViewShards['interest_calc_tab'], Interest>>().toExtend<Own<ViewShards['interest_calc_tab'], Interest>>();
+		expectTypeOf<Rest<Interest, 'paymentDates'>>().toEqualTypeOf<ViewShards['interest_calc_tab']>();
 		expectTypeOf<Settlement>().toEqualTypeOf<ReturnType<typeof settlementMerge>>();
-		expectTypeOf<Shared<ViewShards['settlement_tab'], Settlement>>().toExtend<Own<ViewShards['settlement_tab'], Settlement>>();
+		expectTypeOf<Rest<Settlement, 'claim' | 'payments'>>().toEqualTypeOf<Rest<ViewShards['settlement_tab'], 'claimDate' | 'importedClaim'>>();
 		expectTypeOf<Authorities>().toEqualTypeOf<ReturnType<typeof authoritiesMerge>>();
-		expectTypeOf<Shared<ViewShards['authorities_tab'], Authorities>>().toExtend<Own<ViewShards['authorities_tab'], Authorities>>();
+		expectTypeOf<Rest<Authorities, 'addId' | 'user'>>().toEqualTypeOf<ViewShards['authorities_tab']>();
 		expectTypeOf<Crossexam>().toEqualTypeOf<ReturnType<typeof crossexamMerge>>();
-		expectTypeOf<Shared<ViewShards['crossexam_tab'], Crossexam>>().toExtend<Own<ViewShards['crossexam_tab'], Crossexam>>();
+		expectTypeOf<Rest<Crossexam, 'known' | 'rows' | 'addId'>>().toEqualTypeOf<Rest<ViewShards['crossexam_tab'], 'knownSeedRefs'>>();
 		expectTypeOf<Enforcement>().toEqualTypeOf<ReturnType<typeof enforcementMerge>>();
-		expectTypeOf<Shared<ViewShards['enforcement_tab'], Enforcement>>().toExtend<Own<ViewShards['enforcement_tab'], Enforcement>>();
+		expectTypeOf<Rest<Enforcement, 'rows'>>().toEqualTypeOf<Rest<ViewShards['enforcement_tab'], 'rows'>>();
 		expectTypeOf<InfoRequired>().toEqualTypeOf<ReturnType<typeof infoRequiredMerge>>();
-		expectTypeOf<Shared<ViewShards['info_required_tab'], InfoRequired>>().toExtend<Own<ViewShards['info_required_tab'], InfoRequired>>();
+		expectTypeOf<Rest<InfoRequired, 'detached'>>().toEqualTypeOf<ViewShards['info_required_tab']>();
+	});
+
+	it('mixed views: the contract check catches a missing field and an undeclared type change', () => {
+		// Page data that lost one of the shard's fields.
+		// @ts-expect-error narrative is on the settlement shard but not on this page data
+		expectTypeOf<Rest<Omit<Settlement, 'narrative'>, 'claim' | 'payments'>>().toEqualTypeOf<Rest<ViewShards['settlement_tab'], 'claimDate' | 'importedClaim'>>();
+		// The merge rewrites enforcement's rows; leaving that undeclared must fail rather than pass on the shared key.
+		// @ts-expect-error the page's rows are not the shard's rows
+		expectTypeOf<Enforcement>().toEqualTypeOf<ViewShards['enforcement_tab']>();
 	});
 
 	it('overview, shell and document shards follow their loaders', () => {

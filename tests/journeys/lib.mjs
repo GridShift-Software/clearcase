@@ -111,22 +111,27 @@ async function signIn(j) {
   await j.measure('sign-in', async () => {
     try {
       await j.page.goto(`${BASE_URL}${process.env.SIGN_IN_PATH || '/sign-in'}`, { waitUntil: 'domcontentloaded' });
-      const deadline = Date.now() + 30000;
+      // Clerk's hosted flow restarts if its button is clicked again mid-step, and a step can take several seconds on the
+      // development instance, so each pass waits up to 1.5 s and a step that throws (a field detached mid-render) is retried.
+      const deadline = Date.now() + 60000;
+      const quietly = p => p.catch(() => false);
       while (Date.now() < deadline) {
         const u = new URL(j.page.url());
-        if (u.origin === new URL(BASE_URL).origin && !u.pathname.startsWith('/sign-in') && await j.page.locator('[data-auth-state="signed-in"], a[data-action="open-case"], nav[aria-label="Case views"]').first().isVisible()) return;
+        if (u.origin === new URL(BASE_URL).origin && !u.pathname.startsWith('/sign-in') && await quietly(j.page.locator('[data-auth-state="signed-in"], a[data-action="open-case"], nav[aria-label="Case views"]').first().isVisible())) return;
         const email = j.page.locator('input[name="identifier"],input[type="email"]').first();
         const password = j.page.locator('input[type="password"]').first();
         const code = j.page.locator('input[autocomplete="one-time-code"]').first();
-        if (await email.isVisible() && await email.isEditable()) await email.fill(credentials.email);
-        if (await password.isVisible() && await password.isEditable()) await password.fill(credentials.password);
-        if (await code.isVisible()) {
+        if (await quietly(email.isVisible()) && await quietly(email.isEditable())) await quietly(email.fill(credentials.email, { timeout: 5000 }));
+        if (await quietly(password.isVisible()) && await quietly(password.isEditable())) await quietly(password.fill(credentials.password, { timeout: 5000 }));
+        if (await quietly(code.isVisible())) {
           check(credentials.otp, 'OTP needed');
-          await code.fill(credentials.otp);
+          await quietly(code.fill(credentials.otp, { timeout: 5000 }));
         }
         const submit = j.page.getByRole('button', { name: /^(Continue|Sign in|Sign in to ClearCase)$/i }).first();
-        if (await submit.isVisible() && await submit.isEnabled()) await submit.click();
-        await new Promise(resolve => setTimeout(resolve, 100));
+        if (await quietly(submit.isVisible()) && await quietly(submit.isEnabled())) await quietly(submit.click({ timeout: 5000 }));
+        // Wait up to 1.5 s for the next step, returning as soon as the app is reached so the sign-in timing isn't padded.
+        const app = new URL(BASE_URL).origin;
+        await quietly(j.page.waitForURL(x => x.origin === app && !x.pathname.startsWith('/sign-in'), { timeout: 1500 }));
       }
       throw new Error('Sign-in timeout');
     } catch { throw new Error('Hosted sign-in failed; inspect authentication privately'); }

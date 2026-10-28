@@ -105,7 +105,7 @@ test('200 C/O marks persist through bulk adapter batches within staging statemen
 			).length,
 		).toBe(200);
 		expect(maxStatements).toBeLessThanOrEqual(20);
-		expect(batches).toBe(24);
+		expect(batches).toBe(13); // 200 rows in batches of 16, each with its audit event (GRS-266); no acknowledgement batches
 		expect(calls).toBeLessThan(1000);
 		console.info('18 bulk marks', {
 			keys: 200,
@@ -116,7 +116,7 @@ test('200 C/O marks persist through bulk adapter batches within staging statemen
 		const before = binding.statements.length;
 		const conflict = await actions.co!(event('C', 'C'));
 		expect(conflict).toMatchObject({ status: 409 });
-		expect(batches).toBe(24);
+		expect(batches).toBe(13);
 		expect(binding.statements.length - before).toBeLessThan(10);
 		expect(
 			chunkKeys(Array.from({ length: 1000 }, (_, i) => String(i))).every(

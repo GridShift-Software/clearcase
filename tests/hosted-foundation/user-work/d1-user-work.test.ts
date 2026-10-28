@@ -14,7 +14,7 @@ import { auditConfig, requestAuditSink } from '../../../src/lib/audit/index.ts';
 import { provisionAuditBinding } from '../../../src/lib/audit/trusted.ts';
 import { readFileSync } from 'node:fs';
 import {
-  auditLog, authority, bind, CASE, caseReader, CLIENT, d1, database, ISSUER, LIMITS, OTHER_CASE, OTHER_CLIENT, RV1, RV2,
+  appendOnly, auditLog, authority, bind, CASE, caseReader, CLIENT, d1, database, ISSUER, LIMITS, OTHER_CASE, OTHER_CLIENT, RV1, RV2,
   SHA_A, SHA_B, SHA_C, type Fault,
 } from './world.ts';
 
@@ -268,7 +268,8 @@ describe('concurrency, idempotency, lost acknowledgements and restart', () => {
   });
 
   it('keeps a write whose audit acknowledgement was lost and acknowledges the identical event on retry', async () => {
-    const { make, audit, db } = setup(), work = make();
+    // The append-and-replay path: a sink without atomic audit (an atomic sink fails the batch instead, below).
+    const { make, audit, db } = setup(), work = make({ audit: appendOnly(audit.sink) });
     audit.state.failAfterStore = true;
     await expect(work.putRow({ caseId: CASE, store: 'time', rowId: 'r1', fields: { hours: 1 }, anchor: null, expected: { kind: 'absent' }, operationId: 'op' })).rejects.toMatchObject({ code: 'audit-unavailable', outcome: 'written-unaudited', retryable: true });
     expect(db.prepare('SELECT audited_at FROM uw_operation').get()).toEqual({ audited_at: null });
@@ -373,8 +374,9 @@ describe('export, snapshot and restore', () => {
   });
 
   it('guards restore by revision and receipt, and keeps prior work when the restore audit is not acknowledged', async () => {
-    const { make, db, audit } = setup(), work = make(), revision = d1WorkRevision({ db: d1(db), config: { clientId: CLIENT, limits: LIMITS } });
-    await populate(work);
+    // The append-and-replay path: a sink without atomic audit (an atomic sink fails the batch instead).
+    const { make: plain, db, audit } = setup(), make = () => plain({ audit: appendOnly(audit.sink) }), work = make(), revision = d1WorkRevision({ db: d1(db), config: { clientId: CLIENT, limits: LIMITS } });
+    await populate(plain()); // notes need the atomic sink
     const saved = await work.exportAll({ caseId: CASE }), at = await revision({ caseId: CASE });
     await expect(work.snapshots.put({ caseId: CASE, snapshot: { ...saved, tables: saved.tables.slice(1) }, revision: at })).rejects.toMatchObject({ code: 'snapshot-failed' });
     const receipt = await work.snapshots.put({ caseId: CASE, snapshot: saved, revision: at });

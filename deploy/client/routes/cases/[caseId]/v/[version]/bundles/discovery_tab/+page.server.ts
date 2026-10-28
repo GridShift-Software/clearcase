@@ -13,6 +13,9 @@ import { env } from 'cloudflare:workers';
 import { contractError } from '$lib/server/runtime/errors';
 import { MARK_REQUEST_KEYS } from '$lib/views/bundles/ops';
 
+/** The statements of a change batch besides its rows: the revision guard, the operation ledger, the case revision and
+ * the change's own audit event, which commits in the same batch. */
+const BOOKKEEPING = 4;
 function markBatchRows() {
 	try {
 		const config: unknown = JSON.parse(
@@ -28,10 +31,10 @@ function markBatchRows() {
 				Number.isSafeInteger(limits.maxStatementsPerBatch) &&
 				limits.maxStatementsPerBatch >= 8
 			)
-				return Math.min(MARK_REQUEST_KEYS, limits.maxStatementsPerBatch - 3);
+				return Math.min(MARK_REQUEST_KEYS, limits.maxStatementsPerBatch - BOOKKEEPING);
 		}
 	} catch {}
-	return 5; // The adapter's minimum is eight statements, three of which are transaction bookkeeping.
+	return 8 - BOOKKEEPING; // The adapter's minimum is eight statements per batch.
 }
 export const load = async ({ locals, params }: RequestEvent) => {
 	const scope = await publishedVersion(locals, params),

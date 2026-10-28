@@ -53,16 +53,15 @@ it('17a a register page with document refs stays at one query while the refs are
   } finally { w.db.close(); }
 });
 
-// Measurement, not a claim that the ticket's one-batch target is met. The store commits a register row (and its operation
-// ledger) in one batch, then appends the row's audit event and acknowledges it in a second: only note-add and note-delete
-// audit inside their batch (d1-user-work.ts `atomicNote`). Folding row-put and row-delete in is 16's store to change.
-it('17a a deadline save is one change batch, then the audit acknowledgement', async () => {
+// The ticket's one-batch target, met since GRS-266: the register row, its operation ledger and its audit event commit in
+// one batch, as note changes do, with no acknowledgement batch after it.
+it('17a a deadline save is one batch: the change and its audit together', async () => {
   const w = world();
   try {
     const result = await measure(w.c, () => w.save('deadlines_tab', deadline));
     expect(result.thrown).toBeUndefined();
     expect(result.value).toMatchObject({ saved: true });
-    expect(w.batches()).toBe(2);
+    expect(w.batches()).toBe(1);
     expect(w.db.prepare("SELECT count(*) AS n FROM uw_operation WHERE audited_at IS NOT NULL").get()).toEqual({ n: 1 });
     console.log('17a deadline save foreground calls (authorization double; preflight reads included)', result.counts, 'batches', w.batches(), 'target=1');
   } finally { w.db.close(); }

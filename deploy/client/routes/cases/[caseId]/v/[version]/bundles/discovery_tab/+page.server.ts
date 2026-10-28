@@ -78,6 +78,24 @@ async function mark(e: RequestEvent, action: 'select' | 'co') {
 			const old = map.get(key),
 				form = new FormData();
 			if (old) form.set('version', old.version);
+			if (action === 'select' && f.get('on') !== '1' && !old?.cells.co) {
+				if (old) {
+					const removed = await e.locals.userWork.deleteTableRow({
+						caseId: scope.caseId,
+						table: MARK_TABLE,
+						owner: OWNER,
+						key: { case_id: scope.caseId, locator: key },
+						expected: { kind: 'match', version: old.version },
+						operationId: crypto.randomUUID(),
+					});
+					if (removed.kind !== 'written')
+						return fail(409, {
+							message:
+								'The selection changed in another tab. Reload and retry.',
+						});
+				}
+				continue;
+			}
 			await hostedWork(
 				e.locals,
 				scope.caseId,

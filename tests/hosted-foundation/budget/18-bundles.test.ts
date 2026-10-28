@@ -32,8 +32,15 @@ function fixture() {
 	const auth = authority();
 	auth.grant('editor', CASE, 'editor');
 	const c = counters();
+	let batches = 0;
+	const binding = d1(db),
+		originalBatch = binding.batch.bind(binding);
+	binding.batch = async (statements) => {
+		batches++;
+		return originalBatch(statements);
+	};
 	const work = createD1UserWork({
-		db: countedD1(d1(db), c),
+		db: countedD1(binding, c),
 		config: { clientId: CLIENT, limits: LIMITS },
 		identity: auth.identity(),
 		audit: auditLog().sink,
@@ -41,6 +48,7 @@ function fixture() {
 		now: () => new Date('2026-10-28T00:00:00Z'),
 	});
 	return {
+		batches: () => batches,
 		db,
 		c,
 		work,
@@ -91,6 +99,41 @@ test('bundle table plus header read stays within the two-query page budget beyon
 		console.info('18 bundle table+header D1 calls:', result.counts.d1);
 		expect(result.thrown).toBeUndefined();
 		expect(result.counts.d1).toBeLessThanOrEqual(2);
+	} finally {
+		f.db.close();
+	}
+});
+
+test('the assembled PDF metadata write stays within one D1 batch', async () => {
+	const f = fixture();
+	try {
+		await f.store.putCustom(
+			'batch-test',
+			{
+				no: 'C',
+				name: 'Synthetic',
+				pages: 3,
+				indexPages: 1,
+				filePages: 2,
+				note: '',
+				rows: [],
+			},
+			[],
+			{ sha256: 'a'.repeat(64), bytes: 1000 },
+		);
+		console.info('18 assembled metadata D1 batches:', f.batches());
+		expect(f.batches()).toBe(1);
+	} finally {
+		f.db.close();
+	}
+});
+test('the assembled PDF lookup stays within one D1 query', async () => {
+	const f = fixture();
+	try {
+		const result = await measure(f.c, () => f.store.table(CUSTOM_TABLE));
+		expect(result.thrown).toBeUndefined();
+		console.info('18 assembled GET lookup D1 calls:', result.counts.d1);
+		expect(result.counts.d1).toBeLessThanOrEqual(1);
 	} finally {
 		f.db.close();
 	}

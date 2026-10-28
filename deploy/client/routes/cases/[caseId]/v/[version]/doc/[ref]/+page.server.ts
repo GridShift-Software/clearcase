@@ -66,7 +66,8 @@ export const actions: Actions = {
 		form.set('operationId', operationId);
 		const result = await guarded('note', { body }, async (work) => work.addNote(v.caseId, v.resultsVersion, params.ref ?? '', body), SAY,
 			{ body, operationId }, hostedWork(locals, v.caseId, v.resultsVersion, form));
-		return result.ok ? { saved: true } : result.failure;
+		// The saved note and the next form's operation id: the page shows the note without waiting for its reload (GRS-261).
+		return result.ok ? { saved: true, note: result.value, operationId: crypto.randomUUID() } : result.failure;
 	},
 	delnote: async ({ locals, params, request }: RequestEvent) => {
 		const v = await publishedVersion(locals, params);

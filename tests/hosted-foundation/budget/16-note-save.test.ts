@@ -63,7 +63,10 @@ it('16 a note save from the document page stays within its D1 round-trip ceiling
   const w = await world();
   try {
     const saved = await measure(w.counters, () => w.post('note', { body: 'Synthetic budget note', operationId: 'save-budget' }));
-    expect(saved.thrown).toBeUndefined(); expect(saved.value).toEqual({ saved: true });
+    expect(saved.thrown).toBeUndefined();
+    const note = w.db.rows<{ note_id: string; version: string }>('SELECT note_id, version FROM uw_note')[0]!;
+    expect(saved.value).toEqual({ saved: true, operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      note: expect.objectContaining({ id: note.note_id, version: note.version, body: 'Synthetic budget note', status: 'here' }) });
     console.log('16 note save D1 round trips', saved.counts);
     expect(saved.counts.d1).toBeLessThanOrEqual(SAVE_D1); expect(saved.counts.clerk).toBe(0); expect(saved.counts.otherFetch).toBe(0);
     await Promise.all(w.pending);
@@ -76,7 +79,7 @@ it('16 a note save from the document page stays within its D1 round-trip ceiling
 it('16 a note delete from the document page stays within its D1 round-trip ceiling, and a stale delete is refused', async () => {
   const w = await world();
   try {
-    expect(await w.post('note', { body: 'Synthetic note to delete', operationId: 'delete-budget-add' })).toEqual({ saved: true });
+    expect(await w.post('note', { body: 'Synthetic note to delete', operationId: 'delete-budget-add' })).toMatchObject({ saved: true });
     const note = w.db.rows<{ note_id: string; version: string }>('SELECT note_id, version FROM uw_note')[0]!;
     const deleted = await measure(w.counters, () => w.post('delnote', { id: note.note_id, version: note.version, operationId: 'delete-budget' }));
     expect(deleted.thrown).toBeUndefined(); expect(deleted.value).toEqual({ deleted: true });

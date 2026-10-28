@@ -37,8 +37,9 @@ test('Bun resolves $lib and extensionless server imports for both routes', () =>
       const ctx = { store: lc.store, resultsVersion: ${JSON.stringify(fixture.resultsVersion)} };
       const m = await localLoad(ctx, 'analysis/matter');
       const p = await localLoad(ctx, 'evidence/people');
-      console.log(JSON.stringify([!!m.matter, Array.isArray(p.people) && p.people.length > 0]));
+      const nested = await localLoad(ctx, 'litigation/elements_tab');
+      console.log(JSON.stringify([!!m.matter, Array.isArray(p.people) && p.people.length > 0, Array.isArray(nested.elements)]));
     } finally { await lc.shutdown(); }
   `], { cwd: process.cwd(), encoding: 'utf8' });
-  expect(JSON.parse(output.trim().split('\n').at(-1)!)).toEqual([true, true]);
+  expect(JSON.parse(output.trim().split('\n').at(-1)!)).toEqual([true, true, true]);
 });

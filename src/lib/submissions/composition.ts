@@ -1,5 +1,6 @@
 import type { IntakePorts } from './ports.ts';
 import { createIntakeController, type IntakeController } from './controller.ts';
+import type { CaseId, Identity } from '../server/runtime/contracts.ts';
 
 /**
  * The one point where the parent composition installs the intake ports (identity capability, GRS-115 original intake,
@@ -17,4 +18,16 @@ export async function intakeControllerFor(a: { request: Request; platform: unkno
   let ports: IntakePorts | null = null;
   if (composition) { try { ports = await composition(a); } catch { ports = null; } }
   return createIntakeController(ports);
+}
+
+/** Advisory shell action, after the layout has admitted the case reader. Uses
+ * this exact request's composition; no global identity or cross-request cache.
+ */
+export async function intakeActionAvailable(a: { request: Request; platform: unknown }, identity: Identity, caseId: CaseId): Promise<boolean> {
+  if (!composition || identity.kind !== 'verified' || identity.principal.kind !== 'client') return false;
+  try {
+    const ports = await composition(a);
+    if (!ports?.budget || !ports.authorizeUpload || !ports.originals || !ports.repository || ports.clientId !== identity.clientId) return false;
+    return await ports.mayUpload?.({ principal: identity.principal, clientId: identity.clientId, caseId }) === true;
+  } catch { return false; }
 }

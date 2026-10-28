@@ -290,6 +290,8 @@
 						<td class="row-actions">
 							{#if !r.intact}<span class="altered">this entry was altered on disk since it was saved</span>{/if}
 							<button type="button" data-edit onclick={() => edit(r)} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)}>Edit</button>
+							<!-- the version of this row as this page shows it, so a confirmation without JavaScript deletes that row or nothing -->
+							{#if confirming === r.rowId}<input type="hidden" form="register-form" name="deleteVersion" value={r.version} />{/if}
 							<ConfirmDelete bind:pending={confirming} target={r.rowId} question="Delete this entry?" form="register-form" formaction="?/delete" name="delete" data-delete aria-describedby={deleteError?.rowId === r.rowId ? 'register-delete-message' : undefined} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)} />
 						</td>
 					</tr>

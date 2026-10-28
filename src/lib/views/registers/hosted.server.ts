@@ -132,10 +132,10 @@ export function hostedRegisterActions(view: RegisterView) {
 			if (refused) return refused;
 			const v = writeScope(params);
 			const id = rowId!;
-			// The page names the version of the row it shows; a post without one deletes the row as it is now.
-			const current = version ?? (await locals.userWork.readViewWork({ caseId: v.caseId, store: def.store }).catch((e: unknown) => refuse(e))).rows.find((r) => r.rowId === id)?.version;
-			if (!current) return { op: 'delete' as const, deleted: false, ...draft };
-			const work = hostedWork(locals, v.caseId, v.resultsVersion, { operationId: crypto.randomUUID(), version: current });
+			// The page names the version of the row it shows, with JavaScript or without. A delete that names none is refused,
+			// not run against the row as it is now: that would delete an edit the person never saw.
+			if (!version) return fail(409, { op: 'delete' as const, rowId: id, ...draft, message: STALE_DELETE });
+			const work = hostedWork(locals, v.caseId, v.resultsVersion, { operationId: crypto.randomUUID(), version });
 			const result = await guarded('delete', null, (w: Work) => w.deleteRow(v.caseId, def.store, id), say('The deletion'), { rowId: id, ...draft }, work);
 			if (result.ok) return { op: 'delete' as const, deleted: result.value, ...draft };
 			const { status, data } = result.failure;

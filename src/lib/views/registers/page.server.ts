@@ -8,7 +8,7 @@ import type { LocalCase } from '../../local-case/service.server.ts';
 import { addEntry, deleteEntry, editEntry, listRegister, type StoredRow } from '../../user-work/registers.server.ts';
 import { registerOf, type RegisterDef, type RegisterView } from './defs.ts';
 import { byDate, type Entry } from './logic.ts';
-import { checkDelete, checkSave, deletionFailure, failure, GONE, readDelete, readSave, registerHead, shownRows, STALE } from './shown.ts';
+import { checkDelete, checkSave, deletionFailure, failure, GONE, readDelete, readSave, registerHead, shownRows, STALE, STALE_DELETE } from './shown.ts';
 
 export type { Cell, ShownRow } from './shown.ts';
 
@@ -90,12 +90,16 @@ export function registerActions(view: RegisterView) {
 		},
 		delete: async ({ params, request }: RequestEvent) => {
 			const f = await request.formData();
-			const { rowId, draft } = readDelete(def, f);
+			const { rowId, draft, version } = readDelete(def, f);
 			const c = caseOf(params);
 			if (!c) return fail(404, { op: 'delete' as const, rowId: null, ...draft, message: 'Unknown results version.' });
 			const refused = checkDelete(f, rowId, draft);
 			if (refused) return refused;
 			try {
+				// A delete that names the version the page showed is refused when the row has changed since. One that names none
+				// (a scripted post) deletes the row as it is.
+				const cur = version === null ? undefined : listRegister(app().userWork, c.caseId, def).find((r) => r.rowId === rowId);
+				if (cur && cur.version !== version) return fail(409, { op: 'delete' as const, rowId, ...draft, message: STALE_DELETE });
 				return { op: 'delete' as const, deleted: await deleteEntry(app().userWork, c.caseId, def, rowId!), ...draft };
 			} catch (e) {
 				const x = failure(e, 'The deletion');

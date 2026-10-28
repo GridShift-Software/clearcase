@@ -133,15 +133,39 @@ describe('17a hosted registers: deadlines', () => {
       } finally { w.db.close(); }
     });
 
-    it('a post without a version deletes the row as it is now; a row already gone is deleted:false, as locally', async () => {
+    it('a delete confirmed after the row was edited in another tab is refused and the newer row stays (no-JavaScript confirmation)', async () => {
+      const w = world();
+      try {
+        await w.post('save', 'deadlines_tab', deadline);
+        // the confirmation page renders the row as it is now; its confirm form carries that version
+        const rendered = (await w.list('deadlines_tab')).rows[0];
+        const confirmForm = { delete: rendered.rowId, confirm: rendered.rowId, deleteVersion: rendered.version };
+        expect(await w.post('delete', 'deadlines_tab', { delete: rendered.rowId })).toMatchObject({ status: 400, data: { confirm: rendered.rowId } });
+        // another tab edits the deadline after that page rendered
+        await w.post('save', 'deadlines_tab', { ...deadline, title: 'Edited in another tab', rowId: rendered.rowId, version: rendered.version });
+        expect(await w.post('delete', 'deadlines_tab', confirmForm)).toMatchObject({ status: 409, data: { op: 'delete', rowId: rendered.rowId, message: STALE_DELETE } });
+        expect((await w.list('deadlines_tab')).rows.map((r: { values: Record<string, string> }) => r.values.title)).toEqual(['Edited in another tab']);
+      } finally { w.db.close(); }
+    });
+
+    it('a delete without the version it was shown is refused as changed elsewhere and deletes nothing', async () => {
       const w = world();
       try {
         await w.post('save', 'deadlines_tab', deadline);
         const shown = (await w.list('deadlines_tab')).rows[0];
-        const gone = { delete: shown.rowId, confirm: shown.rowId };
+        expect(await w.post('delete', 'deadlines_tab', { delete: shown.rowId, confirm: shown.rowId })).toMatchObject({ status: 409, data: { op: 'delete', rowId: shown.rowId, message: STALE_DELETE } });
+        expect((await w.list('deadlines_tab')).rows).toHaveLength(1);
+      } finally { w.db.close(); }
+    });
+
+    it('a row already deleted is deleted:false when the delete carries its version, as locally', async () => {
+      const w = world();
+      try {
+        await w.post('save', 'deadlines_tab', deadline);
+        const shown = (await w.list('deadlines_tab')).rows[0];
+        const gone = { delete: shown.rowId, deleteVersion: shown.version, confirm: shown.rowId };
         expect(await w.post('delete', 'deadlines_tab', gone)).toMatchObject({ deleted: true });
         expect(await w.post('delete', 'deadlines_tab', gone)).toMatchObject({ deleted: false });
-        expect(await w.post('delete', 'deadlines_tab', { delete: shown.rowId, deleteVersion: shown.version, confirm: shown.rowId })).toMatchObject({ deleted: false });
       } finally { w.db.close(); }
     });
   });

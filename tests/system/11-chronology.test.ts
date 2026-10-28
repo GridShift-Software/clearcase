@@ -12,6 +12,9 @@ import { facetsOf } from '../../src/lib/local-case/chronology.ts';
 import { memoryShardBucket, memoryShardCache } from '../../src/lib/server/runtime/memory-shards.ts';
 import type { ListPage } from '../../src/lib/views/payloads/list.ts';
 import ChronologyPane from '../../src/lib/views/evidence/ChronologyPane.svelte';
+import { selectsRow } from '../../src/lib/components/DataGrid.svelte';
+// @ts-expect-error jsdom ships no types and the root pins no @types/jsdom
+import { JSDOM } from 'jsdom';
 import { grantedIdentity, ids } from '../hosted-foundation/storage/fixture.ts';
 import { builtCase, CASE_ID, EXTRA_ROWS, locals, published, type BuiltCase, type Deployment } from '../publication/shards/world.ts';
 
@@ -237,3 +240,38 @@ describe('11 chronology page', () => {
     expect(html).toContain('data-count="0"');
   });
 });
+
+describe('11 chronology citations and row selection', () => {
+  // The row's click opens the pane; a citation, the Preview button and any other control keep their own behaviour, so a
+  // citation stays an ordinary link to the document page (one click, or Enter on it, opens that page).
+  const doc = (new JSDOM(`<div class="grid-row" role="row" data-ref="SX-1">
+    <span role="cell" class="preview-cell"><button type="button" class="preview">Preview</button></span>
+    <span role="cell" id="date">2001-02-03</span>
+    <span role="cell"><a class="cite" href="/v/x/doc/SX-1"><b id="inner">SX-1</b></a></span>
+    <span role="cell" id="title"><span class="clip">Invented subject</span></span></div>`) as { window: Window }).window.document;
+  const at = (sel: string) => doc.querySelector(sel)!;
+
+  test('a click on the row outside its controls selects it', () => {
+    expect(selectsRow(at('#date'))).toBe(true);
+    expect(selectsRow(at('#title .clip'))).toBe(true);
+  });
+
+  test('a click on a citation, inside it, or on the Preview button does not select through the row', () => {
+    expect(selectsRow(at('a.cite'))).toBe(false);
+    expect(selectsRow(at('#inner'))).toBe(false);
+    expect(selectsRow(at('button.preview'))).toBe(false);
+    expect(selectsRow(null)).toBe(false);
+  });
+
+  test('the citation is a plain link to the document page under the route base', async () => {
+    const RV = `sha256:${'e'.repeat(64)}`;
+    nav.url = new URL(`https://client-a.example.invalid${base}/${RV}/chronology`);
+    const Page = (await import('../../src/routes/v/[vid]/chronology/+page.svelte')).default;
+    const rows = [row('SX-1')];
+    const data = { version: { id: RV, caseId: CASE_ID, titleName: 'Invented case' }, base, exportName: { name: 'chronology.csv', note: null }, listHref: '/x', facets: facetsOf(rows),
+      first: { page: 1, pages: 1, total: 1, rows }, failed: [] };
+    const html = render(Page, { props: { data } as never, context: new Map([['clearcase:base', () => base]]) }).body;
+    expect(html).toMatch(new RegExp(`<a class="cite" href="${base}/${encodeURIComponent(RV).replace(/%/g, '%')}/doc/SX-1">SX-1</a>`));
+  });
+});
+

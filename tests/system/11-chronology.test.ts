@@ -161,10 +161,10 @@ describe('11 hosted chronology routes', () => {
     // Every synthetic document has its own original, so a copy of the shards marks one document's original missing.
     const shards = memoryShardBucket(new Map(dep.bucket.objects));
     const key = [...shards.objects.keys()].find((k) => k.endsWith('/list/page-1.json'))!;
-    const page1 = JSON.parse(new TextDecoder().decode(shards.objects.get(key)!)) as ListPage;
-    const gone = page1.rows[0]!.ref;
-    page1.rows[0] = { ...page1.rows[0]!, file: 'missing' };
-    shards.objects.set(key, new TextEncoder().encode(JSON.stringify(page1)));
+    // Same length, so the publication still admits the page: the first row's "file":"present" becomes "missing".
+    const text = new TextDecoder().decode(shards.objects.get(key)!);
+    const gone = (JSON.parse(text) as ListPage).rows[0]!.ref;
+    shards.objects.set(key, new TextEncoder().encode(text.replace('"file":"present"', '"file":"missing"')));
     const withMissing = { ...(locals(dep, { bucket: shards, cache: null }) as object), assets: (d.l() as { assets: unknown }).assets } as never;
     expect(await status(() => original(withMissing, gone)), gone).toBe(404);
     expect(d.asked).toEqual([]);

@@ -9,9 +9,12 @@ import type { ListPage } from '$lib/views/payloads/list';
 
 export const unavailable = (): never => error(503, { message: 'The published results cannot be shown right now. Try again shortly.', code: 'storage-unavailable' });
 
-/** `list/page-<n>.json` as stored, or null past the last page. */
-export const listPage = (locals: RequestServices, v: PublishedVersion, n: number) =>
-	locals.shards.read({ caseId: v.caseId, resultsVersion: v.resultsVersion, name: `list/page-${n}.json` }).catch((e: unknown) => refuse(e));
+/** `list/page-<n>.json` as stored, or null past the last page (a page the publication does not admit is never read). */
+export function listPage(locals: RequestServices, v: PublishedVersion, n: number): Promise<Response | null> {
+	const name = `list/page-${n}.json`, admitted = v.publication.shards ?? {};
+	if (!Object.hasOwn(admitted, name)) return Promise.resolve(null);
+	return locals.shards.read({ caseId: v.caseId, resultsVersion: v.resultsVersion, name, bytes: admitted[name]! }).catch((e: unknown) => refuse(e));
+}
 
 /** Every page joined in list order. A page the first one promised but storage lacks is a 503. */
 export async function allPages(locals: RequestServices, v: PublishedVersion): Promise<ListPage> {

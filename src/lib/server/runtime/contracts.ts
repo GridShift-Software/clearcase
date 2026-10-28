@@ -98,6 +98,8 @@ export interface AsyncUserWork {
   seedRows(a: VersionScope & { datasetKey?: string }): Promise<readonly SeedRow[]>; overlays(a: Scope & { datasetKey?: string }): Promise<readonly Versioned<SeedOverlay>[]>;
   seedViews(a: VersionScope & { datasetKey?: string }): Promise<readonly Versioned<SeedView>[]>; putSeedOverlay(a: WriteScope & { overlay: SeedOverlay }): Promise<Written<void>>;
   listRows(a: Scope & { store: string }): Promise<readonly Versioned<WorkRegisterRow>[]>;
+  /** One authorized snapshot of a register and optional seed overlays. Imported seeds come from the admitted view shard. */
+  readViewWork(a: Scope & { store: string; datasetKey?: string }): Promise<{ rows: readonly Versioned<WorkRegisterRow>[]; overlays: readonly Versioned<SeedOverlay>[] }>;
   putRow(a: WriteScope & { store: string; rowId: string | null; fields: Fields; anchor: Anchor | null }): Promise<Written<AddResult>>;
   deleteRow(a: UpdateScope & { store: string; rowId: string }): Promise<Written<boolean>>;
   tables(): Promise<readonly UserWorkTable[]>; defineTable(a: { definition: TableDefinition }): Promise<void>; registerStores(a: Scope): Promise<readonly string[]>;

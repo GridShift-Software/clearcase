@@ -9,7 +9,7 @@ import { revokeClerkSession } from './flow.ts';
 import { inspectToken, presentedToken } from './session.ts';
 import { readClerkIdentityConfig, rsaJwkOf, type ClerkIdentityConfig, type ClerkInstanceConfig } from './config.ts';
 
-import { appCookieValue, readAppSession, appSessionConfig, type AppSessionConfig } from '../app-session.ts';
+import { issuedAfterRevocation, appCookieValue, readAppSession, appSessionConfig, type AppSessionConfig } from '../app-session.ts';
 export { inspectToken, presentedToken };
 
 /** The case decision GRS-114 owns. Resolves to allow; throws a contract error (forbidden, ...) to refuse. */
@@ -20,7 +20,7 @@ export type CaseAuthorizer = (a: { principal: Principal; sessionId: SessionId; c
 const FAULT_REASONS = new Set(['secret-key-invalid', 'jwk-local-missing', 'jwk-remote-failed-to-load', 'jwk-remote-invalid', 'jwk-failed-to-resolve']);
 
 type Refusal = 'unauthenticated' | 'invalid-session';
-type Verified = { instance: ClerkInstanceConfig; subject: string; session: string; expiresAt: number; name: string };
+type Verified = { instance: ClerkInstanceConfig; subject: string; session: string; expiresAt: number; issuedAt: number; name: string };
 const unavailable = () => contractError('identity-unavailable', true);
 
 /** The contract's IdentityProvider plus sign-out: revoking the session at the instance that issued it. */
@@ -70,7 +70,7 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 			if (config.audience !== null && !(aud === config.audience || (Array.isArray(aud) && aud.includes(config.audience)))) return 'invalid-session';
 			if (sts !== undefined && sts !== 'active') return 'invalid-session';
 			if (config.mfaRequired && !(Array.isArray(fva) && Number.isInteger(fva[1]) && (fva[1] as number) >= 0)) return 'invalid-session';
-			return { instance, subject: sub, session: sid, expiresAt: exp * 1000, name: typeof claims.name === 'string' ? claims.name.slice(0, 200) : typeof claims.first_name === 'string' ? claims.first_name.slice(0, 200) : sub };
+			return { instance, subject: sub, session: sid, expiresAt: exp * 1000, issuedAt: typeof claims.iat === 'number' ? claims.iat * 1000 : NaN, name: typeof claims.name === 'string' ? claims.name.slice(0, 200) : typeof claims.first_name === 'string' ? claims.first_name.slice(0, 200) : sub };
 		}
 		return 'invalid-session';
 	}
@@ -102,7 +102,7 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 				if (value !== null) {
 					const session = await readAppSession(a.app, value);
 					if (!session) return refusedIdentity('invalid-session');
-					try { if (await a.app.sessions.get(`revoked:${session.sid}`) !== null) return refusedIdentity('invalid-session'); }
+					try { if (!await issuedAfterRevocation(a.app, session.subject, session.iat * 1000)) return refusedIdentity('invalid-session'); }
 					catch { throw unavailable(); }
 					let sessionId: SessionId;
 					try { sessionId = id('session', session.sid); } catch { return refusedIdentity('invalid-session'); }
@@ -124,6 +124,7 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 			if (a.app === null && verified.instance.kind === 'client') return refusedIdentity('unauthenticated');
 			const bootstrap = a.app && verified.instance.kind === 'client' && new URL(request.url).pathname === '/sign-in';
 			if (a.app && verified.instance.kind === 'client' && !bootstrap) return refusedIdentity('unauthenticated');
+			if (bootstrap && (!Number.isFinite(verified.issuedAt) || !await issuedAfterRevocation(a.app!, verified.subject, verified.issuedAt))) return refusedIdentity('invalid-session');
 			const refused = bootstrap ? null : await sessionStands(verified);
 			if (refused) return refusedIdentity(refused);
 			let sessionId: SessionId;

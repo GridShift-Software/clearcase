@@ -1,3 +1,4 @@
+import { appSessionConfig } from '../app-session.ts';
 // The SDK-free half of the first-party browser contract (GRS-113): the sign-in identity switch, return-target allowlist,
 // cookie clears and sign-out, as pure functions of a Request, the deployment config and fetch. The hosted routes import
 // this module (the hosted import allowlist keeps @clerk/backend out of routes); the handshake and the session refresh,
@@ -534,7 +535,9 @@ export async function signOutClerkSession(a: { env: Readonly<Record<string, unkn
 	if (identity.kind === 'verified' && identity.principal !== null && identity.sessionId !== null) {
 		const read = readClerkIdentityConfig(a.env);
 		if (!read.ok) throw contractError('identity-unavailable', true);
-		await revokeClerkSession({ config: read.config, principal: identity.principal, sessionId: identity.sessionId });
+		if (identity.principal.kind === 'client' && appSessionConfig(a.env, identity.principal.issuer)) {
+			await revokeAllClientSessions(read.config, identity.principal);
+		} else await revokeClerkSession({ config: read.config, principal: identity.principal, sessionId: identity.sessionId });
 		revoked = true;
 	} else {
 		const evidence = await expiredSessionEvidence(a);
@@ -558,6 +561,28 @@ export async function revokeClerkSession(a: { config: ClerkIdentityConfig; princ
 	const instance = [a.config.client, a.config.staff].find((i) => i.issuer === a.principal.issuer && i.kind === a.principal.kind);
 	if (!instance) throw contractError('invalid-session');
 	await postRevoke({ config: a.config, instance, sessionId: a.sessionId, fetcher: a.fetcher });
+}
+
+async function revokeAllClientSessions(config: ClerkIdentityConfig, principal: Principal): Promise<void> {
+	if (principal.issuer !== config.client.issuer || principal.kind !== 'client') throw contractError('invalid-session');
+	const ids: SessionId[] = [];
+	// Collect before revoking so pagination is stable as active sessions disappear.
+	for (let offset = 0; ; offset += 100) {
+		let rows: unknown;
+		try {
+			const query = new URLSearchParams({ user_id: principal.subject, status: 'active', limit: '100', offset: String(offset) });
+			const response = await fetch(`${config.apiUrl ?? CLERK_API}/v1/sessions?${query}`, { headers: { authorization: `Bearer ${config.client.secretKey}` }, redirect: 'manual' });
+			if (!response.ok) throw new Error('Session list unavailable');
+			rows = await response.json();
+		} catch { throw contractError('identity-unavailable', true); }
+		if (!Array.isArray(rows)) throw contractError('identity-unavailable', true);
+		for (const row of rows) {
+			if (typeof row !== 'object' || row === null || !('id' in row) || typeof row.id !== 'string') throw contractError('identity-unavailable', true);
+			ids.push(id('session', row.id));
+		}
+		if (rows.length < 100) break;
+	}
+	for (const sessionId of ids) await postRevoke({ config, instance: config.client, sessionId });
 }
 
 async function postRevoke(a: { config: ClerkIdentityConfig; instance: ClerkInstanceConfig; sessionId: SessionId; fetcher?: typeof fetch }): Promise<void> {

@@ -55,10 +55,17 @@ export function slideAppSession(session: AppSession, now = nowSeconds()): AppSes
 }
 export const appCookieOptions = (session: AppSession) => ({ path: '/', httpOnly: true, secure: true, sameSite: 'lax' as const, expires: new Date(session.exp * 1000) });
 export const appSetCookie = (value: string, session: AppSession) => `${APP_COOKIE}=${value}; HttpOnly; Secure; SameSite=Lax; Path=/; Expires=${new Date(session.exp * 1000).toUTCString()}`;
+export const revokedBeforeKey = (config: AppSessionConfig, subject: string) => `revoked-before:${JSON.stringify([config.clientId, config.issuer, subject])}`;
+export async function issuedAfterRevocation(config: AppSessionConfig, subject: string, issuedMs: number): Promise<boolean> {
+	try {
+		const cutoff = await config.sessions.get(revokedBeforeKey(config, subject));
+		return cutoff === null || (/^\d+$/.test(cutoff) && Number.isSafeInteger(Number(cutoff)) && issuedMs > Number(cutoff));
+	} catch { throw contractError('identity-unavailable', true); }
+}
 export async function revokeAppSession(config: AppSessionConfig, request: Request): Promise<void> {
 	const value = appCookieValue(request);
 	const session = value ? await readAppSession(config, value, nowSeconds(), true) : null;
 	if (!session) return;
-	try { await config.sessions.put(`revoked:${session.sid}`, '1', { expirationTtl: Math.max(60, session.max - nowSeconds()) }); }
+	try { await config.sessions.put(revokedBeforeKey(config, session.subject), String(Date.now()), { expirationTtl: SESSION_MAX }); }
 	catch { throw contractError('identity-unavailable', true); }
 }

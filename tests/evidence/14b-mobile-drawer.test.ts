@@ -42,7 +42,7 @@ beforeAll(async () => {
     const Page = $derived(pages[index]);
   </script>
   <AppShell {shell}>
-    {#snippet sidebar()}<nav aria-label="Case views">{#each pages as _, i}<a id={'view-'+i} href={'#view-'+i} aria-current={i === index ? 'page' : undefined} onclick={() => index = i}>View {i}</a>{/each}</nav>{/snippet}
+    {#snippet sidebar()}<nav class="views" aria-label="Case views">{#each pages as _, i}<a id={'view-'+i} href={'#view-'+i} aria-current={i === index ? 'page' : undefined} onclick={() => index = i}>View {i}</a>{/each}</nav>{/snippet}
     {#key index}<Page data={data[index]} />{/key}
   </AppShell>`);
   await writeFile(path.join(scratch, 'main.js'), "import { mount } from 'svelte'; import App from './Harness.svelte'; mount(App, {target: document.body});");
@@ -81,7 +81,7 @@ test('14b mobile drawer excludes every wrapped page from focus/accessibility and
     const id = route.split('/')[1]!;
     await page.waitFor(`document.querySelector('main[data-ready="${id}"]') && !document.querySelector('.case-shell.nav-open')`);
     // Use a real enabled control; an empty enforcement register falls back to its programmatically focusable heading.
-    await page.evaluate(`(() => { const control = document.querySelector('main input:not([disabled]), main button:not([disabled]), main select:not([disabled]), main textarea:not([disabled])') ?? document.querySelector('main [data-page-heading]'); control.setAttribute('data-mobile-focus-target', ''); control.focus(); })()`);
+    await page.evaluate(`(() => { const control = document.querySelector('main input:not([disabled]):not([type=hidden]), main button:not([disabled]), main select:not([disabled]), main textarea:not([disabled])') ?? document.querySelector('main [data-page-heading]'); control.setAttribute('data-mobile-focus-target', ''); control.focus(); })()`);
     expect(await page.evaluate('!!document.activeElement.closest("main")')).toBe(true);
     await click('#nav-toggle');
     await page.waitFor('document.querySelector(".case-shell.nav-open") && document.querySelector(".side").contains(document.activeElement)');

@@ -54,7 +54,8 @@ Browsers run under the host's lock: start the command through `orch-bin/browser-
 ## Returning-device sign-in (opt-in)
 
 Clerk's Device Trust asks for an email code whenever a password sign-in comes from a browser it has not seen, and every journey
-starts a fresh browser, so the timed `sign-in` step always includes that code step. A real user meets it once per device.
+starts a fresh browser, so a timed `sign-in` with credentials normally includes that code step (a `STORAGE_STATE` run starts
+already signed in and skips it). A real user meets it once per device.
 `SIGN_IN_DEVICE=returning` times the sign-in a returning user sees; unset (or `fresh`) is today's behaviour, byte for byte, and
 the budgets do not change.
 
@@ -64,8 +65,8 @@ With `SIGN_IN_DEVICE=returning` the journey, in one browser context:
 2. signs out through the app's own sign-out control and confirms `/cases` answers 401, keeping the Clerk device cookies;
 3. times a second sign-in as the `sign-in` step against `SIGN_IN_MS`, unchanged.
 
-If Clerk still asks for the code in step 3, that step runs it and the result says so. Each of the two steps carries
-`deviceCodeStep: true|false`. Every result records `metadata.signInDevice` (`"fresh"` or `"returning"`), and `summary.md` ends with
+If Clerk still asks for the code in step 3, that step runs it and the result says so. In this mode both steps carry
+`deviceCodeStep: true|false`; a fresh run does not record it. Every result records `metadata.signInDevice` (`"fresh"` or `"returning"`), and `summary.md` ends with
 a `Sign-in device:` line, so the two modes cannot be confused. The mode refuses without `MODE=hosted` and `CREDENTIALS_JSON`.
 Space runs at least 45 s apart on a development Clerk instance, which rate-limits sign-ins.
 

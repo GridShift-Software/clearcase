@@ -2,9 +2,9 @@ import { shard, publishedVersion } from '$lib/views/hosted/payloads.server';
 import { infoRequiredMerge } from '$lib/views/payloads/info-required';
 import type { ViewShards } from '$lib/views/payloads/views';
 import { refuse } from '$lib/server/runtime/hosted/http';
-import type { PageServerLoad } from './$types';
+import type { RequestEvent } from '@sveltejs/kit';
 
-export const load: PageServerLoad = async ({ locals, params }) => {
+export const load = async ({ locals, params }: Pick<RequestEvent, 'locals' | 'params'>) => {
   const scope = await publishedVersion(locals, params);
   const [payload, rows] = await Promise.all([
     shard<ViewShards['info_required_tab']>(locals, params, 'view/info_required_tab.json'),

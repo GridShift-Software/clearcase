@@ -5,7 +5,7 @@ import { bootCase, type Booted } from '../../registers/04-harness';
 import { fixture } from '../../hosted-foundation/user-work/helpers';
 import { CLIENT, LIMITS, d1 } from '../../hosted-foundation/user-work/world';
 import { createD1UserWork } from '../../../src/lib/user-work/hosted';
-import { id } from '../../../src/lib/server/runtime/ids';
+import { id, resultsVersion } from '../../../src/lib/server/runtime/ids';
 import type { CaseReader, RequestServices } from '../../../src/lib/server/runtime/contracts';
 
 const routes = [
@@ -13,8 +13,8 @@ const routes = [
   'litigation/enforcement_tab', 'litigation/crossexam_tab', 'litigation/authorities_tab', 'litigation/heads_tab',
   'analysis/info_required_tab',
 ];
-const local = import.meta.glob('../../../src/routes/v/\[vid\]/**/+page.server.ts');
-const hosted = import.meta.glob('../../../deploy/client/routes/cases/\[caseId\]/v/\[version\]/**/+page.server.ts');
+const local = import.meta.glob('../../../src/routes/**/+page.server.ts');
+const hosted = import.meta.glob('../../../deploy/client/routes/**/+page.server.ts');
 let b: Booted;
 let f: ReturnType<typeof fixture>;
 let locals: RequestServices;
@@ -23,7 +23,7 @@ let files: Map<string, Uint8Array>;
 beforeAll(async () => {
   b = await bootCase('14b-mixed');
   f = fixture();
-  const caseId = id('case', b.caseId), rv = id('results-version', b.rv);
+  const caseId = id('case', b.caseId), rv = resultsVersion(b.rv);
   f.auth.grant('editor', caseId, 'editor');
   files = new Map((await family.build({ caseId, resultsVersion: rv, store: b.lc.store, vc: b.input().vc, pure: b.input(),
     json: (name, data) => ({ name, bytes: new TextEncoder().encode(JSON.stringify(data)) }),
@@ -34,7 +34,7 @@ beforeAll(async () => {
     return Reflect.get(target, key);
   } });
   const userWork = createD1UserWork({ db: d1(f.db), config: { clientId: CLIENT, limits: LIMITS }, identity: f.auth.identity(), audit: f.audit.sink, store, now: () => new Date('2200-01-01T00:00:00Z') });
-  locals = { store, userWork, shards: { read: async ({ name }) => new Response(files.get(name)) } } as RequestServices;
+  locals = { store, userWork, shards: { read: async ({ name }) => new Response(new TextDecoder().decode(files.get(name))) } } as RequestServices;
 }, 180_000);
 afterAll(async () => { f?.db.close(); await b?.stop(); });
 

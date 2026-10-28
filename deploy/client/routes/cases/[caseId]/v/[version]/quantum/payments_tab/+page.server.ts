@@ -2,10 +2,10 @@ import { shard, publishedVersion } from '$lib/views/hosted/payloads.server';
 import { paymentsMerge } from '$lib/views/quantum/payments';
 import type { ViewShards } from '$lib/views/payloads/views';
 import { refuse } from '$lib/server/runtime/hosted/http';
-import type { PageServerLoad } from './$types';
+import type { RequestEvent } from '@sveltejs/kit';
 import { paymentsWork } from '../payments_tab/work.server';
 
-export const load: PageServerLoad = async ({ locals, params }) => {
+export const load = async ({ locals, params }: Pick<RequestEvent, 'locals' | 'params'>) => {
   const scope = await publishedVersion(locals, params);
   const [payload, rows] = await Promise.all([
     shard<ViewShards['payments_tab']>(locals, params, 'view/payments_tab.json'),

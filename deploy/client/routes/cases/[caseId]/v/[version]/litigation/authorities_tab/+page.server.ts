@@ -2,14 +2,15 @@ import { shard, publishedVersion } from '$lib/views/hosted/payloads.server';
 import { authoritiesMerge } from '$lib/views/litigation/authorities';
 import type { ViewShards } from '$lib/views/payloads/views';
 import { refuse } from '$lib/server/runtime/hosted/http';
-import type { PageServerLoad } from './$types';
+import { registerRows } from '../heads_tab/rows';
+import type { RequestEvent } from '@sveltejs/kit';
 
-export const load: PageServerLoad = async ({ locals, params }) => {
+export const load = async ({ locals, params }: Pick<RequestEvent, 'locals' | 'params'>) => {
   const scope = await publishedVersion(locals, params);
   const [payload, rows] = await Promise.all([
     shard<ViewShards['authorities_tab']>(locals, params, 'view/authorities_tab.json'),
     locals.userWork.listRows({ caseId: scope.caseId, store: 'authorities' }).catch(refuse),
   ]);
-  const data = authoritiesMerge(payload, { rows }, crypto.randomUUID());
+  const data = authoritiesMerge(payload, { rows: registerRows(rows) }, crypto.randomUUID());
   return { ...data, base: scope.base, empty: data.imported.length === 0 && data.user.length === 0 };
 };

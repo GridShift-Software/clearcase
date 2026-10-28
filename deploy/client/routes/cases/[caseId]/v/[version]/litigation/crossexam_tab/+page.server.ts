@@ -3,9 +3,10 @@ import { shard, publishedVersion } from '$lib/views/hosted/payloads.server';
 import { crossexamMerge, CX_SEED } from '$lib/views/litigation/crossexam';
 import type { ViewShards } from '$lib/views/payloads/views';
 import { refuse } from '$lib/server/runtime/hosted/http';
-import type { PageServerLoad } from './$types';
+import { registerRows } from '../heads_tab/rows';
+import type { RequestEvent } from '@sveltejs/kit';
 
-export const load: PageServerLoad = async ({ locals, params }) => {
+export const load = async ({ locals, params }: Pick<RequestEvent, 'locals' | 'params'>) => {
   const scope = await publishedVersion(locals, params);
   const [payload, seeds, rows] = await Promise.all([
     shard<ViewShards['crossexam_tab']>(locals, params, 'view/crossexam_tab.json'),
@@ -18,6 +19,6 @@ export const load: PageServerLoad = async ({ locals, params }) => {
     version: createHash('sha256').update(JSON.stringify(['seed', s.state === 'orphaned' ? null : s.seed.seedSha256,
       s.state === 'seed' ? null : [s.overlay.baseSeedSha256, s.overlay.fields]])).digest('hex').slice(0, 32),
   }));
-  const data = crossexamMerge(payload, { seeds: projected, rows }, crypto.randomUUID());
+  const data = crossexamMerge(payload, { seeds: projected, rows: registerRows(rows) }, crypto.randomUUID());
   return { ...data, base: scope.base, empty: data.rows.length === 0 };
 };

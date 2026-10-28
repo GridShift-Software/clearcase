@@ -18,9 +18,11 @@ afterAll(() => b?.cleanup());
 
 describe('06 shard builder', () => {
   test('writes the shell, overview, list pages and facets, originals and the manifest', () => {
-    const pages = [...b.files.keys()].filter((n) => n.startsWith('list/page-')).length;
+    // Exactly 06's own families; the modules later tickets add write other names beside these, and never edit this test.
+    const own = [...b.files.keys()].filter((n) => ['shell.json', 'overview.json', 'originals.json', 'manifest.json'].includes(n) || n.startsWith('list/'));
+    const pages = own.filter((n) => n.startsWith('list/page-')).length;
     expect(pages).toBeGreaterThan(1);
-    expect([...b.files.keys()].sort()).toEqual(['list/facets.json', ...Array.from({ length: pages }, (_, i) => `list/page-${i + 1}.json`), 'manifest.json', 'originals.json', 'overview.json', 'shell.json'].sort());
+    expect(own.sort()).toEqual(['list/facets.json', ...Array.from({ length: pages }, (_, i) => `list/page-${i + 1}.json`), 'manifest.json', 'originals.json', 'overview.json', 'shell.json'].sort());
   });
 
   test('the manifest is canonical, sorted by name, and names every other shard with its bytes and sha256', () => {

@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import type { CloudD1, CloudD1Statement, D1Value } from '../../src/lib/storage/cloud/bindings.ts';
 
 const WRANGLER = path.resolve(import.meta.dirname, '../../node_modules/wrangler/bin/wrangler.js');
 
@@ -41,4 +42,23 @@ export function wranglerD1(config: string): D1Exec {
       return out.flatMap((r) => r.results);
     },
   };
+}
+
+const literal = (v: D1Value) => (v === null ? 'NULL' : typeof v === 'number' ? String(v) : `'${String(v).replaceAll("'", "''")}'`);
+
+/**
+ * The hosted reader's read-only D1 shape over `d1`, so `register` can verify what D1 holds with the reader's own
+ * loadVerifiedModel: each bound `?` is written into the query as a quoted literal. Reads only; `run` and `batch` refuse.
+ */
+export function d1Reader(d1: D1Exec): CloudD1 {
+  const statement = (sql: string, values: D1Value[]): CloudD1Statement => {
+    const text = () => { let i = 0; return sql.replace(/\?/g, () => { if (i >= values.length) throw new Error('a query has more ? than bound values'); return literal(values[i++]!); }); };
+    return {
+      bind: (...v) => statement(sql, v),
+      async first<T>() { return ((await d1.all<T>(text()))[0] ?? null) as T | null; },
+      async all<T>() { return { results: await d1.all<T>(text()) }; },
+      run: () => Promise.reject(new Error('d1Reader reads only')),
+    };
+  };
+  return { prepare: (sql) => statement(sql, []), batch: () => Promise.reject(new Error('d1Reader reads only')) };
 }

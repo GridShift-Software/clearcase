@@ -1,8 +1,9 @@
 // A published version's read model as immutable JSON shards (sprint ticket 06). The operator machine builds them
-// (scripts/publish/), uploads them under `views/<rvHex>/` and records the manifest hash in D1 at publication; the Worker
-// only authorizes, then serves a shard from the Cache API, or from R2 on a miss. Nothing is hashed on read: a shard's
-// integrity is the manifest the sign-off bound, and its R2 key is derived from the results version, which the caller has
-// already checked is the case's current published one.
+// (scripts/publish/), checks their bytes as it uploads them under `views/<rvHex>/` (never replacing an object), and
+// admits their names in D1 at publication; the Worker only authorizes, then serves an admitted shard from the Cache API,
+// or from R2 on a miss. Nothing is hashed on read: a shard's integrity is the manifest the sign-off bound, its R2 key is
+// derived from the results version the caller has checked is the case's current published one, and an R2 object whose
+// size is not the admitted one is refused and never cached.
 import type { ClientId, ShardReader, VersionScope } from '../../server/runtime/contracts.ts';
 import { contractError } from '../../server/runtime/errors.ts';
 
@@ -24,7 +25,7 @@ export interface ShardCache { match(key: string): Promise<Response | undefined>;
 
 export function createShardReader(o: { bucket: ShardBucket; clientId: ClientId; cache: ShardCache | null; waitUntil?: (work: Promise<unknown>) => void }): ShardReader {
   return {
-    async read({ caseId, resultsVersion, name }: VersionScope & { name: string }) {
+    async read({ caseId, resultsVersion, name, bytes: expected }: VersionScope & { name: string; bytes: number }) {
       if (!RV.test(resultsVersion) || !validShardName(name)) return null;
       const prefix = shardPrefix(resultsVersion);
       const key = `${SHARD_CACHE_ORIGIN}/${encodeURIComponent(o.clientId)}/${encodeURIComponent(caseId)}/${prefix.slice('views/'.length)}${name}`;
@@ -36,6 +37,7 @@ export function createShardReader(o: { bucket: ShardBucket; clientId: ClientId; 
         if (!object) return null;
         bytes = await object.arrayBuffer();
       } catch { throw contractError('storage-unavailable', true); }
+      if (bytes.byteLength !== expected) throw contractError('storage-unavailable', true);
       const response = new Response(bytes, { headers: { 'content-type': 'application/json', 'cache-control': SHARD_CACHE_CONTROL, etag: object.httpEtag ?? `"${object.etag}"` } });
       if (o.cache) {
         const put = o.cache.put(key, response.clone()).catch(() => undefined);

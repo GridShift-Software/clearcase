@@ -1,45 +1,21 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { citedRefs } from '$lib/components/cite';
 import { app } from '$lib/local-case/app.server';
-import { anyDateBasis, documentCounts, resolveRefs } from '$lib/local-case/documents.server';
-import { viewContentOf, viewText } from '$lib/local-case/results.server';
+import { viewContentOf } from '$lib/local-case/results.server';
 import { slotStates } from '$lib/local-case/overview-widgets.server';
-import { versionPath, type OverviewModel } from '$lib/local-case/model';
+import { versionPath } from '$lib/local-case/model';
+import { overviewMerge } from '$lib/views/overview/merge';
+import { overviewPure } from '$lib/views/overview/pure.server';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ parent }) => {
 	const { version, isActive } = await parent();
 	const a = app();
-	const v = a.store.getVersion(version.id)!;
-	const overview = JSON.parse(v.overview) as OverviewModel;
-	// Values from the package (bundle and type names, META keys) never become object keys in page data: a key such as
-	// '__proto__' is refused by the serializer. Tallies and claims travel as [key, value] entries.
-	const entries = <T>(m: Record<string, T>) => Object.entries(m);
-	const tallies = { byBundle: entries(overview.counts.byBundle), byDocType: entries(overview.counts.byDocType), byTextStatus: entries(overview.counts.byTextStatus), claims: entries(overview.sourceClaims) };
-	const { byBundle: _b, byDocType: _t, byTextStatus: _s, ...counts } = overview.counts;
-	const { sourceClaims: _c, ...rest } = overview;
-	const narrative = overview.matter?.storyline[0]?.t ?? null;
-	const documents = documentCounts(a.store, v.id);
-	const vc = viewContentOf(a.store, v.id);
-	const params = { docCount: documents.total, bundleCount: Object.keys(overview.counts.byBundle).length, invoiceCount: overview.quantum?.invoiceCount ?? overview.counts.invoices, caseName: version.caseName };
-	const content = {
-		subtitle: viewText(vc, 'overview', 'subtitle', params),
-		kpiDocumentsNote: viewText(vc, 'overview', 'kpiDocumentsNote', params),
-		kpiInvoicesNote: viewText(vc, 'overview', 'kpiInvoicesNote', params),
-	};
-	return {
-		overview: { ...rest, counts },
-		tallies,
-		documents,
-		content,
-		dateBasisKnown: anyDateBasis(a.store, v.id),
-		originalsCheckedAt: v.stored_at,
-		narrative,
-		known: narrative ? [...resolveRefs(a.store, v.id, citedRefs([narrative]))] : [],
-		notes: a.userWork.summary(v.case_id, v.id),
-		previous: isActive ? a.previousVersion(v.case_id) : null,
-		slots: await slotStates({ app: a, caseId: v.case_id, caseName: version.caseName, resultsVersion: v.id }),
-	};
+	const shard = overviewPure({ store: a.store, vid: version.id, vc: viewContentOf(a.store, version.id) });
+	return overviewMerge(shard, {
+		notes: a.userWork.summary(version.caseId, version.id),
+		previous: isActive ? a.previousVersion(version.caseId) : null,
+		slots: await slotStates({ app: a, caseId: version.caseId, caseName: version.caseName, resultsVersion: version.id }),
+	});
 };
 
 export const actions: Actions = {

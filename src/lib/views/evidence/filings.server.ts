@@ -4,7 +4,9 @@ import { app } from '../../local-case/app.server.ts';
 import { datasetOf, exportFileName, viewContentOf, viewText } from '../../local-case/results.server.ts';
 import { inTurn } from '../../local-case/registers.server.ts';
 import { evidenceRows } from './rows.server.ts';
-import { REGISTER_STORE, SAVE_FAILURES, SEED_DATASET, asFields, formFields, nextSeq, registerEntries, rowVersion, saveFailure, type FilingsData, type SaveFailure, type SeedViewLike } from './filings.ts';
+import type { ChronologyListRow } from '../../local-case/model.ts';
+import type { PureInput } from '../payloads/views.ts';
+import { REGISTER_STORE, SAVE_FAILURES, SEED_DATASET, asFields, filingsMerge, formFields, nextSeq, registerEntries, rowVersion, saveFailure, type FilingsData, type SaveFailure, type SeedViewLike } from './filings.ts';
 
 function register(caseId: string, rv: string) {
 	const a = app();
@@ -16,24 +18,23 @@ function register(caseId: string, rv: string) {
 export const REGISTER_STORAGE = "Saved in this case's local work store; imported rows stay as imported and your changes are kept apart from them.";
 export const registerIntro = (imported: string | null) => `${imported ?? 'Log each filing and the responding/replying affidavit.'} ${REGISTER_STORAGE}`;
 
-export const filingsLoad = async ({ parent, url }: { parent: () => Promise<{ version: { id: string; caseId: string } }>; url: URL }) => {
-	const { version } = await parent();
-	const a = app();
-	const f = datasetOf<FilingsData>(a.store, version.id, 'filings');
-	const docs = evidenceRows(a.store, version.id);
-	const vc = viewContentOf(a.store, version.id);
-	const { entries } = register(version.caseId, version.id);
-	const refs = new Set([...(f?.groups ?? []).flatMap((g) => g.items.map((x) => x.ref)), ...entries.map((e) => e.fields.ref)].filter(Boolean));
-	const files = [...refs].map((ref) => [ref, docs?.byRef.get(ref)?.file ?? null] as const);
-	const edit = url.searchParams.get('edit');
+/** The filings view without the register's user work (ticket 04): what the operator machine builds into the shard. */
+export function filingsPure({ store, vid, vc }: PureInput) {
+	const f = datasetOf<FilingsData>(store, vid, 'filings');
 	return {
 		groups: f?.groups ?? null,
-		files,
-		entries,
-		editing: edit && entries.some((e) => e.key === edit) ? edit : null,
+		// every listed document's file state, so a ref typed into the register resolves without the list
+		fileOf: (evidenceRows(store, vid)?.rows ?? []).map((r) => [r.ref, r.file] as [string, ChronologyListRow['file']]),
 		content: { subtitle: viewText(vc, 'filings_tab', 'subtitle'), orientation: viewText(vc, 'filings_tab', 'orientation'), registerIntro: registerIntro(viewText(vc, 'filings_tab', 'registerIntro')) },
 		exportNames: { filings: exportFileName(vc, 'filings_tab', 'filings.csv'), register: exportFileName(vc, 'filings_tab', 'filing-register.csv', 'registerExportFileName') },
 	};
+}
+
+export const filingsLoad = async ({ parent, url }: { parent: () => Promise<{ version: { id: string; caseId: string } }>; url: URL }) => {
+	const { version } = await parent();
+	const a = app();
+	const { seeds, rows } = register(version.caseId, version.id);
+	return filingsMerge(filingsPure({ store: a.store, vid: version.id, vc: viewContentOf(a.store, version.id) }), { seeds, rows }, url.searchParams.get('edit'));
 };
 
 type Draft = { values: Record<string, string>; editing: string | null; version: string | null; failed: SaveFailure | null };

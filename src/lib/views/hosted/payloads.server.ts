@@ -57,11 +57,24 @@ export async function shard<T>(locals: RequestServices, params: Params, name: st
   catch { error(503, { message: 'The published results cannot be shown right now. Try again shortly.', code: 'invalid-package' }); }
 }
 
-/** The loader of a read-only dataset view: its shard, the route base and whether it has anything to show. */
-export function datasetView<K extends ShardViewId>(id: K, isEmpty: (data: ViewShards[K]) => boolean) {
+export interface DatasetViewOptions<K extends ShardViewId> {
+  /**
+   * A request-time step over the shard's props, for what must not be frozen at build time: prescription's `asOf` is
+   * computed from `now`, the request clock (`locals.runtime.now()`), not the build date. It runs once per load, before
+   * `isEmpty`, and its result is what the page gets. Without it the loader returns the shard as built.
+   */
+  post?: (props: ViewShards[K], at: { now: Date }) => ViewShards[K];
+}
+
+/**
+ * The loader of a read-only dataset view: its shard (`view/<id>.json`), the route base and whether it has anything to
+ * show, after the optional request-time `post` step.
+ */
+export function datasetView<K extends ShardViewId>(id: K, isEmpty: (data: ViewShards[K]) => boolean, o: DatasetViewOptions<K> = {}) {
   return async ({ locals, params }: Pick<RequestEvent, 'locals' | 'params'>) => {
     const [data, v] = await Promise.all([shard<ViewShards[K]>(locals, params, `view/${id}.json`), publishedVersion(locals, params)]);
-    return { ...data, base: v.base, empty: isEmpty(data) };
+    const props = o.post ? o.post(data, { now: locals.runtime.now() }) : data;
+    return { ...props, base: v.base, empty: isEmpty(props) };
   };
 }
 

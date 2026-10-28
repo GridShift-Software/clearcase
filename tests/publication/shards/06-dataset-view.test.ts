@@ -12,7 +12,7 @@ function event() {
     shards: { read: async () => new Response(JSON.stringify(SHARD)) },
     runtime: { now: () => NOW },
   } as unknown as RequestServices;
-  return { locals, params: { caseId: 'synth-case', version: RV } };
+  return { locals, params: { caseId: 'synth-case', version: RV } } as never;
 }
 
 describe('06 datasetView', () => {

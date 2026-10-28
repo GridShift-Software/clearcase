@@ -18,6 +18,8 @@ export function clerkBrowserNeeded(env: Readonly<Record<string, unknown>>, reque
 	} catch { return false; }
 }
 export async function appSessionRefresh(env: Readonly<Record<string, unknown>>, request: Request): Promise<{ setCookies: string[] } | null> {
+	const path = new URL(request.url).pathname;
+	if (path === '/sign-in' || path === '/sign-in/operator' || path === '/sign-out') return null;
 	const value = appCookieValue(request);
 	if (value === null) return null;
 	const clerk = readClerkIdentityConfig(env);

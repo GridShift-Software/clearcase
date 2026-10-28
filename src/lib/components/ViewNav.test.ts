@@ -105,7 +105,9 @@ describe('under a route base', () => {
 		expect(hosted).toHaveLength(39);
 		expect(attr(byView.get('overview')!, 'data-hosted-status')).toBe('ported');
 		expect(attr(byView.get('overview')!, 'aria-disabled')).toBeNull();
-		for (const id of ['chronology', 'documents', 'risk_matrix_tab']) {
+		expect(attr(byView.get('chronology')!, 'data-hosted-status')).toBe('ported');
+		expect(attr(byView.get('chronology')!, 'aria-disabled')).toBeNull();
+		for (const id of ['privilege_tab', 'documents', 'risk_matrix_tab']) {
 			expect(attr(byView.get(id)!, 'data-hosted-status')).toBe('soon');
 			expect(attr(byView.get(id)!, 'aria-disabled')).toBe('true');
 		}

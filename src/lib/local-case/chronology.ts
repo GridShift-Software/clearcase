@@ -1,22 +1,27 @@
-// Chronology filtering and sorting, shared by the view, the CSV export and the tests. Browser-safe.
-// Semantics follow v5 chronFiltered/sortChron (view checklist, chronology): filters are ANDed exact matches on bundle,
-// type and text status, plus a case-insensitive substring over filename, ref, subject, sender and excerpt. Sorts
-// compare code units (date, ref, type, bundle) or parseFloat with empty = 0 (amount), and are stable: ties keep the
-// source order in both directions. Undated rows ('' dates) sort first ascending. Every imported bundle is
-// selectable (rewrite of S-chronology-1).
+// Chronology filtering and sorting, shared by the view, the CSV export and the tests, and the page's list loading.
+// Browser-safe. Semantics follow v5 chronFiltered/sortChron (view checklist, chronology): filters are ANDed exact
+// matches on bundle, type, text status and year (the date's first four digits), plus a case-insensitive substring over
+// filename, ref, subject, sender and excerpt. Sorts compare code units (date, ref, type, bundle) or parseFloat with
+// empty = 0 (amount), and are stable: ties keep the source order in both directions. Undated rows ('' dates) sort first
+// ascending. Every imported bundle is selectable (rewrite of S-chronology-1).
+import { error } from '@sveltejs/kit';
+import type { FacetCounts, FacetsShard, ListPage } from '../views/payloads/list.ts';
 import type { ChronologyListRow } from './model.ts';
 
 export type SortKey = 'date' | 'ref' | 'docType' | 'bundle' | 'amount';
 export const SORT_KEYS: readonly SortKey[] = ['date', 'ref', 'docType', 'bundle', 'amount'];
-export interface ChronologyQuery { q: string; bundle: string; type: string; status: string; sort: SortKey; dir: 1 | -1 }
-export const DEFAULT_QUERY: ChronologyQuery = Object.freeze({ q: '', bundle: '', type: '', status: '', sort: 'date', dir: 1 });
+export interface ChronologyQuery { q: string; bundle: string; type: string; year: string; status: string; sort: SortKey; dir: 1 | -1 }
+export const DEFAULT_QUERY: ChronologyQuery = Object.freeze({ q: '', bundle: '', type: '', year: '', status: '', sort: 'date', dir: 1 });
+const FILTERS = ['q', 'bundle', 'type', 'year', 'status'] as const;
+type Filters = Pick<ChronologyQuery, (typeof FILTERS)[number]>;
 
 const amount = (s: string) => { const n = parseFloat(s); return Number.isNaN(n) ? 0 : n; };
 
-export function filterRows(rows: readonly ChronologyListRow[], f: Pick<ChronologyQuery, 'q' | 'bundle' | 'type' | 'status'>): ChronologyListRow[] {
+export function filterRows(rows: readonly ChronologyListRow[], f: Filters): ChronologyListRow[] {
 	const needle = f.q.toLowerCase();
 	return rows.filter((r) =>
 		(!f.bundle || r.bundle === f.bundle) && (!f.type || r.docType === f.type) && (!f.status || r.textStatus === f.status) &&
+		(!f.year || (YEAR.test(r.date) && r.date.slice(0, 4) === f.year)) &&
 		(!needle || `${r.filename} ${r.ref} ${r.subject} ${r.sender} ${r.excerpt}`.toLowerCase().includes(needle)));
 }
 
@@ -30,12 +35,35 @@ export function sortRows(rows: readonly ChronologyListRow[], sort: SortKey, dir:
 
 export const queryRows = (rows: readonly ChronologyListRow[], q: ChronologyQuery) => sortRows(filterRows(rows, q), q.sort, q.dir);
 
+export const isFiltered = (q: ChronologyQuery) => FILTERS.some((k) => q[k] !== '');
+/** Every filter cleared; the sort stays. */
+export const clearFilters = (q: ChronologyQuery): ChronologyQuery => ({ ...q, q: '', bundle: '', type: '', year: '', status: '' });
+
+const YEAR = /^\d{4}/;
+function counts(values: Iterable<string>): FacetCounts {
+	const m = new Map<string, number>();
+	for (const v of values) m.set(v, (m.get(v) ?? 0) + 1);
+	return [...m].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+}
+/** The filter options with their counts, as the publisher writes `list/facets.json` for hosted. */
+export const facetsOf = (rows: readonly ChronologyListRow[]): FacetsShard => ({
+	bundles: counts(rows.map((r) => r.bundle)),
+	docTypes: counts(rows.map((r) => r.docType)),
+	textStatuses: counts(rows.map((r) => r.textStatus)),
+	years: counts(rows.flatMap((r) => (YEAR.test(r.date) ? [r.date.slice(0, 4)] : []))),
+});
+
+/** A list answer's rows: a `ListPage` (hosted pages, `?all=1`) or the local API's whole array. */
+export const listRowsOf = (body: ListPage | ChronologyListRow[]): ChronologyListRow[] => (Array.isArray(body) ? body : body.rows);
+
 export const optionsOf = (rows: readonly ChronologyListRow[], f: 'bundle' | 'docType' | 'textStatus') => [...new Set(rows.map((r) => r[f]))].sort();
 
 /** The package contract's text-status vocabulary, in v5's filter order (results-package.md). */
 export const TEXT_STATUSES: readonly string[] = ['extracted', 'ocr', 'none', 'pending'];
-/** The text-status filter options: the whole vocabulary, as v5 offers it, then any other status a row carries. */
-export const statusOptions = (rows: readonly ChronologyListRow[]) => [...TEXT_STATUSES, ...optionsOf(rows, 'textStatus').filter((s) => !TEXT_STATUSES.includes(s))];
+/** The text-status filter options: the whole vocabulary, as v5 offers it, then any other status given. */
+export const statusChoices = (statuses: readonly string[]) => [...TEXT_STATUSES, ...[...new Set(statuses)].sort().filter((s) => !TEXT_STATUSES.includes(s))];
+/** The text-status filter options: the whole vocabulary, then any other status a row carries. */
+export const statusOptions = (rows: readonly ChronologyListRow[]) => statusChoices(rows.map((r) => r.textStatus));
 
 /** v5's text-status wording (statusBadge): a row without text reads 'scan · none'; an empty status reads '—'. */
 export const statusLabel = (s: string) => (s === 'none' ? 'scan · none' : s || '—');
@@ -46,14 +74,39 @@ export const excerptPreview = (s: string) => (s ? `${s.slice(0, 140)}…` : '');
 export function queryFromParams(p: URLSearchParams): ChronologyQuery {
 	const sort = p.get('sort') as SortKey | null;
 	return {
-		q: p.get('q') ?? '', bundle: p.get('bundle') ?? '', type: p.get('type') ?? '', status: p.get('status') ?? '',
+		q: p.get('q') ?? '', bundle: p.get('bundle') ?? '', type: p.get('type') ?? '', year: p.get('year') ?? '', status: p.get('status') ?? '',
 		sort: sort && SORT_KEYS.includes(sort) ? sort : 'date', dir: p.get('dir') === 'desc' ? -1 : 1,
 	};
 }
 export function paramsFromQuery(q: ChronologyQuery): URLSearchParams {
 	const p = new URLSearchParams();
-	for (const k of ['q', 'bundle', 'type', 'status'] as const) if (q[k]) p.set(k, q[k]);
+	for (const k of FILTERS) if (q[k]) p.set(k, q[k]);
 	if (q.sort !== 'date') p.set('sort', q.sort);
 	if (q.dir === -1) p.set('dir', 'desc');
 	return p;
+}
+
+/** A provider the list was built without, and why (the local API's `x-clearcase-degraded`; hosted has none). */
+export interface DegradedSource { source: string; owner: string; reason: string }
+/** Where the chronology's rows come from: `listHref?page=n` and `listHref?all=1`, and the first page when the server already has it. */
+export interface ChronologySource { listHref: string; first?: ListPage; failed?: DegradedSource[] }
+
+/**
+ * The chronology page's universal load: the first list page (from the server data, or `listHref?page=1`), never the
+ * whole list, so the first render carries one page of rows; the page fetches the rest with `allRows` once it shows.
+ */
+export async function loadChronology<D extends ChronologySource>(data: D, fetch: typeof globalThis.fetch): Promise<D & { first: ListPage; failed: DegradedSource[] }> {
+	if (data.first) return { ...data, first: data.first, failed: data.failed ?? [] };
+	const r = await fetch(`${data.listHref}?page=1`);
+	if (!r.ok) error(r.status, (await r.text()).slice(0, 300) || 'chronology unavailable');
+	const body = (await r.json()) as ListPage | ChronologyListRow[];
+	const rows = listRowsOf(body);
+	return { ...data, first: Array.isArray(body) ? { page: 1, pages: 1, total: rows.length, rows } : body, failed: data.failed ?? [] };
+}
+
+/** Every row of the list (`listHref?all=1`; the local API answers its whole array whatever the query). */
+export async function allRows(listHref: string, fetch: typeof globalThis.fetch = globalThis.fetch): Promise<ChronologyListRow[]> {
+	const r = await fetch(`${listHref}?all=1`);
+	if (!r.ok) throw new Error(`chronology list: ${r.status}`);
+	return listRowsOf((await r.json()) as ListPage | ChronologyListRow[]);
 }

@@ -994,10 +994,12 @@ try {
 		};
 		try {
 			await q.go(B, 'court_bundle_tab');
+			await q.waitFor(`document.querySelector('main[data-hydrated]')`, 30000);
 			const orig = await val(q, 'cbh_judge');
 			// an unsaved header field makes the page refuse any leave, so a fallback load would show as a prompt or a lost field
 			await setVal(q, 'cbh_judge', 'SYN TYPED BEFORE BUILDING');
-			await q.click('#cb-build');
+			// a press before the router has started is ignored, so press until the builder opens
+			for (let i = 0; i < 5 && !(await q.evaluate(`!!document.getElementById('cbbfile')`)); i++) { await q.click('#cb-build'); await sleep(1000); }
 			await q.waitFor(`document.getElementById('cbbfile')`, 30000);
 			await pick(q, ['Alpha_Statement.pdf']);
 			await q.waitFor(`document.querySelectorAll('#cbbfiles tbody tr').length === 1 && !document.getElementById('cbbmsg').textContent`, 30000);
@@ -1021,7 +1023,8 @@ try {
 			await startA();
 			// 3. another tab creates a bundle after this page loaded; Retry saves and the answer lists both, in stored order
 			await o.go(B, 'court_bundle_tab');
-			const other = await o.evaluate(`fetch(location.pathname.replace(/\\/$/, '') + '/assembled', { method: 'POST', headers: { 'content-type': 'application/pdf', 'x-bundle-id': 'oother', 'x-bundle': encodeURIComponent(JSON.stringify({ name: 'SYN OTHER', pages: 1, indexPages: 0, filePages: 1, note: '', rows: [] })) }, body: new Blob(['%PDF-1.4 synthetic other']) }).then((r) => r.status)`);
+			await o.waitFor(`document.querySelector('main[data-hydrated]')`, 30000);
+			const other = await o.evaluate(`fetch(location.pathname.replace(/\\/$/, '') + '/assembled', { method: 'POST', headers: { 'content-type': 'application/pdf', 'x-bundle-id': 'oother', 'x-bundle': encodeURIComponent(JSON.stringify({ name: 'SYN OTHER', pages: 1, indexPages: 0, filePages: 1, note: '', rows: [] })) }, body: new Blob(['%PDF-1.4\\nsynthetic other\\n%%EOF']) }).then(async (r) => r.status + ' ' + (await r.text()).slice(0, 200))`);
 			const retryShown = await q.evaluate(`document.querySelector('#cbb-save-error button') !== null`);
 			await q.click('#cbb-save-error button');
 			await q.waitFor(`/SYN RELOAD/.test(document.getElementById('cb-bundle-h')?.textContent ?? '')`, 30000);
@@ -1029,6 +1032,7 @@ try {
 			await q.click('#cb-all');
 			await q.waitFor(`document.getElementById('cb-list')`, 30000);
 			const afterRetry = await listed();
+			const judge = await val(q, 'cbh_judge');
 			// 4. the same output saved again: one entry, not two
 			await q.click('#cb-build');
 			await q.waitFor(`document.getElementById('cbbsave')`, 30000);
@@ -1038,9 +1042,10 @@ try {
 			const afterAgain = await listed();
 			// 5. the other tab deletes its bundle; a further save of the same output does not bring it back
 			await o.go(B, 'court_bundle_tab');
+			await o.waitFor(`document.querySelector('main[data-hydrated]')`, 30000);
 			await o.evaluate(`window.confirm = () => true`);
-			await o.click(`[data-delete="${customRows().find((r) => r.name === 'SYN OTHER')?.no}"]`);
-			await until(() => !customRows().some((r) => r.name === 'SYN OTHER'), 30000);
+			const otherNo = customRows().find((r) => r.name === 'SYN OTHER')?.no;
+			if (otherNo) { await o.click(`[data-delete="${otherNo}"]`); await until(() => !customRows().some((r) => r.name === 'SYN OTHER'), 30000); }
 			await q.click('#cb-build');
 			await q.waitFor(`document.getElementById('cbbsave')`, 30000);
 			const gone = await saveAndWait(no);
@@ -1051,15 +1056,16 @@ try {
 			// 6. a full reload lists the stored bundle once, and Delete removes it
 			await setVal(q, 'cbh_judge', orig); // the page lets this tab go
 			await q.go(B, 'court_bundle_tab');
+			await q.waitFor(`document.querySelector('main[data-hydrated]')`, 30000);
 			const reloaded = await listed();
 			await q.evaluate(`window.confirm = () => true`);
 			await q.click(`[data-delete="${no}"]`);
 			await until(() => mine().length === 0, 30000);
 			const hasLink = (hrefs) => hrefs.some((h) => /\/assembled\?id=/.test(h ?? ''));
 			const names = (l) => l.filter((n) => /SYN/.test(n));
-			const refusedOk = /busy|Internal|Not saved/.test(refused.error) && refused.alert === 'alert' && refused.saving === false && refused.saveDisabled === false && refused.retryDisabled === false && refused.stored === 0 && refused.judge === 'SYN TYPED BEFORE BUILDING';
-			const lostOk = /upload failed/.test(lost.error) && lost.alert === 'alert' && lost.saving === false && lost.saveDisabled === false && lost.retryDisabled === false && lost.dialogs.length === 0 && lost.judge === 'SYN TYPED BEFORE BUILDING';
-			return { pass: refusedOk && lostOk && other === 200 && retryShown && J(names(afterRetry)) === J(['SYN OTHER', 'SYN RELOAD']) && again === 0 && J(names(afterAgain)) === J(['SYN OTHER', 'SYN RELOAD']) && gone === 0 && J(names(afterGone)) === J(['SYN RELOAD']) && link.length === 1 && hasLink(link[0]) && J(names(reloaded)) === J(['SYN RELOAD']) && mine().length === 0, evidence: { refused, lost, other, afterRetry, again, afterAgain, gone, afterGone, link, reloaded } };
+			const refusedOk = /locked|busy/.test(refused.error) && refused.alert === 'alert' && refused.saving === false && refused.saveDisabled === false && refused.retryDisabled === false && refused.stored === 0;
+			const lostOk = /upload failed/.test(lost.error) && lost.alert === 'alert' && lost.saving === false && lost.saveDisabled === false && lost.retryDisabled === false && lost.dialogs.length === 0;
+			return { pass: refusedOk && lostOk && /^200 /.test(other) && retryShown && judge === 'SYN TYPED BEFORE BUILDING' && J(names(afterRetry)) === J(['SYN OTHER', 'SYN RELOAD']) && again === 0 && J(names(afterAgain)) === J(['SYN OTHER', 'SYN RELOAD']) && gone === 0 && J(names(afterGone)) === J(['SYN RELOAD']) && link.length === 1 && hasLink(link[0]) && J(names(reloaded)) === J(['SYN RELOAD']) && mine().length === 0, evidence: { refused, lost, other, judge, afterRetry, again, afterAgain, gone, afterGone, link, reloaded } };
 		} finally { await o.close(); await q.close(); }
 	});
 	await S('CB-HEADER-NOJS-CONFIRM', 'court_bundle_tab', 'without JavaScript the Court Bundle header offers no confirmation or Add form', async () => {

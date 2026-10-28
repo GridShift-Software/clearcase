@@ -1039,7 +1039,7 @@ try {
 			// 5. the other tab deletes its bundle; a further save of the same output does not bring it back
 			await o.go(B, 'court_bundle_tab');
 			await o.evaluate(`window.confirm = () => true`);
-			await o.click(`[data-delete="${customRows().find((r) => r.name === 'SYN OTHER').no}"]`);
+			await o.click(`[data-delete="${customRows().find((r) => r.name === 'SYN OTHER')?.no}"]`);
 			await until(() => !customRows().some((r) => r.name === 'SYN OTHER'), 30000);
 			await q.click('#cb-build');
 			await q.waitFor(`document.getElementById('cbbsave')`, 30000);

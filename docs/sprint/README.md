@@ -36,13 +36,13 @@ Hosted acceptance tests taken from this: sign-in in under 5 s; the 258 MB origin
 - **A failed preview is a warning, not a publication blocker.** Sign-off stays bound to an exact version.
 - Upload only the kept, culled set to R2, in priority order.
 - The owner allows the real v5 case on the sandboxes and staging. Before the demo, confirm it is acceptable to show v5 to a prospective client (it is another client's matter), or use a scrubbed copy.
-- **Lean process on the sprint branch only.** `dev` and `main` stay strict: Greptile, CI and the full review happen on the single sprint-to-dev PR.
+- **Lean process on the sprint branch only.** `dev` and `main` stay strict: Greptile, CI and the full review happen on the single sprint-to-dev PR. Greptile is not used on sprint PRs; each gets one agent review instead.
 
 ## Architecture (summary; details in `architecture.md`)
 - **Request budget per route:** 0 Clerk calls, at most 1 D1 query, at most 1 R2 read. A CI test enforces this.
 - **Auth:** networkless Clerk JWT verification at sign-in, then an HttpOnly app session cookie (HMAC, 8 hours sliding, 24 hours at most), a KV revocation key, and one indexed grant query per request.
 - **Originals:** `bucket.get(key, { range, onlyIf: etag })`, streamed with no hashing. A viewer page mints a 15-minute HMAC asset ticket, so range requests from pdf.js cost no D1 queries. Downloads over about 100 MB go through presigned R2 URLs.
-- **Read model:** the operator machine builds immutable per-version JSON shards (per view, chronology pages, per-document payloads and a search index), uploads them to R2 and records the manifest hash in D1. The Worker authorizes, then serves from the Cache API, or from R2 on a miss. Publication flips a KV pointer. `loadVerifiedModel` and per-request hashing go away.
+- **Read model:** the operator machine builds immutable per-version JSON shards (per view, chronology pages, per-document payloads and a search index), uploads them to R2 and records the manifest hash in D1. The Worker authorizes, then serves from the Cache API, or from R2 on a miss. Publication flips the `rs_publication` row in D1. `loadVerifiedModel` and per-request hashing go away.
 - **D1** holds grants, notes, registers, deadlines, custom bundles, audit, versions and (later) the per-case file catalogue.
 - **Placement:** pinned to London in the wrangler config for every environment, beside the EU D1 and R2.
 - **Ingest at scale (after the demo):** rclone from the operator machine or NAS straight to R2 over the S3 API, keyed by SHA-256. Results arrive as one sealed bundle per batch and are imported by a Workflow; batches are append-only.
@@ -55,36 +55,20 @@ Hosted acceptance tests taken from this: sign-in in under 5 s; the 258 MB origin
 - **A and B sandboxes:** frozen. Do not redeploy them during the sprint unless a colleague needs it.
 - **Freeze, don't extend:** staged import with leases, the online evidence engine and native render checks, the grant-renewal producer. **Drop for two weeks:** the native24 recovery branches and GRS-26, 190, 203 and 204.
 
-## Tickets (disjoint paths, so they can be claimed in parallel)
-| Key | Ticket | Paths | Size | Depends on |
-| --- | --- | --- | --- | --- |
-| S0 | Sprint branch, staging Worker, Previews config, Access, London pin, CI-lite (tsc plus targeted tests) on PRs into the sprint branch | `deploy/`, `.github/`, wrangler configs | 0.5 d | – |
-| S1 | Payload contract: shard types in `src/lib/views/payloads.ts`, hosted route prefix, `versionPath`/`docPath` taking a prefix | `src/lib/views/payloads.ts`, `src/lib/local-case/model.ts` | 0.5 d | – |
-| S2 | Originals fast path: ranged R2 get, no re-hash, one authorization, non-blocking audit, asset ticket; viewer HTML and bytes no longer wait on each other; the 258 MB v5 original opens its first page in under 3 s | `src/lib/viewer/hosted/`, `src/lib/storage/cloud/objects.ts`, `src/lib/results/hosted/assets.ts` | 1–1.5 d | – (security review) |
-| S3 | Auth: networkless JWT, 8-hour app session, KV revocation, one grant query, audit without read-back; sign-in under 5 s (today 11 to 24 s) | `src/lib/auth/`, `src/lib/tenancy/`, `src/lib/audit/` | 2 d | – (security review) |
-| S4 | Payload builder (operator side): build v5 shards, upload to R2, manifest in D1, publication rule change (preview warnings; required render → manifest present) | `scripts/publish/`, `src/lib/publication/hosted/` rules | 2 d | S1 |
-| S5 | Hosted shell: `cases/[caseId]/v/[rv]/` layout with ViewNav, `payloads.server.ts`, generic dataset loader | `deploy/client/routes/cases/[caseId]/v/`, `src/lib/views/hosted/` | 2 d | S1 |
-| S6 | Overview, chronology with split pane, documents, document page | the matching routes under S5's prefix | 3 d | S5 (S4 for real data) |
-| S7a and S7b | Analysis views, split in two halves (analysis and people on one side, litigation and quantum on the other) | the matching routes | 1.5 d each | S5 |
-| S8 | Prototype restyle: tokens, sidebar, top bar, cards, placeholders | `src/lib/components/`, style files | 2 d, starts day 1 | – |
-| S9 | Load v5 into staging: rclone all 1,753 originals, including those over 16 MiB, run the S4 builder, publish | runbook plus `.local` | 0.5 d | S0, S4 |
-| S10 | Search over the shard index (today a 503), the intake link on the case page, and the timed journey (Astra from South Africa) plus the CI round-trip budget test | `tests/budget/`, `.local/astra` | 1 d | S0 |
-| S11 (stretch) | Notes and deadlines on hosted views (D1 user work already exists); page notes listed in case notes; faster note saves | registers routes | 2 d | S5 |
-| S12 (stretch) | Bundles; the assembled PDF survives a reload | bundles routes | 2 d | S5, S4 |
-| P1 (after the demo) | rclone ingest runbook, NAS census, pilot of 100 GB | runbook | 1 d | – |
-| P2 (after the demo) | Per-case catalogue D1, FTS5 file-name search, keyset paging, a synthetic 1M-row test | – | 4 d | – |
-| P3 (after the demo) | Batch bundle plus Workflow importer, replacing staged import | – | 4 d | S4 |
+## Tickets
+The tickets are `docs/sprint/tickets/NN-*.md`, mirrored as Linear issues **GRS-244 to GRS-266** in project P-GRS-21 (label `sprint-hosted-demo`). `docs/sprint/tickets/README.md` has the dependency graph, the path-ownership table, the reserved migration numbers and the owner's actions; each ticket file has its reserved paths, blockers, acceptance, exact checks and decisions already made. The old S0–S12 table and GRS-227 to 243 are superseded.
 
-Critical path: S1 → S5 → S6 → S9 → S10, about 6.5 builder-days. It fits by Monday only if S1 lands today and S5 and S6 start tomorrow morning. Start S2, S3, S4, S7 and S8 in parallel.
+Critical path: 03 and 04 → 06 (the tracer) → 12 → 16 → 17a or 18, about 5 days to Monday. Wave 0 (01 to 05) starts at once and in parallel.
 
 ## How three developers and their agents work together
-- **Claiming:** each ticket is a Linear issue labelled `sprint-hosted-demo`, with its reserved paths in the description. To claim one, assign yourself and move it to In Progress. One ticket per agent at a time. When the PR has merged, claim the next.
-- **The loop:** branch, build, run targeted tests and `tsc`, `wrangler preview`, then a 2-minute self-check on the preview URL. Open a PR into the sprint branch. One review (another developer's agent, at most an hour and five findings). Fix any High or Medium in the same session. Merge. No re-check rounds; Lows go to `follow-ups.md`.
-- **Security review** only for S2, S3 and anything under `auth/`, `tenancy/` or the grant producers. That review counts as the one review.
-- **Third round on the same problem:** change the premise, not the model. Ask the owner.
-- **Staging** deploys on every merge. **Daily:** someone uses staging on a laptop and a phone for 10 minutes and writes three lines (slow, broken, wanted) in the shared log. The orchestrator reads them first thing.
-- **Status:** at most 30 lines, overwritten, never appended.
-- **Kept guards:** the leak scan with the pre-push hook, `base-guard`, `doctor`, CI `check`. Parked until the dev PR: merge-check records, test-guard, fix-round-guard, approval-check, compute fleet, the Greptile loop.
+- **Claiming:** pick a Todo issue with the label, no assignee and every blocker Done. Assign yourself, move it to In Progress, comment `claim: ...`, re-read after 15 s. One ticket per agent at a time. After 01 merges, `/goal finish tickets` runs this loop.
+- **The loop:** branch, build, run the ticket's Checks block, `scripts/preview.sh`, then a 2-minute self-check on the preview URL. Open a PR into the sprint branch. One review: a fresh agent session on the other model family runs `/sprint-review` and posts one `review:` comment (at most 5 findings, about 30 minutes). Fix any High or Medium in the same session, push once, merge. No re-check rounds; Lows go to the issue as a `follow-ups:` comment.
+- **No Greptile on sprint PRs.** It reviews only the final sprint-to-dev PR.
+- **Security-sensitive tickets** (08, 09a, 09b, and anything touching auth, tenancy, audit, sign-in routes, grant producers or R2 object serving): the one review also checks the four hosted classes, with up to 3 probes.
+- **Third round on the same problem:** change the premise, not the model. Ask the owner on the issue.
+- **Staging** deploys on every merge. **Daily:** someone uses staging on a laptop and a phone for 10 minutes and writes three lines (slow, broken, wanted) in the Linear "Human log" document.
+- **Heavy checks:** the owner can run them on boat.dev VMs (`scripts/boat/run-checks.sh`, from 01); colleagues run checks locally.
+- **Kept guards:** the leak scan with the pre-push hook, `base-guard`, `doctor`, CI-lite. Parked until the dev PR: merge-check records, test-guard, fix-round-guard, approval-check, compute fleet, the Greptile loop.
 
 ## Gates
 - **Monday 2 November, release candidate:** the timed journey on staging passes the speed targets for the three must-have groups, at a recorded SHA.

@@ -5,7 +5,7 @@
 On this branch and the ticket branches cut from it, read `docs/sprint/README.md` first. It wins over everything below and over the workspace process files.
 - Claim a Linear issue labelled `sprint-hosted-demo` by assigning yourself and moving it to In Progress. Stay inside its reserved paths.
 - Branch `sprint/<issue-key>-<slug>` from the sprint branch, and open the PR back into it. Never target `dev` or `main`.
-- Run targeted tests and `tsc`, check your change on a `wrangler preview` URL, and get one review. Fix any High or Medium in the same session, then merge. Lows go to the issue as a comment.
+- Run targeted tests and `tsc`, check your change on a `wrangler preview` URL, and get one agent review from the other model family (`/sprint-review` once ticket 01 lands; no Greptile on sprint PRs). Fix any High or Medium in the same session, then merge. Lows go to the issue as a comment.
 - Real case material still stays out of Git.
 
 The workspace `AGENTS.md` above this repository sets models, budgets, the build-review-fix-ship loop, Git and push rules, the Bun commands and the rules on case material; it overrides this file. This file adds what is specific to the repository.

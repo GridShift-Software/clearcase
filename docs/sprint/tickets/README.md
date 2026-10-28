@@ -90,5 +90,5 @@ Write the SQL once in the library folder at that folder's next free number and a
 | One Cloudflare API token per developer | 02 previews from colleagues' machines; every later ticket's preview walk |
 | R2 S3 token scoped to `clearcase-staging-files` | 07 originals load; 06 shard upload |
 | Pick the intake webhook target and put `CLEARCASE_INTAKE_WEBHOOK` | 19 notification |
-| boat.dev seat and `clearcase-golden` build; Greptile on `sprint/**`; confirm the Linear GitHub integration closes issues on sprint merges | 01 |
+| boat.dev seat and `clearcase-golden` build; confirm the Linear GitHub integration closes issues on sprint merges | 01 |
 | Run J1–J10 from the South African network; confirm v5 may be shown to the prospect or supply a scrubbed copy | 20 |

@@ -1,3 +1,4 @@
+import { id } from '../../server/runtime/ids.ts';
 import { appSessionConfig } from '../app-session.ts';
 // The SDK-free half of the first-party browser contract (GRS-113): the sign-in identity switch, return-target allowlist,
 // cookie clears and sign-out, as pure functions of a Request, the deployment config and fetch. The hosted routes import

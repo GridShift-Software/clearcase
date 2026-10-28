@@ -57,8 +57,24 @@ it('M1: ten page reads respect maxRows=3 without foreground queries or failed re
 it('L1: a failed deferred insert logs one code-only diagnostic', async () => {
  const w = world(), warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
  try {
-  w.schedule(w.event); // unbound audit database rejects the insert
+  await provisionAuditBinding({ db: w.db, config: w.config, now: () => new Date(w.event.at) });
+  w.sqlite.exec("CREATE TRIGGER fail_audit BEFORE INSERT ON native_audit_events BEGIN SELECT RAISE(ABORT, 'synthetic-secret-session'); END;");
+  w.schedule(w.event);
   await Promise.all(w.pending);
   expect(warn).toHaveBeenCalledExactlyOnceWith('read-audit-unavailable');
  } finally { warn.mockRestore(); w.sqlite.close(); }
+});
+
+it('M2: authorization dedupe never discards a different kind or an asset-level event', async () => {
+ const w = world();
+ try {
+  await provisionAuditBinding({ db: w.db, config: w.config, now: () => new Date(w.event.at) });
+  w.schedule(w.event); w.schedule({ ...w.event, eventId: 'repeat-auth' });
+  w.schedule({ ...w.event, eventId: 'original-auth', action: 'case.read-original' });
+  w.schedule({ ...w.event, eventId: 'asset-delivery', action: 'asset.read-original', object: { kind: 'asset', id: 'synthetic-original', caseId: w.event.object.caseId } });
+  await Promise.all(w.pending);
+  expect(w.sqlite.prepare('SELECT action, object_id FROM native_audit_events ORDER BY seq').all()).toEqual([
+   { action: 'case.read', object_id: 'case-a' }, { action: 'case.read-original', object_id: 'case-a' }, { action: 'asset.read-original', object_id: 'synthetic-original' },
+  ]);
+ } finally { w.sqlite.close(); }
 });

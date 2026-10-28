@@ -1,6 +1,6 @@
 # RC rehearsal, Wednesday 28 October 2026
 
-Staging checks run before the Monday 2 November gate. They are single passes, run from the coordinator's EU host, so they give functional coverage only. The gate's p95 comes from three runs from the South African network, recorded in `2026-11-02.md`.
+Staging checks run before the Monday 2 November gate. They are single passes, run from the coordinator's EU host, so they give functional coverage only. They do not establish the gate's p95: that needs three runs from the South African network on Monday, still to be done and recorded in `2026-11-02.md`.
 
 ## Rollback
 
@@ -18,7 +18,7 @@ Both are under the 2-minute limit. No migrations lie between the two SHAs, so no
 | Journey | User | Verdict | Notes |
 |---|---|---|---|
 | J1 | viewer, read-only | PASS | 42 entries; Document Diff 833 ms; Discovery 1,350 ms |
-| J5 | viewer, read-only | PASS | 24 of 24 views; slowest 1,428 ms (quantum) |
+| J5 | viewer, read-only | PASS | 24 of 24 views; slowest 1,428 ms (quantum). Heads passed on its documented empty state (J5 accepts it since #192); populated Heads entries were not checked here |
 | J10 | viewer, read-only, `IDLE_MINUTES=20` | PARTIAL | every idle check PASS: 0 401, 0 503, 0 failed requests, 0 page errors, session survived; the two write steps are skipped under read-only |
 
 ## Journeys at d85fd6ae (editor, writes on)
@@ -33,6 +33,6 @@ The RC latency fix (`sprint/grs-266-rc-latency`) targets these two steps and Dis
 
 ## Open before the gate
 
-- Sign-in: the measured 12 to 16 s includes fixed waits in the probe and the journey harness. The per-phase breakdown is on `sprint/grs-266-signin-timing`. Production Clerk instances are the owner's decision.
+- Sign-in: not yet proven against the 5 s p95 budget. The 12 to 16 s measured so far includes fixed waits in the probe and the journey harness, so the time a person waits is uncertain; the verdict waits on the corrected measurement and the gate runs. The per-phase breakdown is on `sprint/grs-266-signin-timing`. Production Clerk instances are the owner's decision.
 - Preload of two notes, two deadlines and one custom bundle: to be recorded in `preload.md`.
 - The colleague's 390 px phone check, recorded in the Human log.

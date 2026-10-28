@@ -77,6 +77,7 @@ export function createMemoryReader(ctx: MemoryContext): C.CaseReader {
     async verifyVersion(a) { const v = await version(a); const manifest = v.files.find((f) => f.path === 'manifest.json'); const ok = !!manifest && await digest(manifest.bytes) === v.info.manifest_sha256; return release(a, { ok, ms: 0, ...(ok ? {} : { reason: 'integrity' }) }); },
     async activeVersionId(a) { await guard(a); const p = ctx.client.cases.find((c) => c.caseId === a.caseId)?.publication; return p?.kind === 'published' ? p.resultsVersion : null; },
     async previousVersion(a) { await guard(a); return null; },
+    async publication(a) { const rv = await store.activeVersionId(a); return rv ? { versionId: rv, publishedAt: null, previousVersionId: null, shardManifestSha256: null, shards: null } : null; },
     async trustedFor(a) { await guard(a); return new Set(); },
     async stateRevision(a) { await guard(a); return ctx.work(a.caseId).revision; },
     async packageFile(a) { const v = await version(a); const f = v.files.find((f) => f.path === a.path); return f ? new Uint8Array(f.bytes) : null; },

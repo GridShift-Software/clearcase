@@ -89,7 +89,7 @@ test('bundle PDF metadata survives a new store instance and replacement preserve
 		f.db.close();
 	}
 });
-test('bundle table plus header pins the measured shared-adapter ceiling', async () => {
+test('bundle table plus header is one D1 read each', async () => {
 	const f = fixture();
 	try {
 		const result = await measure(f.c, async () => {
@@ -98,14 +98,14 @@ test('bundle table plus header pins the measured shared-adapter ceiling', async 
 		});
 		console.info('18 bundle table+header D1 calls:', result.counts.d1);
 		expect(result.thrown).toBeUndefined();
-		// Ticket target: 2, NOT MET. Shared adapter binding/definition/rows overhead; latency branch may lower this.
-		expect(result.counts.d1).toBeLessThanOrEqual(4);
+		// Ticket target 2, met since GRS-266: binding, definition and rows are one query per read.
+		expect(result.counts.d1).toBeLessThanOrEqual(2);
 	} finally {
 		f.db.close();
 	}
 });
 
-test('assembled metadata pins the measured shared-adapter batch ceiling', async () => {
+test('assembled metadata is one D1 batch, its audit included', async () => {
 	const f = fixture();
 	try {
 		await f.store.putCustom(
@@ -123,20 +123,20 @@ test('assembled metadata pins the measured shared-adapter batch ceiling', async 
 			{ sha256: 'a'.repeat(64), bytes: 1000 },
 		);
 		console.info('18 assembled metadata D1 batches:', f.batches());
-		// Ticket target: 1, NOT MET. Shared adapter separately acknowledges non-note audit; latency branch may lower this.
-		expect(f.batches()).toBeLessThanOrEqual(2);
+		// Ticket target 1, met since GRS-266: the change's audit event commits in its own batch.
+		expect(f.batches()).toBeLessThanOrEqual(1);
 	} finally {
 		f.db.close();
 	}
 });
-test('assembled lookup pins the measured shared-adapter query ceiling', async () => {
+test('assembled lookup is one D1 query', async () => {
 	const f = fixture();
 	try {
 		const result = await measure(f.c, () => f.store.table(CUSTOM_TABLE));
 		expect(result.thrown).toBeUndefined();
 		console.info('18 assembled GET lookup D1 calls:', result.counts.d1);
-		// Ticket target: 1, NOT MET. Shared adapter reads binding, definition and rows; latency branch may lower this.
-		expect(result.counts.d1).toBeLessThanOrEqual(3);
+		// Ticket target 1, met since GRS-266: binding, definition and rows are one query.
+		expect(result.counts.d1).toBeLessThanOrEqual(1);
 	} finally {
 		f.db.close();
 	}

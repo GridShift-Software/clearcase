@@ -39,18 +39,15 @@ const adds: [string, { actions?: Record<string, unknown>; load?: unknown }, stri
   ['enforcement_tab', enforcement, 'status', { stepKey: 'step-key-1', status: 'Done', version: 'none' }],
 ];
 
-// Measurement, not a claim that the ticket's one-batch target is met. The store commits a register row (and its operation
-// ledger) in one batch, then appends the row's audit event and acknowledges it in a second: only note-add and note-delete
-// audit inside their batch (d1-user-work.ts `atomicNote`). Folding row-put, row-delete and overlay-put in is 16's store to
-// change, as 17a found for the registers: the atomic change-plus-audit batch lands with the RC latency PR
-// (sprint/grs-266-rc-latency), not here. TARGET: one batch per write; NOT MET: two.
-it.each(adds)('17b a %s save is one change batch, then the audit acknowledgement', async (name, route, action, form) => {
+// The ticket's one-batch target, met since GRS-266: a register row, seed overlay or table row change commits with its
+// operation ledger and its audit event in one batch, as note changes do, with no acknowledgement batch after it.
+it.each(adds)('17b a %s save is one batch: the change and its audit together', async (name, route, action, form) => {
   const w = world();
   try {
     const result = await measure(w.c, () => post(at(w) as never, route, action, form));
     expect(result.thrown).toBeUndefined();
     expect(result.value).not.toMatchObject({ status: expect.any(Number) });
-    expect(w.batches()).toBe(2);
+    expect(w.batches()).toBe(1);
     expect(w.db.prepare('SELECT count(*) AS n FROM uw_operation WHERE audited_at IS NOT NULL').get()).toEqual({ n: 1 });
     console.log(`17b ${name} save: foreground calls`, result.counts, 'batches', w.batches(), 'target=1');
   } finally { w.db.close(); }
@@ -61,7 +58,7 @@ const deletes: [string, { actions?: Record<string, unknown>; load?: unknown }, (
   ['payments_tab', payments, (r) => ({ rowId: r.rowId, hash: r.hash }), (p) => p.payments[0]],
   ['crossexam_tab', crossexam, (r) => ({ seedId: r.del, confirm: r.del }), (p) => p.rows[0]],
 ];
-it.each(deletes)('17b a %s delete is one change batch, then the audit acknowledgement', async (name, route, form, pick) => {
+it.each(deletes)('17b a %s delete is one batch: the change and its audit together', async (name, route, form, pick) => {
   const w = world();
   try {
     if (name !== 'crossexam_tab') await post(at(w) as never, route, 'add', name === 'heads_tab' ? entry : { date: '', amount: '10.00', method: '', note: '' });
@@ -70,7 +67,7 @@ it.each(deletes)('17b a %s delete is one change batch, then the audit acknowledg
     const result = await measure(w.c, () => post(at(w) as never, route, 'delete', form(row)));
     expect(result.thrown).toBeUndefined();
     expect(result.value).toMatchObject({ op: 'delete' });
-    expect(w.batches()).toBe(2);
+    expect(w.batches()).toBe(1);
     console.log(`17b ${name} delete: foreground calls`, result.counts, 'batches', w.batches(), 'target=1');
   } finally { w.db.close(); }
 });

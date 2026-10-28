@@ -3,11 +3,12 @@ import { error, json, type RequestEvent } from '@sveltejs/kit';
 import { publishedVersion } from '$lib/views/hosted/payloads.server';
 import { refuse } from '$lib/server/runtime/hosted/http';
 import { cloudBindings } from '$lib/storage/cloud/bindings';
-import { writeOnce } from '$lib/storage/cloud/objects';
+import { id as brand } from '$lib/server/runtime/ids';
 import {
 	pdfBytes,
 	pdfDigest,
 	bundleObjectKey,
+	writeBundlePdf,
 } from '$lib/views/bundles/assembled';
 import { uploadBundle } from '$lib/views/bundles/upload';
 import { customOf } from '$lib/bundles/builder';
@@ -16,12 +17,24 @@ import {
 	customRows,
 	CUSTOM_TABLE,
 } from '$lib/views/bundles/store.hosted';
+/** A failed object write, told apart from the row's own refusals. */
+const OBJECT_FAILED = new Error('bundle PDF not stored');
 export async function POST({ locals, params, request }: RequestEvent) {
-	const total = performance.now(),
-		scope = await publishedVersion(locals, params);
-	await locals.identity
-		.authorize({ caseId: scope.caseId, operation: 'write-user-work' })
-		.catch((e) => refuse(e, 'write'));
+	const total = performance.now();
+	// The version check and the write authorization are independent reads, so they run together; both must pass before
+	// the body is read, and a version refusal is reported first, as when they ran one after the other.
+	const caseParam = (params as Partial<Record<string, string>>).caseId ?? '';
+	const [version, authorized] = await Promise.allSettled([
+		publishedVersion(locals, params),
+		(async () =>
+			locals.identity.authorize({
+				caseId: brand('case', caseParam),
+				operation: 'write-user-work',
+			}))(),
+	]);
+	if (version.status === 'rejected') throw version.reason;
+	if (authorized.status === 'rejected') refuse(authorized.reason, 'write');
+	const scope = version.value;
 	const metadata = uploadBundle(request);
 	if (!metadata)
 		return json({ message: 'Invalid bundle metadata.' }, { status: 400 });
@@ -40,35 +53,41 @@ export async function POST({ locals, params, request }: RequestEvent) {
 			{ message: 'Upload a PDF with Content-Length, no larger than 64 MiB.' },
 			{ status: 400 },
 		);
-	const work = bundleStore(locals, scope);
-	const prefetched = work.table(CUSTOM_TABLE);
-	// Observe failures immediately while the object write is in flight.
-	const rowsPromise = prefetched.then(
-		(rows) => ({ rows }),
-		(error) => ({ error }),
-	);
 	const sha256 = pdfDigest(bytes),
 		storedAt = performance.now();
-	const outcome = await writeOnce(
+	let writeAt = storedAt;
+	// The object write and the row's read, authorization and preparation run side by side; the row commits only once
+	// the object is stored, so a saved row never names a missing PDF.
+	const stored = writeBundlePdf(
 		binding.bucket,
 		bundleObjectKey(scope.caseId, id, sha256),
 		bytes,
 		sha256,
-	);
-	if (outcome !== 'written' && outcome !== 'present')
-		error(503, 'The PDF could not be stored. Retry.');
-	const writeAt = performance.now();
-	// Custom numbering is derived from saved custom rows (C1, C2, …); shipped numbers are numeric.
-	const prefetchedRows = await rowsPromise;
-	if ('error' in prefetchedRows) refuse(prefetchedRows.error, 'write');
-	const no = await work
-		.putCustom(id, c, [], { sha256, bytes: bytes.length }, prefetchedRows.rows)
-		.catch((e) => refuse(e, 'write'));
+	).then((outcome) => {
+		writeAt = performance.now();
+		if (outcome !== 'written' && outcome !== 'present') throw OBJECT_FAILED;
+	});
+	stored.catch(() => undefined); // observed by the commit, or below when the row is refused first
+	let no: string;
+	try {
+		no = await bundleStore(locals, scope).putCustom(
+			id,
+			c,
+			[],
+			{ sha256, bytes: bytes.length },
+			stored,
+		);
+	} catch (e) {
+		await stored.catch(() => undefined);
+		if (e === OBJECT_FAILED) error(503, 'The PDF could not be stored. Retry.');
+		refuse(e, 'write');
+	}
 	const end = performance.now();
 	return json(
 		{ saved: true, id, no },
 		{
 			headers: {
+				// userwork is the commit left after the object write; the rest of the row's work ran beside it.
 				'server-timing': `object;dur=${(writeAt - storedAt).toFixed(1)}, userwork;dur=${(end - writeAt).toFixed(1)}, total;dur=${(end - total).toFixed(1)}`,
 			},
 		},

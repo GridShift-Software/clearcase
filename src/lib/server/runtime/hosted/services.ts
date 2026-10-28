@@ -102,7 +102,8 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 	let scheduleRead: ReturnType<typeof requestReadAudit> | undefined;
 	const pagePath = new URL(request.url).pathname;
 	const byteRoute = /^\/cases\/[^/]+\/v\/[^/]+\/assets\/[^/]+\/?$/.test(pagePath);
-	const pageRequest = request.method === 'GET' && !byteRoute && /^\/cases\/[^/]+(?:\/v\/|\/originals\/[^/]+\/view$|$)/.test(pagePath);
+	// The case notes list (and its client-side data request) is a page view of the case too: it reads through the one lookup.
+	const pageRequest = request.method === 'GET' && !byteRoute && /^\/cases\/[^/]+(?:\/v\/|\/originals\/[^/]+\/view$|\/notes(?:\/__data\.json)?$|$)/.test(pagePath);
 	// A version page's form POST (a note save or delete) reads the case through the same one lookup; its write-user-work
 	// authorizations still query the grant afresh and append their event before the write, fail closed.
 	const versionPost = request.method === 'POST' && !byteRoute && /^\/cases\/[^/]+\/v\//.test(pagePath);

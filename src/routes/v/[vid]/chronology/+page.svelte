@@ -143,8 +143,8 @@
 </main>
 
 <style>
-	:global(.chrono-grid.chrono-sel .grid-row) { grid-template-columns: 4.8em 5.6em 5.4em 6.2em minmax(10em, 1fr) 6em 6.4em 5.6em 5.4em 4.4em; }
-	:global(.chrono-grid.chrono-sel.no-basis .grid-row) { grid-template-columns: 4.8em 5.6em 6.2em minmax(10em, 1fr) 6em 6.4em 5.6em 5.4em 4.4em; }
+	:global(.chrono-grid.chrono-sel .grid-row) { column-gap: 6px; grid-template-columns: 4.4em 5.4em 5.4em 5.8em minmax(7em, 1fr) 5em 5.6em 5.4em 4.8em 4em; }
+	:global(.chrono-grid.chrono-sel.no-basis .grid-row) { grid-template-columns: 4.4em 5.4em 5.8em minmax(7em, 1fr) 5em 5.6em 5.4em 4.8em 4em; }
 	:global(.chrono-grid .preview-cell button) { min-height: 0; height: auto; padding: 2px 6px; font-size: 12px; }
 	:global(.chrono-grid .grid-row.selected .cite) { font-weight: 600; }
 	.excerpt, .also-in { display: block; }

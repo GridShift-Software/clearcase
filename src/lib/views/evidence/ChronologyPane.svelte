@@ -23,9 +23,9 @@
 		{#if notFound}<p class="pane-state" data-pane-state="not-found">{selected} is not a document of this results version.</p>
 		{:else}<p class="pane-state" data-pane-state="loading" role="status">Loading the document…</p>{/if}
 	{:else}
-		<header>
+		<header class="pane-head">
 			<h2 id="chrono-pane-h" class="pane-title">{title(row)}</h2>
-			<p class="pane-meta"><strong>{row.ref}</strong> · {row.date || 'undated'} · {row.docType} · {row.bundle} · text {statusLabel(row.textStatus)}{#if row.sender} · {row.sender}{/if}</p>
+			<p class="pane-meta"><strong>{row.ref}</strong> · {row.date || 'undated'} · {row.docType} · {row.bundle} · text {statusLabel(row.textStatus)}{#if row.sender}{' · '}{row.sender}{/if}</p>
 			{#if row.excerpt}<p class="pane-excerpt">{row.excerpt}</p>{/if}
 			{#if row.alsoIn.length}<p class="pane-meta">Also in: {row.alsoIn.join(', ')}</p>{/if}
 			{#if docHref}<p class="pane-links"><a href={docHref} data-action="open-document">Open document page</a></p>{/if}
@@ -47,6 +47,7 @@
 	.chrono-pane:focus { outline: none; }
 	/* the page shows Back when the pane sits below the list */
 	.pane-back { display: none; margin: 0; }
+	.pane-head { display: flex; flex-direction: column; gap: 6px; }
 	.pane-title { font-size: 15px; margin: 0; overflow-wrap: anywhere; }
 	.pane-excerpt { margin: 0; font-size: 13px; max-height: 8.5em; overflow: auto; overflow-wrap: anywhere; }
 	.pane-meta, .pane-links, .pane-state { margin: 0; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }

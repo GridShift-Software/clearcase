@@ -42,7 +42,7 @@ type Act = (work: C.AsyncUserWork) => Promise<C.Written<unknown> | 'absent' | { 
 const mark = (locator: string) => ({ case_id: CASE, locator, selected: 1, co: 'C' });
 const putRow = (work: C.AsyncUserWork, rowId: string, operationId: string) => work.putRow({ caseId: CASE, store: 'time', rowId, fields: { hours: 1 }, anchor: null, expected: { kind: 'absent' }, operationId });
 const putMark = (work: C.AsyncUserWork, locator: string, operationId: string) => work.putTableRow({ caseId: CASE, table: MARKS, owner: OWNER, row: mark(locator), expected: { kind: 'absent' }, operationId });
-const versionOf = async (r: Promise<C.Written<unknown> | { kind: string }>) => { const w = await r; if (w.kind !== 'written') throw new Error(`not written: ${w.kind}`); return (w as C.Written<unknown>).version; };
+const versionOf = async (r: Promise<C.Written<unknown>>) => { const w = await r; if (w.kind !== 'written') throw new Error(`not written: ${w.kind}`); return w.version; };
 
 /** Each path: `prepare` makes what the change needs (with room in the log) and returns the change itself. */
 const PATHS: { action: string; prepare: (w: World) => Promise<Act> }[] = [

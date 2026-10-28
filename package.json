@@ -26,7 +26,9 @@
     "validate": "bun scripts/case-package/cli.ts validate",
     "verify:package": "bun scripts/case-package/verify-package.ts",
     "check:hosted-imports": "bun scripts/ci/hosted-imports.ts",
-    "probe:hosted-imports": "bun tests/hosted-foundation/runtime/guard-mutations.ts"
+    "probe:hosted-imports": "bun tests/hosted-foundation/runtime/guard-mutations.ts",
+    "journeys": "bun tests/journeys/run-all.mjs",
+    "publish:shards": "bun scripts/publish/cli.ts"
   },
   "dependencies": {
     "@clerk/backend": "3.26.0",

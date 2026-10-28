@@ -73,7 +73,10 @@ const tied = (jar: Jar) => jar.has(STAFF_DEV_BROWSER_TIE);
 /** The cookies in a jar that are neither Clerk's nor the tie: the handshake correlation, if any. */
 // the handshake's own re-auth mark (heavy review M2) is no correlation
 const REAUTH = new Set(['__Host-clearcase_reauth', '__clearcase_reauth']);
-const correlation = (jar: Jar) => [...jar.keys()].filter((n) => !/^__(?:clerk_|client_uat|session)/.test(n) && n !== STAFF_DEV_BROWSER_TIE && !REAUTH.has(n));
+// nor is the binding every handshake start sets and its return consumes (GRS-268, handshake-binding.test.ts)
+const BINDING = /^(?:(?:__Host-)?clearcase_hs_[A-Za-z0-9_-]{22}|__clearcase_hs)$/;
+const NOT_CORRELATION = { has: (n: string) => REAUTH.has(n) || BINDING.test(n) };
+const correlation = (jar: Jar) => [...jar.keys()].filter((n) => !/^__(?:clerk_|client_uat|session)/.test(n) && n !== STAFF_DEV_BROWSER_TIE && !NOT_CORRELATION.has(n));
 const anonymous = { kind: 'anonymous', principal: null, sessionId: null };
 /** The dev browser the operator POST on `origin` hands the staff portal for this jar (or raw Cookie header), or null. */
 const forwarded = async (origin: Origin, jar: Jar | string): Promise<string | null> => {
@@ -139,7 +142,7 @@ describe('the staff tie needs a staff handshake this browser started here (H1)',
 		expect(names).toHaveLength(1);
 		const [cookieName] = names as [string];
 		const cookie = own.jar.get(cookieName)!;
-		const params = [...own.back.searchParams.keys()].filter((p) => p !== 'returnTo' && !REAUTH.has(p));
+		const params = [...own.back.searchParams.keys()].filter((p) => p !== 'returnTo' && !NOT_CORRELATION.has(p));
 		expect(params).toHaveLength(1);
 		const [param] = params as [string];
 		const id = own.back.searchParams.get(param)!;
@@ -248,7 +251,7 @@ describe('a sibling origin under the same parent domain cannot plant the correla
 		expect(STAFF_DEV_BROWSER_TIE).toMatch(/^__Host-/);
 		const returned = await handle(ORIGIN_A, handedBack(s.back, OWN_DVB), s.jar);
 		if (returned.kind !== 'redirect') throw new Error('expected the handshake return');
-		const ours = returned.setCookies.filter((d) => d.startsWith('__Host-') && !REAUTH.has(d.split('=')[0]!));
+		const ours = returned.setCookies.filter((d) => d.startsWith('__Host-') && !NOT_CORRELATION.has(d.split('=')[0]!));
 		expect(ours.map((d) => d.split('=')[0])).toEqual([name, STAFF_DEV_BROWSER_TIE]);
 		for (const d of ours) {
 			expect(d).toMatch(/; Path=\/(?:;|$)/);
@@ -266,10 +269,10 @@ describe('a sibling origin under the same parent domain cannot plant the correla
 	it('fails closed on a plain http origin: no correlation, no tie and no forwarded dev browser', async () => {
 		const s = await start(ORIGIN_L, '/sign-in/operator');
 		expect(correlation(s.jar)).toEqual([]);
-		expect([...s.back.searchParams.keys()].filter((p) => p !== 'returnTo' && !REAUTH.has(p))).toEqual([]);
+		expect([...s.back.searchParams.keys()].filter((p) => p !== 'returnTo' && !NOT_CORRELATION.has(p))).toEqual([]);
 		const jar = apply(s.jar, await handle(ORIGIN_L, handedBack(s.back, OWN_DVB), s.jar));
 		expect(jar.get('__clerk_db_jwt')).toBe(OWN_DVB);
-		expect([...jar.keys()].filter((n) => /clearcase/.test(n) && !REAUTH.has(n))).toEqual([]);
+		expect([...jar.keys()].filter((n) => /clearcase/.test(n) && !NOT_CORRELATION.has(n))).toEqual([]);
 		expect(await forwarded(ORIGIN_L, jar)).toBeNull();
 	});
 });

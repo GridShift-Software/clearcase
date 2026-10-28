@@ -36,8 +36,11 @@ jobs:
     # job-started hook (scripts/ci/guest-provision.sh) ends the job before its first step unless the pull request's
     # head is this repository, once pc1 has been provisioned with it (docs/ci-runner.md says whether it has).
     # tests/ci/workflow-admission.test.ts evaluates this condition, and the triggers, for each kind of event.
+    #
+    # A pull request into a sprint/ branch runs check-lite below instead (docs/sprint/README.md); every other base,
+    # dev above all, still runs this job.
     if: >-
-      github.repository == 'GridShift-Software/clearcase' && (
+      github.repository == 'GridShift-Software/clearcase' && !startsWith(github.base_ref, 'sprint/') && (
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'push' && github.ref == 'refs/heads/dev') ||
       github.event_name == 'workflow_dispatch')
@@ -301,3 +304,101 @@ jobs:
           name: receipts
           path: ${{ runner.temp }}/receipts
           if-no-files-found: error
+
+  # CI-lite for the hosted-demo sprint (docs/sprint/research/delivery-speed.md, section 3): a pull request whose base is a
+  # sprint/ branch gets typecheck, the hosted import guard, the tests its diff reaches plus a fixed set, and the hosted
+  # bundle, in a few minutes. gate:hosted runs only when deploy/ or src/lib/server changed. It leaves out the test guard,
+  # the identity-probe gate steps, the receipts wrapper and the verdict store; the full job above still runs on the
+  # sprint-to-dev pull request. The same guard as above: this repository's own branches only.
+  check-lite:
+    if: >-
+      github.repository == 'GridShift-Software/clearcase' && github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.base_ref, 'sprint/')
+    runs-on: [self-hosted, Linux, X64, clearcase-pc1]
+    timeout-minutes: 15
+    env:
+      # Sprint mode for the hard-coded count guards (tests/parity/m2-base.test.ts, tests/ci/pc1-vm-split-inventory.test.ts).
+      CLEARCASE_SPRINT: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: tsc
+        run: bunx svelte-kit sync && bunx tsc --noEmit -p .
+      - name: svelte-check
+        run: bunx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
+      - name: check:hosted-imports
+        run: bun run --bun check:hosted-imports
+      # The fixed set always runs; the second run adds the tests this pull request's diff reaches (vitest --changed
+      # compares the merge commit with the sprint branch's tip). Temporary files on tmpfs, as in the full job.
+      - name: test
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          tmp=$(mktemp -d /dev/shm/clearcase-ci-lite.XXXXXX)
+          trap 'rm -rf "$tmp"' EXIT
+          export TMPDIR=$tmp CLEARCASE_TEST_TMP=$tmp
+          bun run --bun test --maxWorkers=6 tests/hosted-smoke tests/publication src/lib
+          bun run --bun test --maxWorkers=6 --passWithNoTests --changed "origin/$BASE_REF"
+      - name: build:hosted
+        run: bun run --bun build:hosted
+      - name: changed paths
+        id: changes
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if git diff --name-only "origin/$BASE_REF" HEAD | grep -qE '^(deploy/|src/lib/server)'; then
+            echo "hosted=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "hosted=false" >> "$GITHUB_OUTPUT"
+          fi
+      - run: scripts/ci/install-chrome.sh
+        if: steps.changes.outputs.hosted == 'true'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.changes.outputs.hosted == 'true'
+        id: setup-node
+        continue-on-error: true
+        with:
+          node-version: 24.22.0
+      - name: node fallback
+        if: steps.changes.outputs.hosted == 'true' && steps.setup-node.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/node-fallback"
+          mkdir -p "$dir"
+          cd "$dir"
+          curl -fsSLO https://nodejs.org/dist/v24.22.0/node-v24.22.0-linux-x64.tar.gz
+          curl -fsSLO https://nodejs.org/dist/v24.22.0/SHASUMS256.txt
+          want=28ea0a438de9a13bd7891fd758eee6c7819ee8af5442dfd8d45bd65e56d4228c
+          published=$(grep ' node-v24.22.0-linux-x64.tar.gz$' SHASUMS256.txt | cut -d' ' -f1)
+          [ "$published" = "$want" ] || { echo "nodejs.org publishes $published for the tarball, not the pinned $want" >&2; exit 1; }
+          echo "$want  node-v24.22.0-linux-x64.tar.gz" | sha256sum -c -
+          tar -xzf node-v24.22.0-linux-x64.tar.gz
+          echo "$dir/node-v24.22.0-linux-x64/bin" >> "$GITHUB_PATH"
+      # Same step as the full job's gate-hosted without the receipts wrapper: the run's D1 and R2 state and scratch live on
+      # tmpfs, no Cloudflare binding or token reaches it, and Node (not Bun's stand-in) hosts Wrangler.
+      - name: gate-hosted
+        if: steps.changes.outputs.hosted == 'true'
+        env:
+          CLEARCASE_BROWSER_LOCK: none
+        run: |
+          tmp=$(mktemp -d /dev/shm/clearcase-ci-hosted.XXXXXX)
+          trap 'rm -rf -- .local/hosted; rm -rf "$tmp"' EXIT
+          mkdir -p .local "$tmp/hosted" "$tmp/scratch" "$RUNNER_TEMP/hosted-report"
+          rm -rf -- .local/hosted
+          ln -sfn "$tmp/hosted" .local/hosted
+          proof='if (process.versions.bun) { console.error("node is Bun"); process.exit(3); } console.log("node " + process.execPath + " " + process.version + " (not Bun)");'
+          CI=1 WRANGLER_SEND_METRICS=false WRANGLER_SEND_ERROR_REPORTS=false TMPDIR=$tmp CLEARCASE_HOSTED_SCRATCH=$tmp/scratch \
+            CLEARCASE_HOSTED_REPORT_DIR="$RUNNER_TEMP/hosted-report" \
+            bash -c 'node -e "$1" && exec bun run --bun gate:hosted' bash "$proof"
+      - if: always() && steps.changes.outputs.hosted == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hosted-report
+          path: ${{ runner.temp }}/hosted-report
+          if-no-files-found: ignore

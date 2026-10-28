@@ -18,6 +18,7 @@ async function world() {
  w.db.sqlite.exec(MIGRATION);
  w.db.sqlite.exec(readFileSync('src/lib/audit/migrations/0001_native_audit.sql', 'utf8'));
  w.db.sqlite.exec(readFileSync('src/lib/publication/hosted/migrations/0006_shard_publication.sql', 'utf8'));
+ w.db.sqlite.exec(readFileSync('src/lib/publication/hosted/migrations/0007_shard_admission.sql', 'utf8'));
  const file = planNativeRuntimeConfig(exampleInput()).clients.find(c => c.clientId === 'client-a')!;
  const db = countedD1(w.db, w.counters), pending: Promise<void>[] = [];
  const env = runtimeEnv(file, { DB: Object.assign(db, { withSession: () => db }), BUCKET: w.bucket,

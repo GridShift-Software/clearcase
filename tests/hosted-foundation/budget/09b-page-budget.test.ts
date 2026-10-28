@@ -1,6 +1,10 @@
+import { readFileSync } from 'node:fs';
+import { requestReadAudit, requestAuditSink } from '../../../src/lib/audit/facades.ts';
+import { auditConfig } from '../../../src/lib/audit/config.ts';
+import { provisionAuditBinding } from '../../../src/lib/audit/d1-log.ts';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 vi.mock('cloudflare:workers', () => ({ env: { CLEARCASE_ASSET_TICKET_KEY: 'synthetic-test-key' } }));
-import { builtCase, published, locals, CASE_ID, type BuiltCase, type Deployment } from '../../publication/shards/world.ts';
+import { builtCase, published, locals, CASE_ID, type BuiltCase, realAuthority, type Deployment } from '../../publication/shards/world.ts';
 import { counters, countedD1, countedR2, measure, assertWithinBudget } from './harness.ts';
 import { MIGRATION, MANIFEST } from '../provisioning/world.ts';
 import { resolveExactDeployment, validateClientManifest } from '../../../src/lib/tenancy/manifest.ts';
@@ -17,26 +21,38 @@ import { load as originalView } from '../../../deploy/client/routes/cases/[caseI
 import { originalWorld } from '../../hosted-smoke/originals/08-world.ts';
 import { id, resultsVersion as rv } from '../../../src/lib/server/runtime/ids.ts';
 import type { Identity, RequestServices } from '../../../src/lib/server/runtime/contracts.ts';
+import { shard } from '../../../src/lib/views/hosted/payloads.server.ts';
 import { readCase, requireCurrent } from '../../../src/lib/views/hosted/case.server.ts';
 
 const { clientIssuer: _, ...tuple } = MANIFEST.clients[0]!;
 const resource = resolveExactDeployment(validateClientManifest(MANIFEST), tuple);
+const config = auditConfig({ clientId: resource.clientId, trustedIssuers: [resource.clientIssuer, resource.staffIssuer], limits: { maxEventBytes: 4096, maxRows: 100_000, maxReadRows: 100_000, maxDenialRows: 1000, maxDenialsPerActor: 100, maxPageRows: 50, maxPagesPerRequest: 5 } });
+const pendingAudits: Promise<void>[] = [];
 let b: BuiltCase, dep: Deployment;
 beforeAll(async () => {
  b = await builtCase(); dep = await published(b);
  dep.db.sqlite.exec(MIGRATION);
+ dep.db.sqlite.exec(readFileSync('src/lib/audit/migrations/0001_native_audit.sql', 'utf8'));
+ await provisionAuditBinding({ db: dep.db, config, now: () => new Date('2001-01-01T00:00:00Z') });
  dep.db.exec(`INSERT INTO tenant_case_grants (grant_id,client_id,scope,case_id,issuer,subject,principal_kind,role,slot,state,version,created_operation_id,request,created_by_issuer,created_by_subject,created_at) VALUES ('page-grant','client-a','case',?,?,'reader','client','viewer','content','active',1,'seed','[]','seed','seed','2001-01-01T00:00:00.000Z')`, CASE_ID, resource.clientIssuer);
 }, 120_000);
-afterAll(() => b?.cleanup());
+afterAll(async () => { await Promise.all(pendingAudits); await b?.cleanup(); });
 
-function request(subject = 'reader', clientId = 'client-a', caseId = CASE_ID) {
- const c = counters(), db = countedD1(dep.db, c), cache = memoryShardCache();
- const l = locals(dep, { db, cache, bucket: countedR2(dep.bucket, c), r2: countedR2(dep.r2, c) });
+function request(subject = 'reader', clientId = 'client-a', caseId = CASE_ID, cache = memoryShardCache(), c = counters()) {
+ const db = countedD1(dep.db, c);
+ const now = () => new Date('2001-01-01T00:00:00Z');
+ const requester = { kind: 'verified' as const, principal: { issuer: resource.clientIssuer, subject, kind: 'client' as const }, sessionId: id('session', 'synthetic-session') };
+ const audit = requestAuditSink({ db, config, requester, now });
+ const pending: Promise<void>[] = [];
+ const schedule = requestReadAudit({ db, config, waitUntil: p => { pending.push(p); pendingAudits.push(p); } });
+ const l = locals(dep, { db, cache, audit, bucket: countedR2(dep.bucket, c), r2: countedR2(dep.r2, c) });
  const lookup = requestCaseLookup(db, resource);
  const authorizer = createCaseAuthorizer({ deployment: resource, grants: d1GrantRepository(db), cases: d1CaseDirectory({ db, deployment: resource }), lookup,
-  audit: { append: async e => ({ eventId: e.eventId }) }, readAudit: () => {}, now: () => new Date('2001-01-01T00:00:00Z') });
+  audit: { append: async e => { schedule(e); return { eventId: e.eventId }; } }, readAudit: schedule, now });
+ let authorizations = 0;
  const identity: Identity = { kind: 'verified', principal: { issuer: resource.clientIssuer, subject, kind: 'client' }, sessionId: id('session', 'synthetic-session'), clientId: id('client', clientId), checkRevocation: async () => {},
   authorize: async a => {
+   authorizations++;
    if (clientId !== resource.clientId) { // the provider's normal client binding
     const { contractError } = await import('../../../src/lib/server/runtime/errors.ts'); throw contractError('wrong-client');
    }
@@ -45,7 +61,7 @@ function request(subject = 'reader', clientId = 'client-a', caseId = CASE_ID) {
  l.identity = identity;
  bindPageReads(l, lookup);
  const event = { locals: l, params: { caseId, version: b.built.record.resultsVersion, category: 'analysis', view: 'matter' }, url: new URL('https://a.example.invalid/') } as never;
- return { c, l, event, lookup, warmShell: () => l.shards.read({ caseId: id('case', CASE_ID), resultsVersion: rv(b.built.record.resultsVersion), name: 'shell.json' }) };
+ return { c, l, event, lookup, pending, authorizations: () => authorizations, warmShell: () => l.shards.read({ caseId: id('case', CASE_ID), resultsVersion: rv(b.built.record.resultsVersion), name: 'shell.json', bytes: b.files.get('shell.json')!.byteLength }) };
 }
 
 it('09b overview: one grant/case/publication/notes query, zero Clerk; warm shell and overview', async () => {
@@ -95,18 +111,25 @@ it('09b original view includes original metadata in the one grant query', async 
  // 08's world owns its grants and original; add the shard schema and user-work tables this snapshot reads.
  const { readFileSync } = await import('node:fs');
  w.dep.db.sqlite.exec(readFileSync('src/lib/publication/hosted/migrations/0006_shard_publication.sql', 'utf8'));
+ w.dep.db.sqlite.exec(readFileSync('src/lib/publication/hosted/migrations/0007_shard_admission.sql', 'utf8'));
  const { MIGRATION: workMigration, bind } = await import('../user-work/world.ts');
  w.dep.db.sqlite.exec(workMigration); bind(w.dep.db.sqlite);
  const db = countedD1(w.dep.db, w.c), lookup = requestCaseLookup(db, resource, 'asset-a');
  const identity = w.identity;
  if (identity.kind !== 'verified') throw new Error('fixture');
- const auth = createCaseAuthorizer({ deployment: resource, grants: d1GrantRepository(db), cases: d1CaseDirectory({ db, deployment: resource }), lookup, readAudit: () => {}, audit: { append: async e => ({ eventId: e.eventId }) }, now: () => new Date('2026-10-28T00:00:00Z') });
+ w.dep.db.sqlite.exec(readFileSync('src/lib/audit/migrations/0001_native_audit.sql', 'utf8'));
+ await provisionAuditBinding({ db: w.dep.db, config, now: () => new Date('2026-10-28T00:00:00Z') });
+ const pending: Promise<void>[] = [];
+ const schedule = requestReadAudit({ db, config, waitUntil: p => { pending.push(p); pendingAudits.push(p); } });
+ const auth = createCaseAuthorizer({ deployment: resource, grants: d1GrantRepository(db), cases: d1CaseDirectory({ db, deployment: resource }), lookup, readAudit: schedule, audit: { append: async e => { schedule(e); return { eventId: e.eventId }; } }, now: () => new Date('2026-10-28T00:00:00Z') });
  const l = w.locals({ ...identity, authorize: a => auth.authorizeCase({ ...a, principal: identity.principal, sessionId: identity.sessionId }) }) as RequestServices;
  bindPageReads(l, lookup);
  const result = await measure(w.c, () => originalView({ locals: l, params: { caseId: 'case-a', assetId: 'asset-a' }, url: new URL('https://example.invalid/') } as never));
  expect(result.thrown).toBeUndefined(); expect(result.value?.view.state).toBe('available');
  expect(result.counts.d1).toBe(1); assertWithinBudget('09b original view', result.counts, { d1: 1, clerk: 0, r2: 1 });
- console.log('09b original', result.counts);
+ await Promise.all(pending);
+ expect(w.c.d1).toBe(2);
+ process.stdout.write(`09b original foreground ${JSON.stringify(result.counts)}, including deferred audit ${JSON.stringify(w.c.snapshot())}\n`);
 });
 
 it('09b notes summary preserves the existing case and analysis note counts', async () => {
@@ -153,4 +176,47 @@ it('09b exposes the fully cold two-shard overview cost separately from the one-R
  const w = request();
  const result = await measure(w.c, () => Promise.all([layout(w.event), overview(w.event)]));
  expect(result.thrown).toBeUndefined(); expect(result.counts).toEqual({ d1: 1, clerk: 0, r2: 2, otherFetch: 0 });
+});
+
+it('09b measures 06 baseline and fresh production authority/audit page visits, including background work', async () => {
+ const baseline = await published(b), before = counters(), beforeCache = memoryShardCache(), db = countedD1(baseline.db, before);
+ const oldVisit = async () => {
+  const authority = await realAuthority(baseline, db);
+  const l = locals(baseline, { identity: authority.identity, audit: authority.audit, db, cache: beforeCache, r2: countedR2(baseline.r2, before), bucket: countedR2(baseline.bucket, before) });
+  const event = { locals: l, params: { caseId: CASE_ID, version: b.built.record.resultsVersion }, url: new URL('https://client-a.example.invalid/') } as never;
+  return Promise.all([layout(event), overview(event)]);
+ };
+ try {
+  expect((await measure(before, oldVisit)).thrown).toBeUndefined();
+  const oldWarm = await measure(before, oldVisit);
+  expect(oldWarm.thrown).toBeUndefined();
+  expect(oldWarm.counts).toEqual({ d1: 14, clerk: 0, r2: 1, otherFetch: 0 });
+  const c = counters(), cache = memoryShardCache();
+  const visit = async () => {
+   const w = request('reader', 'client-a', CASE_ID, cache, c); // a fresh service graph per visit; only the Cache API is shared
+   const page = await measure(c, () => Promise.all([layout(w.event), overview(w.event)]));
+   expect(page.thrown).toBeUndefined(); expect(w.authorizations()).toBe(2);
+   await Promise.all(w.pending);
+   expect(w.pending).toHaveLength(1);
+   const withAudit = c.snapshot();
+   expect(page.counts.d1).toBe(1); expect(withAudit.d1).toBe(2);
+   return { foreground: page.counts, includingAudit: withAudit };
+  };
+  const first = await visit(), warm = await visit();
+  expect(warm.foreground.r2).toBe(0);
+  for (const key of [...cache.entries.keys()]) if (key.endsWith('/overview.json')) cache.entries.delete(key);
+  const coldOverview = await visit(); expect(coldOverview.foreground.r2).toBe(1);
+  cache.entries.clear();
+  const fullyCold = await visit(); expect(fullyCold.foreground.r2).toBe(2);
+  process.stdout.write(`09b fresh production authorizer/audit: ${JSON.stringify({ beforeWarm: oldWarm.counts, first, warm, coldOverview, fullyCold })}\n`);
+ } finally { baseline.db.sqlite.close(); }
+});
+
+it('09b joined publication refuses unadmitted shard names before cache or R2 access', async () => {
+ const w = request();
+ const result = await measure(w.c, () => shard(w.l, { caseId: CASE_ID, version: b.built.record.resultsVersion }, 'view/not-admitted.json'));
+ expect(result.thrown).toMatchObject({ status: 404 });
+ expect(result.counts).toEqual({ d1: 1, clerk: 0, r2: 0, otherFetch: 0 });
+ const p = await w.l.store.publication({ caseId: id('case', CASE_ID) });
+ expect(p?.shards?.['overview.json']).toBe(b.files.get('overview.json')!.byteLength);
 });

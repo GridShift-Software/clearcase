@@ -14,7 +14,7 @@ import { auditConfig, requestAuditSink } from '../../../src/lib/audit/index.ts';
 import { provisionAuditBinding } from '../../../src/lib/audit/trusted.ts';
 import { readFileSync } from 'node:fs';
 import {
-  auditLog, authority, bind, CASE, caseReader, CLIENT, d1, database, ISSUER, LIMITS, OTHER_CASE, OTHER_CLIENT, RV1, RV2,
+  appendOnly, auditLog, authority, bind, CASE, caseReader, CLIENT, d1, database, ISSUER, LIMITS, OTHER_CASE, OTHER_CLIENT, RV1, RV2,
   SHA_A, SHA_B, SHA_C, type Fault,
 } from './world.ts';
 
@@ -267,13 +267,17 @@ describe('concurrency, idempotency, lost acknowledgements and restart', () => {
     expect([...audit.events.values()].filter((e) => e.version === retried.version).length).toBe(1);
   });
 
-  it('keeps a write whose audit acknowledgement was lost and acknowledges the identical event on retry', async () => {
-    const { make, audit, db } = setup(), work = make();
-    audit.state.failAfterStore = true;
-    await expect(work.putRow({ caseId: CASE, store: 'time', rowId: 'r1', fields: { hours: 1 }, anchor: null, expected: { kind: 'absent' }, operationId: 'op' })).rejects.toMatchObject({ code: 'audit-unavailable', outcome: 'written-unaudited', retryable: true });
-    expect(db.prepare('SELECT audited_at FROM uw_operation').get()).toEqual({ audited_at: null });
+  it('refuses a write its sink cannot audit in the batch, and the same operation id then commits once with one event', async () => {
+    // GRS-266: a fresh change never commits before its audit event. (A restore, snapshot or table definition still
+    // appends after its batch and is acknowledged on retry: see the restore test below.)
+    const { make, audit, db } = setup();
+    await expect(make({ audit: appendOnly(audit.sink) }).putRow({ caseId: CASE, store: 'time', rowId: 'r1', fields: { hours: 1 }, anchor: null, expected: { kind: 'absent' }, operationId: 'op' })).rejects.toMatchObject({ code: 'audit-unavailable', outcome: 'not-written', retryable: false });
+    expect([db.prepare('SELECT count(*) AS n FROM uw_operation').get(), db.prepare('SELECT count(*) AS n FROM uw_register_row').get(), audit.state.appends]).toEqual([{ n: 0 }, { n: 0 }, 0]);
+    const work = make();
     const again = written(await work.putRow({ caseId: CASE, store: 'time', rowId: 'r1', fields: { hours: 1 }, anchor: null, expected: { kind: 'absent' }, operationId: 'op' }));
+    expect(await work.putRow({ caseId: CASE, store: 'time', rowId: 'r1', fields: { hours: 1 }, anchor: null, expected: { kind: 'absent' }, operationId: 'op' })).toEqual(again);
     expect(audit.events.size).toBe(1);
+    expect(audit.state.appends).toBe(0);
     expect([...audit.events.values()][0]).toMatchObject({ action: 'user-work.row-put', outcome: 'succeeded', version: again.version, object: { kind: 'case', id: CASE, caseId: CASE } });
     expect(db.prepare('SELECT audited_at FROM uw_operation').get()).toEqual({ audited_at: NOW().toISOString() });
     expect(() => db.prepare('UPDATE uw_operation SET audited_at = NULL').run()).toThrow(/recorded once/);
@@ -373,13 +377,15 @@ describe('export, snapshot and restore', () => {
   });
 
   it('guards restore by revision and receipt, and keeps prior work when the restore audit is not acknowledged', async () => {
-    const { make, db, audit } = setup(), work = make(), revision = d1WorkRevision({ db: d1(db), config: { clientId: CLIENT, limits: LIMITS } });
-    await populate(work);
+    // A restore and a snapshot append their events after the batch (recovery restores through a binding the request
+    // sink cannot audit in), so `work` has a sink without atomic audit; every other change needs the atomic one.
+    const { make: plain, db, audit } = setup(), make = () => plain({ audit: appendOnly(audit.sink) }), work = make(), revision = d1WorkRevision({ db: d1(db), config: { clientId: CLIENT, limits: LIMITS } });
+    await populate(plain());
     const saved = await work.exportAll({ caseId: CASE }), at = await revision({ caseId: CASE });
     await expect(work.snapshots.put({ caseId: CASE, snapshot: { ...saved, tables: saved.tables.slice(1) }, revision: at })).rejects.toMatchObject({ code: 'snapshot-failed' });
     const receipt = await work.snapshots.put({ caseId: CASE, snapshot: saved, revision: at });
     await expect(make().snapshots.get({ caseId: OTHER_CASE, id: receipt })).rejects.toMatchObject({ code: 'forbidden' });
-    written(await work.registers.open({ caseId: CASE, store: 'time' }).add({ fields: { hours: 1 }, operationId: 'intervening' }));
+    written(await plain().registers.open({ caseId: CASE, store: 'time' }).add({ fields: { hours: 1 }, operationId: 'intervening' }));
     expect(await work.importAll({ caseId: CASE, expectedRevision: at, operationId: 'stale-restore', snapshot: saved, preRestore: receipt })).toEqual({ kind: 'stale' });
     const now = await revision({ caseId: CASE });
     await expect(work.importAll({ caseId: CASE, expectedRevision: now, operationId: 'old-receipt', snapshot: saved, preRestore: receipt })).rejects.toMatchObject({ code: 'snapshot-failed' });

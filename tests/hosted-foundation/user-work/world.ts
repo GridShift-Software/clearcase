@@ -99,6 +99,10 @@ export function authority() {
   };
 }
 
+/** `sink` without AuditSink.atomic: a change appends its event after its batch and recovers an unacknowledged one by
+ * replay. Production's request sink is atomic; this is the path for a sink without it and for historical ledgers. */
+export const appendOnly = (sink: C.AuditSink): C.AuditSink => ({ append: (event) => sink.append(event) });
+
 /** An AuditSink double that stores events by id; the same id with different bytes is refused, as GRS-116 does. */
 export function auditLog() {
   const events = new Map<string, C.AuditEvent>();

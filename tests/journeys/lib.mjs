@@ -110,46 +110,86 @@ function capture(context) {
   context.on('page', page => page.on('pageerror', () => stats.pageErrors++));
   return stats;
 }
+// A sign-in failure whose message is safe to show: it names a step, never a URL, value or Playwright stack.
+class SignInError extends Error {}
+const SIGN_IN_DEADLINE_MS = 60000;
 async function signIn(j) {
   if (MODE !== 'hosted' || !process.env.CREDENTIALS_JSON) return;
   // No secret values, URLs, headers, DOM snapshots or Playwright exception stacks are logged.
   let credentials;
   try { credentials = JSON.parse(await fs.readFile(process.env.CREDENTIALS_JSON, 'utf8')); }
   catch { throw new Error('Unable to read credentials JSON'); }
+  // Clerk issues the sign-in code on a second-factor prepare call that starts after the previous step is submitted; a code typed
+  // before that call has answered is refused with a 400. So each prepare call is tracked, and the code is typed once the one
+  // started after the last pre-code submit has succeeded. A failed call fails the sign-in, it never types the code anyway.
+  const prepares = [];
+  const onRequest = request => { if (/\/prepare_second_factor(\?|$)/.test(request.url())) prepares.push({ request, startedAt: performance.now(), done: false, ok: false }); };
+  const onResponse = response => { const p = prepares.find(x => x.request === response.request()); if (p) { p.done = true; p.ok = response.ok(); } };
+  const onFailed = request => { const p = prepares.find(x => x.request === request); if (p) p.done = true; };
+  j.page.on('request', onRequest); j.page.on('response', onResponse); j.page.on('requestfailed', onFailed);
   await j.measure('sign-in', async () => {
+    // One deadline bounds the whole sign-in: navigation, every wait, and the final paint.
+    const deadline = Date.now() + SIGN_IN_DEADLINE_MS;
+    const remaining = () => Math.max(1, deadline - Date.now());
+    const left = () => Math.min(5000, remaining());
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, Math.min(ms, remaining())));
+    const quietly = p => p.catch(() => false);
     try {
-      await j.page.goto(`${BASE_URL}${process.env.SIGN_IN_PATH || '/sign-in'}`, { waitUntil: 'domcontentloaded' });
+      await j.page.goto(`${BASE_URL}${process.env.SIGN_IN_PATH || '/sign-in'}`, { waitUntil: 'domcontentloaded', timeout: remaining() });
       // Clerk's hosted flow restarts if its button is clicked again mid-step, and a step can take several seconds on the
-      // development instance, so each pass waits up to 1.5 s and a step that throws (a field detached mid-render) is retried.
-      // Every wait is bounded by the 60 s deadline, and the app-ready check is polled so the measured time isn't padded.
-      const deadline = Date.now() + 60000;
-      const left = () => Math.max(1, Math.min(5000, deadline - Date.now()));
-      const quietly = p => p.catch(() => false);
+      // development instance. So after a click the pass waits, as long as the deadline allows, until the app is ready, a field
+      // that was not visible at the click is visible (the next step), or Clerk shows a new error; only then does the next
+      // pass fill and click again. A click that did not happen (control missing or detached mid-render) is retried at once.
       const app = new URL(BASE_URL).origin;
       const marker = j.page.locator('[data-auth-state="signed-in"], a[data-action="open-case"], nav[aria-label="Case views"]').first();
       const ready = async () => { const u = new URL(j.page.url()); return u.origin === app && !u.pathname.startsWith('/sign-in') && await quietly(marker.isVisible()); };
-      while (Date.now() < deadline) {
-        if (await ready()) return;
-        const email = j.page.locator('input[name="identifier"],input[type="email"]').first();
-        const password = j.page.locator('input[type="password"]').first();
-        const code = j.page.locator('input[autocomplete="one-time-code"]').first();
-        if (await quietly(email.isVisible()) && await quietly(email.isEditable())) await quietly(email.fill(credentials.email, { timeout: left() }));
-        if (await quietly(password.isVisible()) && await quietly(password.isEditable())) await quietly(password.fill(credentials.password, { timeout: left() }));
-        if (await quietly(code.isVisible())) {
-          check(credentials.otp, 'OTP needed');
-          await quietly(code.fill(credentials.otp, { timeout: left() }));
+      const email = j.page.locator('input[name="identifier"],input[type="email"]').first();
+      const password = j.page.locator('input[type="password"]').first();
+      const code = j.page.locator('input[autocomplete="one-time-code"]').first();
+      const errors = j.page.locator('[class*="ErrorText"]');
+      const shown = async () => ({ email: await quietly(email.isVisible()), password: await quietly(password.isVisible()), code: await quietly(code.isVisible()) });
+      const errorText = async () => { try { return (await errors.allInnerTexts()).join('|'); } catch { return ''; } };
+      const nextStep = async before => { const now = await shown(); return (now.email && !before.email) || (now.password && !before.password) || (now.code && !before.code); };
+      let lastSubmit = performance.now();
+      const codeSent = async () => {
+        while (Date.now() < deadline) {
+          const p = prepares.filter(x => x.startedAt >= lastSubmit).at(-1);
+          if (p?.done) { if (p.ok) return; throw new SignInError('Hosted sign-in failed: Clerk could not send the sign-in code'); }
+          await sleep(25);
         }
-        const submit = j.page.getByRole('button', { name: /^(Continue|Sign in|Sign in to ClearCase)$/i }).first();
-        if (await quietly(submit.isVisible()) && await quietly(submit.isEnabled())) await quietly(submit.click({ timeout: left() }));
-        const until = Math.min(Date.now() + 1500, deadline);
-        while (Date.now() < until) {
+        throw new SignInError('Hosted sign-in failed: Clerk did not send the sign-in code before the deadline');
+      };
+      const signedIn = async () => {
+        while (Date.now() < deadline) {
           if (await ready()) return;
-          await new Promise(resolve => setTimeout(resolve, 100));
+          if (await quietly(email.isVisible()) && await quietly(email.isEditable())) await quietly(email.fill(credentials.email, { timeout: left() }));
+          if (await quietly(password.isVisible()) && await quietly(password.isEditable())) await quietly(password.fill(credentials.password, { timeout: left() }));
+          const atCode = await quietly(code.isVisible());
+          let typed = false;
+          if (atCode) {
+            if (!credentials.otp) throw new SignInError('Hosted sign-in failed: the sign-in code is needed but the credentials hold none');
+            await codeSent();
+            // typed key by key, which Clerk's code boxes take (a single fill leaves them empty); the last digit submits the step
+            typed = await code.pressSequentially(credentials.otp, { timeout: left() }).then(() => true, () => false);
+          }
+          const submit = j.page.getByRole('button', { name: /^(Continue|Sign in|Sign in to ClearCase)$/i }).first();
+          const before = await shown(), errorBefore = await errorText();
+          let clicked = typed;
+          if (!atCode && await quietly(submit.isVisible()) && await quietly(submit.isEnabled())) {
+            lastSubmit = performance.now();
+            clicked = await submit.click({ timeout: left() }).then(() => true, () => false);
+          }
+          if (!clicked) { await sleep(100); continue; }
+          while (Date.now() < deadline && !(await ready()) && !(await nextStep(before)) && (await errorText()) === errorBefore) await sleep(25);
         }
-      }
-      throw new Error('Sign-in timeout');
-    } catch { throw new Error('Hosted sign-in failed; inspect authentication privately'); }
-  }, async () => {}, SIGN_IN_MS);
+        throw new SignInError('Hosted sign-in failed: the sign-in did not finish before the deadline');
+      };
+      await signedIn();
+      // the paint is part of the measured time and of the deadline
+      let timer;
+      await Promise.race([paint(j.page), new Promise((_, reject) => { timer = setTimeout(() => reject(new SignInError('Hosted sign-in failed: no paint before the deadline')), remaining()); })]).finally(() => clearTimeout(timer));
+    } catch (error) { throw error instanceof SignInError ? error : new Error('Hosted sign-in failed; inspect authentication privately'); }
+  }, async () => {}, SIGN_IN_MS).finally(() => { j.page.off('request', onRequest); j.page.off('response', onResponse); j.page.off('requestfailed', onFailed); });
 }
 export async function createJourney(id) {
   const problems = preflightProblems();

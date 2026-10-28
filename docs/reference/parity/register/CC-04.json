@@ -553,7 +553,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-filings_tab-2",
-      "reason": "v5 deletes a register row by array index without asking. ClearCase deletes by stable row key and asks first: Delete shows Confirm delete and Cancel inline, with focus on Confirm delete, and Cancel or Escape keeps the row. The server deletes nothing unless the request names the row it was confirmed for, so a page without JavaScript asks the same question. Evidence: src/lib/views/evidence/filings.server.ts:113.",
+      "reason": "v5 deletes a register row by array index without asking. ClearCase deletes by stable row key and asks first: Delete shows Confirm delete and Cancel inline, with focus on Confirm delete, and Cancel or Escape keeps the row. The server deletes nothing unless the request names the row it was confirmed for, so a page without JavaScript asks the same question. Evidence: src/lib/views/evidence/filings-actions.server.ts:111.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

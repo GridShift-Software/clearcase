@@ -17,6 +17,8 @@
 	import { RELOAD_UNAVAILABLE, reloader } from '$lib/components/reload.svelte';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
+	// the hosted route names each add, so a retry of one submission is one payment; the local page sends none
+	const operationId = $derived((data as { operationId?: string }).operationId);
 	const known = $derived(new Set(data.known));
 	const rows: (Payment & { hash: string })[] = $derived(data.payments.map((p) => ({ ...p, amountCents: p.amountCents === null ? null : BigInt(p.amountCents) })));
 	const t = $derived(totals(importedUnits(data.claim) ?? 0n, rows));
@@ -126,6 +128,7 @@
 	<div class="q-card">
 		<h3>Record a payment received</h3>
 		<form method="POST" action="?/add" use:enhance={submit} id="pay-form" aria-busy={busy}>
+			{#if operationId}<input type="hidden" name="operationId" value={operationId} />{/if}
 			<div class="q-row">
 				<div><label for="pay_date">Date</label><input id="pay_date" name="date" type="date" bind:value={fields.date} aria-invalid={addError?.field === 'date' ? 'true' : undefined} aria-describedby={addError ? 'pay-error' : undefined} /><small class="q-hint">optional; a year from 1000 to 9999</small></div>
 				<div><label for="pay_amount">Amount (R)</label><input id="pay_amount" name="amount" type="text" inputmode="decimal" autocomplete="off" bind:value={fields.amount} aria-invalid={addError?.field === 'amount' ? 'true' : undefined} aria-describedby="pay_amount_hint{addError ? ' pay-error' : ''}" /><small class="q-hint" id="pay_amount_hint">up to 13 digits of rand and 2 decimals</small></div>

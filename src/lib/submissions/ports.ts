@@ -125,6 +125,7 @@ export interface SubmissionRepository {
 
 /** Everything the intake needs, composed by the parent from trusted configuration. A null port answers 503. */
 export interface IntakePorts {
+  readonly notifications?: import('./notifications.ts').IntakeNotifications;
   readonly clientId: ClientId;
   readonly budget: IntakeBudget | null;
   readonly authorizeUpload: AuthorizeUpload | null;

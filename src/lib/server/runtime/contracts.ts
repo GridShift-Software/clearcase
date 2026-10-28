@@ -25,8 +25,12 @@ export type Publication = { kind: 'none' | 'withdrawn' } | { kind: 'published'; 
 /** Why a case shows no results: none published yet, the published version withdrawn, or results that cannot be read now. */
 export type ResultsStatus = { kind: 'pending' } | { kind: 'withdrawn' } | { kind: 'unavailable'; reason: string };
 export interface CaseInfo { caseId: CaseId; caseLabel: string | null; publication: Publication; href: string; documents: number | null }
-/** The case's publication pointer: the published version, when it moved there (null before published_at was recorded), the version it replaced, and the hex sha256 of the shard manifest it is served from (null for a version published without shards). */
-export interface PublicationRecord { versionId: ResultsVersion; publishedAt: string | null; previousVersionId: ResultsVersion | null; shardManifestSha256: string | null }
+/**
+ * The case's publication pointer: the published version, when it moved there (null before published_at was recorded), the
+ * version it replaced, the hex sha256 of the signed shard manifest it is served from, and the shards it serves: every name
+ * its admitted manifest and amendments list, with its bytes (null for a version published without admitted shards).
+ */
+export interface PublicationRecord { versionId: ResultsVersion; publishedAt: string | null; previousVersionId: ResultsVersion | null; shardManifestSha256: string | null; shards: Readonly<Record<string, number>> | null }
 export type VersionInfo = Omit<Version, 'id' | 'case_id' | 'input_revision_id' | 'case_folder' | 'case_root' | 'case_dev' | 'case_ino'> & { id: ResultsVersion; case_id: CaseId; input_revision_id: Id<'input-revision'> };
 export interface DocumentProvider { id: string; owner: string; rows(a: VersionScope): Promise<readonly ProviderRow[]>; revision(a: VersionScope): Promise<string> }
 export interface ProviderRegistry { register(p: DocumentProvider): () => void; list(): readonly Pick<DocumentProvider, 'id' | 'owner'>[] }
@@ -131,11 +135,15 @@ export type Runtime = { now(): Date; probe(): Promise<BindingProbe> } & ({ build
 
 /**
  * A published version's immutable JSON shards (`views/<rvHex>/<name>` in the client bucket). It does not authorize: the
- * caller has already authorized the case and checked that `resultsVersion` is its current published version. A missing
- * shard is null; storage faults throw `storage-unavailable`.
+ * caller has already authorized the case, checked that `resultsVersion` is its current published version and that the
+ * publication admits `name`. A missing shard is null; storage faults throw `storage-unavailable`.
  */
-export interface ShardReader { read(a: VersionScope & { name: string }): Promise<Response | null> }
+export interface ShardReader {
+  /** `bytes` is the size the publication admitted for `name`: a stored object of another size is `storage-unavailable` and is not cached. */
+  read(a: VersionScope & { name: string; bytes: number }): Promise<Response | null>;
+}
 export interface RequestServices {
   /** The authorized request snapshot; absent on local and legacy adapters. */
   caseRead?: (a: Scope) => Promise<{ caseId: CaseId; info: CaseInfo | null; published: PublicationRecord | null }>;
   identity: Identity; store: CaseReader; assets: AssetsAccess; userWork: AsyncUserWork; audit: AuditSink; runtime: Runtime; shards: ShardReader }
+

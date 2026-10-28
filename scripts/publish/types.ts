@@ -19,9 +19,24 @@ export interface BuildContext {
 }
 
 export interface ShardModule {
-  /** The family, for messages: `shell`, `list`, `views-analysis`. */
+  /** The family: `shell`, `list`, `views-analysis`. `build --family <name>` builds this module alone, as an amendment. */
   name: string;
   build(ctx: BuildContext): Promise<Shard[]>;
+}
+
+/**
+ * One shard family added to an already-published version (`amendments/<sha256>.json` beside its shards): canonical JSON,
+ * identified by its own sha256, bound to the case, the version and the signed manifest.json it extends. It only adds
+ * names; a name the version already serves is refused.
+ */
+export interface ShardAmendment {
+  format: 'clearcase.shard-amendment/1';
+  caseId: string;
+  resultsVersion: string;
+  /** The hex sha256 of the version's signed manifest.json. */
+  parentManifestSha256: string;
+  family: string;
+  shards: { name: string; bytes: number; sha256: string }[];
 }
 
 /** The local-only record `build` leaves beside the shards for register, signoff and publish. Holds case content: `.local/` only. */

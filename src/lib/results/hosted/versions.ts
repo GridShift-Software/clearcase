@@ -29,15 +29,30 @@ export async function caseRow(db: CloudD1, caseId: CaseId): Promise<CaseInfo | n
   const r = await db.prepare(`${CASE_SQL} WHERE c.case_id = ?`).bind(caseId).first<CaseRow>().catch(unavailable);
   return r ? info(r) : null;
 }
-type PublicationRow = { version_id: string; published_at: string | null; previous_version_id: string | null; shard_manifest_sha256: string | null };
-/** The live publication pointer of `caseId` with the shard manifest of its version, under the same rule as `caseRow`. */
+type PublicationRow = { version_id: string; published_at: string | null; previous_version_id: string | null; shard_manifest_sha256: string | null; admitted_json: string | null };
+/**
+ * The live publication pointer of `caseId` with the shard manifest of its version and the shards it admits, under the same
+ * rule as `caseRow`: one statement, so a page view learns what it may serve with no further query.
+ */
 export async function publicationRow(db: CloudD1, caseId: CaseId): Promise<PublicationRecord | null> {
-  const r = await db.prepare(`SELECT p.version_id, p.published_at, p.previous_version_id, m.manifest_sha256 AS shard_manifest_sha256
+  const r = await db.prepare(`SELECT p.version_id, p.published_at, p.previous_version_id, m.manifest_sha256 AS shard_manifest_sha256, m.admitted_json
     FROM rs_publication p JOIN rs_results_version v ON v.version_id = p.version_id AND v.case_id = p.case_id AND v.state = 'stored'
     LEFT JOIN rs_shard_manifest m ON m.version_id = p.version_id
     WHERE p.case_id = ? AND p.state = 'published' AND NOT EXISTS (SELECT 1 FROM rs_version_withdrawal w WHERE w.version_id = p.version_id)`).bind(caseId).first<PublicationRow>().catch(unavailable);
   if (!r) return null;
-  return { versionId: resultsVersion(r.version_id), publishedAt: r.published_at, previousVersionId: r.previous_version_id ? resultsVersion(r.previous_version_id) : null, shardManifestSha256: r.shard_manifest_sha256 };
+  return { versionId: resultsVersion(r.version_id), publishedAt: r.published_at, previousVersionId: r.previous_version_id ? resultsVersion(r.previous_version_id) : null,
+    shardManifestSha256: r.shard_manifest_sha256, shards: admittedShards(r.admitted_json) };
+}
+
+/** `admitted_json` as name → bytes; anything that is not that shape admits nothing. */
+export function admittedShards(json: string | null): Readonly<Record<string, number>> | null {
+  if (json === null) return null;
+  let v: unknown;
+  try { v = JSON.parse(json); } catch { return null; }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const out: Record<string, number> = Object.create(null);
+  for (const [k, n] of Object.entries(v)) { if (!Number.isSafeInteger(n) || (n as number) < 0) return null; out[k] = n as number; }
+  return out;
 }
 
 /** The exact published version of `caseId`, or a refusal: a candidate, a staging version and a withdrawn one are forbidden alike. */

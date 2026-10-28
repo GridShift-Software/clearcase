@@ -1,18 +1,18 @@
 import { fail, isHttpError } from '@sveltejs/kit';
-import { analysisAdditionsEnabled } from '$lib/analysis/data.server';
-import { viewById } from '$lib/components/views';
 import { app } from '$lib/local-case/app.server';
-import { datasetOf } from '$lib/local-case/results.server';
-import { infoRows, itemKeys, saveDone, type InfoItem } from '$lib/analysis/info-required.server';
-import { viewHeading } from '$lib/views/analysis/headings';
+import { datasetOf, viewContentOf } from '$lib/local-case/results.server';
+import { INFO_STORE, itemKeys, saveDone, type InfoItem } from '$lib/analysis/info-required.server';
+import { infoRequiredMerge } from '$lib/views/payloads/info-required';
+import { infoRequiredPure } from '$lib/views/payloads/info-required.server';
 import type { Actions, PageServerLoad } from './$types';
 
 const itemsOf = (vid: string) => datasetOf<InfoItem[]>(app().store, vid, 'info-required') ?? [];
 
 export const load: PageServerLoad = async ({ parent }) => {
 	const { version } = await parent();
-	const { rows, detached } = infoRows(app().userWork, version.caseId, itemsOf(version.id));
-	return { heading: viewHeading(viewById('info_required_tab')!, analysisAdditionsEnabled()), rows, detached };
+	const a = app();
+	const shard = infoRequiredPure({ store: a.store, vid: version.id, vc: viewContentOf(a.store, version.id) });
+	return infoRequiredMerge(shard, { rows: a.userWork.listRows(version.caseId, INFO_STORE) });
 };
 
 const carried = (f: FormData, items: InfoItem[], except: string) => {

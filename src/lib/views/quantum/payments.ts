@@ -1,6 +1,7 @@
 import { toCSV, userCell } from '../../components/csv.ts';
 import { dateProblem } from '../../calculations/dates.ts';
 import { centsToUnits, parseAmount, unitsToCents } from '../../calculations/money.ts';
+import type { paymentsPure } from './data.server.ts';
 
 export const PAYMENTS_STORE = 'payments';
 
@@ -40,3 +41,14 @@ export function totals(claimUnits: bigint, rows: readonly Payment[]): Totals {
 
 export const paymentsCsv = (rows: readonly Payment[]) =>
 	toCSV([['date', 'amount', 'method', 'note'], ...rows.map((r) => [r.date, r.amount, r.method, r.note].map(userCell))]);
+
+/** The payments register as the views read it: each payment with its row version. */
+export interface PaymentsWork { payments: readonly (Payment & { hash: string })[] }
+
+/** The Payments & Net Claim shard (ticket 04): the view without the payments. */
+export type PaymentsShard = ReturnType<typeof paymentsPure>;
+
+export const paymentsMerge = (shard: PaymentsShard, work: PaymentsWork) => ({
+	...shard,
+	payments: work.payments.map((p) => ({ ...p, amountCents: p.amountCents === null ? null : String(p.amountCents) })),
+});

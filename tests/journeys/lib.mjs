@@ -116,6 +116,11 @@ async function signIn(j) {
   let credentials;
   try { credentials = JSON.parse(await fs.readFile(process.env.CREDENTIALS_JSON, 'utf8')); }
   catch { throw new Error('Unable to read credentials JSON'); }
+  // Clerk sends the code on a call that starts as the code field appears; a code typed before it answers is refused with a 400,
+  // which fails the network check and costs a retry pass. So the code is typed once that call has answered, or after 3 s.
+  let prepared = false;
+  const onResponse = response => { if (/\/prepare_(first|second)_factor(\?|$)/.test(response.url())) prepared = true; };
+  j.page.on('response', onResponse);
   await j.measure('sign-in', async () => {
     try {
       await j.page.goto(`${BASE_URL}${process.env.SIGN_IN_PATH || '/sign-in'}`, { waitUntil: 'domcontentloaded' });
@@ -140,6 +145,7 @@ async function signIn(j) {
         if (await quietly(password.isVisible()) && await quietly(password.isEditable())) await quietly(password.fill(credentials.password, { timeout: left() }));
         if (await quietly(code.isVisible())) {
           check(credentials.otp, 'OTP needed');
+          for (const until = Math.min(Date.now() + 3000, deadline); !prepared && Date.now() < until;) await new Promise(resolve => setTimeout(resolve, 25));
           await quietly(code.fill(credentials.otp, { timeout: left() }));
         }
         const submit = j.page.getByRole('button', { name: /^(Continue|Sign in|Sign in to ClearCase)$/i }).first();
@@ -153,7 +159,7 @@ async function signIn(j) {
       }
       throw new Error('Sign-in timeout');
     } catch { throw new Error('Hosted sign-in failed; inspect authentication privately'); }
-  }, async () => {}, SIGN_IN_MS);
+  }, async () => {}, SIGN_IN_MS).finally(() => j.page.off('response', onResponse));
 }
 export async function createJourney(id) {
   const problems = preflightProblems();

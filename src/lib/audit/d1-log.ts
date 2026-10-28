@@ -238,8 +238,10 @@ export async function appendReadAudit(a: { db: D1; config: AuditConfig; requeste
   if (e.action === READ_ACTION) throw error('invalid-event');
   await a.db.prepare(`INSERT INTO native_audit_events
     (event_id, client_id, envelope, class, actor_key, action, object_kind, object_id, case_id, version, outcome, actor_kind, at, canonical, sha256)
-    VALUES (?, ?, ?, 'protected', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(e.eventId, a.config.clientId, ENVELOPE, await actorKey(e.actor), e.action, e.object.kind, e.object.id, e.object.caseId, e.version, e.outcome, e.actor.kind, e.at, env.canonical, env.sha256).run();
+    SELECT ?, ?, ?, 'protected', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    WHERE NOT EXISTS (SELECT 1 FROM native_audit_events WHERE client_id = ? AND event_id = ?)
+      AND (SELECT event_count FROM native_audit_binding WHERE singleton = 1 AND client_id = ?) < ?`)
+    .bind(e.eventId, a.config.clientId, ENVELOPE, await actorKey(e.actor), e.action, e.object.kind, e.object.id, e.object.caseId, e.version, e.outcome, e.actor.kind, e.at, env.canonical, env.sha256, a.config.clientId, e.eventId, a.config.clientId, a.config.limits.maxRows).run();
 }
 
 /** One read row per request, detached from the response and never allowed to fail it. */
@@ -249,7 +251,7 @@ export function requestReadAudit(a: { db: D1; config: AuditConfig; waitUntil?: (
     if (recorded) return;
     recorded = true;
     const pending = new Promise<void>(resolve => setTimeout(resolve, 0))
-      .then(() => appendReadAudit({ db: a.db, config: a.config, requester: event.actor, event })).catch(() => undefined);
+      .then(() => appendReadAudit({ db: a.db, config: a.config, requester: event.actor, event })).catch(() => { console.warn('read-audit-unavailable'); });
     if (a.waitUntil) a.waitUntil(pending);
   };
 }

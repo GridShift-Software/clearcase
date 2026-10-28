@@ -135,4 +135,7 @@ export type Runtime = { now(): Date; probe(): Promise<BindingProbe> } & ({ build
  * shard is null; storage faults throw `storage-unavailable`.
  */
 export interface ShardReader { read(a: VersionScope & { name: string }): Promise<Response | null> }
-export interface RequestServices { identity: Identity; store: CaseReader; assets: AssetsAccess; userWork: AsyncUserWork; audit: AuditSink; runtime: Runtime; shards: ShardReader }
+export interface RequestServices {
+  /** The authorized request snapshot; absent on local and legacy adapters. */
+  caseRead?: (a: Scope) => Promise<{ caseId: CaseId; info: CaseInfo | null; published: PublicationRecord | null }>;
+  identity: Identity; store: CaseReader; assets: AssetsAccess; userWork: AsyncUserWork; audit: AuditSink; runtime: Runtime; shards: ShardReader }

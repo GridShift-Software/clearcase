@@ -1,3 +1,6 @@
+import { requestCaseLookup } from '../../../tenancy/request-case.ts';
+import { bindPageReads } from '../../../tenancy/page-reads.ts';
+import { requestReadAudit } from '../../../audit/d1-log.ts';
 import type { Readiness } from './handle.ts';
 import type { Identity, IdentityState, RequestServices } from '../contracts.ts';
 import { createUnavailableServices } from '../unavailable.ts';
@@ -93,14 +96,20 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 	services.runtime = { get build() { return buildStamp('production'); }, gate: null, testIdentity: null, now,
 		probe: async () => { const result = await probe(b); return { ...result, ok: result.ok && dataReady }; } };
 	let native: NativeContext | null = null;
+	let pageLookup: ReturnType<typeof requestCaseLookup> | undefined;
+	let scheduleRead: ReturnType<typeof requestReadAudit> | undefined;
+	const pagePath = new URL(request.url).pathname;
+	const pageRequest = request.method === 'GET' && /^\/cases\/[^/]+(?:\/v\/|\/originals\/[^/]+\/view$|$)/.test(pagePath);
+	const readAudit = (event: import('../contracts.ts').AuditEvent) => scheduleRead?.(event);
 	const clerk = clerkIdentityProviderFromEnv(env, {
 		authorizeCase: async (a) => {
 			if (!native) throw contractError('identity-unavailable', true);
 			const requester: IdentityState = { kind: 'verified', principal: a.principal, sessionId: a.sessionId };
 			const authorizer = createCaseAuthorizer({
+				...(pageLookup && a.operation !== 'write-user-work' ? { lookup: pageLookup, readAudit } : {}),
 				deployment: native.deployment, grants: d1GrantRepository(native.db),
 				cases: d1CaseDirectory({ db: native.db, deployment: native.deployment }),
-				audit: requestAuditSink({ db: native.db, config: native.audit, requester, now }), now,
+				audit: pageLookup && a.operation !== 'write-user-work' ? { append: async event => { readAudit(event); return { eventId: event.eventId }; } } : requestAuditSink({ db: native.db, config: native.audit, requester, now }), now,
 			});
 			await authorizer.authorizeCase(a);
 		},
@@ -114,6 +123,11 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 	}
 	if (native) {
 		const context = native;
+		scheduleRead = requestReadAudit({ db: native.db, config: native.audit, ...(scheduler ? { waitUntil: work => scheduler.waitUntil(work) } : {}) });
+		if (pageRequest) {
+			const original = /^\/cases\/[^/]+\/originals\/([^/]+)\/view$/.exec(pagePath);
+			pageLookup = requestCaseLookup(native.db, native.deployment, original ? decodeURIComponent(original[1]!) : null);
+		}
 		services.audit = requestAuditSink({ db: native.db, config: native.audit, requester: stateOf(services.identity), now });
 		const cloud = cloudBindings(env), budgets = storageBudgets(native.settings.storageBudgets);
 		if (cloud && budgets) {
@@ -123,13 +137,15 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 					bindings: { db: native.db, bucket: cloud.bucket }, clientId: clerk.config.clientId, budgets,
 					identity: services.identity, stateRevision: d1WorkRevision({ db: native.db, config }), now,
 					record: async (event) => {
-						await services.audit.append({ ...event, eventId: crypto.randomUUID(), actor: stateOf(services.identity), at: now().toISOString() });
+						const row = { ...event, eventId: crypto.randomUUID(), actor: stateOf(services.identity), at: now().toISOString() };
+						if (request.method === 'GET') readAudit(row); else await services.audit.append(row);
 					},
 					viewerRoute: (asset) => asset.kind === 'original'
 						? `/cases/${encodeURIComponent(asset.caseId)}/originals/${encodeURIComponent(asset.assetId)}/view` : null,
 				});
 				const work = createD1UserWork({ db: native.db, config, identity: services.identity, audit: services.audit, store: results.store, now, tableDefinitions: null });
 				services.store = results.store; services.assets = results.assets; services.userWork = work;
+				if (pageLookup) bindPageReads(services, pageLookup);
 				services.shards = createShardReader({ bucket: cloud.bucket, clientId: clerk.config.clientId, cache: defaultShardCache(),
 					...(scheduler ? { waitUntil: (w: Promise<unknown>) => scheduler.waitUntil(w.then(() => undefined)) } : {}) });
 				const identity = services.identity;

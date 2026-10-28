@@ -168,7 +168,11 @@ function build(a: Omit<CoreArgs, 'requester'> & { requester: IdentityState | nul
     const count = await db.prepare('SELECT event_count, read_count, denial_count FROM native_audit_binding WHERE singleton = 1 AND client_id = ?').bind(config.clientId).first<Counters>().catch(() => null);
     // A refused read that could not be stored is counted, so the bounded denial record says it is incomplete.
     if (cls === 'denial' && count) await db.prepare('UPDATE native_audit_binding SET denial_unlogged = denial_unlogged + 1 WHERE singleton = 1 AND client_id = ?').bind(config.clientId).run().catch(() => undefined);
-    throw error('audit-unavailable', !(count && exhausted(cls, count)));
+    const spent = !!count && exhausted(cls, count);
+    // A spent protected or read budget refuses every such action until the deployment raises it, and the views can only
+    // call that "busy": name it in the Worker log (GRS-270). A denial past its bound is the designed outcome, not a fault.
+    if (spent && cls !== 'denial') console.error('audit-capacity-exhausted', { class: cls, limit: cls === 'protected' ? config.limits.maxRows : config.limits.maxReadRows });
+    throw error('audit-unavailable', !spent);
   }
 
   async function readEvent(outcome: 'succeeded' | 'denied' | 'failed', scope: AuditScope, allowed: boolean) {

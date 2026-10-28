@@ -2,7 +2,7 @@
 // logs every request. Each request to the original route costs a round trip before its first byte, so the reader must not
 // chain them: a file up to 512 KiB is one plain GET, and a larger one starts its tail (where a file that is not linearized
 // keeps its cross-reference table) together with the stream, not after the stream's headers.
-import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { join } from 'node:path';
 import { DOMMatrix, ImageData, Path2D, createCanvas } from '@napi-rs/canvas';
 import { generatePdfAssets } from '../native-viewer/pdf-assets.ts';
@@ -10,9 +10,19 @@ import { generatePdfAssets } from '../native-viewer/pdf-assets.ts';
 const SRC = 'https://app.test/cases/case-a/originals/asset-1?t=synthetic';
 /** A three-page PDF that is not linearized: pages first, `filler` bytes of content in the middle, the xref table last. */
 function pdf(filler: number) {
-  const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>',
+  return build(['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>',
     ...[6, 6, 7].map((c) => `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources <<>> /Contents ${c} 0 R >>`),
-    '<< /Length 15 >>\nstream\n0 0 20 20 re f\nendstream', `<< /Length ${filler} >>\nstream\n${' '.repeat(filler)}\nendstream`];
+    '<< /Length 15 >>\nstream\n0 0 20 20 re f\nendstream', `<< /Length ${filler} >>\nstream\n${' '.repeat(filler)}\nendstream`]);
+}
+/** `pages` pages under one flat /Kids, each page's dictionary followed by `gap` bytes of its own content, the xref table
+ *  last: the layout of a large scanned bundle, where reaching the last page means reading through the whole file. */
+function spread(pages: number, gap: number) {
+  const kids = Array.from({ length: pages }, (_, i) => `${3 + 2 * i} 0 R`).join(' ');
+  return build(['<< /Type /Catalog /Pages 2 0 R >>', `<< /Type /Pages /Kids [${kids}] /Count ${pages} >>`,
+    ...Array.from({ length: pages }, (_, i) => [`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources <<>> /Contents ${4 + 2 * i} 0 R >>`,
+      `<< /Length ${gap + 15} >>\nstream\n0 0 20 20 re f\n${' '.repeat(gap)}\nendstream`]).flat()]);
+}
+function build(objects: string[]) {
   let text = '%PDF-1.4\n'; const offsets: number[] = [];
   objects.forEach((obj, i) => { offsets.push(text.length); text += `${i + 1} 0 obj\n${obj}\nendobj\n`; });
   const start = text.length;
@@ -92,4 +102,20 @@ it('starts the tail of a 3 MiB original with the stream, so its xref costs no ro
 it('ends the open with an error when the original refuses a range, so the viewer offers its download link', async () => {
   bytes = pdf(3 * 1024 * 1024); refuseRanges = true;
   await expect(open(bytes.byteLength)).rejects.toThrow();
+});
+
+it('draws page 1 of a flat 40-page tree spread over 10 MiB before checking the last page, then still checks it', async () => {
+  bytes = spread(40, 256 * 1024);
+  const size = bytes.byteLength, middle = (l: Logged) => l.range !== null && Number(/^bytes=(\d+)/.exec(l.range)![1]) < Math.floor((size - 2 ** 20) / 2 ** 18) * 2 ** 18 && l.range !== 'bytes=0-262143';
+  const reader = await open(size);
+  await reader.draw(1, 1);
+  const drawn = log.length;
+  expect(reader.pages).toBe(40);
+  // Upstream pdf.js 6.4.299 reads all 40 page dictionaries (ranges through the middle of the file) before the document
+  // opens; the served worker reads none of them before page 1 is drawn.
+  expect(log.filter(middle)).toEqual([]);
+  // The last-page check still runs after the first page: it asks for the middle of the file, ahead of the stream.
+  await vi.waitFor(() => expect(log.slice(drawn).filter(middle).length).toBeGreaterThan(0), { timeout: 5000 });
+  await reader.draw(40, 1);
+  reader.destroy();
 });

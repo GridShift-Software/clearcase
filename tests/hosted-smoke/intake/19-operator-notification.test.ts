@@ -25,4 +25,10 @@ it('19 operator list marks undelivered submissions new only after admitting the 
   expect(audit.events).toEqual(expect.arrayContaining([expect.objectContaining({ action: 'operator.submission.list.intent' })]));
   w.db.exec('UPDATE sub_notification SET delivered_at = ?', at);
   expect(await (await controller.list(request())).json()).toMatchObject({ submissions: [{ operationId: setId, isNew: false }] });
+  pending.mockRejectedValueOnce(new Error('synthetic notification read outage'));
+  const unavailableMarker = await controller.list(request());
+  expect(unavailableMarker.status).toBe(200);
+  const body = await unavailableMarker.json() as { submissions: { operationId: string; isNew?: boolean }[] };
+  expect(body.submissions[0]!.operationId).toBe(setId);
+  expect(body.submissions[0]).not.toHaveProperty('isNew');
 });

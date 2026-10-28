@@ -274,8 +274,11 @@ export function createOperatorDownloadController(ports: OperatorDownloadPorts | 
         .sort((x, y) => x.manifest.sequence - y.manifest.sequence);
       const submissions = await Promise.all(done.map((x) => viewOf(a, x)));
       if (ports!.notifications) {
-        const pending = new Set(await storage(ports!.notifications.pending(a.scope)));
-        for (const submission of submissions) submission.isNew = pending.has(submission.operationId);
+        const pending = await ports!.notifications.pending(a.scope).catch(() => null);
+        if (pending) {
+          const undelivered = new Set(pending);
+          for (const submission of submissions) submission.isNew = undelivered.has(submission.operationId);
+        }
       }
       return release(a, 'operator.submission.list', { kind: 'case', id: a.caseId, caseId: a.caseId },
         new TextEncoder().encode(JSON.stringify({ submissions, pendingCount: rows.length - singles.length + sets.length - sealed.length })));

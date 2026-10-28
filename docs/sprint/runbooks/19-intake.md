@@ -18,7 +18,7 @@ The optional webhook secret is `CLEARCASE_INTAKE_WEBHOOK`. The owner selects and
 do not put a URL or secret value in this runbook, Git, logs or test output. With no destination configured,
 the upload still succeeds and the operator sees its durable notification as **New**.
 
-Sealing a set records its notification atomically. Webhook delivery runs through the request's `waitUntil`,
+Finalizing one PDF or sealing a set records its notification atomically. Webhook delivery runs through the request's `waitUntil`,
 with a bounded timeout and no redirects. It sends only the case and submission identifiers, file count,
 byte count and sealing timestamp. A 2xx marks delivery; a failed or interrupted attempt remains **New**.
 Delivery is best effort, with at most one attempt per submission; there is no automatic retry queue.

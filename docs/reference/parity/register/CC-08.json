@@ -511,7 +511,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-enforcement_tab-3",
-      "reason": "v5 hard-codes a case-specific recovery narrative in the renderer. ClearCase reads it from the imported view-content dataset, so the case wording comes from the package and not from code. Evidence: src/routes/v/[vid]/litigation/enforcement_tab/+page.server.ts:28.",
+      "reason": "v5 hard-codes a case-specific recovery narrative in the renderer. ClearCase reads it from the imported view-content dataset, so the case wording comes from the package and not from code. Evidence: src/lib/views/litigation/enforcement.server.ts:14.",
       "productVisible": false,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

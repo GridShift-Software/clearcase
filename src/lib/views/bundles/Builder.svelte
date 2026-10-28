@@ -130,7 +130,7 @@
 			o.saved = no;
 			blobs[o.id] = o.url;
 			if (!(await reload())) return;
-			if (page.url.searchParams.get('view') === 'build' && bld.out?.id === o.id) await goto(`?${new URLSearchParams({ b: no, tab: 'index' })}`);
+			if ((page.shallow?.url ?? page.url).searchParams.get('view') === 'build' && bld.out?.id === o.id) await goto(`?${new URLSearchParams({ b: no, tab: 'index' })}`);
 		} catch {
 			if (bld.out?.id === o.id) bld.saveError = 'Not saved: the upload failed. Retry.';
 		} finally {

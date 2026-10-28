@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
-	import { afterNavigate, beforeNavigate, pushState } from '$app/navigation';
+	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ConfirmDelete from '$lib/components/ConfirmDelete.svelte';
 	import { CONFIRM } from '$lib/components/confirm-delete';
@@ -27,7 +27,7 @@
 	let stored = $derived(data.header);
 	const hd = $derived(header(stored));
 
-	const query = $derived(page.url.searchParams);
+	const query = $derived((page.shallow?.url ?? page.url).searchParams);
 	const view = $derived(query.get('view') === 'build' ? 'build' : query.has('b') ? 'bundle' : 'list');
 	const repeated = $derived.by(() => { const seen = new Set<string>(), dup = new Set<string>(); for (const x of bs) (seen.has(x.no) ? dup : seen).add(x.no); return dup; });
 	const bq = (i: number): Record<string, string> => (repeated.has(bs[i]!.no) ? { b: bs[i]!.no, at: String(i) } : { b: bs[i]!.no });
@@ -38,7 +38,7 @@
 	const b = $derived(cur >= 0 ? bs[cur]! : null);
 	const tab = $derived(({ items: 'items', view: 'view' } as Record<string, string>)[query.get('tab') ?? ''] ?? 'index');
 	const go = (q: Record<string, string>) => {
-		pushState(`?${new URLSearchParams(q)}`, {});
+		void goto(`?${new URLSearchParams(q)}`, { shallow: true, reset: false });
 		confirming = null;
 	};
 	const href = (r: Resolved | null, page?: number) => hrefOf(vid, data.files, r, page);

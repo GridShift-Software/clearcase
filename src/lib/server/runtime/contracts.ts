@@ -104,7 +104,12 @@ export interface AsyncUserWork {
   deleteRow(a: UpdateScope & { store: string; rowId: string }): Promise<Written<boolean>>;
   tables(): Promise<readonly UserWorkTable[]>; defineTable(a: { definition: TableDefinition }): Promise<void>; registerStores(a: Scope): Promise<readonly string[]>;
   listTableRows(a: Scope & { table: string }): Promise<readonly { cells: Record<string, TableCell>; version: WorkVersion }[]>;
-  putTableRow(a: WriteScope & { table: string; owner: string; row: Record<string, TableCell> }): Promise<Written<void>>;
+  /**
+   * `commitAfter`: the write is authorized and prepared at once, but commits only once this settles fulfilled (an object
+   * the row names is stored). A rejection refuses the write with nothing written and rethrows its reason. It is not part
+   * of the request an operation id is bound to.
+   */
+  putTableRow(a: WriteScope & { table: string; owner: string; row: Record<string, TableCell>; commitAfter?: Promise<unknown> }): Promise<Written<void>>;
   putTableRows(a: CaseWriteScope & { table: string; owner: string; rows: readonly Record<string, TableCell>[] }): Promise<Written<void>>;
   deleteTableRow(a: UpdateScope & { table: string; owner: string; key: Record<string, TableCell> }): Promise<Written<boolean>>;
   exportAll(a: Scope): Promise<UserWorkExport>; importAll(a: CaseWriteScope & { snapshot: UserWorkExport; preRestore: Id<'snapshot'> }): Promise<Written<ImportResult>>;

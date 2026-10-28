@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import type { CloudR2 } from '../../storage/cloud/bindings.ts';
+import { writeOnce, type WriteOnce } from '../../storage/cloud/objects.ts';
 export const MAX_PDF_BYTES = 64 * 1024 * 1024;
 export function bundleObjectKey(
 	caseId: string,
@@ -62,4 +64,22 @@ export async function pdfBytes(
 	} finally {
 		reader.releaseLock();
 	}
+}
+/**
+ * `writeOnce` for a bundle PDF, whose key (case, bundle id, digest) is new on almost every save: the conditional put goes
+ * first, and only a put refused because an object is there already asks writeOnce what it is. Never replaces an object.
+ */
+export async function writeBundlePdf(
+	bucket: CloudR2,
+	key: string,
+	bytes: Uint8Array,
+	sha256: string,
+): Promise<WriteOnce> {
+	try {
+		if (await bucket.put(key, bytes, { sha256, onlyIf: { etagDoesNotMatch: '*' } }))
+			return 'written';
+	} catch {
+		return 'unreachable';
+	}
+	return writeOnce(bucket, key, bytes, sha256);
 }

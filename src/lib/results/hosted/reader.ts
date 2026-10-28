@@ -11,7 +11,7 @@ import type { OpenStorage } from '../../storage/cloud/access.ts';
 import { verifiedRead } from '../../storage/cloud/objects.ts';
 import { caseFolder, checkClaims, originalClaims } from '../../storage/cloud/original-facts.ts';
 import { admitVerification } from '../../storage/cloud/verification.ts';
-import { loadVerifiedModel, type LoadedModel } from './model.ts';
+import { loadVerifiedModel, type DocRow, type LoadedModel } from './model.ts';
 import { preparePackage } from './project.ts';
 import { readModelDigest } from './read-model.ts';
 import type { PublishedCaseReader } from './published-reads.ts';
@@ -32,6 +32,7 @@ export function createCloudReader(a: { open: () => Promise<OpenStorage>; identit
   // A version's read model, loaded and checked against its stored digest once per reader. The rows are immutable once a
   // version is stored, so one verified load serves every later read; publication and authority are rechecked on every call.
   const models = new Map<string, Promise<LoadedModel>>();
+  const docs = new Map<string, Promise<Pick<DocRow, 'ref' | 'ord' | 'row_json' | 'state_json' | 'list_json'> | null>>();
   function model(s: OpenStorage, rv: C.ResultsVersion): Promise<LoadedModel> {
     let m = models.get(rv);
     if (!m) { m = loadVerifiedModel(s.db, rv); models.set(rv, m); m.catch(() => models.delete(rv)); }
@@ -213,7 +214,17 @@ export function createCloudReader(a: { open: () => Promise<OpenStorage>; identit
       return release(s, scope, freeze(results.map((r) => ({ datasetKey: r.dataset_key, seedId: r.seed_id, seedSha256: r.seed_sha256, record: JSON.parse(r.record_json) }))));
     },
     async documentRows(scope) { const { rows, failed, dropped } = await collect(scope); return { rows, failed, dropped }; },
-    async documentRow(q) { return (await collect(q)).rows.find((d) => d.ref === q.ref) ?? null; },
+    async documentRow(q) {
+      if (providers.size) return (await collect(q)).rows.find((d) => d.ref === q.ref) ?? null;
+      // One stored row by its key, not the version's whole read model: a note's anchor needs only this document. The
+      // version's rows were checked when it was stored (sprint decision of 28 October), so no per-request digest.
+      const s = await version(q);
+      const key = `${q.resultsVersion}\u0000${q.ref}`;
+      let d = docs.get(key);
+      if (!d) { d = s.db.prepare('SELECT ref, ord, row_json, state_json, list_json FROM rs_document WHERE version_id = ? AND ref = ?').bind(q.resultsVersion, q.ref).first<DocRow>().catch(unavailable); docs.set(key, d); d.catch(() => docs.delete(key)); }
+      const row = await d;
+      return row ? { ref: row.ref, ord: row.ord, source: 'results', row: JSON.parse(row.row_json), list: JSON.parse(row.list_json), state: JSON.parse(row.state_json) } : null;
+    },
     async documentCounts(scope) { const d = await collect(scope), imported = d.rows.filter((r) => r.source === 'results').length; return { total: d.rows.length, imported, provided: d.rows.length - imported, failed: d.failed }; },
     async existingRefs(q) { return new Set((await collect(q)).rows.filter((r) => q.refs.includes(r.ref)).map((r) => r.ref)); },
     async childDocuments(q) { return (await collect(q)).rows.filter((r) => r.list.parentRef === q.ref); },

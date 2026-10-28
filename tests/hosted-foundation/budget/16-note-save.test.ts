@@ -16,9 +16,13 @@ import { runtimeEnv, instances } from '../native-runtime-config/harness.ts';
 import { hostedWorld, countedD1, measure } from './harness.ts';
 import { MIGRATION } from '../provisioning/world.ts';
 
-/** The save's D1 round trips, measured 59 on the preview before GRS-261 (ten authorizations and a read-model load). */
+/**
+ * Before GRS-261 a save made 59 round trips and a delete 27, the same counts the preview's Server-Timing showed: every
+ * read authorized afresh (five round trips each) and the anchor loaded the version's whole read model. A save is now the
+ * request's one lookup, the anchor's row, three write-user-work checks (grant, event, read-back) and the one batch.
+ */
 const SAVE_D1 = 20;
-const DELETE_D1 = 14;
+const DELETE_D1 = 17;
 
 async function world() {
   const w = await hostedWorld();

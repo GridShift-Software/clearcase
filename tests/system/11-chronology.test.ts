@@ -9,7 +9,7 @@ import { GET as listGet } from '../../deploy/client/routes/cases/[caseId]/v/[ver
 import { GET as originalGet } from '../../deploy/client/routes/cases/[caseId]/v/[version]/chronology/original/[ref]/+server.ts';
 import type { ChronologyListRow } from '../../src/lib/local-case/model.ts';
 import { facetsOf } from '../../src/lib/local-case/chronology.ts';
-import { memoryShardCache } from '../../src/lib/server/runtime/memory-shards.ts';
+import { memoryShardBucket, memoryShardCache } from '../../src/lib/server/runtime/memory-shards.ts';
 import type { ListPage } from '../../src/lib/views/payloads/list.ts';
 import ChronologyPane from '../../src/lib/views/evidence/ChronologyPane.svelte';
 import { grantedIdentity, ids } from '../hosted-foundation/storage/fixture.ts';
@@ -158,9 +158,15 @@ describe('11 hosted chronology routes', () => {
     const notDocuments = originals.map((o) => o.id).filter((id) => !docs.has(id));
     expect(notDocuments.length).toBeGreaterThan(0); // the synthetic package carries package files
     for (const id of [...notDocuments.slice(0, 3), 'BK-0000.a1']) expect(await status(() => original(d.l(), id)), id).toBe(404);
-    const without = rows.filter((r) => r.file !== 'present').map((r) => r.ref);
-    expect(without.length).toBeGreaterThan(0); // the synthetic case leaves one original out
-    for (const ref of without) expect(await status(() => original(d.l(), ref)), ref).toBe(404);
+    // Every synthetic document has its own original, so a copy of the shards marks one document's original missing.
+    const shards = memoryShardBucket(new Map(dep.bucket.objects));
+    const key = [...shards.objects.keys()].find((k) => k.endsWith('/list/page-1.json'))!;
+    const page1 = JSON.parse(new TextDecoder().decode(shards.objects.get(key)!)) as ListPage;
+    const gone = page1.rows[0]!.ref;
+    page1.rows[0] = { ...page1.rows[0]!, file: 'missing' };
+    shards.objects.set(key, new TextEncoder().encode(JSON.stringify(page1)));
+    const withMissing = { ...(locals(dep, { bucket: shards, cache: null }) as object), assets: (d.l() as { assets: unknown }).assets } as never;
+    expect(await status(() => original(withMissing, gone)), gone).toBe(404);
     expect(d.asked).toEqual([]);
   });
 });

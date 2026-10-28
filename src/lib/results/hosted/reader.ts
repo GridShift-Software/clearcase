@@ -217,14 +217,15 @@ export function createCloudReader(a: { open: () => Promise<OpenStorage>; identit
     async documentRow(q) {
       if (providers.size) return (await collect(q)).rows.find((d) => d.ref === q.ref) ?? null;
       // One stored row by its key, not the version's whole read model: a note's anchor needs only this document. The
-      // version's rows were checked when it was stored (sprint decision of 28 October), so no per-request digest.
-      // The publication check and the row read run together after authorization; nothing is returned unless both pass.
+      // version's rows were checked when it was stored (sprint decision of 28 October), so no per-request digest. The
+      // publication is checked once, after the read, by release(): its fence decides what an awaited read hands back,
+      // a null answer included, so a withdrawal during the read releases nothing.
       const s = await guard(q);
       const key = `${q.resultsVersion}\u0000${q.ref}`;
       let d = docs.get(key);
       if (!d) { d = s.db.prepare('SELECT ref, ord, row_json, state_json, list_json FROM rs_document WHERE version_id = ? AND ref = ?').bind(q.resultsVersion, q.ref).first<DocRow>().catch(unavailable); docs.set(key, d); d.catch(() => docs.delete(key)); }
-      const [, row] = await Promise.all([requirePublished(s.db, q.caseId, q.resultsVersion), d]);
-      return row ? { ref: row.ref, ord: row.ord, source: 'results', row: JSON.parse(row.row_json), list: JSON.parse(row.list_json), state: JSON.parse(row.state_json) } : null;
+      const row = await d;
+      return release(s, q, row ? freeze<C.DocumentRow>({ ref: row.ref, ord: row.ord, source: 'results', row: JSON.parse(row.row_json), list: JSON.parse(row.list_json), state: JSON.parse(row.state_json) }) : null);
     },
     async documentCounts(scope) { const d = await collect(scope), imported = d.rows.filter((r) => r.source === 'results').length; return { total: d.rows.length, imported, provided: d.rows.length - imported, failed: d.failed }; },
     async existingRefs(q) { return new Set((await collect(q)).rows.filter((r) => q.refs.includes(r.ref)).map((r) => r.ref)); },

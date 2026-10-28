@@ -42,12 +42,20 @@
 			noteBusy = false;
 			if (result.type === 'error') { noteError = result.status && (result.error as { message?: string } | undefined)?.message || `The note was not saved: ${result.status ? `the app answered ${result.status}.` : 'the app did not answer.'} Your text is kept; try again.`; return; }
 			// A save that answers with its note (hosted) shows it at once and reloads the page's data behind it.
-			if (result.type === 'success' && result.data && 'note' in result.data) { await update({ reset: true, invalidateAll: false }); void invalidateAll(); return; }
+			if (result.type === 'success' && result.data && 'note' in result.data) {
+				await update({ reset: true, invalidateAll: false });
+				saved = { note: result.data.note as Note, data };
+				void invalidateAll();
+				return;
+			}
 			await update({ reset: result.type === 'success' });
 		};
 	};
-	const savedNote = $derived(form && 'note' in form ? (form.note as (typeof data.notes)[number]) : null);
-	const notes = $derived(savedNote && !data.notes.some((n) => n.id === savedNote.id) ? [...data.notes, savedNote] : data.notes);
+	type Note = (typeof data.notes)[number];
+	// The saved note shows only over the data it was saved on: any completed reload replaces `data` and retires it, so a
+	// note another tab deleted meanwhile is not shown again. Raw, so `data` keeps its identity for the comparison.
+	let saved = $state.raw<{ note: Note; data: typeof data } | null>(null);
+	const notes = $derived(saved && saved.data === data && !data.notes.some((n) => n.id === saved!.note.id) ? [...data.notes, saved.note] : data.notes);
 </script>
 
 <main id="main" tabindex="-1" data-ready={ready ? `doc:${data.ref}` : null}>

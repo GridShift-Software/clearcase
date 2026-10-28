@@ -1,5 +1,5 @@
 import { id } from '../../server/runtime/ids.ts';
-import { appSessionConfig } from '../app-session.ts';
+import { appSessionConfig, appCookieValue, readAppSession } from '../app-session.ts';
 // The SDK-free half of the first-party browser contract (GRS-113): the sign-in identity switch, return-target allowlist,
 // cookie clears and sign-out, as pure functions of a Request, the deployment config and fetch. The hosted routes import
 // this module (the hosted import allowlist keeps @clerk/backend out of routes); the handshake and the session refresh,
@@ -532,6 +532,14 @@ async function expiredSessionEvidence(a: { env: Readonly<Record<string, unknown>
  */
 export async function signOutClerkSession(a: { env: Readonly<Record<string, unknown>>; request: Request; identity: Pick<Identity, 'kind' | 'principal' | 'sessionId'> }): Promise<{ revoked: boolean; clear: string[] }> {
 	const { identity } = a;
+	const read = readClerkIdentityConfig(a.env);
+	const app = read.ok ? appSessionConfig(a.env, read.config.client.issuer) : null;
+	const value = appCookieValue(a.request);
+	const session = app && value ? await readAppSession(app, value, Math.floor(Date.now() / 1000), true) : null;
+	if (session && read.ok) {
+		await revokeAllClientSessions(read.config, { issuer: session.issuer, subject: session.subject, kind: session.principalKind });
+		return { revoked: true, clear: clearableNames(a.request) };
+	}
 	let revoked = false;
 	if (identity.kind === 'verified' && identity.principal !== null && identity.sessionId !== null) {
 		const read = readClerkIdentityConfig(a.env);

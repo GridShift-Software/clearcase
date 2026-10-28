@@ -5,6 +5,8 @@ import { codeOf, isDenial } from '$lib/server/runtime/errors';
 import { refuse } from '$lib/server/runtime/hosted/http';
 import { publishedVersion, shard } from '$lib/views/hosted/payloads.server';
 import type { DocShard } from '$lib/views/payloads/doc';
+import { guarded, hostedWork, noteView } from '$lib/views/hosted/work-adapter.server';
+import { sha256 } from '$lib/server/runtime/ids';
 
 const NONE: OriginalLinks = { presentation: null, open: null, download: null, viewer: null };
 
@@ -19,7 +21,7 @@ function presentationOf(mediaType: string | null, downloadOnly: boolean, viewer:
 }
 
 // The local document loader over its `doc/<ref>.json` shard: one links call for the document's own original (none per
-// attachment), and no notes yet (ticket 16 adds the notes read and the note actions).
+// attachment). The admitted shard carries the document anchor, so reading notes needs no second document lookup.
 export async function load({ locals, params, url }: RequestEvent) {
 	const v = await publishedVersion(locals, params);
 	// A ref the publication does not admit a shard for (unknown or malformed) is 404 before any storage read.
@@ -43,6 +45,34 @@ export async function load({ locals, params, url }: RequestEvent) {
 		page: Number.isInteger(pageNo) && pageNo > 0 && pageNo < 1e6 ? pageNo : null,
 		attachments: attachments.map((x) => ({ ...x, links: null })),
 		base: v.base,
-		notes: [] as never[],
+		notes: (await locals.userWork.notesFor({ caseId: v.caseId, target: { kind: 'document', anchor: {
+			caseId: v.caseId, resultsVersion: v.resultsVersion, refAtCreation: doc.ref,
+			sha256: doc.state.original ? sha256(doc.state.original.sha256) : null,
+		} } })).map(noteView),
+		operationId: crypto.randomUUID(),
 	};
 }
+
+const SAY = {
+	busy: 'The note was not saved: the store is busy or unavailable. Your text is kept; try again.',
+	refused: 'The note was not saved. Check its text and try again.',
+	failed: 'The note was not saved: something went wrong. Your text is kept; try again.',
+};
+export const actions = {
+	note: async ({ locals, params, request }: RequestEvent) => {
+		const v = await publishedVersion(locals, params);
+		const form = await request.formData(), body = String(form.get('body') ?? '');
+		const operationId = String(form.get('operationId') ?? '') || crypto.randomUUID();
+		form.set('operationId', operationId);
+		const result = await guarded('note', { body }, async (work) => work.addNote(v.caseId, v.resultsVersion, params.ref ?? '', body), SAY,
+			{ body, operationId }, hostedWork(locals, v.caseId, v.resultsVersion, form));
+		return result.ok ? { saved: true } : result.failure;
+	},
+	delnote: async ({ locals, params, request }: RequestEvent) => {
+		const v = await publishedVersion(locals, params);
+		const form = await request.formData();
+		const result = await guarded('delete', null, async (work) => work.deleteNote(v.caseId, String(form.get('id') ?? '')), SAY,
+			{}, hostedWork(locals, v.caseId, v.resultsVersion, form));
+		return result.ok ? { deleted: true } : result.failure;
+	},
+};

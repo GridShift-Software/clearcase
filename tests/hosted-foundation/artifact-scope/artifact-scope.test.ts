@@ -9,7 +9,7 @@ import { HOSTED_PDF_PACKAGE_DIGEST, prepareHostedPdfAssets, type PdfAssetInvento
 import { scopeFixtureDependencies } from './fixture-dependencies.ts';
 
 const REPO = path.resolve(import.meta.dirname, '../../..');
-const PDF = '.svelte-kit/cloudflare/pdfjs/pdf.min.mjs', WORKER = '.svelte-kit/cloudflare/pdfjs/pdf.worker.min.mjs';
+const PDF = '.svelte-kit/cloudflare/pdfjs/pdf.min.mjs', WORKER = '.svelte-kit/cloudflare/pdfjs/pdf.worker.min.mjs', VIEWER_WORKER = '.svelte-kit/cloudflare/pdfjs/pdf-viewer-worker.mjs';
 const MANIFEST = '.svelte-kit/output/server/manifest.js', CHUNK = '.svelte-kit/output/server/chunks/app.js';
 const listed = (assets: string[]) => `export const manifest = (() => ({ appDir: "_app", assets: new Set(${JSON.stringify(assets)}), _: { client: {} } }))();`;
 const temp: string[] = [];
@@ -35,7 +35,7 @@ const pinned = (extra: Record<string, string | Buffer> = {}) => ({ [PDF]: pdf, [
 describe('pinned PDF.js browser modules', () => {
 	it('derive each pin from the trusted full-package inventory', () => {
 		expect(inventory.packageDigest).toBe(HOSTED_PDF_PACKAGE_DIGEST);
-		expect(Object.keys(PINNED_BROWSER_MODULES)).toEqual([PDF, WORKER]);
+		expect(Object.keys(PINNED_BROWSER_MODULES)).toEqual([PDF, WORKER, VIEWER_WORKER]);
 		for (const [name, pin] of Object.entries(PINNED_BROWSER_MODULES)) {
 			expect(name).toBe(`.svelte-kit/cloudflare/${pin.asset}`);
 			expect(inventory.files).toContainEqual({ path: pin.asset, bytes: pin.bytes, sha256: pin.sha256 });

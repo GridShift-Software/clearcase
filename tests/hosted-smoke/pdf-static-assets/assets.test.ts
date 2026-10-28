@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { HOSTED_PDF_PACKAGE_DIGEST, HOSTED_PDF_READER_DIGEST, parsePdfAssetArgs, prepareHostedPdfAssets } from '../../../scripts/hosted-pdf-assets.ts';
+import { HOSTED_PDF_PACKAGE_DIGEST, HOSTED_PDF_READER_DIGEST, parsePdfAssetArgs, patchPdfWorker, prepareHostedPdfAssets } from '../../../scripts/hosted-pdf-assets.ts';
 
 const repo = fileURLToPath(new URL('../../../', import.meta.url));
 const reader = 'src/lib/viewer/hosted/static/pdf-reader.mjs';
@@ -37,13 +37,14 @@ describe('deterministic public PDF asset preparation', () => {
     expect(inventory.packageDigest).toBe(HOSTED_PDF_PACKAGE_DIGEST);
     expect(inventory.readerDigest).toBe(HOSTED_PDF_READER_DIGEST);
     expect(inventory.pdfjsVersion).toBe('6.4.299');
-    expect(inventory.files).toHaveLength(191);
+    expect(inventory.files).toHaveLength(192);
     expect(walk(join(publicRoot, 'pdfjs')).map(p => 'pdfjs/' + p)).toEqual(inventory.files.map(f => f.path));
     for (const f of inventory.files) {
       const bytes = readFileSync(join(publicRoot, f.path));
       expect(f.bytes).toBe(bytes.length);
       expect(f.sha256).toBe('sha256:' + createHash('sha256').update(bytes).digest('hex'));
       const path = f.path.slice('pdfjs/'.length);
+      if (path === 'pdf-viewer-worker.mjs') { expect(bytes.equals(patchPdfWorker(readFileSync(join(pkg, 'build/pdf.worker.min.mjs'))))).toBe(true); continue; }
       const source = path === 'pdf-reader.mjs' ? join(root, reader) : join(pkg, path.startsWith('pdf.') ? 'build/' + path : path);
       expect(bytes.equals(readFileSync(source))).toBe(true);
     }
@@ -51,7 +52,7 @@ describe('deterministic public PDF asset preparation', () => {
     const other = join(scratch, 'other'); mkdirSync(other);
     expect(prepareHostedPdfAssets({ root, publicRoot: other })).toEqual(inventory);
     const source = readFileSync(join(publicRoot, 'pdfjs/pdf-reader.mjs'), 'utf8');
-    for (const ref of ['./pdf.min.mjs', './pdf.worker.min.mjs', 'standard_fonts/', 'cmaps/', 'iccs/']) expect(source).toContain(ref);
+    for (const ref of ['./pdf.min.mjs', './pdf-viewer-worker.mjs', 'standard_fonts/', 'cmaps/', 'iccs/']) expect(source).toContain(ref);
   });
 
   for (const path of ['build/pdf.min.mjs', 'build/pdf.worker.min.mjs', 'LICENSE', 'cmaps/78-EUC-H.bcmap', 'standard_fonts/FoxitFixed.pfb', 'iccs/CGATS001Compat-v2-micro.icc']) {

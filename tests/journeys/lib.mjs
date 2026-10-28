@@ -111,22 +111,33 @@ async function signIn(j) {
   await j.measure('sign-in', async () => {
     try {
       await j.page.goto(`${BASE_URL}${process.env.SIGN_IN_PATH || '/sign-in'}`, { waitUntil: 'domcontentloaded' });
-      const deadline = Date.now() + 30000;
+      // Clerk's hosted flow restarts if its button is clicked again mid-step, and a step can take several seconds on the
+      // development instance, so each pass waits up to 1.5 s and a step that throws (a field detached mid-render) is retried.
+      // Every wait is bounded by the 60 s deadline, and the app-ready check is polled so the measured time isn't padded.
+      const deadline = Date.now() + 60000;
+      const left = () => Math.max(1, Math.min(5000, deadline - Date.now()));
+      const quietly = p => p.catch(() => false);
+      const app = new URL(BASE_URL).origin;
+      const marker = j.page.locator('[data-auth-state="signed-in"], a[data-action="open-case"], nav[aria-label="Case views"]').first();
+      const ready = async () => { const u = new URL(j.page.url()); return u.origin === app && !u.pathname.startsWith('/sign-in') && await quietly(marker.isVisible()); };
       while (Date.now() < deadline) {
-        const u = new URL(j.page.url());
-        if (u.origin === new URL(BASE_URL).origin && !u.pathname.startsWith('/sign-in') && await j.page.locator('[data-auth-state="signed-in"], a[data-action="open-case"], nav[aria-label="Case views"]').first().isVisible()) return;
+        if (await ready()) return;
         const email = j.page.locator('input[name="identifier"],input[type="email"]').first();
         const password = j.page.locator('input[type="password"]').first();
         const code = j.page.locator('input[autocomplete="one-time-code"]').first();
-        if (await email.isVisible() && await email.isEditable()) await email.fill(credentials.email);
-        if (await password.isVisible() && await password.isEditable()) await password.fill(credentials.password);
-        if (await code.isVisible()) {
+        if (await quietly(email.isVisible()) && await quietly(email.isEditable())) await quietly(email.fill(credentials.email, { timeout: left() }));
+        if (await quietly(password.isVisible()) && await quietly(password.isEditable())) await quietly(password.fill(credentials.password, { timeout: left() }));
+        if (await quietly(code.isVisible())) {
           check(credentials.otp, 'OTP needed');
-          await code.fill(credentials.otp);
+          await quietly(code.fill(credentials.otp, { timeout: left() }));
         }
         const submit = j.page.getByRole('button', { name: /^(Continue|Sign in|Sign in to ClearCase)$/i }).first();
-        if (await submit.isVisible() && await submit.isEnabled()) await submit.click();
-        await new Promise(resolve => setTimeout(resolve, 100));
+        if (await quietly(submit.isVisible()) && await quietly(submit.isEnabled())) await quietly(submit.click({ timeout: left() }));
+        const until = Math.min(Date.now() + 1500, deadline);
+        while (Date.now() < until) {
+          if (await ready()) return;
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
       }
       throw new Error('Sign-in timeout');
     } catch { throw new Error('Hosted sign-in failed; inspect authentication privately'); }

@@ -258,8 +258,9 @@ export function d1SubmissionRepository(db: IntakeD1): SubmissionRepository {
       const s = await set(a, a.setId);
       if (!s || s.state === 'open') return unavailable();
       if (s.state === 'sealing') {
-        await db.prepare("UPDATE submissions_set SET state = 'sealed', sealed_at = ? WHERE client_id = ? AND case_id = ? AND set_id = ? AND state = 'sealing'")
-          .bind(a.at, a.clientId, a.caseId, a.setId).run().catch(unavailable);
+        // Migration 0003 records the notification in this same transaction.
+        await db.batch([db.prepare("UPDATE submissions_set SET state = 'sealed', sealed_at = ? WHERE client_id = ? AND case_id = ? AND set_id = ? AND state = 'sealing'")
+          .bind(a.at, a.clientId, a.caseId, a.setId)]).catch(unavailable);
         if ((await set(a, a.setId))?.state !== 'sealed') return unavailable();
       }
       return (await revision(a, a.setId)) ?? unavailable();

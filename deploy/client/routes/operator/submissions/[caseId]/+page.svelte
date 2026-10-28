@@ -17,6 +17,7 @@
 			<ol>
 				{#each data.submissions as s (s.operationId)}
 					<li data-operation={s.operationId}>
+						{#if s.isNew}<strong data-notification="new">New</strong>{/if}
 						{#if s.downloadHref}
 							Submission {s.sequence}: {s.files[0].path} ({s.files[0].size} bytes, SHA-256 {s.files[0].sha256}).
 							<a href={s.manifestHref} download>Manifest</a>

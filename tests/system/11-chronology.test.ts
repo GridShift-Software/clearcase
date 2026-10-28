@@ -202,8 +202,53 @@ describe('11 chronology split pane', () => {
     expect(pane({ selected: 'SX-4', row: row('SX-4', { preview: 'download' }), docHref: '/d' })).toContain('data-pane-state="download-only"');
   });
 
-  test('locally the original opens from the document page (the originals site refuses to be framed)', () => {
-    expect(pane({ selected: 'SX-5', row: row('SX-5'), docHref: '/d' })).toContain('data-pane-state="local"');
+});
+
+describe('11 local pane original (the originals site refuses to be framed, so the pane links to it)', () => {
+  const RV1 = `sha256:${'1'.repeat(64)}`;
+  const asset = (over: Record<string, unknown> = {}) => ({ key: 'SX-1', kind: 'document', real_path: '/case/a/SX-1.pdf', sha256: '0'.repeat(64), size: 10, media_type: 'application/pdf', status: 'verified', download_only: 0, case_root: '/case', case_dev: '1', case_ino: '1', ...over });
+  const store = (a: ReturnType<typeof asset> | undefined) => ({
+    getVersion: (id: string) => (id === RV1 ? { case_id: 'c' } : undefined),
+    document: (_v: string, ref: string) => (ref === 'SX-1' ? { ord: 0, row_json: '{}', state_json: '{}' } : undefined),
+    chronologyJson: () => '[{"ref":"SX-1"}]',
+    assetForServe: (_v: string, key: string) => (key === 'SX-1' ? a : undefined),
+  }) as never;
+  const o = { originalHref: (v: string, k: string, n: string) => `https://originals.invalid/o/${v}/${k}/${n}?k=t`, downloadHref: (v: string, k: string, n: string) => `https://originals.invalid/o/${v}/${k}/${n}?k=t&download=1`, viewerHref: (v: string, k: string) => `https://originals.invalid/view/${v}/${k}?k=t` };
+  const ok = async () => null;
+  const ask = async (s: never, vid: string, ref: string, available: () => Promise<{ refused: never; reason: string } | null> = ok) =>
+    (await import('../../src/lib/views/evidence/local-original.server.ts')).localOriginal(s, o as never, vid, ref, available as never);
+
+  test("a document's own original gets its document page's links: the isolated viewer, the original and a download", async () => {
+    expect(await ask(store(asset()), RV1, 'SX-1')).toEqual({ ref: 'SX-1', onDisk: null, links: { presentation: 'viewer', open: o.originalHref(RV1, 'SX-1', 'SX-1.pdf'), download: o.downloadHref(RV1, 'SX-1', 'SX-1.pdf'), viewer: o.viewerHref(RV1, 'SX-1') } });
+  });
+
+  test('a ref that is not a document of the version, or a version that is not loaded, gets nothing', async () => {
+    expect(await ask(store(asset()), RV1, 'SX-9')).toBeNull();
+    expect(await ask(store(asset()), `sha256:${'2'.repeat(64)}`, 'SX-1')).toBeNull();
+  });
+
+  test('an original missing at import or gone from disk has no links, and says why when it can; a download-only one is a download', async () => {
+    const none = { presentation: null, open: null, download: null, viewer: null };
+    expect(await ask(store(asset({ status: 'missing', real_path: null, size: null })), RV1, 'SX-1')).toEqual({ ref: 'SX-1', links: none, onDisk: null });
+    expect(await ask(store(asset()), RV1, 'SX-1', async () => ({ refused: 'changed' as never, reason: 'it changed on disk' }))).toEqual({ ref: 'SX-1', links: none, onDisk: 'it changed on disk' });
+    expect((await ask(store(asset({ download_only: 1 })), RV1, 'SX-1'))?.links.presentation).toBe('download');
+  });
+
+  const shown = async (loaded: unknown) => render((await import('../../src/lib/views/evidence/LocalOriginal.svelte')).default, { props: { ref: 'SX-1', loaded } as never }).body;
+  const links = { presentation: 'viewer', open: 'https://originals.invalid/o', download: 'https://originals.invalid/o&download=1', viewer: 'https://originals.invalid/view' };
+
+  test('the pane offers the isolated viewer and a download beside the list, each in a new tab', async () => {
+    const html = await shown({ ref: 'SX-1', links, onDisk: null });
+    expect(html).toContain('data-pane-state="local-original"');
+    expect(html).toMatch(/<a [^>]*href="https:\/\/originals.invalid\/view"[^>]*target="_blank"[^>]*>|<a [^>]*target="_blank"[^>]*href="https:\/\/originals.invalid\/view"[^>]*>/);
+    expect(html).toContain('data-action="download-original"');
+  });
+
+  test('a download-only, missing or gone original each show their own state; loading says so', async () => {
+    expect(await shown({ ref: 'SX-1', links: { ...links, presentation: 'download', viewer: null }, onDisk: null })).toContain('data-pane-state="download-only"');
+    expect(await shown({ ref: 'SX-1', links: { presentation: null, open: null, download: null, viewer: null }, onDisk: null })).toContain('data-pane-state="missing"');
+    expect(await shown({ ref: 'SX-1', links: { presentation: null, open: null, download: null, viewer: null }, onDisk: 'it changed on disk' })).toMatch(/data-pane-state="missing"[\s\S]*it changed on disk/);
+    expect(await shown(undefined)).toContain('data-pane-state="loading"');
   });
 });
 
@@ -231,6 +276,10 @@ describe('11 chronology page', () => {
     const html = await page('?doc=SX-2');
     expect(html).toMatch(/data-testid="chronology-document-pane"[^>]*data-ref="SX-2"|data-ref="SX-2"[^>]*data-testid="chronology-document-pane"/);
     expect(html).toMatch(/class="grid-row[^"]*selected[^"]*"[^>]*data-ref="SX-2"/);
+  });
+
+  test("locally a selected document with its original present loads that original's links into the pane", async () => {
+    expect(await page('?doc=SX-2')).toContain('data-local-original="SX-2"');
   });
 
   test('a filter that matches nothing says so and offers Clear filters', async () => {

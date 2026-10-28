@@ -1,4 +1,5 @@
 import { userCell, type Cell } from '../../components/csv.ts';
+import type { filingsPure } from './filings.server.ts';
 
 export const REGISTER_STORE = 'filings-register';
 export const SEED_DATASET = 'filings';
@@ -57,6 +58,24 @@ export function registerEntries(seeds: readonly SeedViewLike[], rows: readonly U
 	for (const r of [...rows].sort((a, b) => seq(a) - seq(b) || (a.rowId < b.rowId ? -1 : a.rowId > b.rowId ? 1 : 0)))
 		out.push({ key: `row:${r.rowId}`, state: 'user', fields: asFields(r.fields), imported: null, userEntered: true, deletedEarlier: false, seedSha256: null, seed: null });
 	return out;
+}
+
+/** The filings shard (ticket 04): the view without the register's user work. */
+export type FilingsShard = ReturnType<typeof filingsPure>;
+
+/** The filings page data from its shard and the register's user work: seed views and rows, as the user-work store returns them. */
+export function filingsMerge(shard: FilingsShard, work: { seeds: readonly SeedViewLike[]; rows: readonly UserRowLike[] }, edit: string | null = null) {
+	const entries = registerEntries(work.seeds, work.rows);
+	const fileOf = new Map(shard.fileOf);
+	const refs = new Set([...(shard.groups ?? []).flatMap((g) => g.items.map((x) => x.ref)), ...entries.map((e) => e.fields.ref)].filter(Boolean));
+	return {
+		groups: shard.groups,
+		files: [...refs].map((ref) => [ref, fileOf.get(ref) ?? null] as const),
+		entries,
+		editing: edit && entries.some((e) => e.key === edit) ? edit : null,
+		content: shard.content,
+		exportNames: shard.exportNames,
+	};
 }
 
 export const nextSeq = (rows: readonly UserRowLike[]) => rows.reduce((m, r) => (typeof r.fields.seq === 'number' && Number.isFinite(r.fields.seq) && r.fields.seq > m ? r.fields.seq : m), 0) + 1;

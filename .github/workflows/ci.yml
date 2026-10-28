@@ -358,6 +358,9 @@ jobs:
       # identity probe's own install, as in the full job.
       - name: install identity probe
         run: (cd tests/hosting-probe/identity && bun install --frozen-lockfile)
+      # The browser unit tests in both test runs and gate-hosted need Chrome for Testing, so install it first on every
+      # runner, as the full job does; it is cached, so a warm runner only checks the hashes.
+      - run: scripts/ci/install-chrome.sh
       # The fixed set always runs; the second run adds the tests this pull request's diff reaches (vitest --changed
       # compares the merge commit with the sprint branch's tip). Temporary files on tmpfs, as in the full job.
       - name: test
@@ -381,8 +384,6 @@ jobs:
           else
             echo "hosted=false" >> "$GITHUB_OUTPUT"
           fi
-      - run: scripts/ci/install-chrome.sh
-        if: steps.changes.outputs.hosted == 'true'
       # Same step as the full job's gate-hosted without the receipts wrapper: the run's D1 and R2 state and scratch live on
       # tmpfs, no Cloudflare binding or token reaches it, and Node (not Bun's stand-in) hosts Wrangler.
       - name: gate-hosted

@@ -1,17 +1,9 @@
-import { citedRefs } from '$lib/components/cite';
-import { content, dataset, payments, resolvableRefs, type InterestBasis } from '$lib/views/quantum/data.server';
+import { app } from '$lib/local-case/app.server';
+import { content, interestPure, payments } from '$lib/views/quantum/data.server';
+import { interestMerge } from '$lib/views/quantum/interest';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ parent }) => {
 	const { version } = await parent();
-	const basis = dataset<InterestBasis>(version.id, 'lit-interest-basis');
-	const note = basis?.note || null;
-	return {
-		defaults: { rate: content(version.id).number('interest_calc_tab', 'defaultRate'), from: basis ? basis.first_invoice_date || basis.award_date : '', to: basis?.headline_date ?? '' },
-		headlineDue: basis?.headline_due ?? '',
-		headlineDate: basis?.headline_date ?? '',
-		paymentDates: payments(version.caseId).map((p) => p.date),
-		note,
-		known: note ? [...resolvableRefs(version.id, citedRefs([note]))] : [],
-	};
+	return interestMerge(interestPure({ store: app().store, vid: version.id, vc: content(version.id) }), { payments: payments(version.caseId) });
 };

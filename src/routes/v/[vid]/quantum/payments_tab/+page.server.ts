@@ -1,27 +1,14 @@
 import { actionCase, guarded } from '$lib/local-case/answer.server';
 import { app } from '$lib/local-case/app.server';
-import { exportFileName, viewText } from '$lib/local-case/results.server';
-import { content, dataset, payments, resolvableRefs, SAY, type ReconRow, type Settlement } from '$lib/views/quantum/data.server';
-import { checkEntry } from '$lib/views/quantum/payments';
+import { content, payments, paymentsPure, SAY } from '$lib/views/quantum/data.server';
+import { checkEntry, paymentsMerge } from '$lib/views/quantum/payments';
 import { addPayment, deletePayment } from '$lib/views/quantum/writes.server';
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ parent }) => {
 	const { version } = await parent();
-	const settlement = dataset<Settlement>(version.id, 'lit-settlement');
-	const recon = dataset<ReconRow[]>(version.id, 'lit-recon') ?? [];
-	const cited = new Set(recon.flatMap((m) => [...m.invoice, ...m.supporting, ...m.charging, ...m.pod, ...m.statement, ...m.amountdue]));
-	const known = resolvableRefs(version.id, cited);
-	return {
-		subtitle: viewText(content(version.id), 'payments_tab', 'subtitle'),
-		claim: settlement?.claim ?? '',
-		claimDate: settlement?.claimDate ?? '',
-		recon,
-		exportName: exportFileName(content(version.id), 'payments_tab', 'payments.csv'),
-		known: [...cited].filter((r) => known.has(r)),
-		payments: payments(version.caseId).map((p) => ({ ...p, amountCents: p.amountCents === null ? null : String(p.amountCents) })),
-	};
+	return paymentsMerge(paymentsPure({ store: app().store, vid: version.id, vc: content(version.id) }), { payments: payments(version.caseId) });
 };
 
 const FIELDS = ['date', 'amount', 'method', 'note'] as const;

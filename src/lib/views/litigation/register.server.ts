@@ -5,7 +5,12 @@ import { guarded, type Say } from '$lib/local-case/answer.server';
 import { app } from '$lib/local-case/app.server';
 import { resolveRefs } from '$lib/local-case/documents.server';
 import { registers, type DeleteResult, type VersionedRow } from '$lib/local-case/registers.server';
+import { datasetOf, exportFileName, viewText } from '$lib/local-case/results.server';
+import type { CaseStore } from '$lib/local-case/store.server';
 import type { RegisterValue, UserWorkError } from '$lib/local-case/user-work.server';
+import type { PureInput } from '$lib/views/payloads/views';
+import { AUTH_FIELDS, AUTH_FILE, type AuthValues } from './authorities.ts';
+import { CX_SEED } from './crossexam.ts';
 
 export const STORES = Object.freeze({ crossexam: 'crossexam', authorities: 'authorities', heads: 'heads', enforcement: 'enforcement-status' });
 
@@ -17,7 +22,7 @@ export const field = (f: FormData, k: string) => { const v = f.get(k); return ty
 
 export const valuesOf = <K extends string>(f: FormData, keys: readonly K[]) => Object.fromEntries(keys.map((k) => [k, field(f, k)])) as Record<K, string>;
 
-export const deleteValue = (id: string, version: string) => `${id} ${version}`;
+export { deleteValue } from './crossexam.ts';
 /** The id and version of a Delete button's value; a value without a version (a scripted post) is not re-checked. */
 export function deleteTarget(v: string): { id: string; version: string | null } {
 	const i = v.lastIndexOf(' ');
@@ -61,5 +66,22 @@ export async function deleteAnswer<V extends Record<string, string>>(target: str
 	return fail(404, { op: 'delete', target, values, message: 'Not deleted: that topic is not in this results version.', retry: false });
 }
 
-export const knownRefs = (resultsVersion: string, texts: Iterable<unknown>) =>
-	[...resolveRefs(app().store, resultsVersion, citedRefs([...texts].filter((t): t is string => typeof t === 'string')))];
+export const knownRefs = (resultsVersion: string, texts: Iterable<unknown>, store: CaseStore = app().store) =>
+	[...resolveRefs(store, resultsVersion, citedRefs([...texts].filter((t): t is string => typeof t === 'string')))];
+
+// Authorities and Cross-examination without their registers (ticket 04): what the operator machine builds into the shards.
+
+export function authoritiesPure({ store, vid, vc }: PureInput) {
+	const raw = datasetOf<unknown[]>(store, vid, 'lit-authorities');
+	const imported = (Array.isArray(raw) ? raw : []).map((r) => {
+		const o = (r && typeof r === 'object' ? r : {}) as Record<string, unknown>;
+		return Object.fromEntries(AUTH_FIELDS.map((k) => [k, o[k] === null || o[k] === undefined ? '' : String(o[k])])) as AuthValues;
+	});
+	return { present: Array.isArray(raw), imported, known: knownRefs(vid, imported.map((r) => r.proposition), store), exportName: exportFileName(vc, 'authorities_tab', AUTH_FILE) };
+}
+
+export function crossexamPure({ store, vid, vc }: PureInput) {
+	const puts = store.seeds(vid).filter((s) => s.dataset_key === CX_SEED).map((s) => (JSON.parse(s.record_json) as Record<string, unknown>).put);
+	// the cited refs of every imported topic; the page links those of the topics it still shows as imported
+	return { tip: viewText(vc, 'crossexam_tab', 'tip'), knownSeedRefs: knownRefs(vid, puts, store) };
+}

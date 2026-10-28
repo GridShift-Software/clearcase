@@ -1,32 +1,23 @@
 import { fail } from '@sveltejs/kit';
 import { actionCase, guarded } from '$lib/local-case/answer.server';
 import { app } from '$lib/local-case/app.server';
-import { datasetOf, viewContentOf, viewText } from '$lib/local-case/results.server';
-import { allowedStatus, enforcementRows, phasesOf } from '$lib/views/litigation/enforcement';
-import { stepKey } from '$lib/views/litigation/enforcement.server';
-import { SAY, STORES, field, knownRefs, orderedRows, text } from '$lib/views/litigation/register.server';
-import { saveStatus, stepRows, stepVersion } from '$lib/views/litigation/writes.server';
+import { viewContentOf } from '$lib/local-case/results.server';
+import { allowedStatus, enforcementMerge } from '$lib/views/litigation/enforcement';
+import { enforcementPure } from '$lib/views/litigation/enforcement.server';
+import { SAY, STORES, field, orderedRows } from '$lib/views/litigation/register.server';
+import { saveStatus } from '$lib/views/litigation/writes.server';
 import type { Actions, PageServerLoad } from './$types';
 
-function overrides(caseId: string) {
-	const all = orderedRows(caseId, STORES.enforcement);
-	const keys = new Set(all.map((r) => text(r.fields.stepKey)).filter(Boolean));
-	return new Map([...keys].map((k) => { const mine = stepRows(all, k); return [k, { status: text(mine.at(-1)!.fields.status), version: stepVersion(mine) }]; }));
-}
-
-const rowsOf = (rv: string, caseId: string) => {
-	const raw = datasetOf<unknown[]>(app().store, rv, 'lit-enforcement');
-	const saved = overrides(caseId);
-	const rows = enforcementRows(Array.isArray(raw) ? raw : [], stepKey, new Map([...saved].map(([k, v]) => [k, v.status])));
-	return { present: Array.isArray(raw), rows: rows.map((r) => ({ ...r, version: (r.key && saved.get(r.key)?.version) || 'none' })) };
+const pageOf = (rv: string, caseId: string) => {
+	const store = app().store;
+	return enforcementMerge(enforcementPure({ store, vid: rv, vc: viewContentOf(store, rv) }), { rows: orderedRows(caseId, STORES.enforcement) });
 };
+
+const rowsOf = (rv: string, caseId: string) => pageOf(rv, caseId).rows;
 
 export const load: PageServerLoad = async ({ parent }) => {
 	const { version } = await parent();
-	const vc = viewContentOf(app().store, version.id);
-	const { present, rows } = rowsOf(version.id, version.caseId);
-	const content = { subtitle: viewText(vc, 'enforcement_tab', 'subtitle'), why: viewText(vc, 'enforcement_tab', 'whyNarrative') };
-	return { present, rows, phases: phasesOf(rows), content, known: knownRefs(version.id, [content.why, ...rows.flatMap((r) => [r.basis, r.note])]) };
+	return pageOf(version.id, version.caseId);
 };
 
 const SAY_STATUS = { ...SAY.add, busy: 'Not saved: the local store is busy. Your choice is kept; try again in a moment.', failed: 'Not saved: the app hit an error while saving. Your choice is kept.' };
@@ -57,13 +48,13 @@ export const actions: Actions = {
 		const saved: string[] = [];
 		let code = 0;
 		for (const c of changes) {
-			const row = rowsOf(vid, caseId).rows.find((r) => r.key !== null && r.key === c.stepKey);
+			const row = rowsOf(vid, caseId).find((r) => r.key !== null && r.key === c.stepKey);
 			if (!row) { errors[c.stepKey] = { message: 'Not saved: that step is not in this results version, or it is not unique.', retry: false }; code ||= 404; continue; }
 			if (!allowedStatus(row, c.status)) { errors[c.stepKey] = { message: 'Not saved: choose one of the listed statuses.', retry: false }; code ||= 400; continue; }
 			const r = await guarded('status', null, () => saveStatus(app().userWork, caseId, STORES.enforcement, c.stepKey, c.status, c.version), SAY_STATUS);
 			if (!r.ok) { errors[c.stepKey] = { message: r.failure.data.message, retry: r.failure.data.retry }; code ||= r.failure.status; continue; }
 			if (r.value === 'stale') {
-				const now = rowsOf(vid, caseId).rows.find((x) => x.key === c.stepKey);
+				const now = rowsOf(vid, caseId).find((x) => x.key === c.stepKey);
 				errors[c.stepKey] = { message: stale(now ? now.override ?? now.status : ''), retry: true };
 				code ||= 409;
 				continue;

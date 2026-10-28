@@ -10,6 +10,11 @@ import { requestAuditSink } from '../../../src/lib/audit/facades.ts';
 import { auditConfig } from '../../../src/lib/audit/config.ts';
 import { provisionAuditBinding } from '../../../src/lib/audit/d1-log.ts';
 import { ISSUER } from '../user-work/world.ts';
+import { docCase, PARENT } from '../../publication/shards/12-world.ts';
+import { CASE_ID, published } from '../../publication/shards/world.ts';
+import { oneLookupLocals } from './one-lookup.ts';
+import { memoryShardCache } from '../../../src/lib/server/runtime/memory-shards.ts';
+import { load as layout } from '../../../deploy/client/routes/cases/[caseId]/v/[version]/+layout.server.ts';
 
 function notes() {
   const db = database(); bind(db);
@@ -79,4 +84,26 @@ it('16 note save commits its audit in exactly one D1 batch, with no post-commit 
     expect(db.prepare('SELECT action FROM native_audit_events').get()).toEqual({ action: 'user-work.note-add' });
     console.log('16 atomic note save foreground calls (authorization double; preflight reads included)', result.counts);
   } finally { db.close(); }
+});
+
+it('16 records the full document visit over production authority: one new notes query beyond the inherited links cost', async () => {
+  const b = await docCase(), pending: Promise<void>[] = [];
+  try {
+    const dep = await published(b), hash = Buffer.from(PARENT.padEnd(32, '_')).toString('hex');
+    dep.db.sqlite.prepare('INSERT INTO rs_original (sha256,size,object_key,etag,media_family) VALUES (?,4,?,?,?)').run(hash, `orig/${hash}`, 'synthetic-etag', 'pdf');
+    dep.db.sqlite.prepare('INSERT INTO rs_case_original (case_id,asset_id,sha256,filename,media_type,finalized_at) VALUES (?,?,?,?,?,?)').run(CASE_ID, PARENT, hash, `${PARENT}.pdf`, 'application/pdf', '2200-01-01T00:00:00Z');
+    const c = counters(), cache = memoryShardCache();
+    const visit = async () => {
+      const { l } = await oneLookupLocals(dep, c, cache, pending);
+      const e = { locals: l, params: { caseId: CASE_ID, version: b.built.record.resultsVersion, ref: PARENT }, url: new URL('https://client-a.example.invalid/') } as never;
+      return Promise.all([layout(e), document(e)]);
+    };
+    const cold = await measure(c, visit); expect(cold.thrown).toBeUndefined();
+    await Promise.all(pending.splice(0));
+    const warm = await measure(c, visit); expect(warm.thrown).toBeUndefined();
+    // Measurement, not a claim that the ticket's <=2 D1 beyond-authorization target is met: 12's links still cost 2.
+    expect(warm.counts.d1).toBe(4); expect(warm.counts.clerk).toBe(0);
+    expect(cold.counts.r2 - warm.counts.r2).toBe(2);
+    console.log('16 full document visit (production authority), cold', cold.counts, 'warm', warm.counts, 'target beyond authorization=2; measured=3');
+  } finally { await Promise.all(pending); await b.cleanup(); }
 });

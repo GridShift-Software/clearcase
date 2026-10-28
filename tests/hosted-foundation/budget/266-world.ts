@@ -20,8 +20,9 @@ import { hostedWorld, countedD1, countedR2, measure, type Counts } from './harne
 import { MIGRATION } from '../provisioning/world.ts';
 import type { RequestServices } from '../../../src/lib/server/runtime/contracts.ts';
 
-/** Each D1 call waits this long before it runs, so `elapsed / DELAY_MS` is the round trips one after another. */
-export const DELAY_MS = 20;
+/** Each D1 call waits this long before it runs, so `elapsed / DELAY_MS` is the round trips one after another. Long
+ * enough that a loaded test run (the full suite in parallel) adds well under one unit. */
+export const DELAY_MS = 50;
 export const R2_PUT_DELAYS = 6;
 
 export const SHARDS = {

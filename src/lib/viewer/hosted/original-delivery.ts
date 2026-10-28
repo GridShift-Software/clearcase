@@ -9,7 +9,7 @@ export async function serveFastOriginal(a: {fast:FastOriginals;asset:AssetRef;me
  const row = a.ticket ?? await a.fast.locate(a.asset);
  if (a.url.searchParams.get('download') === '1' && row.size > 100_000_000 && a.method === 'GET') {
   const cfg = JSON.parse(String(env.CLEARCASE_NATIVE_CONFIG));
-  const href = await presignOriginal({accountId:String(env.R2_S3_ACCOUNT_ID ?? 'fb4c31b91c5d89b7a54afbdc34823170'),bucket:cfg.deployment.r2Bucket,sha256:row.sha256,accessKeyId:String(env.R2_S3_ACCESS_KEY_ID ?? ''),secretAccessKey:String(env.R2_S3_SECRET_ACCESS_KEY ?? '')});
+  const href = await presignOriginal({accountId:String(env.R2_S3_ACCOUNT_ID ?? ''),bucket:cfg.deployment.r2Bucket,sha256:row.sha256,accessKeyId:String(env.R2_S3_ACCESS_KEY_ID ?? ''),secretAccessKey:String(env.R2_S3_SECRET_ACCESS_KEY ?? '')});
   a.fast.record(a.asset,'succeeded');
   return new Response(null,{status:302,headers:{location:href,'cache-control':'private, no-store','referrer-policy':'no-referrer'}});
  }

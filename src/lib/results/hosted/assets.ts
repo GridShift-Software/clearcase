@@ -34,7 +34,7 @@ export function singleRange(header: string, size: number): { start: number; end:
  * byte leaves, reauthorizes after the read, and is recorded before it is released; ranges are cut from verified bytes.
  * Objects over the buffered budget are refused, not streamed unverified.
  */
-export function createCloudAssets(a: { open: () => Promise<OpenStorage>; identity: C.Identity; record(e: StorageEvent): Promise<void>; viewerRoute?: (asset: C.AssetRef) => string | null; waitUntil?: (p: Promise<unknown>) => void; ticketBucket?: CloudR2; fastOriginals?: boolean }): C.AssetsAccess {
+export function createCloudAssets(a: { open: () => Promise<OpenStorage>; clientId?: C.ClientId | null; identity: C.Identity; record(e: StorageEvent): Promise<void>; viewerRoute?: (asset: C.AssetRef) => string | null; waitUntil?: (p: Promise<unknown>) => void; ticketBucket?: CloudR2; fastOriginals?: boolean }): C.AssetsAccess {
   const { open, identity } = a;
   const versionOf = (asset: C.AssetRef) => (asset.kind === 'preview' ? asset.resultsVersion : null);
   async function authorize(s: OpenStorage, asset: C.AssetRef) {
@@ -136,14 +136,14 @@ export function createCloudAssets(a: { open: () => Promise<OpenStorage>; identit
     async locate(asset: C.AssetRef): Promise<OriginalRow> {
       const {row} = await described(asset, () => once(asset), 'asset.read-original');
       if (!row.etag || !row.media_family) throw contractError('changed-original');
-      return {caseId:asset.caseId,assetId:asset.assetId,sha256:row.sha256,etag:row.etag,size:row.size,mediaType:row.media_type,mediaFamily:row.media_family,filename:row.filename,clientId:identity.clientId,issuer:identity.kind === 'verified' ? identity.principal.issuer : undefined,subject:identity.kind === 'verified' ? identity.principal.subject : '',objectKey:row.object_key};
+      return {caseId:asset.caseId,assetId:asset.assetId,sha256:row.sha256,etag:row.etag,size:row.size,mediaType:row.media_type,mediaFamily:row.media_family,filename:row.filename,clientId:a.clientId ?? identity.clientId,issuer:identity.kind === 'verified' ? identity.principal.issuer : undefined,subject:identity.kind === 'verified' ? identity.principal.subject : '',objectKey:row.object_key};
     },
     record(asset: C.AssetRef, outcome: 'succeeded'|'failed'|'refused', subject?: string) {
       const pending = new Promise<void>(resolve => setTimeout(resolve,0)).then(() => a.record({action:'asset.read-original',object:{kind:'asset',id:asset.assetId,caseId:asset.caseId},version:null,outcome,subject}));
       if (a.waitUntil) a.waitUntil(pending); else void pending.catch(() => undefined);
     },
     async get(asset: C.AssetRef, request: C.ByteRequest, ticket?: AssetTicket): Promise<Response> {
-      if (ticket && (ticket.caseId !== asset.caseId || ticket.assetId !== asset.assetId || ticket.clientId !== identity.clientId || identity.kind !== 'verified' || ticket.subject !== identity.principal.subject || ticket.issuer !== identity.principal.issuer)) return new Response(null,{status:404,headers:HEADERS});
+      if (ticket && (ticket.caseId !== asset.caseId || ticket.assetId !== asset.assetId || ticket.clientId !== (a.clientId === undefined ? identity.clientId : a.clientId) || identity.kind !== 'verified' || ticket.subject !== identity.principal.subject || ticket.issuer !== identity.principal.issuer)) return new Response(null,{status:404,headers:HEADERS});
       const row = ticket ?? await fast.locate(asset);
       const bucket = ticket && a.ticketBucket ? a.ticketBucket : (await once(asset)).s.bucket;
       const etag = `"${row.etag}"`;

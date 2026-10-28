@@ -7,7 +7,7 @@ export async function presignOriginal(a: {accountId:string;bucket:string;sha256:
  if (!/^[a-f0-9]{32}$/.test(a.accountId) || !/^[a-z0-9-]+$/.test(a.bucket) || !/^[a-f0-9]{64}$/.test(a.sha256) || !a.accessKeyId || !a.secretAccessKey) throw new Error('download-unavailable');
  const date = (a.now ?? new Date()).toISOString().replace(/[:-]|\.\d{3}/g,''), day = date.slice(0,8), scope = `${day}/auto/s3/aws4_request`;
  const host = `${a.accountId}.eu.r2.cloudflarestorage.com`, path = `/${a.bucket}/orig/${a.sha256}`;
- const query = Object.entries({'X-Amz-Algorithm':'AWS4-HMAC-SHA256','X-Amz-Credential':`${a.accessKeyId}/${scope}`,'X-Amz-Date':date,'X-Amz-Expires':'600','X-Amz-SignedHeaders':'host'}).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>`${enc(k)}=${enc(v)}`).join('&');
+ const query = Object.entries({'response-content-disposition':'attachment','response-content-type':'application/octet-stream','X-Amz-Algorithm':'AWS4-HMAC-SHA256','X-Amz-Credential':`${a.accessKeyId}/${scope}`,'X-Amz-Date':date,'X-Amz-Expires':'600','X-Amz-SignedHeaders':'host'}).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>`${enc(k)}=${enc(v)}`).join('&');
  const canonical = `GET\n${path}\n${query}\nhost:${host}\n\nhost\nUNSIGNED-PAYLOAD`;
  const signing = await hmac(await hmac(await hmac(await hmac(utf8.encode(`AWS4${a.secretAccessKey}`),day),'auto'),'s3'),'aws4_request');
  const signature = hex((await hmac(signing,`AWS4-HMAC-SHA256\n${date}\n${scope}\n${hex(await crypto.subtle.digest('SHA-256',utf8.encode(canonical)))}`)).buffer);

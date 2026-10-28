@@ -10,6 +10,11 @@ it('M1 route uses fast originals; wrong case is 404 before original R2 read',asy
  expect(r.status).toBe(404);
  // Only the storage identity marker may be read; no original bytes.
  expect(w.dep.bucket.gets).toBe(1);
+ const page=await w.view();
+ if(page.view.state!=='available') throw new Error('fixture');
+ w.c.reset();
+ expect((await w.get(w.identity,page.view.srcHref.replace('case-a','case-b'),{caseId:'case-b',assetId:'asset-a'})).status).toBe(404);
+ expect(w.c.r2).toBe(0);
 });
 it('M1 moved ETag answers 412 with no bytes through serveAsset',async()=>{
  const w=await originalWorld(), p=await w.view();

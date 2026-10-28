@@ -38,6 +38,6 @@ export interface CloudResultsOptions {
 export function createCloudResults(o: CloudResultsOptions): { store: CaseReader; assets: AssetsAccess } {
   return {
     store: createCloudReader({ open: storageAccess(o, 'storage-unavailable'), identity: o.identity, record: o.record, stateRevision: o.stateRevision, now: o.now ?? (() => new Date()) }),
-    assets: createCloudAssets({ open: storageAccess(o, 'asset-unavailable'), identity: o.identity, record: o.record, fastOriginals: typeof workers.env.CLEARCASE_ASSET_TICKET_KEY === 'string', ticketBucket: o.bindings?.bucket, waitUntil: (p) => { if ('waitUntil' in workers && typeof workers.waitUntil === 'function') workers.waitUntil(p); else void p.catch(() => undefined); }, ...(o.viewerRoute ? { viewerRoute: o.viewerRoute } : {}) }),
+    assets: createCloudAssets({ clientId: o.clientId, open: storageAccess(o, 'asset-unavailable'), identity: o.identity, record: o.record, fastOriginals: typeof workers.env.CLEARCASE_ASSET_TICKET_KEY === 'string', ticketBucket: o.bindings?.bucket, waitUntil: (p) => { if ('waitUntil' in workers && typeof workers.waitUntil === 'function') workers.waitUntil(p); else void p.catch(() => undefined); }, ...(o.viewerRoute ? { viewerRoute: o.viewerRoute } : {}) }),
   };
 }

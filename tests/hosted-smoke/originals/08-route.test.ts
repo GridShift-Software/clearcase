@@ -7,7 +7,7 @@ it('H1 binds ticket to signed-in subject and issuer before any R2 read',async()=
  if(page.view.state!=='available') throw new Error('fixture');
  const signedOut:Identity={...w.identity,kind:'anonymous',principal:null,sessionId:null};
  if(w.identity.kind!=='verified') throw new Error('identity');
- for(const who of [signedOut,{...w.identity,principal:{...w.identity.principal,subject:'other'}},{...w.identity,principal:{...w.identity.principal,issuer:'other'}}]) {
+ for(const who of [signedOut,{...w.identity,clientId:'client-b' as never},{...w.identity,principal:{...w.identity.principal,subject:'other'}},{...w.identity,principal:{...w.identity.principal,issuer:'other'}}]) {
   w.c.reset();
   expect((await w.get(who,page.view.srcHref)).status).toBe(404);
   expect(w.c.snapshot()).toMatchObject({d1:0,r2:0});

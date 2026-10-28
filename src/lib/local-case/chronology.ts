@@ -1,10 +1,9 @@
-// Chronology filtering and sorting, shared by the view, the CSV export and the tests, and the page's list loading.
+// Chronology filtering and sorting, shared by the view, the CSV export and the tests, and the page's full-list fetch.
 // Browser-safe. Semantics follow v5 chronFiltered/sortChron (view checklist, chronology): filters are ANDed exact
 // matches on bundle, type, text status and year (the date's first four digits), plus a case-insensitive substring over
 // filename, ref, subject, sender and excerpt. Sorts compare code units (date, ref, type, bundle) or parseFloat with
 // empty = 0 (amount), and are stable: ties keep the source order in both directions. Undated rows ('' dates) sort first
 // ascending. Every imported bundle is selectable (rewrite of S-chronology-1).
-import { error } from '@sveltejs/kit';
 import type { FacetCounts, FacetsShard, ListPage } from '../views/payloads/list.ts';
 import type { ChronologyListRow } from './model.ts';
 
@@ -84,24 +83,6 @@ export function paramsFromQuery(q: ChronologyQuery): URLSearchParams {
 	if (q.sort !== 'date') p.set('sort', q.sort);
 	if (q.dir === -1) p.set('dir', 'desc');
 	return p;
-}
-
-/** A provider the list was built without, and why (the local API's `x-clearcase-degraded`; hosted has none). */
-export interface DegradedSource { source: string; owner: string; reason: string }
-/** Where the chronology's rows come from: `listHref?page=n` and `listHref?all=1`, and the first page when the server already has it. */
-export interface ChronologySource { listHref: string; first?: ListPage; failed?: DegradedSource[] }
-
-/**
- * The chronology page's universal load: the first list page (from the server data, or `listHref?page=1`), never the
- * whole list, so the first render carries one page of rows; the page fetches the rest with `allRows` once it shows.
- */
-export async function loadChronology<D extends ChronologySource>(data: D, fetch: typeof globalThis.fetch): Promise<D & { first: ListPage; failed: DegradedSource[] }> {
-	if (data.first) return { ...data, first: data.first, failed: data.failed ?? [] };
-	const r = await fetch(`${data.listHref}?page=1`);
-	if (!r.ok) error(r.status, (await r.text()).slice(0, 300) || 'chronology unavailable');
-	const body = (await r.json()) as ListPage | ChronologyListRow[];
-	const rows = listRowsOf(body);
-	return { ...data, first: Array.isArray(body) ? { page: 1, pages: 1, total: rows.length, rows } : body, failed: data.failed ?? [] };
 }
 
 /** Every row of the list (`listHref?all=1`; the local API answers its whole array whatever the query). */

@@ -1,4 +1,4 @@
-import { loadChronology } from '$lib/local-case/chronology';
 import type { PageLoad } from './$types';
 
-export const load: PageLoad = ({ data, fetch }) => loadChronology(data, fetch);
+// The server load already holds the first list page; the page fetches every row itself once it shows.
+export const load: PageLoad = ({ data }) => data;

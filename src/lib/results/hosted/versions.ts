@@ -1,4 +1,4 @@
-import type { CaseId, CaseInfo, Publication, ResultsVersion, VersionInfo } from '../../server/runtime/contracts.ts';
+import type { CaseId, CaseInfo, Publication, PublicationRecord, ResultsVersion, VersionInfo } from '../../server/runtime/contracts.ts';
 import { contractError } from '../../server/runtime/errors.ts';
 import { id, resultsVersion } from '../../server/runtime/ids.ts';
 import type { CloudD1 } from '../../storage/cloud/bindings.ts';
@@ -29,6 +29,17 @@ export async function caseRow(db: CloudD1, caseId: CaseId): Promise<CaseInfo | n
   const r = await db.prepare(`${CASE_SQL} WHERE c.case_id = ?`).bind(caseId).first<CaseRow>().catch(unavailable);
   return r ? info(r) : null;
 }
+type PublicationRow = { version_id: string; published_at: string | null; previous_version_id: string | null; shard_manifest_sha256: string | null };
+/** The live publication pointer of `caseId` with the shard manifest of its version, under the same rule as `caseRow`. */
+export async function publicationRow(db: CloudD1, caseId: CaseId): Promise<PublicationRecord | null> {
+  const r = await db.prepare(`SELECT p.version_id, p.published_at, p.previous_version_id, m.manifest_sha256 AS shard_manifest_sha256
+    FROM rs_publication p JOIN rs_results_version v ON v.version_id = p.version_id AND v.case_id = p.case_id AND v.state = 'stored'
+    LEFT JOIN rs_shard_manifest m ON m.version_id = p.version_id
+    WHERE p.case_id = ? AND p.state = 'published' AND NOT EXISTS (SELECT 1 FROM rs_version_withdrawal w WHERE w.version_id = p.version_id)`).bind(caseId).first<PublicationRow>().catch(unavailable);
+  if (!r) return null;
+  return { versionId: resultsVersion(r.version_id), publishedAt: r.published_at, previousVersionId: r.previous_version_id ? resultsVersion(r.previous_version_id) : null, shardManifestSha256: r.shard_manifest_sha256 };
+}
+
 /** The exact published version of `caseId`, or a refusal: a candidate, a staging version and a withdrawn one are forbidden alike. */
 export async function requirePublished(db: CloudD1, caseId: CaseId, rv: ResultsVersion): Promise<void> {
   const c = await caseRow(db, caseId);

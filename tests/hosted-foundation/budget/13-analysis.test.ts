@@ -54,4 +54,9 @@ test.each(routes)('%s measures first, warm and cold visits with fresh authorized
     expect(denied.counts.r2).toBe(1); // Storage identity gate only; authorization refuses the page.
   } finally { dep.db.exec("UPDATE tenant_case_grants SET state = 'active', revoked_at = NULL WHERE grant_id = 'g-viewer'"); }
   console.log(route, JSON.stringify({ first: first.counts, warm: warm.counts, cold: cold.counts }));
+  // Keep acceptance red while shared request overhead exceeds the sprint budget (09b owns that work).
+  for (const visit of [first, warm, cold]) expect.soft(visit.counts.d1, 'ticket: at most one D1 per page').toBeLessThanOrEqual(1);
+  expect.soft(first.counts.r2, 'ticket: at most one cold R2 per page').toBeLessThanOrEqual(1);
+  expect.soft(warm.counts.r2, 'ticket: no warm R2 reads').toBe(0);
+  expect.soft(cold.counts.r2, 'ticket: at most one cold view R2 read').toBeLessThanOrEqual(1);
 });

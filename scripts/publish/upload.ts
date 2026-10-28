@@ -56,14 +56,15 @@ export function rcloneRemote(a: { remote: string; resultsVersion: string }): Sha
   };
   return {
     compare: (dir, names) => withList(names, (list) => {
-      // --combined: `= name` identical, `- name` absent from R2, `* name` differs, `! name` could not be read.
+      // --combined: `= name` identical, `+ name` absent from R2, `- name` absent locally, `* name` differs, `! name` unreadable.
       const r = spawnSync('rclone', ['check', dir, to, '--one-way', '--download', '--files-from', list, '--combined', '-'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
       const out = new Map<string, RemoteState>();
       for (const line of r.stdout.split('\n')) {
         const m = /^([=*!+-]) (.+)$/.exec(line);
         if (!m) continue;
         if (m[1] === '!') throw new Error(`rclone could not compare ${m[2]}: ${r.stderr.trim().split('\n').pop() ?? ''}`);
-        if (m[1] !== '+') out.set(m[2]!, m[1] === '=' ? 'same' : m[1] === '*' ? 'differs' : 'absent');
+        if (m[1] === '-') throw new Error(`rclone source file missing: ${m[2]}`);
+        out.set(m[2]!, m[1] === '=' ? 'same' : m[1] === '*' ? 'differs' : 'absent');
       }
       const missing = names.filter((n) => !out.has(n));
       if (r.status !== 0 && r.status !== 1 || missing.length) throw new Error(`rclone check failed (exit ${r.status}): ${missing.length ? `no answer for ${missing.join(', ')}` : r.stderr.trim()}`);

@@ -1,4 +1,4 @@
-import { legacyClerkProviderFromEnv as clerkIdentityProviderFromEnv } from './synthetic.ts';
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // GRS-113 approved supplemental correction (25 October 2026): a still-live Clerk session is revoked at sign-out and at a
 // cross-kind identity switch even after its short-lived signed session token has EXPIRED (Clerk tokens live about a
 // minute; sign-out is a POST, which the handshake never refreshes). Revocation is a separate, revoke-only evidence path:

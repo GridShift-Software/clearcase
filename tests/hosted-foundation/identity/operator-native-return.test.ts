@@ -1,4 +1,4 @@
-import { legacyClerkProviderFromEnv as clerkIdentityProviderFromEnv } from './synthetic.ts';
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // The staff portal's native return (GRS-113): the staff portal hands the browser back to the operator route, not to
 // /cases, so the first unsigned callback already takes the staff handshake; once a verified staff session is installed,
 // the operator page sends it on to the safe final target. SYNTHETIC keys; handler unit evidence only.

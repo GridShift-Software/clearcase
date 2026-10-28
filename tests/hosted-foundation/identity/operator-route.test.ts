@@ -1,4 +1,4 @@
-import { legacyClerkProviderFromEnv as clerkIdentityProviderFromEnv } from './synthetic.ts';
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // The per-client staff (B) operator sign-in route (GRS-113): staff sign in at the internal Clerk instance THROUGH this
 // client's origin. There is no third Worker or staff host. SYNTHETIC keys; handler unit evidence only.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';

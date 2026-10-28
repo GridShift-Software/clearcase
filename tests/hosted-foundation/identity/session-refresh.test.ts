@@ -29,7 +29,7 @@ vi.mock('cloudflare:workers', () => workers);
 import { MAX_SESSION_LIFETIME_MS } from '../../../src/lib/auth/clerk/flow.ts';
 import { clerkBrowserHandshakeFromEnv } from '../../../src/lib/auth/clerk/browser.ts';
 import { presentedToken } from '../../../src/lib/auth/clerk/session.ts';
-import { handle } from './legacy-hook.ts';
+import { handle } from '../../../src/lib/server/runtime/hosted/hooks.server.ts';
 // @ts-expect-error jsdom ships no types and the root pins no @types/jsdom; BrowserJar below types the part used here.
 import { CookieJar } from 'jsdom';
 import { craftedInstance } from './synthetic.ts';
@@ -790,7 +790,7 @@ describe('a renewal Clerk refuses, and two isolates renewing one hold (session-r
 		const s = session();
 		refreshAnswer = rotatingRefreshAnswer(s);
 		vi.resetModules();
-		const second = (await import('./legacy-hook.ts')).handle;
+		const second = (await import('../../../src/lib/server/runtime/hosted/hooks.server.ts')).handle;
 		const b = carrying(s), request = clientData(b.cookie());
 		const out = await Promise.all([
 			invoke(clientData(b.cookie())),
@@ -1089,7 +1089,7 @@ describe('session renewal heavy review (round 5)', () => {
 		const s = session(), b = carrying(s);
 		refreshAnswer = neverRotating(s);
 		vi.resetModules();
-		const second = (await import('./legacy-hook.ts')).handle;
+		const second = (await import('../../../src/lib/server/runtime/hosted/hooks.server.ts')).handle;
 		const request = clientData(b.cookie());
 		const out = await Promise.all([invoke(clientData(b.cookie())), second({ event: { request, url: new URL(request.url), locals: {}, isSubRequest: false }, resolve: route } as never)]);
 		expect(refreshCalls()).toHaveLength(2);

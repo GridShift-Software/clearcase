@@ -1,4 +1,4 @@
-import { legacyClerkProviderFromEnv as clerkIdentityProviderFromEnv } from './synthetic.ts';
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // The hosted /sign-in and /sign-out routes with a verified Clerk identity (GRS-113): sign-out revokes the right Clerk
 // session before it clears cookies, and signing in as the other identity signs the first out or refuses ambiguity.
 // SYNTHETIC keys and a loopback Backend API. Route-handler unit evidence only: no browser, no hook, no real Clerk.

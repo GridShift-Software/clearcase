@@ -1,4 +1,4 @@
-import { legacyClerkProviderFromEnv as clerkIdentityProviderFromEnv } from './synthetic.ts';
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // Adverse classes found by the GRS-113 source review (M1, M2 and the in-scope Lows), through the pinned @clerk/backend with
 // SYNTHETIC keys and a loopback Backend API. An anonymous caller may make a request fail as "sign in again" (401) and may
 // never make it "unavailable" (503) or make the Worker call Clerk. Unit evidence for our adapter only.

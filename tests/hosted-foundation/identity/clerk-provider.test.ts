@@ -1,4 +1,4 @@
-import { legacyClerkProviderFromEnv as clerkIdentityProviderFromEnv } from './synthetic.ts';
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // The Clerk IdentityProvider and its configuration (GRS-113), through the pinned @clerk/backend with SYNTHETIC keys and a
 // loopback session lookup. Unit evidence for our adapter only; never evidence that a real Clerk instance behaves so.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';

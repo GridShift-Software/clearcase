@@ -1,4 +1,4 @@
-import { legacyClerkProviderFromEnv as clerkIdentityProviderFromEnv } from './synthetic.ts';
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // The first-party browser contract of the Clerk identity (GRS-113), as the hosting hook will call it: the handshake that
 // puts a session cookie on THIS origin, the identity switch between client and staff, safe return targets and sign-out.
 // SYNTHETIC keys, a synthetic Frontend API host and a loopback Backend API. The unit contract only: no real Clerk

@@ -1,4 +1,4 @@
-import { legacyClerkProviderFromEnv as clerkIdentityProviderFromEnv } from './synthetic.ts';
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // Follow-ups of the GRS-113 revocation supplemental (43e7bcc7), alpha hardening 27 October 2026:
 //  - L-rev-1: a genuinely signed `sts: 'pending'` token. Clerk documents `pending` as "signed in but hasn't completed
 //    session tasks" (@clerk/shared SessionStatus; tasks choose-organization, reset-password, setup-mfa), and finishing a

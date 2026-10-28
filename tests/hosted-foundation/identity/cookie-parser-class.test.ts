@@ -1,4 +1,4 @@
-import { legacyClerkProviderFromEnv as clerkIdentityProviderFromEnv } from './synthetic.ts';
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // One cookie parsing policy for the Clerk identity (GRS-113): the Cookie header is read the way @clerk/backend reads it
 // (split on ';', name and value trimmed of SP and HTAB only, a repeated name kept) and every decision that guards the SDK
 // or names a credential uses that one reading: nonce preflight, handshake and refresh stripping, the dev browser, the

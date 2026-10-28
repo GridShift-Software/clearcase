@@ -103,16 +103,22 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 	const pagePath = new URL(request.url).pathname;
 	const byteRoute = /^\/cases\/[^/]+\/v\/[^/]+\/assets\/[^/]+\/?$/.test(pagePath);
 	const pageRequest = request.method === 'GET' && !byteRoute && /^\/cases\/[^/]+(?:\/v\/|\/originals\/[^/]+\/view$|$)/.test(pagePath);
+	// A version page's form POST (a note save or delete) reads the case through the same one lookup; its write-user-work
+	// authorizations still query the grant afresh and append their event before the write, fail closed.
+	const versionPost = request.method === 'POST' && !byteRoute && /^\/cases\/[^/]+\/v\//.test(pagePath);
 	const readAudit = (event: import('../contracts.ts').AuditEvent) => scheduleRead?.(event);
 	const clerk = clerkIdentityProviderFromEnv(env, {
 		authorizeCase: async (a) => {
 			if (!native) throw contractError('identity-unavailable', true);
-			const requester: IdentityState = { kind: 'verified', principal: a.principal, sessionId: a.sessionId };
+			// A write-user-work check reads its grant and case afresh, in one query each time; a read uses the request's one lookup.
+			const lookup = a.operation === 'write-user-work' ? requestCaseLookup(native.db, native.deployment) : pageLookup;
 			const authorizer = createCaseAuthorizer({
-				...(pageLookup && a.operation !== 'write-user-work' ? { lookup: pageLookup, readAudit } : {}),
+				...(lookup ? { lookup } : {}),
+				...(pageLookup && a.operation !== 'write-user-work' ? { readAudit } : {}),
 				deployment: native.deployment, grants: d1GrantRepository(native.db),
 				cases: d1CaseDirectory({ db: native.db, deployment: native.deployment }),
-				audit: pageLookup && a.operation !== 'write-user-work' ? { append: async event => { readAudit(event); return { eventId: event.eventId }; } } : requestAuditSink({ db: native.db, config: native.audit, requester, now }), now,
+				// A write's event goes through the request's one sink (services.audit), so its binding is read once per request.
+				audit: pageLookup && a.operation !== 'write-user-work' ? { append: async event => { readAudit(event); return { eventId: event.eventId }; } } : services.audit, now,
 			});
 			await authorizer.authorizeCase(a);
 		},
@@ -127,7 +133,7 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 	if (native) {
 		const context = native;
 		scheduleRead = requestReadAudit({ db: native.db, config: native.audit, ...(scheduler ? { waitUntil: work => scheduler.waitUntil(work) } : {}) });
-		if (pageRequest) {
+		if (pageRequest || versionPost) {
 			const original = /^\/cases\/[^/]+\/originals\/([^/]+)\/view$/.exec(pagePath);
 			pageLookup = requestCaseLookup(native.db, native.deployment, original ? decodeURIComponent(original[1]!) : null);
 		}

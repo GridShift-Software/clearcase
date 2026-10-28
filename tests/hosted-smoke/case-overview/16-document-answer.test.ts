@@ -1,6 +1,7 @@
 import { render } from 'svelte/server';
 import { expect, it, vi } from 'vitest';
 vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
+vi.mock('$app/navigation', () => ({ invalidateAll: () => Promise.resolve() }));
 // Resolve the hosted wrapper's build alias to the real shared page in this test, without changing runner configuration.
 vi.mock('$local/doc/[ref]/+page.svelte', async () => import('../../../src/routes/v/[vid]/doc/[ref]/+page.svelte'));
 import Document from '../../../deploy/client/routes/cases/[caseId]/v/[version]/doc/[ref]/+page.svelte';

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import type { SubmitFunction } from '$app/forms';
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import DateValue from '$lib/components/DateValue.svelte';
@@ -40,9 +41,21 @@
 		return async ({ result, update }) => {
 			noteBusy = false;
 			if (result.type === 'error') { noteError = result.status && (result.error as { message?: string } | undefined)?.message || `The note was not saved: ${result.status ? `the app answered ${result.status}.` : 'the app did not answer.'} Your text is kept; try again.`; return; }
+			// A save that answers with its note (hosted) shows it at once and reloads the page's data behind it.
+			if (result.type === 'success' && result.data && 'note' in result.data) {
+				await update({ reset: true, invalidateAll: false });
+				saved = { note: result.data.note as Note, data };
+				void invalidateAll();
+				return;
+			}
 			await update({ reset: result.type === 'success' });
 		};
 	};
+	type Note = (typeof data.notes)[number];
+	// The saved note shows only over the data it was saved on: any completed reload replaces `data` and retires it, so a
+	// note another tab deleted meanwhile is not shown again. Raw, so `data` keeps its identity for the comparison.
+	let saved = $state.raw<{ note: Note; data: typeof data } | null>(null);
+	const notes = $derived(saved && saved.data === data && !data.notes.some((n) => n.id === saved!.note.id) ? [...data.notes, saved.note] : data.notes);
 </script>
 
 <main id="main" tabindex="-1" data-ready={ready ? `doc:${data.ref}` : null}>
@@ -93,7 +106,7 @@
 
 	<section class="card" aria-labelledby="notes-heading"><h2 id="notes-heading">My notes</h2>
 		<ul id="notes">
-			{#each data.notes as n (n.id)}
+			{#each notes as n (n.id)}
 				<li data-note={n.id} data-anchor={n.status}><span class="wrap">{n.body}</span> <small>({n.createdAt}{n.status === 'exact' ? `, written on ${n.refAtCreation} in an earlier version and re-attached by its original's fingerprint` : ''})</small>
 					{#if n.status === 'ambiguous'}<strong class="warning-inline">This note was written on {n.refAtCreation} in another version; its original's bytes are shared by {n.candidates.join(', ')} here, so it is shown on each.</strong>{/if}
 					{#if !n.intact}<strong class="unresolved" data-note-integrity="mismatch">this note was altered on disk since it was saved</strong>{/if}

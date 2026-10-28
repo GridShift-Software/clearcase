@@ -41,7 +41,7 @@
 // on a client origin, so signing in as the other identity first signs the current one out, and an ambiguous credential
 // is refused (planSignIn). Staff reach this origin only through the operator route (OPERATOR_PATH), never a third host.
 import { createClerkClient } from '@clerk/backend';
-import { isSignInFlowPage, readClerkIdentityConfig, rsaJwkOf, type ClerkIdentityConfig, type InstanceKind } from './config.ts';
+import { isSignInFlowPage, readClerkIdentityConfig, rsaJwkOf, SIGN_IN_PAGE, type ClerkIdentityConfig, type InstanceKind } from './config.ts';
 import {
 	MAX_SESSION_LIFETIME_MS, OPERATOR_PATH, nextHoldName, REFRESH_TOKEN_VALUE, cookieDomains, cookieSuffix, ownedCookieNames, sessionClears, SESSION_HOLD_COOKIE, STAFF_DEV_BROWSER_TIE, STAFF_HANDSHAKE_CLEAR, STAFF_HANDSHAKE_COOKIE, STAFF_HANDSHAKE_PARAM, cookiePairs, sdkCookieHeader, sessionHoldClear,
 	sessionHoldCookie, sessionHoldNames, sessionHoldOf, staffDevBrowserTie, staffHandshakeOf, startStaffHandshake, tiedDevBrowser,
@@ -64,6 +64,7 @@ const TOKEN = /^[A-Za-z0-9._-]{16,8192}$/;
 const DEV_BROWSER = /^[A-Za-z0-9._-]{16,4096}$/;
 const DEV_BROWSER_COOKIE = /^__clerk_db_jwt(?:_[A-Za-z0-9_-]{1,32})?$/;
 const MAX_CLEAR_PATHS = 32;
+const SIGN_IN_PAGES: ReadonlySet<string> = new Set(Object.values(SIGN_IN_PAGE));
 const RS256 = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
 const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const fromB64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
@@ -470,6 +471,7 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				// by the bridge page, never a 303: this load may be a native form's submission or its redirect (handshakeResponse)
 				return { kind: 'redirect', location: to.href, setCookies, refresh: true };
 			}
+			const document = request.headers.get('sec-fetch-dest') === 'document';
 			if (hasToken) {
 				if (setCookies.length === 0) return refuse(400, 'handshake-invalid');
 				const clean = new URL(url);
@@ -496,17 +498,22 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				setCookies.push(...(await holdDirectives(request, signedIn === null ? null : { kind, token: signedIn, refreshToken: clerkRefreshOf(state.headers.getSetCookie(), await refreshNameOf(kind)) })));
 				// the return of a handoff's handshake marks the browser, so it is not handed off again for a while (REAUTH_COOKIE)
 				if (secure && url.searchParams.has(REAUTH_PARAM)) setCookies.push(`${REAUTH_COOKIE}=1; Path=/; Max-Age=${REAUTH_MAX_AGE}; SameSite=Lax; HttpOnly; Secure`);
-				return { kind: 'redirect', location: clean.href, setCookies };
+				// A document back on its instance's own sign-in page from a fresh sign-in (no session cookie or hold before it)
+				// may have that page's route answer in place of the redirect (flow.ts handshakeAnswer): the route sees only the
+				// token this verified handshake set, as the next request would, and the browser saves two round trips (GRS-266).
+				const fresh = signedIn !== null && document && path === SIGN_IN_PAGE[kind] && sessionCookieNames(request).length === 0 && sessionHoldNames(request).length === 0;
+				return { kind: 'redirect', location: clean.href, setCookies, ...(fresh ? { credential: new Request(url, { headers: { cookie: `__session=${signedIn}` } }) } : {}) };
 			}
 			// a signed-in page load whose hold a renewal spent goes through the handshake for a fresh refresh token (handoff)
-			const document = request.headers.get('sec-fetch-dest') === 'document';
 			if (state.status === 'signed-in' && document && sessionHoldOf(request)?.spent) {
 				if (returnedJustNow(url)) return { kind: 'stop', signIn: kind === 'staff' ? OPERATOR_PATH : '/sign-in' };
 				const handed = await api.handoff(request, url);
 				// a refresh, not a 303: this load may be the redirect of a form submission (handshakeResponse)
 				if (handed) return { kind: 'redirect', location: handed.location, setCookies: handed.setCookies, refresh: true };
 			}
-			if (document && url.searchParams.has(REAUTH_PARAM)) {
+			// A sign-in page renders where the return lands (GRS-266): the mark stays in its URL, so a reload that would start
+			// another handshake within REAUTH_MAX_AGE is still a stop.
+			if (document && url.searchParams.has(REAUTH_PARAM) && !SIGN_IN_PAGES.has(path)) {
 				const clean = new URL(url);
 				clean.searchParams.delete(REAUTH_PARAM);
 				return { kind: 'redirect', location: clean.href, setCookies: [] };

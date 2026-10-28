@@ -32,7 +32,7 @@ Local, against a build of the checkout you are in (the app's build revision must
 ```sh
 bun run --bun build   # only if build/ is missing or stale
 PORT=41195 CLEARCASE_DATA_DIR=<data dir> bun run --bun start
-SMALL_REF=<ref> MEDIUM_REF=<ref> LARGE_REF=<ref> CLEARCASE_DATA_DIR=<data dir> \
+SMALL_REF=<ref> MEDIUM_REF=<ref> LARGE_REF=<ref> EXPECTED_DOCUMENTS=<count> CLEARCASE_DATA_DIR=<data dir> \
   BASE_URL=http://127.0.0.1:41195 MODE=local IDLE_MINUTES=2 bun tests/journeys/run-all.mjs
 PORT=41195 bun run --bun start --stop
 ```
@@ -41,7 +41,7 @@ Hosted (staging or a preview), with a private credentials or storage-state file:
 
 ```sh
 MODE=hosted BASE_URL=https://<host> CASE_ID=<case> EXPECTED_SHA=<deployed sha> \
-  SMALL_REF=<ref> MEDIUM_REF=<ref> LARGE_REF=<ref> CREDENTIALS_JSON=<private file> bun tests/journeys/run-all.mjs
+  SMALL_REF=<ref> MEDIUM_REF=<ref> LARGE_REF=<ref> EXPECTED_DOCUMENTS=<count> CREDENTIALS_JSON=<private file> bun tests/journeys/run-all.mjs
 ```
 
 `bun run journeys` replaces `bun tests/journeys/run-all.mjs` once ticket 01 adds the alias. One journey: `bun tests/journeys/J4.mjs`
@@ -54,7 +54,7 @@ Browsers run under the host's lock: start the command through `orch-bin/browser-
 ## Refusals and skips
 
 - `MODE=hosted` without `EXPECTED_SHA` (the build revision `/health` must report), `CASE_ID` or `BASE_URL` refuses to run, exit 2.
-  A missing `SMALL_REF`, `MEDIUM_REF` or `LARGE_REF` refuses `run-all`; a single journey refuses when it needs one it lacks.
+  A missing `SMALL_REF`, `MEDIUM_REF`, `LARGE_REF` or `EXPECTED_DOCUMENTS` refuses `run-all`; a single journey refuses when it needs one it lacks.
 - `READ_ONLY=1` skips J7, J8 and J9. They are reported as `SKIPPED`, never as passed. J10 keeps the idle, navigation and
   document visit and reports its two write steps as skipped; the journey is `PARTIAL`.
 - Locally the writes add synthetic notes, deadlines and bundles to the running instance. Export `CLEARCASE_DATA_DIR` to the
@@ -73,7 +73,7 @@ Browsers run under the host's lock: start the command through `orch-bin/browser-
 | `SMALL_BYTES`, `MEDIUM_BYTES`, `LARGE_BYTES` | optional; J4 checks the document page shows that size |
 | `SMALL_BUNDLE`, `MEDIUM_BUNDLE`, `LARGE_BUNDLE` | optional bundle (group) button name to open before filtering, where the documents list groups by bundle |
 | `SEARCH_REF` | J6's known result; defaults to `SMALL_REF` |
-| `EXPECTED_DOCUMENTS` | J2 pins the Overview count; without it the count only has to be positive |
+| `EXPECTED_DOCUMENTS` | Required by J2 and `run-all`: the Overview document count of the case under test, so a partial import fails |
 | `CREDENTIALS_JSON` | private `{email,password,otp?}`; never logged. Without it (or `STORAGE_STATE`) sign-in speed is untested |
 | `STORAGE_STATE` | private Playwright storage state carrying an existing Access or app session |
 | `SIGN_IN_PATH` | default `/sign-in` |

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { ROOT, OUT, NEEDS, preflightProblems, refuse } from './lib.mjs';
 // Every journey needs the case's references, so a missing one stops the run here, before the first browser starts.
-const problems = preflightProblems(NEEDS.samples);
+const problems = preflightProblems([...NEEDS.samples, ...NEEDS.documents]);
 if (problems.length) { refuse(problems); process.exit(2); }
 await fs.mkdir(OUT, { recursive: true });
 const results = [];

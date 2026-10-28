@@ -21,7 +21,8 @@ export const samples = [
   { band: 'medium', ref: env('MEDIUM_REF'), bytes: bytesOf('MEDIUM_BYTES'), bundle: env('MEDIUM_BUNDLE') },
   { band: 'largest', ref: env('LARGE_REF'), bytes: bytesOf('LARGE_BYTES'), bundle: env('LARGE_BUNDLE') },
 ];
-export const NEEDS = { samples: ['SMALL_REF', 'MEDIUM_REF', 'LARGE_REF'], small: ['SMALL_REF'] };
+export const NEEDS = { samples: ['SMALL_REF', 'MEDIUM_REF', 'LARGE_REF'], small: ['SMALL_REF'], documents: ['EXPECTED_DOCUMENTS'] };
+const NEED_WHAT = { EXPECTED_DOCUMENTS: 'the Overview document count of the case under test, a positive integer' };
 /** What stops a run before any browser starts, as messages; empty when the environment can run `needs`. */
 export function preflightProblems(needs = []) {
   const problems = [];
@@ -31,7 +32,8 @@ export function preflightProblems(needs = []) {
     if (!env('CASE_ID')) problems.push('MODE=hosted needs CASE_ID');
     if (!/^https?:\/\//.test(process.env.BASE_URL || '')) problems.push('MODE=hosted needs BASE_URL, the staging or preview origin');
   }
-  for (const name of needs) if (!env(name)) problems.push(`${name} is required (the reference of a document of the case under test)`);
+  for (const name of needs) if (!env(name)) problems.push(`${name} is required (${NEED_WHAT[name] || 'the reference of a document of the case under test'})`);
+  if (needs.includes('EXPECTED_DOCUMENTS') && env('EXPECTED_DOCUMENTS') && !/^[1-9]\d*$/.test(env('EXPECTED_DOCUMENTS'))) problems.push(`EXPECTED_DOCUMENTS must be a positive integer`);
   if (env('CLEARCASE_BROWSER_LOCK') !== 'none' && !process.env.CLEARCASE_BROWSER_SLOT) problems.push('run under the browser lock (orch-bin/browser-lock, or the path in CLEARCASE_BROWSER_LOCK), or set CLEARCASE_BROWSER_LOCK=none where no workspace lock exists; docs/development.md "Browser admission"');
   return problems;
 }
@@ -46,8 +48,17 @@ export function route(rv, suffix = 'overview', caseId = process.env.CASE_ID) {
   check(MODE === 'local' || caseId, 'CASE_ID is required for hosted');
   return `${BASE_URL}${MODE === 'hosted' ? `/cases/${encodeURIComponent(caseId)}` : ''}/v/${encodeURIComponent(rv)}/${suffix}`;
 }
+/**
+ * Every element the selector contract matches for `name`: the `data-testid` hook when the page has one, otherwise the
+ * local fallback. A plain union would follow DOM order, so a hidden legacy control placed before the hooked one would
+ * win; the fallback is therefore only allowed while no element on the page carries the hook.
+ */
+export function hookAll(page, name, fallback) {
+  const testid = `[data-testid="${name}"]`;
+  return page.locator(fallback ? `${testid}, :root:not(:has(${testid})) :is(${fallback})` : testid);
+}
 export function hook(page, name, fallback) {
-  return page.locator(`[data-testid="${name}"]${fallback ? `, ${fallback}` : ''}`).first();
+  return hookAll(page, name, fallback).first();
 }
 export const paint = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 export async function ready(page, id) {

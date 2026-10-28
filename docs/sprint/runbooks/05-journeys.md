@@ -12,7 +12,7 @@ Local, against the checkout's own build (the app's build revision must equal `gi
 
 ```sh
 PORT=41195 CLEARCASE_DATA_DIR=<data dir> bun run --bun start
-SMALL_REF=<ref> MEDIUM_REF=<ref> LARGE_REF=<ref> CLEARCASE_DATA_DIR=<data dir> \
+SMALL_REF=<ref> MEDIUM_REF=<ref> LARGE_REF=<ref> EXPECTED_DOCUMENTS=<count> CLEARCASE_DATA_DIR=<data dir> \
   /path/to/orch-bin/browser-lock env BASE_URL=http://127.0.0.1:41195 MODE=local IDLE_MINUTES=2 bun tests/journeys/run-all.mjs
 PORT=41195 bun run --bun start --stop
 ```
@@ -22,7 +22,7 @@ Off the owner's machine there is no workspace lock: set `CLEARCASE_BROWSER_LOCK=
 Staging or a preview, from any network:
 
 ```sh
-MODE=hosted BASE_URL=https://<host> CASE_ID=<case> EXPECTED_SHA=<deployed sha> SMALL_REF=<ref> MEDIUM_REF=<ref> LARGE_REF=<ref> \
+MODE=hosted BASE_URL=https://<host> CASE_ID=<case> EXPECTED_SHA=<deployed sha> SMALL_REF=<ref> MEDIUM_REF=<ref> LARGE_REF=<ref> EXPECTED_DOCUMENTS=<count> \
   CREDENTIALS_JSON=<private file> bun tests/journeys/run-all.mjs
 ```
 

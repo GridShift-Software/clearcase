@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
-import { run, direct, hook, check } from './lib.mjs';
+import { run, direct, hook, hookAll, check } from './lib.mjs';
 export const journey = () => run('J9', async j => {
   j.writeAllowed();
   await j.go('bundles/court_bundle_tab', 'court_bundle_tab');
@@ -29,7 +29,7 @@ export const journey = () => run('J9', async j => {
   const content = execFileSync('pdftotext', [file, '-'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   check(content.includes('Acceptance source 1') && content.includes('Acceptance source 2'), 'Bundle missing a source page');
   j.metadata.bundleBytes = bytes.length; j.metadata.bundlePages = pages;
-  await j.measure('bundle-save', () => hook(j.page, 'bundle-save', '#cbbsave').click(), () => j.page.locator('[data-testid="bundle-heading"], #cb-bundle-h').filter({ hasText: name }).waitFor());
+  await j.measure('bundle-save', () => hook(j.page, 'bundle-save', '#cbbsave').click(), () => hookAll(j.page, 'bundle-heading', '#cb-bundle-h').filter({ hasText: name }).waitFor());
   await j.page.getByRole('button', { name: 'All bundles', exact: true }).click();
   const savedRow = j.page.getByRole('row').filter({ hasText: name });
   await savedRow.waitFor();

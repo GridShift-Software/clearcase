@@ -1,6 +1,6 @@
 // Client requests verify an app session locally and check one KV revocation key.
 // Clerk JWTs bootstrap the app session only at /sign-in. Staff retains its Clerk protocol.
-// createClerkIdentityProvider without app is the retained SDK adapter seam; the production factory always selects app mode.
+// Deployments with app-session bindings use local client verification; staff keeps the Clerk protocol.
 import { createClerkClient, verifyToken } from '@clerk/backend';
 import type { CaseId, CaseOperation, Identity, IdentityProvider, Principal, SessionId } from '../../server/runtime/contracts.ts';
 import { codeOf, contractError } from '../../server/runtime/errors.ts';
@@ -31,7 +31,7 @@ export interface ClerkIdentityProvider extends IdentityProvider {
 const backendsOf = (config: ClerkIdentityConfig) =>
 	new Map([config.client, config.staff].map((i) => [i, createClerkClient({ secretKey: i.secretKey, publishableKey: i.publishableKey, apiUrl: config.apiUrl ?? undefined, telemetry: { disabled: true } })]));
 
-export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; authorizeCase: CaseAuthorizer; app?: AppSessionConfig | null }): ClerkIdentityProvider {
+export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; authorizeCase: CaseAuthorizer; app: AppSessionConfig | null }): ClerkIdentityProvider {
 	const { config, authorizeCase } = a;
 	if (typeof authorizeCase !== 'function') throw new TypeError('createClerkIdentityProvider needs the case authorizer');
 	const backends = backendsOf(config);
@@ -96,7 +96,7 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 	return {
 		signOut: ({ principal, sessionId }) => revokeClerkSession({ config, principal, sessionId }),
 		async authenticate({ request }) {
-			if (a.app === null && appCookieValue(request) !== null) throw unavailable();
+			if (!a.app && appCookieValue(request) !== null) throw unavailable();
 			if (a.app) {
 				const value = appCookieValue(request);
 				if (value !== null) {
@@ -121,7 +121,6 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 			const result = await verify(token);
 			if (result === 'unauthenticated' || result === 'invalid-session') return refusedIdentity(result);
 			const verified: Verified = result;
-			if (a.app === null && verified.instance.kind === 'client') return refusedIdentity('unauthenticated');
 			const bootstrap = a.app && verified.instance.kind === 'client' && new URL(request.url).pathname === '/sign-in';
 			if (a.app && verified.instance.kind === 'client' && !bootstrap) return refusedIdentity('unauthenticated');
 			if (bootstrap && (!Number.isFinite(verified.issuedAt) || !await issuedAfterRevocation(a.app!, verified.subject, verified.issuedAt))) return refusedIdentity('invalid-session');

@@ -1,11 +1,14 @@
 import { appCookieValue, appSessionConfig, appSetCookie, readAppSession, signAppSession, slideAppSession } from './app-session.ts';
 import { readClerkIdentityConfig } from './clerk/config.ts';
-import { presentedToken } from './clerk/session.ts';
+import { cookiePairs, presentedToken } from './clerk/session.ts';
 
 /** An unverified hint selects the staff flow only; that flow still verifies the credential. */
 export function clerkBrowserNeeded(env: Readonly<Record<string, unknown>>, request: Request): boolean {
 	if (appCookieValue(request) !== null) return false;
-	const path = new URL(request.url).pathname;
+	const url = new URL(request.url), path = url.pathname;
+	// Deployments without app-session bindings retain the Clerk protocol.
+	if (env.CLEARCASE_SESSION_KEY === undefined && env.SESSIONS === undefined) return true;
+	if (cookiePairs(request).some(({ name }) => name === '__Host-clearcase_staff_refresh') || ['__clerk_handshake', '__clerk_handshake_nonce', '__clearcase_staff_hs'].some((name) => url.searchParams.has(name))) return true;
 	if (path === '/sign-in' || path === '/sign-in/operator') return true;
 	const config = readClerkIdentityConfig(env), token = presentedToken(request);
 	if (!config.ok || !token || token === 'malformed') return false;

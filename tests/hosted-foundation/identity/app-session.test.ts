@@ -126,4 +126,10 @@ describe('app session', () => {
 		} finally { network.mockRestore(); }
 	});
 
+	it('selects the staff protocol with app bindings for a refresh hold or handshake return on cases', () => {
+		const f = fixture();
+		for (const url of ['/cases?__clerk_handshake=synthetic', '/cases?__clearcase_staff_hs=synthetic']) expect(clerkBrowserNeeded(f.env, new Request(f.config.origin + url))).toBe(true);
+		expect(clerkBrowserNeeded(f.env, new Request(f.config.origin + '/cases', { headers: { cookie: '__Host-clearcase_staff_refresh=synthetic' } }))).toBe(true);
+	});
+
 });

@@ -1,5 +1,3 @@
-import { readClerkIdentityConfig } from '../../../src/lib/auth/clerk/config.ts';
-import { createClerkIdentityProvider } from '../../../src/lib/auth/clerk/provider.ts';
 // SYNTHETIC Clerk stand-ins for the identity unit tests (GRS-113). Every key is made per run and every host is a .test
 // name; nothing here is a real Clerk instance, key or session, and nothing here is evidence for Clerk itself.
 // - craftedInstance: an RSA key pair, a publishable key naming a synthetic Frontend API host, and a token signer.
@@ -79,10 +77,3 @@ export async function statusDouble() {
 	};
 }
 
-// Retain the Clerk JWT/status adapter's protocol tests, including the unchanged staff flow.
-// Production uses clerkIdentityProviderFromEnv and its app session; these tests exercise the SDK seam directly.
-export function legacyClerkProviderFromEnv(env: Readonly<Record<string, unknown>>, a: { authorizeCase: import('../../../src/lib/auth/clerk/provider.ts').CaseAuthorizer }) {
-	const read = readClerkIdentityConfig(env);
-	if (!read.ok) return read;
-	return { ok: true as const, provider: createClerkIdentityProvider({ config: read.config, authorizeCase: a.authorizeCase }), config: read.config };
-}

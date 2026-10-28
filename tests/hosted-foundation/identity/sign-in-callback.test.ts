@@ -23,6 +23,7 @@ const apps = {
 };
 type Origin = keyof typeof apps;
 const app = (origin: Origin): Record<string, unknown> => ({
+	CLEARCASE_SESSION_KEY: 'a'.repeat(64), SESSIONS: { get: async () => null, put: async () => {} },
 	CLEARCASE_CLIENT_ID: apps[origin].id, CLEARCASE_APP_ORIGIN: origin, CLERK_STAFF_SIGN_IN_URL: STAFF_SIGN_IN, CLERK_CLIENT_SIGN_IN_URL: apps[origin].portal,
 	CLERK_CLIENT_PUBLISHABLE_KEY: apps[origin].client.publishableKey, CLERK_CLIENT_SECRET_KEY: apps[origin].client.secretKey, CLERK_CLIENT_JWT_KEY: apps[origin].client.jwtKey,
 	CLERK_STAFF_PUBLISHABLE_KEY: B.publishableKey, CLERK_STAFF_SECRET_KEY: B.secretKey, CLERK_STAFF_JWT_KEY: B.jwtKey,
@@ -44,7 +45,7 @@ const cookiesOf = (jar: Jar, sets: CookieSet[]) => ({
 });
 const outcome = async (f: () => unknown) => { try { return { value: (await f()) as { href?: string; status?: number } | undefined }; } catch (e) { return { thrown: e as { status?: number; location?: string } }; } };
 const anonymous = { kind: 'anonymous', principal: null, sessionId: null };
-const verified = (kind: InstanceKind) => ({ kind: 'verified', principal: { kind }, sessionId: 'sess_synthetic' });
+const verified = (kind: InstanceKind) => ({ kind: 'verified', principal: { kind, subject: 'user_synthetic', issuer: kind === 'staff' ? B.iss : 'https://client-a.clerk.test' }, sessionId: 'sess_synthetic' });
 const locals = (identity: unknown) => ({ runtime: { testIdentity: null }, identity }) as unknown as App.Locals;
 const callbackUrl = (kind: InstanceKind, origin: Origin) => `${origin}${flows[kind].path}`;
 const portalHref = (kind: InstanceKind, origin: Origin) => `${flows[kind].portal(origin)}?redirect_url=${encodeURIComponent(callbackUrl(kind, origin))}`;
@@ -228,7 +229,7 @@ describe('two tabs signing in through the same flow land home without guessing (
 describe('a callback that cleared other tabs\' attempts leaves no false singleton behind (M5)', () => {
 	const HOME = '/cases?signIn=multiple-tabs', target = (tab: string) => `/cases/tab-${tab}`;
 	/** The jar's cookies that belong to neither flow's attempts: the multi-tab marker a home landing leaves. */
-	const markersOf = (jar: Jar) => [...jar].filter(([n]) => !KINDS.some((k) => n.startsWith(SIGN_IN_RETURN_PREFIX[k])));
+	const markersOf = (jar: Jar) => [...jar].filter(([n]) => n !== 'clearcase_session' && !KINDS.some((k) => n.startsWith(SIGN_IN_RETURN_PREFIX[k])));
 	/** Tabs A then C post one second apart; A's callback clears both and lands home. C's attempt was issued at 09:00:01. */
 	async function clearedTwo(kind: InstanceKind) {
 		const jar: Jar = new Map(), tick = ticking();

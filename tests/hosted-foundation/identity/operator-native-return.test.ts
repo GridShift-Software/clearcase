@@ -1,10 +1,10 @@
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // The staff portal's native return (GRS-113): the staff portal hands the browser back to the operator route, not to
 // /cases, so the first unsigned callback already takes the staff handshake; once a verified staff session is installed,
 // the operator page sends it on to the safe final target. SYNTHETIC keys; handler unit evidence only.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clerkSignInTarget, readClerkIdentityConfig } from '../../../src/lib/auth/clerk/config.ts';
 import { createClerkBrowserHandshake } from '../../../src/lib/auth/clerk/browser.ts';
-import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
 
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));

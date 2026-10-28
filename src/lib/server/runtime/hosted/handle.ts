@@ -1,3 +1,4 @@
+import { APP_COOKIE, appCookieValue } from '../../../auth/app-session.ts';
 import type { Handle, HandleServerError } from '@sveltejs/kit/hooks';
 import type { RequestServices } from '../contracts.ts';
 
@@ -118,7 +119,15 @@ export function createHandle(servicesFor: (request: Request, credential?: Reques
 			catch { handoff = null; }
 			if (handoff) response.headers.set(REAUTH_HEADER, '1');
 		}
-		for (const c of refreshed?.setCookies ?? []) response.headers.append('set-cookie', c);
+		for (const c of refreshed?.setCookies ?? []) {
+			if (c.startsWith(`${APP_COOKIE}=`) && (
+				path === '/sign-out' || path === '/sign-in' || path === '/sign-in/operator' ||
+				event.locals.identity.kind !== 'verified' ||
+				response.headers.getSetCookie().some((cookie) => cookie.startsWith(`${APP_COOKIE}=`)) ||
+				(event.cookies && typeof event.cookies.get === 'function' && event.cookies.get(APP_COOKIE) !== appCookieValue(event.request))
+			)) continue;
+			response.headers.append('set-cookie', c);
+		}
 		const csp = formActionsFor ? response.headers.get('content-security-policy') : null;
 		if (csp) response.headers.set('content-security-policy', withFormActions(csp, formActionsFor!(path)));
 		return response;

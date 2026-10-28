@@ -1,10 +1,11 @@
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // Adverse classes found by the GRS-113 source review (M1, M2 and the in-scope Lows), through the pinned @clerk/backend with
 // SYNTHETIC keys and a loopback Backend API. An anonymous caller may make a request fail as "sign in again" (401) and may
 // never make it "unavailable" (503) or make the Worker call Clerk. Unit evidence for our adapter only.
 import { generateKeyPairSync } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CLERK_ENV, readClerkIdentityConfig } from '../../../src/lib/auth/clerk/config.ts';
-import { clerkIdentityProviderFromEnv, presentedToken } from '../../../src/lib/auth/clerk/provider.ts';
+import { presentedToken } from '../../../src/lib/auth/clerk/provider.ts';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
 import { craftedInstance, forgedToken, statusDouble } from './synthetic.ts';
 

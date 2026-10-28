@@ -1,25 +1,6 @@
-// The production first-party Clerk IdentityProvider (GRS-113) for runtime/contracts.ts. It answers who is asking and
-// nothing more: Clerk holds identities and sessions only, and every case decision goes to the injected authorizer (the
-// case-grant and audit owner, GRS-114), whose data lives outside Clerk. No Clerk metadata, role or claim grants a case;
-// a staff or Global Admin principal reaches a case only when that authorizer allows it.
-//
-// One request, in order; the first failure refuses it and nothing is cached across requests:
-//   1. at most one credential: an Authorization Bearer token, or a session cookie (plain or suffixed), or several only
-//      when they carry the same token (session.ts); anything ambiguous or malformed is invalid-session;
-//   2. our own token shape gate (inspectToken): three base64url parts, a plain-object header with alg RS256 exactly, no
-//      key-selection headers (jku, x5u, x5c, jwk, crit), a plain-object payload with correctly typed claims. Nothing
-//      outside it reaches the SDK, so no malformed token can make the SDK throw;
-//   3. @clerk/backend verifyToken against this deployment's client instance, else the staff instance, with the instance's
-//      configured RSA-2048 public key ONLY (no JWKS, no secret key: no request to Clerk for any token, whatever its
-//      kid): signature, exp, nbf, iat, the instance's exact issuer, this deployment's origin as the only authorized
-//      party and, when configured, the exact audience;
-//   4. our own claim checks, so a claim the SDK tolerates missing fails closed: sub and sid present, azp present and
-//      equal to the origin, sts (when present) active, and a second factor when the MFA flag is on;
-//   5. the session's current status from that instance's Backend API: active and owned by sub. checkRevocation() and
-//      every authorize() repeat this lookup, so a revoked session is refused while its token is unexpired.
-// A refused credential yields an anonymous identity whose checks throw the refusal (unauthenticated or invalid-session,
-// a 401). Only a fault that is not the caller's (a key that cannot be imported, a Backend API lookup that fails) throws
-// identity-unavailable, retryable, from authenticate itself, so the composer refuses the request as unavailable.
+// Client requests verify an app session locally and check one KV revocation key.
+// Clerk JWTs bootstrap the app session only at /sign-in. Staff retains its Clerk protocol.
+// Deployments with app-session bindings use local client verification; staff keeps the Clerk protocol.
 import { createClerkClient, verifyToken } from '@clerk/backend';
 import type { CaseId, CaseOperation, Identity, IdentityProvider, Principal, SessionId } from '../../server/runtime/contracts.ts';
 import { codeOf, contractError } from '../../server/runtime/errors.ts';
@@ -28,6 +9,7 @@ import { revokeClerkSession } from './flow.ts';
 import { inspectToken, presentedToken } from './session.ts';
 import { readClerkIdentityConfig, rsaJwkOf, type ClerkIdentityConfig, type ClerkInstanceConfig } from './config.ts';
 
+import { issuedAfterRevocation, appCookieValue, readAppSession, appSessionConfig, type AppSessionConfig } from '../app-session.ts';
 export { inspectToken, presentedToken };
 
 /** The case decision GRS-114 owns. Resolves to allow; throws a contract error (forbidden, ...) to refuse. */
@@ -38,7 +20,7 @@ export type CaseAuthorizer = (a: { principal: Principal; sessionId: SessionId; c
 const FAULT_REASONS = new Set(['secret-key-invalid', 'jwk-local-missing', 'jwk-remote-failed-to-load', 'jwk-remote-invalid', 'jwk-failed-to-resolve']);
 
 type Refusal = 'unauthenticated' | 'invalid-session';
-type Verified = { instance: ClerkInstanceConfig; subject: string; session: string; expiresAt: number };
+type Verified = { instance: ClerkInstanceConfig; subject: string; session: string; expiresAt: number; issuedAt: number; name: string };
 const unavailable = () => contractError('identity-unavailable', true);
 
 /** The contract's IdentityProvider plus sign-out: revoking the session at the instance that issued it. */
@@ -49,8 +31,8 @@ export interface ClerkIdentityProvider extends IdentityProvider {
 const backendsOf = (config: ClerkIdentityConfig) =>
 	new Map([config.client, config.staff].map((i) => [i, createClerkClient({ secretKey: i.secretKey, publishableKey: i.publishableKey, apiUrl: config.apiUrl ?? undefined, telemetry: { disabled: true } })]));
 
-export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; authorizeCase: CaseAuthorizer }): ClerkIdentityProvider {
-	const { config, authorizeCase } = a;
+export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; authorizeCase: CaseAuthorizer; app?: AppSessionConfig | null }): ClerkIdentityProvider {
+	const { config, authorizeCase, app = null } = a;
 	if (typeof authorizeCase !== 'function') throw new TypeError('createClerkIdentityProvider needs the case authorizer');
 	const backends = backendsOf(config);
 
@@ -88,7 +70,7 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 			if (config.audience !== null && !(aud === config.audience || (Array.isArray(aud) && aud.includes(config.audience)))) return 'invalid-session';
 			if (sts !== undefined && sts !== 'active') return 'invalid-session';
 			if (config.mfaRequired && !(Array.isArray(fva) && Number.isInteger(fva[1]) && (fva[1] as number) >= 0)) return 'invalid-session';
-			return { instance, subject: sub, session: sid, expiresAt: exp * 1000 };
+			return { instance, subject: sub, session: sid, expiresAt: exp * 1000, issuedAt: typeof claims.iat === 'number' ? claims.iat * 1000 : NaN, name: typeof claims.name === 'string' ? claims.name.slice(0, 200) : typeof claims.first_name === 'string' ? claims.first_name.slice(0, 200) : sub };
 		}
 		return 'invalid-session';
 	}
@@ -114,13 +96,35 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 	return {
 		signOut: ({ principal, sessionId }) => revokeClerkSession({ config, principal, sessionId }),
 		async authenticate({ request }) {
+			if (!app && appCookieValue(request) !== null) throw unavailable();
+			if (app) {
+				const value = appCookieValue(request);
+				if (value !== null) {
+					const session = await readAppSession(app, value);
+					if (!session) return refusedIdentity('invalid-session');
+					try { if (!await issuedAfterRevocation(app, session.subject, session.iat * 1000)) return refusedIdentity('invalid-session'); }
+					catch { throw unavailable(); }
+					let sessionId: SessionId;
+					try { sessionId = id('session', session.sid); } catch { return refusedIdentity('invalid-session'); }
+					const principal: Principal = { issuer: session.issuer, subject: session.subject, kind: session.principalKind };
+					const checkRevocation = async () => { if (Date.now() >= session.exp * 1000) throw contractError('invalid-session'); };
+					return { kind: 'verified', name: session.name, principal, sessionId, clientId: config.clientId, checkRevocation,
+						async authorize(scope) {
+							await checkRevocation();
+							try { await authorizeCase({ principal, sessionId, ...scope }); } catch (e) { throw codeOf(e) !== null ? e : unavailable(); }
+						} } satisfies Identity & { name: string };
+				}
+			}
 			const token = presentedToken(request);
 			if (token === null) return refusedIdentity('unauthenticated');
 			if (token === 'malformed') return refusedIdentity('invalid-session');
 			const result = await verify(token);
 			if (result === 'unauthenticated' || result === 'invalid-session') return refusedIdentity(result);
 			const verified: Verified = result;
-			const refused = await sessionStands(verified);
+			const bootstrap = app && verified.instance.kind === 'client' && new URL(request.url).pathname === '/sign-in';
+			if (app && verified.instance.kind === 'client' && !bootstrap) return refusedIdentity('unauthenticated');
+			if (bootstrap && (!Number.isFinite(verified.issuedAt) || !await issuedAfterRevocation(app!, verified.subject, verified.issuedAt))) return refusedIdentity('invalid-session');
+			const refused = bootstrap ? null : await sessionStands(verified);
 			if (refused) return refusedIdentity(refused);
 			let sessionId: SessionId;
 			try {
@@ -130,11 +134,11 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 			}
 			const principal: Principal = Object.freeze({ issuer: verified.instance.issuer, subject: verified.subject, kind: verified.instance.kind });
 			async function checkRevocation() {
-				const r = await sessionStands(verified);
+				const r = bootstrap ? null : await sessionStands(verified);
 				if (r) throw contractError(r);
 			}
 			return {
-				kind: 'verified', principal, sessionId, clientId: config.clientId, checkRevocation,
+				kind: 'verified', name: verified.name, principal, sessionId, clientId: config.clientId, checkRevocation,
 				async authorize(scope) {
 					await checkRevocation();
 					try {
@@ -144,7 +148,7 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 						throw codeOf(e) !== null ? e : unavailable();
 					}
 				},
-			};
+			} satisfies Identity & { name: string };
 		},
 	};
 }
@@ -156,5 +160,7 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 export function clerkIdentityProviderFromEnv(env: Readonly<Record<string, unknown>>, a: { authorizeCase: CaseAuthorizer }): { ok: true; provider: ClerkIdentityProvider; config: ClerkIdentityConfig } | { ok: false; reason: string } {
 	const read = readClerkIdentityConfig(env);
 	if (!read.ok) return read;
-	return { ok: true, provider: createClerkIdentityProvider({ config: read.config, authorizeCase: a.authorizeCase }), config: read.config };
+	const app = appSessionConfig(env, read.config.client.issuer);
+	if (!app && (env.CLEARCASE_SESSION_KEY !== undefined || env.SESSIONS !== undefined)) return { ok: false, reason: 'CLEARCASE_SESSION_KEY and SESSIONS are required' };
+	return { ok: true, provider: createClerkIdentityProvider({ config: read.config, authorizeCase: a.authorizeCase, app }), config: read.config };
 }

@@ -2,7 +2,7 @@
 // Save note answered 401 and "The note was not saved"; a reload recovered through the document handshake). Clerk session
 // tokens live 60 seconds and this app runs no clerk-js, so nothing refreshes `__session` in the browser: only a document
 // GET reaches the handshake, and every fetch, form post and `__data.json` request after the first minute is refused.
-// These drive the REAL hosted hook (hooks.server.ts, with the real provider and services) over an expired token, and
+// These retain the Clerk refresh protocol through legacy-hook.ts (the real SDK and provider) over an expired token, and
 // pin what must not change: the exact-Origin refusal, tenant isolation, sign-out clears and the document handshake.
 // SYNTHETIC keys, hosts and tokens; a loopback Backend API stands in for Clerk. Unit evidence for our adapter only: no
 // real Clerk, browser, cookie jar or workerd has run.

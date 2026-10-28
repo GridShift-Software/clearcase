@@ -1,5 +1,8 @@
 <script lang="ts" module>
 	export type Column = { key: string; label: string; sortable?: boolean; align?: 'end' };
+	const CONTROLS = 'a, button, input, select, textarea, label, summary';
+	/** Whether a click on `target` inside a row selects the row: anywhere but a control (a link, the Preview button, a field), which keeps its own behaviour. */
+	export const selectsRow = (target: EventTarget | null) => !!target && typeof (target as Element).closest === 'function' && !(target as Element).closest(CONTROLS);
 </script>
 
 <script lang="ts" generics="T">
@@ -9,13 +12,12 @@
 		columns: readonly Column[]; rows: readonly T[]; rowKey: (r: T) => string; label: string; gridClass: string;
 		sort?: { key: string; dir: 1 | -1 } | null; onsort?: (key: string) => void; cell: Snippet<[T, Column]>;
 		rowAttrs?: (r: T) => Record<string, string>;
-		/** Selecting a row: a click on it outside its own controls, or its leading Preview button (the keyboard path). */
+		/** Selecting a row: a click on it outside its own controls (`selectsRow`), or its leading Preview button (the keyboard path). */
 		onselect?: (r: T) => void; selected?: string | null; previewLabel?: (r: T) => string;
 		/** Rows rendered at once (and so in the server's HTML); the rest follow a frame at a time. */
 		firstRows?: number;
 	} = $props();
-	const CONTROLS = 'a, button, input, select, textarea, label, summary';
-	const rowClick = (e: MouseEvent, r: T) => { if (onselect && !(e.target instanceof Element && e.target.closest(CONTROLS))) onselect(r); };
+	const rowClick = (e: MouseEvent, r: T) => { if (onselect && selectsRow(e.target)) onselect(r); };
 	const STEP = 400;
 	let limit = $state(untrack(() => firstRows));
 	$effect(() => {

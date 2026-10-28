@@ -64,12 +64,6 @@
 		(button ?? list)?.scrollIntoView({ block: 'center' });
 		button?.focus({ preventScroll: true });
 	};
-	// A plain click on a citation opens its document beside the list; a modified or middle click keeps the link's own behaviour.
-	const cite = (e: MouseEvent, r: ChronologyListRow) => {
-		if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-		e.preventDefault();
-		void select(r);
-	};
 	const showBasis = $derived(loaded.some((r) => r.dateType || r.dateSource));
 	const basisLabel = (r: ChronologyListRow) => r.dateType ?? (r.dateSource ? `from ${r.dateSource}` : r.date ? 'unknown' : 'undated');
 	const columns: Column[] = $derived([
@@ -125,7 +119,7 @@
 						{#snippet cell(r: ChronologyListRow, c: Column)}
 							{#if c.key === 'date'}{r.date || 'undated'}
 							{:else if c.key === 'basis'}<span title={dateBasis(r)} data-date-basis={r.dateType || r.dateSource ? 'supplied' : r.date ? 'unknown' : 'undated'}>{basisLabel(r)}</span>
-							{:else if c.key === 'ref'}<a class="cite" href={docPath(vid, r.ref, null, data.base)} onclick={(e) => cite(e, r)}>{r.ref}</a>{#if r.parentRef}<small> in {r.parentRef}</small>{/if}
+							{:else if c.key === 'ref'}<a class="cite" href={docPath(vid, r.ref, null, data.base)}>{r.ref}</a>{#if r.parentRef}<small> in {r.parentRef}</small>{/if}
 							{:else if c.key === 'title'}<span class="clip" title={r.subject || r.filename}>{r.subject || cleanName(r.filename)}{#if r.sender}<small class="sender"> — {r.sender}</small>{/if}</span>{#if r.excerpt}<span class="clip excerpt">{excerptPreview(r.excerpt)}</span>{/if}{#if r.alsoIn.length}<small class="also-in">also in: {r.alsoIn.join(', ')}</small>{/if}
 							{:else if c.key === 'docType'}{r.docType}
 							{:else if c.key === 'bundle'}{r.bundle}

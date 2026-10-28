@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_QUERY, excerptPreview, filterRows, optionsOf, paramsFromQuery, queryFromParams, queryRows, sortRows, statusLabel, statusOptions, TEXT_STATUSES } from './chronology.ts';
+import { clearFilters, DEFAULT_QUERY, excerptPreview, facetsOf, filterRows, isFiltered, listRowsOf, optionsOf, paramsFromQuery, queryFromParams, queryRows, sortRows, statusChoices, statusLabel, statusOptions, TEXT_STATUSES } from './chronology.ts';
 import type { ChronologyListRow } from './model.ts';
 
 const r = (ref: string, ord: number, o: Partial<ChronologyListRow> = {}): ChronologyListRow => ({
@@ -53,10 +53,38 @@ describe('chronology', () => {
 		expect(excerptPreview('')).toBe('');
 	});
 	it('round-trips the query through URL parameters, omitting defaults', () => {
-		const q = { q: 'x y', bundle: 'Additional', type: '', status: 'none', sort: 'amount' as const, dir: -1 as const };
-		expect(paramsFromQuery(q).toString()).toBe('q=x+y&bundle=Additional&status=none&sort=amount&dir=desc');
+		const q = { q: 'x y', bundle: 'Additional', type: '', year: '2001', status: 'none', sort: 'amount' as const, dir: -1 as const };
+		expect(paramsFromQuery(q).toString()).toBe('q=x+y&bundle=Additional&year=2001&status=none&sort=amount&dir=desc');
 		expect(queryFromParams(paramsFromQuery(q))).toEqual(q);
 		expect(paramsFromQuery(DEFAULT_QUERY).toString()).toBe('');
 		expect(queryFromParams(new URLSearchParams('sort=__proto__&dir=up'))).toEqual(DEFAULT_QUERY);
+	});
+	it('filters by year: the first four digits of the date, so undated rows never match a year', () => {
+		expect(refs(filterRows(rows, { ...DEFAULT_QUERY, year: '2001' }))).toEqual(['B-2', 'C-3']);
+		expect(refs(filterRows(rows, { ...DEFAULT_QUERY, year: '2000', status: 'none' }))).toEqual(['D-4']);
+		expect(refs(filterRows(rows, { ...DEFAULT_QUERY, year: '1999' }))).toEqual([]);
+	});
+	it('knows whether any filter is set, and clears every filter while keeping the sort', () => {
+		expect(isFiltered(DEFAULT_QUERY)).toBe(false);
+		for (const k of ['q', 'bundle', 'type', 'year', 'status'] as const) expect(isFiltered({ ...DEFAULT_QUERY, [k]: 'x' }), k).toBe(true);
+		const q = { q: 'a', bundle: 'b', type: 'c', year: '2001', status: 'ocr', sort: 'ref' as const, dir: -1 as const };
+		expect(clearFilters(q)).toEqual({ ...DEFAULT_QUERY, sort: 'ref', dir: -1 });
+		expect(isFiltered({ ...DEFAULT_QUERY, sort: 'amount' })).toBe(false);
+	});
+	it("counts the facets as the publisher's list/facets.json does: sorted values with counts, years only from dated rows", () => {
+		expect(facetsOf(rows)).toEqual({
+			bundles: [['Additional', 1], ['Original', 4]],
+			docTypes: [['email', 1], ['other', 4]],
+			textStatuses: [['extracted', 4], ['none', 1]],
+			years: [['2000', 1], ['2001', 2]],
+		});
+	});
+	it('offers the text-status vocabulary first, then any other status the facets carry', () => {
+		expect(statusChoices(['none', 'extracted'])).toEqual([...TEXT_STATUSES]);
+		expect(statusChoices(['unsupported', 'ocr'])).toEqual([...TEXT_STATUSES, 'unsupported']);
+	});
+	it('reads a list answer as rows: a list page, or the local API array', () => {
+		expect(refs(listRowsOf(rows))).toEqual(refs(rows));
+		expect(refs(listRowsOf({ page: 1, pages: 1, total: 5, rows }))).toEqual(refs(rows));
 	});
 });

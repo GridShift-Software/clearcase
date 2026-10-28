@@ -49,24 +49,35 @@ describe('14b mixed shard seam', () => {
       if ('addId' in expected) expected.addId = fixed;
       const h = await hosted[`../../../deploy/client/routes/cases/[caseId]/v/[version]/${route}/+page.server.ts`]!() as { load: (event: unknown) => Promise<Record<string, unknown>> };
       const result = await h.load({ locals, params: { caseId: b.caseId, version: b.rv } });
-      const { base, empty, ...actual } = result;
+      // 17b: the hosted load adds what a write names: an operation id for the two add forms that carry none of their own
+      // (payments, filings register), the version each Delete names (filings) and the version each tick rests on (checklist)
+      const { base, empty, operationId, versions, deleteVersions, ...actual } = result;
+      if (route === 'quantum/payments_tab' || route === 'evidence/filings_tab') expect(operationId).toMatch(/^[0-9a-f-]{36}$/);
+      if (route === 'evidence/filings_tab') expect(Object.keys(deleteVersions as object)).toEqual(expected.entries.map((e: { key: string }) => e.key));
+      if (route === 'analysis/info_required_tab') expect(Object.keys(versions as object)).toEqual(expected.rows.map((r: { key: string }) => r.key));
       expect(base).toBe(`/cases/${b.caseId}/v`);
       expect(typeof empty).toBe('boolean');
       expect(actual).toEqual(expected);
     } finally { uuid.mockRestore(); }
   });
 
-  test('all nine shard names are unique and parse, and hosted routes export no actions', async () => {
+  // 17b: the seven views with entries to save export their actions; the other two (interest and settlement) stay read-only
+  const WRITES: Record<string, string[]> = {
+    'evidence/filings_tab': ['add', 'delete', 'save'], 'quantum/payments_tab': ['add', 'delete'], 'litigation/enforcement_tab': ['status'],
+    'litigation/crossexam_tab': ['add', 'delete'], 'litigation/authorities_tab': ['add'], 'litigation/heads_tab': ['add', 'delete'], 'analysis/info_required_tab': ['toggle'],
+  };
+  test('all nine shard names are unique and parse, and hosted routes export actions only for the views with entries to save', async () => {
     expect(files.size).toBe(9);
     for (const route of routes) {
       expect(() => JSON.parse(new TextDecoder().decode(files.get(`view/${route.split('/')[1]}.json`)))).not.toThrow();
-      const module = await hosted[`../../../deploy/client/routes/cases/[caseId]/v/[version]/${route}/+page.server.ts`]!();
-      expect(module).not.toHaveProperty('actions');
+      const module = await hosted[`../../../deploy/client/routes/cases/[caseId]/v/[version]/${route}/+page.server.ts`]!() as { actions?: Record<string, unknown> };
+      if (WRITES[route]) expect(Object.keys(module.actions ?? {}).sort()).toEqual(WRITES[route]);
+      else expect(module).not.toHaveProperty('actions');
     }
   });
 });
 
-// These writes seed only the synthetic D1 double. Hosted page modules expose no mutation actions.
+// These writes seed only the synthetic D1 double, directly.
 async function readHosted(route: string) {
   const h = await hosted[`../../../deploy/client/routes/cases/[caseId]/v/[version]/${route}/+page.server.ts`]!() as { load: (event: unknown) => Promise<Record<string, any>> };
   return h.load({ locals, params: { caseId: b.caseId, version: b.rv } });
@@ -76,10 +87,10 @@ async function put(store: string, rowId: string, fields: Record<string, string |
 }
 
 describe('14b user work from the D1 double', () => {
-  test('payments, net settlement and interest dates include saved receipts with the local hash and cents format', async () => {
+  test('payments, net settlement and interest dates include saved receipts with the store version of the row as its hash and the local cents format', async () => {
     await put('payments', 'receipt-one', { seq: 2, date: '2200-02-03', amount: '10.25', amountCents: 1025, method: 'Transfer', note: 'Synthetic receipt' });
     const payments = await readHosted('quantum/payments_tab');
-    expect(payments.payments).toEqual([expect.objectContaining({ rowId: 'receipt-one', amountCents: '1025', date: '2200-02-03', hash: expect.stringMatching(/^[a-f0-9]{32}$/) })]);
+    expect(payments.payments).toEqual([expect.objectContaining({ rowId: 'receipt-one', amountCents: '1025', date: '2200-02-03', hash: (await locals.userWork.listRows({ caseId: id('case', b.caseId), store: 'payments' }))[0]!.version })]);
     expect((await readHosted('quantum/settlement_tab')).payments).toMatchObject({ count: 1, counted: 1, paid: '1025' });
     expect((await readHosted('quantum/interest_calc_tab')).paymentDates).toEqual(['2200-02-03']);
   });

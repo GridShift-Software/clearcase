@@ -1,11 +1,12 @@
-import { createHash } from 'node:crypto';
-import { viewSeeds, type SeedRow } from '$lib/case-package/user-work';
+import type { SeedRow } from '$lib/case-package/user-work';
 import { shard, publishedVersion } from '$lib/views/hosted/payloads.server';
+import { crossexamActions } from '$lib/views/litigation/actions.server';
 import { crossexamMerge, CX_SEED } from '$lib/views/litigation/crossexam';
+import { hostedCtx, seedViewsOf } from '$lib/views/litigation/hosted.server';
 import type { ViewShards } from '$lib/views/payloads/views';
 import { refuse } from '$lib/server/runtime/hosted/http';
 import { registerRows } from '../heads_tab/rows';
-import type { RequestEvent } from '@sveltejs/kit';
+import type { Actions, RequestEvent } from '@sveltejs/kit';
 
 export const load = async ({ locals, params }: Pick<RequestEvent, 'locals' | 'params'>) => {
   const scope = await publishedVersion(locals, params);
@@ -13,13 +14,9 @@ export const load = async ({ locals, params }: Pick<RequestEvent, 'locals' | 'pa
     shard<ViewShards['crossexam_tab'] & { seeds: SeedRow[] }>(locals, params, 'view/crossexam_tab.json'),
     locals.userWork.readViewWork({ caseId: scope.caseId, store: 'crossexam', datasetKey: CX_SEED }).catch(refuse),
   ]);
-  const seeds = viewSeeds(payload.seeds, work.overlays), rows = work.rows;
-  // Preserve the local read-only seed projection. Ticket 17b supplies write tokens with its actions.
-  const projected = seeds.map((s) => ({ ...s,
-    seedId: s.state === 'orphaned' ? s.overlay.seedId : s.seed.seedId,
-    version: createHash('sha256').update(JSON.stringify(['seed', s.state === 'orphaned' ? null : s.seed.seedSha256,
-      s.state === 'seed' ? null : [s.overlay.baseSeedSha256, s.overlay.fields]])).digest('hex').slice(0, 32),
-  }));
-  const data = crossexamMerge(payload, { seeds: projected, rows: registerRows(rows) }, crypto.randomUUID());
+  // each seed carries the version a delete names: its overlay's, or `none` while it is as imported
+  const data = crossexamMerge(payload, { seeds: seedViewsOf(payload.seeds, work.overlays), rows: registerRows(work.rows) }, crypto.randomUUID());
   return { ...data, base: scope.base, empty: data.rows.length === 0 };
 };
+
+export const actions: Actions = crossexamActions(hostedCtx);

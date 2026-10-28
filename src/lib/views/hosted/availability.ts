@@ -6,7 +6,7 @@ export const HOSTED_STATUS: Readonly<Record<string, HostedStatus>> = {
 	overview: 'ported',
 	matter: 'ported',
 	timeline: 'ported',
-	chronology: 'soon',
+	chronology: 'ported',
 	quantum_tab: 'ported',
 	documents: 'ported',
 	contracts_tab: 'ported',

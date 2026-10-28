@@ -217,7 +217,7 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       ];
       if (statements.length > limits.maxStatementsPerBatch) invalid();
       if (planned.beforeCommit) await planned.beforeCommit();
-      if (atomicNote) await authorize(scope, 'write-user-work');
+      else if (atomicNote) await authorize(scope, 'write-user-work');
       try { await db.batch(statements); }
       catch (e) {
         // Decide from durable state, never from the error: the batch may have committed before its response was lost.
@@ -371,7 +371,7 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
         const note: C.HostedNote = { id: crypto.randomUUID(), body: text, createdAt: s.at, target, status: 'here', candidates: [], intact: true };
         return { kind: 'written', value: note, statements: [await noteInsert(db, caseId, note, s.version)], beforeCommit: async () => { await authorize(a, 'write-user-work'); } };
       });
-      await authorize(a, 'write-user-work');
+      // change() rechecks current authority before commit and before releasing either a fresh result or a replay.
       return result;
     },
     async deleteNote(a) {

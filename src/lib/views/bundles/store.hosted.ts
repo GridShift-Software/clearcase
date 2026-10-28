@@ -85,22 +85,26 @@ export function bundleStore(locals: C.RequestServices, scope: C.VersionScope) {
 			fields,
 		);
 	}
+	/**
+	 * Saves a custom bundle's row. `commitAfter` is the assembled PDF's object write: the row is read, authorized and
+	 * prepared beside it, and commits only once the object is stored, so a saved row never names a missing PDF.
+	 */
 	async function putCustom(
 		id: string,
 		c: Custom,
 		shipped: readonly { no: string }[],
 		assembled?: { sha256: string; bytes: number },
-		prefetched?: Awaited<ReturnType<typeof table>>,
+		commitAfter?: Promise<unknown>,
 	) {
-		const rows = customRows(prefetched ?? (await table(CUSTOM_TABLE)));
+		const rows = customRows(await table(CUSTOM_TABLE));
 		const old = rows.find((r) => r.id === id);
 		const no = old?.no ?? nextCustomNo(rows, shipped),
 			seq = old?.seq ?? Math.max(0, ...rows.map((r) => r.seq)) + 1;
-		const form = new FormData();
-		if (old) form.set('version', old.version);
-		await hostedWork(locals, caseId, resultsVersion, form).putTableRow(
-			CUSTOM_TABLE,
-			{
+		const result = await locals.userWork.putTableRow({
+			caseId,
+			table: CUSTOM_TABLE,
+			owner: OWNER,
+			row: {
 				case_id: caseId,
 				id,
 				no,
@@ -114,8 +118,13 @@ export function bundleStore(locals: C.RequestServices, scope: C.VersionScope) {
 				assembled_sha256: assembled?.sha256 ?? old?.assembledSha256 ?? null,
 				bytes: assembled?.bytes ?? old?.bytes ?? null,
 			},
-			{ owner: OWNER },
-		);
+			expected: old
+				? { kind: 'match', version: old.version }
+				: { kind: 'absent' },
+			operationId: crypto.randomUUID(),
+			...(commitAfter ? { commitAfter } : {}),
+		});
+		if (result.kind !== 'written') throw contractError(result.kind);
 		return no;
 	}
 	async function deleteCustom(id: string) {

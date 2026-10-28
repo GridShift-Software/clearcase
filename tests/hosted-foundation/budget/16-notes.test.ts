@@ -74,9 +74,9 @@ it('16 document note action survives a loader roundtrip, and the bound read fetc
     const event = { locals, params: { caseId: CASE, version: RV1, ref: 'D-001' }, url: new URL('https://synthetic.invalid/'),
       request: new Request('https://synthetic.invalid/?/note', { method: 'POST', body: form }) };
     expect(await actions.note!(event as never)).toEqual({ saved: true });
-    // Populate many other targets. Their bodies deliberately lack valid hashes: a bounded document read must never fetch/decode them.
+    // Populate many other targets with deliberately corrupt JSON: a bounded document read must never fetch/decode them.
     const insert = w.db.prepare(`INSERT INTO uw_note (case_id,note_id,target_kind,anchor_results_version,anchor_ref,anchor_sha256,target_json,body,body_sha256,created_at,version) VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
-    for (let i = 0; i < 200; i++) insert.run(CASE, `other-${i}`, 'document', RV1, 'D-OTHER', SHA_A, '{}', 'Other document', 'invalid', '2200-01-01T00:00:00Z', `other-${i}`);
+    for (let i = 0; i < 200; i++) insert.run(CASE, `other-${i}`, 'document', RV1, 'D-OTHER', SHA_A, 'not-json', 'Other document', 'invalid', '2200-01-01T00:00:00Z', `other-${i}`);
     const result = await measure(w.c, () => document(event as never));
     expect(result.thrown).toBeUndefined(); expect(result.counts.d1).toBe(1);
     expect(result.value?.notes).toMatchObject([{ body: 'Synthetic action roundtrip', refAtCreation: 'D-001', resultsVersion: RV1, anchorSha256: SHA_A }]);

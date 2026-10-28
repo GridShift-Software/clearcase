@@ -28,7 +28,7 @@ describe('exclusive hosted Kit static input', () => {
     for (const path of ['RAWS/private.pdf', '.local/secret', 'case/original.pdf', 'build/keep', '.svelte-kit/output/keep']) put(join(root, path), 'private sentinel');
     const input = prepare();
     expect(input.assets).toMatch(/\/\.local\/hosted-static-input-[^/]+$/);
-    expect(readdirSync(input.assets).sort()).toEqual(['favicon.svg', 'fonts', 'pdfjs']);
+    expect(readdirSync(input.assets).sort()).toEqual(['favicon.svg', 'pdfjs']);
     expect(readFileSync(join(input.assets, 'favicon.svg'))).toEqual(readFileSync(join(root, 'static/favicon.svg')));
     expect(input.inventory.files).toHaveLength(191);
     for (const file of input.inventory.files) expect(readFileSync(join(input.assets, file.path)).length).toBe(file.bytes);

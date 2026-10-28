@@ -50,7 +50,10 @@
 </script>
 
 <a class="skip" href="#main" {@attach skip}>Skip to content</a>
-<header class="top"><span class="brand">ClearCase</span><div class="top-nav"><a href="/cases" id="nav-cases">Cases</a><a href="/import" id="nav-import">Import results</a></div><span class="top-meta">{#if viewed}Case <b class="wrap">{viewed.brand ?? viewed.caseName}</b>{:else}Local workspace{/if}</span></header>
+<!-- inside a case the shell's sidebar and top bar are the header -->
+{#if !viewed}
+	<header class="top"><span class="brand">ClearCase</span><div class="top-nav"><a href="/cases" id="nav-cases">Cases</a><a href="/import" id="nav-import">Import results</a></div><span class="top-meta">Local workspace</span></header>
+{/if}
 {#each data.warnings as w (w.key)}
 	<div class="banner recovery" id="warning-{w.key}" data-warning={w.key} role="alert">{w.message}</div>
 {/each}

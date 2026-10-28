@@ -1,5 +1,5 @@
 .an-card { margin-bottom: 16px; min-width: 0; }
-.an-card h3 { font-size: 14px; margin: 14px 0 4px; }
+.an-card h3 { font-size: 14px; line-height: 1.5; margin: 16px 0 4px; }
 .an-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 16px; }
 .an-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: 16px; margin-bottom: 16px; }
 .an-scroll { overflow-x: auto; }
@@ -11,15 +11,15 @@ main[data-analysis] { overflow-wrap: anywhere; }
 @media (max-width: 40rem) {
 	.an-stack thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 	.an-stack, .an-stack tbody, .an-stack tr, .an-stack td { display: block; width: auto; }
-	.an-stack tr { border: 1px solid var(--border); border-radius: var(--radius); margin: .5rem; padding: .3rem .5rem; background: var(--surface); }
+	.an-stack tr { border: 1px solid var(--border); border-radius: var(--radius); margin: 8px; padding: 8px 12px; background: var(--surface); }
 	.an-stack td { border: 0; padding: .2rem 0; text-align: left; overflow-wrap: anywhere; }
 	.an-stack td.num { white-space: normal; }
 	main[data-analysis] :is(.badge, a.cite, .cite-broken) { white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
-	.an-stack td[data-label]::before { content: attr(data-label); display: block; font-size: .78em; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+	.an-stack td[data-label]::before { content: attr(data-label); display: block; font-size: .78em; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-3); }
 	.an-scroll { overflow-x: visible; }
 }
 
 @media print {
-	body:has(main[data-analysis]) :is(nav.views, header.top, .banner, .skip), main[data-analysis] :is(.page-actions, .no-print) { display: none !important; }
+	body:has(main[data-analysis]) :is(.side, .top-bar, nav.views, header.top, .banner, .skip), main[data-analysis] :is(.page-actions, .no-print) { display: none !important; }
 	.case-shell:has(> main[data-analysis]) { display: block; }
 }

@@ -156,14 +156,14 @@ try {
 		await sleep(100);
 		const prints = await p.prints();
 		await p.media('print');
-		const shown = await p.evaluate(`({ nav: getComputedStyle(document.querySelector('nav.views')).display, header: getComputedStyle(document.querySelector('header.top') ?? document.body).display, actions: getComputedStyle(document.querySelector('.page-actions')).display, phases: document.querySelector('#phases').getClientRects().length > 0, events: [...document.querySelectorAll('#phases .ev')].filter((e) => e.getClientRects().length).length, heading: document.querySelector('h1').getClientRects().length > 0 })`);
+		const shown = await p.evaluate(`({ side: getComputedStyle(document.querySelector('.case-shell > .side')).display, topBar: getComputedStyle(document.querySelector('.case-shell > .top-bar')).display, navBoxes: document.querySelector('nav.views').getClientRects().length, legacyHeader: document.querySelector('header.top') !== null, actions: getComputedStyle(document.querySelector('.page-actions')).display, phases: document.querySelector('#phases').getClientRects().length > 0, events: [...document.querySelectorAll('#phases .ev')].filter((e) => e.getClientRects().length).length, heading: document.querySelector('h1').getClientRects().length > 0 })`);
 		const pdf = await p.s('Page.printToPDF', { printBackground: false });
 		await p.media('');
 		writeFileSync(join(SCREENS, 'timeline-print.pdf'), Buffer.from(pdf.data, 'base64'));
 		// v5's other page action: Full chronology opens the chronology
 		await p.click('#full-chronology');
 		await p.waitFor(`${L.ready('chronology')} && location.pathname.endsWith('/chronology')`, 30000);
-		const ok = prints === 1 && shown.nav === 'none' && shown.header === 'none' && shown.actions === 'none' && shown.phases && shown.events === 5 && shown.heading && pdf.data.length > 1000;
+		const ok = prints === 1 && shown.side === 'none' && shown.topBar === 'none' && shown.navBoxes === 0 && !shown.legacyHeader && shown.actions === 'none' && shown.phases && shown.events === 5 && shown.heading && pdf.data.length > 1000;
 		return { pass: ok, evidence: { prints, shown, pdfBytes: Math.round(pdf.data.length * 0.75), pdf: 'screens/timeline-print.pdf', fullChronology: 'opened' } };
 	});
 

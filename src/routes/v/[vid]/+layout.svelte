@@ -17,7 +17,7 @@
 		published: { label: data.isActive ? 'Active results version' : 'Candidate preview', at: null, documents: data.documents },
 		searchHref: viewHref(v.id, viewById('search')!, data.base),
 		account: null,
-		actions: [{ label: '← All cases', href: '/cases' }],
+		actions: [{ label: 'All cases', href: '/cases' }, { label: 'Import results', href: '/import' }],
 	});
 	let queries = $state<Record<string, string>>({});
 	const remember = () => { queries = rememberQueries(tabStorage(), v.caseId, v.id, current, location, data.base); };

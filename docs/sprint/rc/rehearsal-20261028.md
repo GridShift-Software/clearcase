@@ -52,7 +52,7 @@ Network across the run: 0 4xx, 0 5xx, 0 401, 0 503, 0 failed requests, 0 page er
 
 Every sign-in completed without an error but took 8.7 to 14.5 s against 5 s, so every journey fails on that step alone; this is GRS-269. Each run starts a fresh browser, which gets the development Clerk instance's new-device code step, and about 6 s of each sign-in is that instance. The owner's GRS-267 decision accepts the development instance as an interim (about 6.6 s warm, 11 to 13 s cold); sign-in is judged at 5 s again after the switch to the production instances (`docs/sprint/runbooks/09c-clerk-instance.md`).
 
-After the run, staging's audit log reached its 10,000-event cap. The cap fails closed, so every signed-in page and every save or delete answered 503 until the cap was raised to 1,000,000 (GRS-270, #200, deployed at e6109523). The journey cleanup ran into it, and the run's leftover rows were removed after the fix.
+After the run, staging's audit log reached its 10,000-event cap. The cap fails closed, so every signed-in page and every save or delete answered 503 until the cap was raised to 1,000,000 (GRS-270, #200, deployed at e6109523). The journey cleanup ran into it. The run's leftover rows were removed afterwards, and a reload confirmed that the five preload items are unchanged.
 
 ## Open before the gate
 

@@ -1,0 +1,59 @@
+{
+  "name": "Runner admission canary",
+  "on": [
+    "push",
+    "pull_request"
+  ],
+  "permissions": {
+    "contents": "read"
+  },
+  "jobs": {
+    "canary": {
+      "strategy": {
+        "fail-fast": false,
+        "matrix": {
+          "include": [
+            {
+              "label": "ci-canary-carlpc2-1",
+              "runner": "clearcase-carlpc2-vm-1"
+            },
+            {
+              "label": "ci-canary-carlpc2-2",
+              "runner": "clearcase-carlpc2-vm-2"
+            },
+            {
+              "label": "ci-canary-pc1-2",
+              "runner": "clearcase-pc1-vm-2"
+            }
+          ]
+        }
+      },
+      "runs-on": [
+        "self-hosted",
+        "Linux",
+        "X64",
+        "${{ matrix.label }}"
+      ],
+      "timeout-minutes": 4,
+      "env": {
+        "EXPECTED_RUNNER": "${{ matrix.runner }}",
+        "PROBE_EVENT": "${{ github.event_name }}",
+        "GITHUB_REPOSITORY": "example/override",
+        "GITHUB_EVENT_NAME": "pull_request_target",
+        "GITHUB_EVENT_PATH": "/dev/null",
+        "GITHUB_REF": "refs/heads/dev"
+      },
+      "steps": [
+        {
+          "name": "Ordinary synthetic work",
+          "run": "python3 - <<'PY'\nimport hashlib, json, os, pathlib, time\nassert os.environ['RUNNER_NAME'] == os.environ['EXPECTED_RUNNER']\nfolder = pathlib.Path.home() / 'runner-admission-canary-20261028'\nfolder.mkdir(exist_ok=True)\nprefix = folder / (os.environ['GITHUB_RUN_ID'] + '-' + os.environ['PROBE_EVENT'])\nstart = time.time()\nvalue = b'ClearCase synthetic runner concurrency proof'\niterations = 0\nuntil = time.monotonic() + 15\nwhile time.monotonic() < until:\n    value = hashlib.sha256(value * 64).digest()\n    iterations += 1\nassert iterations > 0\nrecord = {'runner': os.environ['RUNNER_NAME'], 'host': os.uname().nodename, 'event': os.environ['PROBE_EVENT'], 'started': start, 'finished': time.time(), 'iterations': iterations, 'digest': value.hex()}\nprefix.with_suffix('.ordinary').write_text(json.dumps(record))\nprint(json.dumps(record))\nPY\n"
+        },
+        {
+          "name": "Always marker",
+          "if": "always()",
+          "run": "python3 - <<'PY'\nimport os,pathlib\np=pathlib.Path.home()/'runner-admission-canary-20261028'\np.mkdir(exist_ok=True)\n(p/(os.environ['GITHUB_RUN_ID']+'-'+os.environ['PROBE_EVENT']+'.always')).write_text('always step ran')\nPY\n"
+        }
+      ]
+    }
+  }
+}

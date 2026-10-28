@@ -76,7 +76,7 @@
 	</div>
 
 	<section class="card" aria-labelledby="go-heading"><h2 id="go-heading">Go to</h2>
-		<ul class="quick">{#each grouped() as g (g.group)}{#each g.views.filter((v) => ['chronology', 'matter', 'quantum_tab', 'documents', 'people', 'search', 'court_bundle_tab', 'rescan_tab'].includes(v.id)) as v (v.id)}<li><a href={viewHref(vid, v)}>{v.label}</a>{blockedBy(v) ? ` (not yet available, ${blockedBy(v)})` : ''}</li>{/each}{/each}</ul></section>
+		<ul class="quick">{#each grouped() as g (g.group)}{#each g.views.filter((v) => ['chronology', 'matter', 'quantum_tab', 'documents', 'people', 'search', 'court_bundle_tab', 'rescan_tab'].includes(v.id)) as v (v.id)}<li><a href={viewHref(vid, v, data.base)}>{v.label}</a>{blockedBy(v) ? ` (not yet available, ${blockedBy(v)})` : ''}</li>{/each}{/each}</ul></section>
 
 	{#if Object.keys(o.diagnostics).length}
 		<details><summary>Validation totals for this version</summary><table><tbody>{#each Object.entries(o.diagnostics) as [k, n] (k)}<tr><td>{k}</td><td class="num">{n}</td></tr>{/each}</tbody></table></details>

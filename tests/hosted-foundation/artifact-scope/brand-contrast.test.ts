@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 
-const css = readFileSync(new URL('../../../deploy/client/routes/+layout.svelte', import.meta.url), 'utf8');
+// the hosted tokens and element rules, scoped in the one global stylesheet
+const app = readFileSync(new URL('../../../src/app.css', import.meta.url), 'utf8');
+const css = app.slice(app.indexOf('.hosted-root {'));
 
 function color(name: string): string {
 	const value = css.match(new RegExp(`--${name}:\\s*([^;]+);`))?.[1].trim();

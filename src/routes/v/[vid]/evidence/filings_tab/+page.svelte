@@ -185,7 +185,7 @@
 							<td><div>{cleanName(x.title)}</div>{#if x.note}<div class="ex">{x.note}</div>{/if}</td>
 							<td><span class="badge" title="Imported classification, unverified">{x.doc_type}</span></td>
 							<td>{statusLabel(x.text_status)}</td>
-							<td>{#if files.get(x.ref) === undefined || files.get(x.ref) === null}<span class="cite-broken" title="not in this results version">{x.ref ? 'not found' : ''}</span>{:else}<a class="doc" href={docPath(vid, x.ref)}>{docLabel(files.get(x.ref))}</a>{/if}</td>
+							<td>{#if files.get(x.ref) === undefined || files.get(x.ref) === null}<span class="cite-broken" title="not in this results version">{x.ref ? 'not found' : ''}</span>{:else}<a class="doc" href={docPath(vid, x.ref, null, data.base)}>{docLabel(files.get(x.ref))}</a>{/if}</td>
 						</tr>
 					{/each}
 				</tbody>

@@ -97,7 +97,7 @@
 								<td class="mono">{dateCell(x.date)}</td><td class="mono">{x.ref}</td>
 								<td>{x.title}{#if x.excerpt}<div class="ex">{x.excerpt}</div>{/if}</td>
 								<td><span class="badge">{x.type}</span></td><td><span class="badge">{x.bundle}</span></td><td class="num">{x.amount}</td>
-								<td><a class="doc" href={docPath(vid, x.ref)}>{docLabel(x.file)}</a></td>
+								<td><a class="doc" href={docPath(vid, x.ref, null, data.base)}>{docLabel(x.file)}</a></td>
 							</tr>
 						{/each}
 					</tbody>

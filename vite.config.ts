@@ -26,7 +26,8 @@ const config: Config = {
 	adapter,
 	...(hosted ? { files: selected(process.cwd(), profile) } : {}),
 	// Kit 3 removed $lib; the app's 541 imports keep it through this alias rather than a 135-file rename to #lib
-	alias: { $lib: 'src/lib', '$lib/*': 'src/lib/*' },
+	// $local: the local version pages, which hosted wrapper pages re-export rather than copy
+	alias: { $lib: 'src/lib', '$lib/*': 'src/lib/*', $local: 'src/routes/v/[vid]', '$local/*': 'src/routes/v/[vid]/*' },
 	// a build of one exported revision gets that revision as its version name, so its client assets are reproducible
 	...(process.env.CLEARCASE_SOURCE_REVISION ? { version: { name: process.env.CLEARCASE_SOURCE_REVISION } } : {}),
 	// Strict CSP on the app origin; SvelteKit adds nonces/hashes for its own bootstrap script.

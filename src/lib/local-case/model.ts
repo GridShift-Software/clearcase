@@ -76,5 +76,5 @@ export interface CaseSummary {
 	href: string;
 }
 
-export const versionPath = (resultsVersion: string) => `/v/${encodeURIComponent(resultsVersion)}`;
+export const versionPath = (resultsVersion: string, base = '/v') => `${base}/${encodeURIComponent(resultsVersion)}`;
 export const docPath = documentRoute;

@@ -40,6 +40,10 @@ export async function currentVersion(services: RequestServices, info: CaseInfo):
   const p = info.publication;
   if (p.kind !== 'published') return { kind: 'status', status: { kind: p.kind === 'none' ? 'pending' : 'withdrawn' } };
   const scope = { caseId: info.caseId, resultsVersion: p.resultsVersion };
+  if (services.caseRead) {
+    const memo = await services.caseRead({ caseId: info.caseId });
+    if (memo.published?.shardManifestSha256) return memo.published.versionId === p.resultsVersion ? { kind: 'current', resultsVersion: p.resultsVersion } : { kind: 'status', status: { kind: 'unavailable', reason: UNAVAILABLE } };
+  }
   const active = await part(services.store.activeVersionId({ caseId: info.caseId }));
   if (active.state === 'unavailable' || active.value !== p.resultsVersion) return { kind: 'status', status: { kind: 'unavailable', reason: UNAVAILABLE } };
   const check = await part(publishedReadiness(services.store, scope));

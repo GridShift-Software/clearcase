@@ -1,30 +1,17 @@
 import { error } from '@sveltejs/kit';
 import { app } from '$lib/local-case/app.server';
 import { exportFileName, viewContentOf } from '$lib/local-case/results.server';
-import { pageNotice, pageParam } from '$lib/views/evidence/common';
 import { searchRowsOf } from '$lib/views/evidence/rows.server';
-import { actionItems, coverage, invalidReason, queryFromParams, runSearch, searchOptions, searchRows } from '$lib/views/evidence/search';
+import { searchPage } from '$lib/views/evidence/search';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ parent, url }) => {
 	const { version } = await parent();
 	const sr = searchRowsOf(app().store, version.id);
 	if (!sr) error(404, 'Unknown results version');
-	const { rows, failed } = sr;
-	const { query, submitted } = queryFromParams(url.searchParams);
-	const wantsActions = url.searchParams.get('actions') === '1';
-	const options = searchOptions(rows);
-	const invalid = invalidReason(query, options);
-	const result = wantsActions ? null : runSearch(rows, query, submitted, pageParam(url.searchParams.get('page')), options);
 	return {
-		query,
-		submitted,
-		result,
-		pageNotice: result?.kind === 'results' ? pageNotice(url.searchParams.get('page'), result.page) : null,
-		actions: wantsActions ? (invalid ? { invalid } : actionItems(searchRows(rows, query))) : null,
-		options,
-		coverage: coverage(rows),
-		failed,
+		...searchPage(sr.rows, url.searchParams),
+		failed: sr.failed,
 		exportName: exportFileName(viewContentOf(app().store, version.id), 'search', 'search.csv'),
 	};
 };

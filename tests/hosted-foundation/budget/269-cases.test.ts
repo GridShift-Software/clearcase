@@ -21,12 +21,13 @@ import type { AuditEvent, CaseId, CaseOperation, Principal } from '../../../src/
 const GRANT = `INSERT INTO tenant_case_grants (grant_id,client_id,scope,case_id,issuer,subject,principal_kind,role,slot,state,version,created_operation_id,request,created_by_issuer,created_by_subject,created_at,expires_at)
   VALUES (?,?,'case',?,?,'rc-editor','client',?,?,'active',1,?,'[]','seed','seed','2001-01-01T00:00:00.000Z',?)`;
 
-/** case-a (published, editor) and case-b (viewer) are listed. case-c has only another client's grant, case-d an expired
- * one and case-e an operator grant, which reads nothing: none is listed. */
-function firm(w: RcWorld) {
+/** `listed` cases are listed: case-a (published, editor), then case-b, case-b01, ... (viewer). case-c has only another
+ * client's grant, case-d an expired one and case-e an operator grant, which reads nothing: none of the three is listed. */
+function firm(w: RcWorld, listed = 2) {
   const issuer = w.db.rows<{ issuer: string }>("SELECT issuer FROM tenant_case_grants WHERE grant_id = 'rc-grant'")[0]!.issuer;
-  for (const c of ['case-b', 'case-c', 'case-d', 'case-e']) w.db.exec('INSERT INTO rs_case (case_id, case_label) VALUES (?, ?)', c, `Case ${c}`);
-  w.db.exec(GRANT, 'g-b', 'client-a', 'case-b', issuer, 'viewer', 'content', 'seed-b', null);
+  const viewed = Array.from({ length: listed - 1 }, (_, i) => i === 0 ? 'case-b' : `case-b${String(i).padStart(2, '0')}`);
+  for (const c of [...viewed, 'case-c', 'case-d', 'case-e']) w.db.exec('INSERT INTO rs_case (case_id, case_label) VALUES (?, ?)', c, `Case ${c}`);
+  for (const c of viewed) w.db.exec(GRANT, `g-${c}`, 'client-a', c, issuer, 'viewer', 'content', `seed-${c}`, null);
   w.db.exec(GRANT, 'g-c', 'client-c', 'case-c', issuer, 'viewer', 'content', 'seed-c', null);
   w.db.exec(GRANT, 'g-d', 'client-a', 'case-d', issuer, 'viewer', 'content', 'seed-d', '2000-01-01T00:00:00.000Z');
   w.db.exec(GRANT, 'g-e', 'client-a', 'case-e', issuer, 'operator', 'operator', 'seed-e', null);
@@ -44,7 +45,7 @@ it('269 /cases lists every granted case in a fixed number of storage round trips
     expect(r.value?.cases.map(c => [c.caseId, c.published])).toEqual([['case-a', true], ['case-b', false]]);
     // The session's KV read, the storage gate, the case rows beside the grants, and one audit batch: 4, with one of slack.
     expect(r.sequential).toBeLessThanOrEqual(5);
-    expect(r.batches).toBeLessThanOrEqual(2);
+    expect(r.counts).toMatchObject({ d1: 5, r2: 1, clerk: 0, otherFetch: 0 }); expect(r.batches).toBe(2);
     // Every listed case is recorded as read before the page renders; each refusal keeps its own denied event, scoped to
     // the case only where the principal holds an effective grant on it (case-e's operator grant).
     expect(events(w)).toEqual([
@@ -54,6 +55,22 @@ it('269 /cases lists every granted case in a fixed number of storage round trips
       { action: 'case.read', object_id: 'case-d', case_id: null, outcome: 'denied' },
       { action: 'case.read', object_id: 'case-e', case_id: 'case-e', outcome: 'denied' },
     ]);
+  } finally { await w.cleanup(); }
+});
+
+// The calls are counted, not timed, so a case count that adds one fails here whatever the runner's load.
+it.each([1, 5, 50])('269 /cases with %i listed cases and 3 refused makes 5 D1 calls, 2 of them batches, and 1 R2 read', async listed => {
+  const w = await rcWorld({ slowReads: true });
+  try {
+    firm(w, listed);
+    const r = await list(w);
+    expect(r.thrown).toBeUndefined(); show(`/cases (${listed + 3} cases, ${listed} listed)`, r);
+    expect(r.value?.cases).toHaveLength(listed);
+    expect(r.counts).toMatchObject({ d1: 5, r2: 1, clerk: 0, otherFetch: 0 }); expect(r.batches).toBe(2);
+    expect(r.sequential).toBeLessThanOrEqual(5);
+    const recorded = events(w);
+    expect(recorded.filter(e => e.outcome === 'succeeded').map(e => e.object_id)).toEqual(r.value!.cases.map(c => c.caseId));
+    expect(recorded.filter(e => e.outcome === 'denied').map(e => e.object_id)).toEqual(['case-c', 'case-d', 'case-e']);
   } finally { await w.cleanup(); }
 });
 
@@ -72,7 +89,7 @@ it('269 /cases lists nothing and records nothing as read once the grant is revok
   const w = await rcWorld();
   try {
     firm(w);
-    w.db.exec("UPDATE tenant_case_grants SET state = 'revoked', revoked_at = '2001-01-01T00:00:00.000Z', revoked_operation_id = 'revoke-' || grant_id WHERE grant_id IN ('rc-grant', 'g-b')");
+    w.db.exec("UPDATE tenant_case_grants SET state = 'revoked', revoked_at = '2001-01-01T00:00:00.000Z', revoked_operation_id = 'revoke-' || grant_id WHERE grant_id IN ('rc-grant', 'g-case-b')");
     const r = await list(w);
     expect(r.thrown).toBeUndefined();
     expect(r.value?.cases).toEqual([]);

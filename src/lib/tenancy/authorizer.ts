@@ -19,6 +19,8 @@ export interface CaseAuthorizerOptions {
   cases: CaseDirectory;
   audit: AuditSink;
   now: () => Date;
+  lookup?: (a: { principal: Principal; caseId: CaseId }) => Promise<{ grants: readonly GrantRecord[]; exists: boolean }>;
+  readAudit?: (event: import('../server/runtime/contracts.ts').AuditEvent) => void;
   newEventId?: () => string;
 }
 
@@ -63,12 +65,17 @@ export function createCaseAuthorizer(o: CaseAuthorizerOptions): { authorizeCase:
     if (!belongs(deployment, principal)) return deny('wrong-client');
     if (typeof a.caseId !== 'string' || !a.caseId) return deny('forbidden');
     const scope = { kind: 'case', caseId: a.caseId } as const, now = o.now();
-    const rows = await o.grants.grantsOf({ clientId, principal: { issuer: principal.issuer, subject: principal.subject }, scope }).catch(() => { throw unavailable(); });
+    const joined = o.lookup ? await o.lookup(a) : null;
+    const rows = joined ? joined.grants : await o.grants.grantsOf({ clientId, principal: { issuer: principal.issuer, subject: principal.subject }, scope }).catch(() => { throw unavailable(); });
     const held = rows.filter((g) => effective(g, { clientId, principal, scope, now }));
-    const exists = async () => (await o.cases.exists({ clientId, caseId: a.caseId }).catch(() => undefined)) === true;
+    const exists = async () => joined ? joined.exists : (await o.cases.exists({ clientId, caseId: a.caseId }).catch(() => undefined)) === true;
     if (!held.some(allowed)) return deny('forbidden', held.length > 0 && (await exists()) ? a.caseId : null);
-    const known = await o.cases.exists({ clientId, caseId: a.caseId }).catch(() => { throw unavailable(); });
+    const known = joined ? joined.exists : await o.cases.exists({ clientId, caseId: a.caseId }).catch(() => { throw unavailable(); });
     if (known !== true) return deny('forbidden');
+    if (o.readAudit && ['case.read', 'case.read-original', 'case.read-preview'].includes(action)) {
+      o.readAudit({ eventId: eventId(), actor: who, action, object: { kind: 'case', id: objectId, caseId: a.caseId }, version: null, outcome: 'succeeded', at: o.now().toISOString() });
+      return;
+    }
     await event(who, action, objectId, a.caseId, 'succeeded').catch(() => { throw contractError('audit-unavailable', true); });
   }
 

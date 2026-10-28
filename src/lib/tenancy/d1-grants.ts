@@ -12,10 +12,10 @@ type Row = {
   role: string; slot: string; state: string; expires_at: string | null; version: number; created_operation_id: string; request: string;
   created_by_issuer: string; created_by_subject: string; created_at: string; supersedes: string | null; revoked_operation_id: string | null; revoked_at: string | null;
 };
-const COLUMNS = 'grant_id, client_id, scope, case_id, issuer, subject, principal_kind, role, slot, state, expires_at, version, created_operation_id, request, created_by_issuer, created_by_subject, created_at, supersedes, revoked_operation_id, revoked_at';
+export const GRANT_COLUMNS = 'grant_id, client_id, scope, case_id, issuer, subject, principal_kind, role, slot, state, expires_at, version, created_operation_id, request, created_by_issuer, created_by_subject, created_at, supersedes, revoked_operation_id, revoked_at';
 const STATES: readonly GrantState[] = ['pending', 'active', 'revoked'];
 
-function parse(r: Row): GrantRecord {
+export function parseGrant(r: Row): GrantRecord {
   const role = r.role as GrantRole;
   if (!GRANT_ROLES.includes(role) || r.slot !== slotOf(role) || !STATES.includes(r.state as GrantState) || (r.principal_kind !== 'client' && r.principal_kind !== 'staff') || !Number.isInteger(r.version)) throw new Error('malformed grant row');
   const scope: GrantScope = r.scope === 'case' && typeof r.case_id === 'string' ? { kind: 'case', caseId: id('case', r.case_id) } : r.scope === 'client' && r.case_id === null ? { kind: 'client' } : (() => { throw new Error('malformed grant scope'); })();
@@ -53,8 +53,8 @@ const INSERT_COLUMNS = 'grant_id, client_id, scope, case_id, issuer, subject, pr
 const PLACEHOLDERS = Array(16).fill('?').join(', ') + ", 'pending', 1";
 
 export function d1GrantRepository(db: D1): GrantRepository {
-  const one = async (sql: string, ...bind: (string | number | null)[]) => { const r = await db.prepare(sql).bind(...bind).first<Row>(); return r ? parse(r) : null; };
-  const get = (clientId: ClientId, grantId: string) => one(`SELECT ${COLUMNS} FROM tenant_case_grants WHERE client_id = ? AND grant_id = ?`, clientId, grantId);
+  const one = async (sql: string, ...bind: (string | number | null)[]) => { const r = await db.prepare(sql).bind(...bind).first<Row>(); return r ? parseGrant(r) : null; };
+  const get = (clientId: ClientId, grantId: string) => one(`SELECT ${GRANT_COLUMNS} FROM tenant_case_grants WHERE client_id = ? AND grant_id = ?`, clientId, grantId);
   const operationOf = async (clientId: ClientId, operationId: string) => {
     const r = await db.prepare(`SELECT ${OPERATION_COLUMNS} FROM tenant_grant_operations WHERE client_id = ? AND operation_id = ?`).bind(clientId, operationId).first<OperationRow>();
     return r ? parseOperation(r) : null;
@@ -70,10 +70,10 @@ export function d1GrantRepository(db: D1): GrantRepository {
   return {
     async grantsOf({ clientId, principal, scope }) {
       const { results } = await db
-        .prepare(`SELECT ${COLUMNS} FROM tenant_case_grants WHERE client_id = ? AND issuer = ? AND subject = ? AND scope = ? AND ifnull(case_id, '') = ? AND state <> 'revoked'`)
+        .prepare(`SELECT ${GRANT_COLUMNS} FROM tenant_case_grants WHERE client_id = ? AND issuer = ? AND subject = ? AND scope = ? AND ifnull(case_id, '') = ? AND state <> 'revoked'`)
         .bind(clientId, principal.issuer, principal.subject, scope.kind, scope.kind === 'case' ? scope.caseId : '')
         .all<Row>();
-      return results.map(parse);
+      return results.map(parseGrant);
     },
     get: ({ clientId, grantId }) => get(clientId, grantId),
     operationOf: ({ clientId, operationId }) => operationOf(clientId, operationId),

@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { shardPrefix } from '../../../src/lib/results/hosted/shards.ts';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { shardManifest } from '../../../scripts/publish/manifest.ts';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import { localLoad } from '../../../scripts/publish/local-loader.ts';
 import { service } from '../../../src/lib/local-case/test-support.ts';
@@ -44,18 +45,25 @@ test.each(routes)('%s shard props equal the unchanged local loader', async (rout
 });
 
 test('matter title and contradiction summary remain content without narrative/items', async () => {
-  const edge = await published(b);
-  const prefix = shardPrefix(b.synth.resultsVersion);
-  const m = { matter: { title: 'Synthetic matter summary', storyline: [], strategy: [] }, known: [] };
-  const original = JSON.parse(new TextDecoder().decode(b.files.get('view/contradictions_tab.json')!));
-  const c = { ...original, c: { ...original.c, categories: [] } };
-  for (const [name, value] of [['matter', m], ['contradictions_tab', c]] as const)
-    edge.bucket.objects.set(`${prefix}view/${name}.json`, new TextEncoder().encode(JSON.stringify(value)));
-  const event = () => ({ locals: locals(edge), params: { caseId: CASE_ID, version: b.synth.resultsVersion } as never });
-  expect((await matter(event())).empty).toBe(false);
-  expect((await contradictions_tab(event())).empty).toBe(false);
-  edge.bucket.objects.set(`${prefix}view/matter.json`, new TextEncoder().encode(JSON.stringify({ ...m, matter: null })));
-  edge.bucket.objects.set(`${prefix}view/contradictions_tab.json`, new TextEncoder().encode(JSON.stringify({ ...c, c: null })));
-  expect((await matter(event())).empty).toBe(true);
-  expect((await contradictions_tab(event())).empty).toBe(true);
+  for (const populated of [true, false]) {
+    // These synthetic edge payloads go through the real signed publication path before the route reads them.
+    const out = path.join(b.root, populated ? 'summary' : 'missing');
+    const files = new Map(b.files);
+    const original = JSON.parse(new TextDecoder().decode(files.get('view/contradictions_tab.json')!));
+    const values = {
+      matter: { matter: populated ? { title: 'Synthetic matter summary', storyline: [], strategy: [] } : null, known: [] },
+      contradictions_tab: { ...original, c: populated ? { ...original.c, categories: [] } : null },
+    };
+    for (const [id, value] of Object.entries(values)) files.set(`view/${id}.json`, new TextEncoder().encode(JSON.stringify(value)));
+    const manifest = shardManifest(b.built.manifest, [...files].filter(([name]) => name !== 'manifest.json').map(([name, bytes]) => ({ name, bytes })));
+    files.set('manifest.json', manifest.bytes);
+    for (const [name, bytes] of files) {
+      const file = path.join(out, 'shards', name); await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, bytes);
+    }
+    const built = { ...b.built, manifest: manifest.manifest, manifestSha256: manifest.sha256, record: { ...b.built.record, shardManifestSha256: manifest.sha256 } };
+    const edge = await published({ ...b, out, built, files });
+    const event = () => ({ locals: locals(edge), params: { caseId: CASE_ID, version: b.synth.resultsVersion } as never });
+    expect((await matter(event())).empty).toBe(!populated);
+    expect((await contradictions_tab(event())).empty).toBe(!populated);
+  }
 });

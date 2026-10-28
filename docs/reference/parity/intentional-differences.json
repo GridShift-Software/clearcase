@@ -493,7 +493,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-_shell-2",
-      "reason": "v5 global search sets only the query and keeps stale Advanced Search filters, so it can return filtered or empty results. ClearCase has no separate global search box: search runs only through the Advanced Search form, whose filters are exactly those in its address, so no stale filter applies (as S-search-2). Evidence: src/lib/views/evidence/search.ts:18.",
+      "reason": "v5 global search sets only the query and keeps stale Advanced Search filters, so it can return filtered or empty results. ClearCase has no separate global search box: search runs only through the Advanced Search form, whose filters are exactly those in its address, so no stale filter applies (as S-search-2). Evidence: src/lib/views/evidence/search.ts:33.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": "Vaperizer2",

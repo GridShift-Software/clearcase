@@ -31,7 +31,7 @@
 		{#each m.bundles as b (b.value)}
 			<button type="button" class={b.name === m.bundle ? 'primary' : 'sec'} aria-pressed={b.name === m.bundle} data-bundle={b.value} onclick={() => go({ bundle: b.value, page: 1 })}>{b.label} ({b.count})</button>
 		{/each}
-		<input class="in" id="doc-filter" placeholder="Filter in bundle" aria-label="Filter in bundle" maxlength={MAX_TEXT} bind:value={q} oninput={() => go({ q, page: 1 })} />
+		<input class="in" id="doc-filter" data-testid="document-filter" placeholder="Filter in bundle" aria-label="Filter in bundle" maxlength={MAX_TEXT} bind:value={q} oninput={() => go({ q, page: 1 })} />
 	</div>
 	<div class="toolbar types" id="doc-types">{#each m.types as t (t.type)}<span class="badge">{t.type}: {t.count}</span>{/each}</div>
 	<p class="note" id="doc-order">Ordered by type, then date (undated first). Types are imported classifications and have not been verified.</p>

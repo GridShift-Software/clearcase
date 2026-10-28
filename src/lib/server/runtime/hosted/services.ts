@@ -99,7 +99,8 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 	let pageLookup: ReturnType<typeof requestCaseLookup> | undefined;
 	let scheduleRead: ReturnType<typeof requestReadAudit> | undefined;
 	const pagePath = new URL(request.url).pathname;
-	const pageRequest = request.method === 'GET' && /^\/cases\/[^/]+(?:\/v\/|\/originals\/[^/]+\/view$|$)/.test(pagePath);
+	const byteRoute = /^\/cases\/[^/]+\/v\/[^/]+\/assets\/[^/]+\/?$/.test(pagePath);
+	const pageRequest = request.method === 'GET' && !byteRoute && /^\/cases\/[^/]+(?:\/v\/|\/originals\/[^/]+\/view$|$)/.test(pagePath);
 	const readAudit = (event: import('../contracts.ts').AuditEvent) => scheduleRead?.(event);
 	const clerk = clerkIdentityProviderFromEnv(env, {
 		authorizeCase: async (a) => {
@@ -138,7 +139,7 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 					identity: services.identity, stateRevision: d1WorkRevision({ db: native.db, config }), now,
 					record: async (event) => {
 						const row = { ...event, eventId: crypto.randomUUID(), actor: stateOf(services.identity), at: now().toISOString() };
-						if (request.method === 'GET') readAudit(row); else await services.audit.append(row);
+						if (pageRequest && event.object.kind !== 'asset') readAudit(row); else await services.audit.append(row);
 					},
 					viewerRoute: (asset) => asset.kind === 'original'
 						? `/cases/${encodeURIComponent(asset.caseId)}/originals/${encodeURIComponent(asset.assetId)}/view` : null,

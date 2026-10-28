@@ -244,12 +244,15 @@ export async function appendReadAudit(a: { db: D1; config: AuditConfig; requeste
     .bind(e.eventId, a.config.clientId, ENVELOPE, await actorKey(e.actor), e.action, e.object.kind, e.object.id, e.object.caseId, e.version, e.outcome, e.actor.kind, e.at, env.canonical, env.sha256, a.config.clientId, e.eventId, a.config.clientId, a.config.limits.maxRows).run();
 }
 
-/** One read row per request, detached from the response and never allowed to fail it. */
+/** Collapse repeated case authorizations; preserve distinct kinds and every asset event. */
 export function requestReadAudit(a: { db: D1; config: AuditConfig; waitUntil?: (work: Promise<void>) => void }) {
-  let recorded = false;
+  const recorded = new Set<string>();
   return (event: AuditEvent): void => {
-    if (recorded) return;
-    recorded = true;
+    if (event.object.kind === 'case') {
+      const key = JSON.stringify([event.action, event.object.id, event.object.caseId, event.version, event.outcome]);
+      if (recorded.has(key)) return;
+      recorded.add(key);
+    }
     const pending = new Promise<void>(resolve => setTimeout(resolve, 0))
       .then(() => appendReadAudit({ db: a.db, config: a.config, requester: event.actor, event })).catch(() => { console.warn('read-audit-unavailable'); });
     if (a.waitUntil) a.waitUntil(pending);

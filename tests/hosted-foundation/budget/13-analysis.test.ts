@@ -33,7 +33,7 @@ const routes = [
   ['evidence/entity_ledger_tab', entity_ledger_tab],
   ['litigation/conflict_tab', conflict_tab],] as const;
 
-test.each(routes)('%s uses one D1 and one cold shard read, zero warm R2', async (route, load) => {
+test.each(routes)('%s measures first, warm and cold visits with fresh authorized services', async (route, load) => {
   const c = counters(), cache = memoryShardCache();
   const view = () => {
     const db = countedD1(dep.db, c);
@@ -47,12 +47,19 @@ test.each(routes)('%s uses one D1 and one cold shard read, zero warm R2', async 
   };
   const first = await measure(c, view);
   expect(first.thrown).toBeUndefined();
-  expect(first.counts).toMatchObject({ clerk: 0, d1: 1, r2: 1 });
-  const warm = await expectWithinBudget(route + ' warm', { clerk: 0, d1: 1, r2: 0 }, c, view);
+  expect(first.counts).toMatchObject({ clerk: 0, d1: 4, r2: 3 });
+  const warm = await expectWithinBudget(route + ' warm', { clerk: 0, d1: 4, r2: 1 }, c, view);
   expect(warm.thrown).toBeUndefined();
   for (const key of cache.entries.keys()) if (key.endsWith(`/view/${route.split('/').at(-1)}.json`)) cache.entries.delete(key);
-  const cold = await expectWithinBudget(route + ' cold', { clerk: 0, d1: 1, r2: 1 }, c, view);
+  const cold = await expectWithinBudget(route + ' cold', { clerk: 0, d1: 4, r2: 2 }, c, view);
   expect(cold.thrown).toBeUndefined();
-  expect(cold.counts.r2).toBe(1);
-  console.log(route, JSON.stringify({ warm: warm.counts, cold: cold.counts }));
+  expect(warm.counts).toMatchObject({ clerk: 0, d1: 4, r2: 1 });
+  expect(cold.counts).toMatchObject({ clerk: 0, d1: 4, r2: 2 });
+  dep.db.exec("UPDATE tenant_case_grants SET state = 'revoked', revoked_at = '2001-01-01T00:00:00Z' WHERE grant_id = 'analysis-viewer'");
+  try {
+    const denied = await measure(c, view);
+    expect(denied.thrown).toBeDefined();
+    expect(denied.counts.r2).toBe(1); // Storage identity gate only; authorization refuses the page.
+  } finally { dep.db.exec("UPDATE tenant_case_grants SET state = 'active', revoked_at = NULL WHERE grant_id = 'analysis-viewer'"); }
+  console.log(route, JSON.stringify({ first: first.counts, warm: warm.counts, cold: cold.counts }));
 });

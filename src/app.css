@@ -336,7 +336,7 @@ span.error, small.error { display: inline-block; padding: 4px 10px; }
 	.top-bar .case-name { order: 1; flex: 1 1 10rem; min-width: 0; max-width: none; }
 	.top-bar .top-actions { order: 2; }
 	.top-bar .top-search { order: 3; flex: 1 1 8rem; max-width: none; }
-	.top-bar .version-pill { order: 4; margin-left: 0; }
+	.top-bar .version-pill { order: 4; margin-left: 0; flex: 1 1 10rem; }
 	.top-bar .account { order: 5; margin-left: auto; }
 }
 

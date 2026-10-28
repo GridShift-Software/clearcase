@@ -70,16 +70,18 @@ function request(subject = 'reader', clientId = 'client-a', caseId = CASE_ID, ca
  return { c, l, event, lookup, pending, authorizations: () => authorizations, warmShell: () => l.shards.read({ caseId: id('case', CASE_ID), resultsVersion: rv(b.built.record.resultsVersion), name: 'shell.json', bytes: b.files.get('shell.json')!.byteLength }) };
 }
 
+// 17a: the overview also reads the deadlines and unbilled-time registers, one `readViewWork` each: the one lookup is
+// still the only grant/case/publication/notes query, and the two register reads are the 2 D1 queries that follow it.
 it('09b overview: one grant/case/publication/notes query, zero Clerk; warm shell and overview', async () => {
  const w = request();
  await w.warmShell(); // the first visit is measured separately below
  const result = await measure(w.c, () => Promise.all([layout(w.event), overview(w.event)]));
  expect(result.thrown).toBeUndefined();
- expect(result.counts.d1).toBe(1); assertWithinBudget('09b overview', result.counts, { d1: 1, clerk: 0, r2: 1 });
+ expect(result.counts.d1).toBe(3); assertWithinBudget('09b overview', result.counts, { d1: 3, clerk: 0, r2: 1 });
  const info = await readCase(w.l, CASE_ID);
  await requireCurrent(w.l, info.info, b.built.record.resultsVersion);
  await w.l.store.publication({ caseId: id('case', CASE_ID) });
- expect(w.c.d1).toBe(1);
+ expect(w.c.d1).toBe(3);
  console.log('09b overview', result.counts);
 });
 
@@ -185,7 +187,7 @@ it('09b a grant belonging to another client never grants this client case access
 it('09b exposes the fully cold two-shard overview cost separately from the one-R2 warm-shell budget', async () => {
  const w = request();
  const result = await measure(w.c, () => Promise.all([layout(w.event), overview(w.event)]));
- expect(result.thrown).toBeUndefined(); expect(result.counts).toEqual({ d1: 1, clerk: 0, r2: 2, otherFetch: 0 });
+ expect(result.thrown).toBeUndefined(); expect(result.counts).toEqual({ d1: 3, clerk: 0, r2: 2, otherFetch: 0 });
 });
 
 it('09b measures 06 baseline and fresh production authority/audit page visits, including background work', async () => {
@@ -200,7 +202,7 @@ it('09b measures 06 baseline and fresh production authority/audit page visits, i
   expect((await measure(before, oldVisit)).thrown).toBeUndefined();
   const oldWarm = await measure(before, oldVisit);
   expect(oldWarm.thrown).toBeUndefined();
-  expect(oldWarm.counts).toEqual({ d1: 13, clerk: 0, r2: 1, otherFetch: 0 });
+  expect(oldWarm.counts).toEqual({ d1: 25, clerk: 0, r2: 1, otherFetch: 0 }); // 13 before 17a; each register read authorizes on this path
   const c = counters(), cache = memoryShardCache();
   const visit = async () => {
    const w = request('reader', 'client-a', CASE_ID, cache, c); // a fresh service graph per visit; only the Cache API is shared
@@ -209,7 +211,7 @@ it('09b measures 06 baseline and fresh production authority/audit page visits, i
    await Promise.all(w.pending);
    expect(w.pending).toHaveLength(1);
    const withAudit = c.snapshot();
-   expect(page.counts.d1).toBe(1); expect(withAudit.d1).toBe(2);
+   expect(page.counts.d1).toBe(3); expect(withAudit.d1).toBe(4); // 17a: + the two register reads
    return { foreground: page.counts, includingAudit: withAudit };
   };
   const first = await visit(), warm = await visit();

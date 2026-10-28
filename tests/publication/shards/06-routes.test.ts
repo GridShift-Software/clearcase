@@ -43,10 +43,10 @@ describe('06 hosted version routes', () => {
     expect(data.shell.actions.map((a) => a.href)).toContain(`/cases/${CASE_ID}/notes`);
   });
 
-  test('the overview merges the shard with notes and a filled freshness slot', async () => {
+  test('the overview merges the shard with notes and filled freshness and register slots', async () => {
     const data = await overviewLoad(event());
     expect(data.documents.total).toBe(b.built.manifest.counts.documents);
-    expect(data.slots.map((s) => [s.slot.id, s.status])).toEqual([['rescan-freshness', 'filled']]);
+    expect(data.slots.map((s) => [s.slot.id, s.status])).toEqual([['deadlines', 'filled'], ['unbilled-time', 'filled'], ['rescan-freshness', 'filled']]); // 17a: the two register tiles
   });
 
   test('every registry view hosted marks soon is coming soon; one it ports, never shows, or does not know is 404 here', async () => {

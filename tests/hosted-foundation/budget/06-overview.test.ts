@@ -19,8 +19,10 @@ import { oneLookupLocals } from './one-lookup.ts';
  * insert adds one D1 after the response; it is asserted separately, never hidden or counted in the next visit.
  * Before 09b: 14 D1 and 1 R2 warm (two authorizations at 5 D1 each, the storage gate, the publication row, 2 notes D1).
  */
-const BASELINE: Budget = { clerk: 0, d1: 1, r2: 0 };
-const AUTHORIZATIONS = 2;
+// 17a: the overview fills its deadlines and unbilled-time tiles from the two registers, one `readViewWork` each: 2 D1 more
+// (the case lookup is shared, so neither read looks the grant up again) and 2 more authorize calls.
+const BASELINE: Budget = { clerk: 0, d1: 3, r2: 0 };
+const AUTHORIZATIONS = 4;
 
 let b: BuiltCase, dep: Deployment;
 const pending: Promise<void>[] = [];

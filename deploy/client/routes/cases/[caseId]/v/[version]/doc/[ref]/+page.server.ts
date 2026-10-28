@@ -30,7 +30,9 @@ export async function load({ locals, params, url }: RequestEvent) {
 	if (doc.assetIds.own && doc.originalState === 'available') {
 		try {
 			const l = await locals.assets.links({ asset: { kind: 'original', caseId: v.caseId, assetId: doc.assetIds.own } });
-			links = { presentation: presentationOf(doc.mediaType, doc.state.original?.downloadOnly ?? false, l.viewerHref), open: l.originalHref, download: l.downloadHref, viewer: l.viewerHref };
+			const presentation = presentationOf(doc.mediaType, doc.state.original?.downloadOnly ?? false, l.viewerHref);
+			// An image opens in its viewer page: the raw original route answers with the bytes, which a browser may download.
+			links = { presentation, open: presentation === 'inline' && l.viewerHref ? l.viewerHref : l.originalHref, download: l.downloadHref, viewer: l.viewerHref };
 		} catch (e) {
 			if (isDenial(e)) refuse(e);
 			onDisk = codeOf(e) ?? 'not stored';

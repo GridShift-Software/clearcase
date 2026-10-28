@@ -6,7 +6,7 @@ import { render } from 'svelte/server';
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { load as pageLoad } from '../../deploy/client/routes/cases/[caseId]/v/[version]/chronology/+page.server.ts';
 import { GET as listGet } from '../../deploy/client/routes/cases/[caseId]/v/[version]/chronology/list.json/+server.ts';
-import { GET as originalGet } from '../../deploy/client/routes/cases/[caseId]/v/[version]/chronology/original/[ref]/+server.ts';
+import * as originalEndpoint from '../../deploy/client/routes/cases/[caseId]/v/[version]/chronology/original/[ref]/+server.ts';
 import type { ChronologyListRow } from '../../src/lib/local-case/model.ts';
 import { facetsOf } from '../../src/lib/local-case/chronology.ts';
 import { memoryShardBucket, memoryShardCache } from '../../src/lib/server/runtime/memory-shards.ts';
@@ -18,6 +18,7 @@ import { JSDOM } from 'jsdom';
 import { grantedIdentity, ids } from '../hosted-foundation/storage/fixture.ts';
 import { builtCase, CASE_ID, EXTRA_ROWS, locals, published, type BuiltCase, type Deployment } from '../publication/shards/world.ts';
 
+const originalGet = (e: never) => (originalEndpoint as unknown as { POST: (e: never) => Promise<Response> }).POST(e);
 const nav = vi.hoisted(() => ({ url: new URL('https://client-a.example.invalid/') }));
 vi.mock('$app/state', () => ({ page: { get url() { return nav.url; }, state: {} } }));
 vi.mock('$app/navigation', () => ({ replaceState: () => {}, goto: () => Promise.resolve(), invalidateAll: () => Promise.resolve() }));
@@ -129,6 +130,10 @@ describe('11 hosted chronology routes', () => {
   }
   const original = (l: never, ref: string, params: Record<string, string> = {}) => originalGet(event(l, listUrl(''), { ref, ...params }));
   const allRefs = async () => ((await (await list('?all=1')).json()) as ListPage).rows;
+
+  test('the original endpoint mints only on POST: a GET under /v/ is a page read, whose 09b snapshot carries no original', () => {
+    expect(Object.keys(originalEndpoint).sort()).toEqual(['POST']);
+  });
 
   test("the original endpoint answers a document's own original as private, uncached JSON", async () => {
     const d = assetsDouble();

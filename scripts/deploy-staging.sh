@@ -129,6 +129,8 @@ if upload=$(wrangler versions upload -c "$CONFIG" --tag "$sha" --message "$messa
 	[[ -n $version ]] || { echo "$upload" >&2; die 'no Worker Version ID in the upload output'; }
 	say "uploaded version $version"
 	wrangler versions deploy "$version@100%" -y -c "$CONFIG" --message "deploy-staging.sh $sha" >&2
+	# `versions deploy` leaves the workers.dev settings alone; this applies workers_dev and preview_urls from the config.
+	wrangler triggers deploy -c "$CONFIG" >&2
 elif grep -q 'Worker that does not yet exist' <<<"$upload"; then
 	# Only the very first deploy: `versions upload` needs an existing Worker.
 	say 'the Worker does not exist yet: creating it with wrangler deploy'

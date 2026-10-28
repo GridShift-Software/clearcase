@@ -1,2 +1,2 @@
 import { datasetView } from '$lib/views/hosted/payloads.server';
-export const load = datasetView('invoice_ledger_tab', (d) => d.ledger.length === 0);
+export const load: ReturnType<typeof datasetView<'invoice_ledger_tab'>> = datasetView('invoice_ledger_tab', (d) => d.ledger.length === 0);

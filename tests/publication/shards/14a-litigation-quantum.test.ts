@@ -26,18 +26,34 @@ test('six published shards preserve the local loader props, with the clock exclu
   }
 });
 
-test('hosted loaders return the same props as the local loaders', async () => {
+import { load as elements_tab } from '../../../deploy/client/routes/cases/[caseId]/v/[version]/litigation/elements_tab/+page.server.ts';
+import { load as legality_tab } from '../../../deploy/client/routes/cases/[caseId]/v/[version]/litigation/legality_tab/+page.server.ts';
+import { load as contracts_tab } from '../../../deploy/client/routes/cases/[caseId]/v/[version]/evidence/contracts_tab/+page.server.ts';
+import { load as quantum_tab } from '../../../deploy/client/routes/cases/[caseId]/v/[version]/quantum/quantum_tab/+page.server.ts';
+import { load as invoice_ledger_tab } from '../../../deploy/client/routes/cases/[caseId]/v/[version]/quantum/invoice_ledger_tab/+page.server.ts';
+import { load as prescription_tab } from '../../../deploy/client/routes/cases/[caseId]/v/[version]/quantum/prescription_tab/+page.server.ts';
+export const realRoutes = [
+  ['litigation/elements_tab', elements_tab],
+  ['litigation/legality_tab', legality_tab],
+  ['evidence/contracts_tab', contracts_tab],
+  ['quantum/quantum_tab', quantum_tab],
+  ['quantum/invoice_ledger_tab', invoice_ledger_tab],
+  ['quantum/prescription_tab', prescription_tab]
+] as const;
+
+test.each(realRoutes)('%s real route matches local props with a request clock', async (route, load) => {
   const { builtCase, published, locals, CASE_ID } = await import('./world.ts');
   const b = await builtCase();
   try {
     const dep = await published(b);
-    for (const [id, route] of Object.entries(routes)) {
-      const { datasetView } = await import('../../../src/lib/views/hosted/payloads.server.ts');
-      const props = await datasetView(id as keyof typeof routes, () => false)({ locals: locals(dep), params: { caseId: CASE_ID, version: b.built.record.resultsVersion } } as never);
-      const { base, empty, ...hosted } = props;
-      expect(base).toBe(`/cases/${CASE_ID}/v`);
-      expect(empty).toBe(false);
-      expect(hosted).toEqual(JSON.parse(new TextDecoder().decode(b.files.get(`view/${id}.json`)!)));
-    }
+    const local = await localLoad({ store: lc.store, resultsVersion: fixture.resultsVersion }, route);
+    const services = locals(dep);
+    services.runtime.now = () => new Date('2207-02-03T22:30:00Z');
+    const { base, empty, ...hosted } = await load({ locals: services, params: { caseId: CASE_ID, version: b.built.record.resultsVersion } } as never);
+    if (route.endsWith('prescription_tab')) local.asOf = '2207-02-04';
+    expect(base).toBe(`/cases/${CASE_ID}/v`);
+    expect(empty).toBe(false);
+    expect(hosted).toStrictEqual(local);
+    if ('asOf' in hosted) expect(hosted.asOf).toBe('2207-02-04');
   } finally { await b.cleanup(); }
 }, 120_000);

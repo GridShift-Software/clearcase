@@ -17,7 +17,8 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const a = app();
 	const raw = datasetOf<Raw>(a.store, version.id, 'bundles');
 	const shipped = bundlesOf(raw);
-	const custom = (await readCustom(version.caseId)).map((c) => toBundle(c, c.id));
+	const saved = await readCustom(version.caseId);
+ const custom = saved.map((c) => toBundle(c,c.id));
 	const { paths, files } = await bundleLinks(a.store, version.id);
 	const links = [...shipped.map((b) => ({
 		file: resolveLocator(paths, b.file), indexFile: resolveLocator(paths, b.indexFile),
@@ -26,13 +27,14 @@ export const load: PageServerLoad = async ({ parent }) => {
 			parts: r.parts.map((p) => resolveLocator(paths, p.url, p.from > 1 ? p.from : null)),
 			caselines: r.caselines && typeof raw?.caselinesSrc === 'string' ? resolveLocator(paths, raw.caselinesSrc, r.caselines.from || null) : null,
 		})),
-	})), ...custom.map((b) => ({ file: null, indexFile: null, rows: b.rows.map((r) => ({ slice: null, parts: r.parts.map(() => null), caselines: null })) }))];
+	})), ...custom.map((b) => ({ file: saved.find(c=>c.id===b.id)?.assembledSha256 ? {ref:b.id!,page:null} : null, indexFile: null, rows: b.rows.map((r) => ({ slice: null, parts: r.parts.map(() => null), caselines: null })) }))];
 	const bundles = [...shipped, ...custom];
 	const vc = viewContentOf(a.store, version.id);
 	const t = (f: string) => viewText(vc, 'court_bundle_tab', f);
 	const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
 	const stored = singleRow(version.caseId, HEADER_STORE);
-	const refs = links.flatMap((l) => [l.file, l.indexFile, ...l.rows.flatMap((r) => [r.slice, ...r.parts, r.caselines])]).filter((r) => r !== null).map((r) => r.ref);
+	for(const c of saved) if(c.assembledSha256) files[c.id]=`/v/${encodeURIComponent(version.id)}/bundles/court_bundle_tab/assembled?id=${encodeURIComponent(c.id)}`;
+ const refs = links.flatMap((l) => [l.file, l.indexFile, ...l.rows.flatMap((r) => [r.slice, ...r.parts, r.caselines])]).filter((r) => r !== null).map((r) => r.ref);
 	return {
 		present: raw !== null,
 		bundles, links,
@@ -47,7 +49,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 		header: headerRaw(raw?.headerDefaults ?? {}, stored ? stored.fields : null),
 		headerStored: stored !== null,
 		headerHash: singleHash(version.caseId, HEADER_STORE),
-		downloads: Object.fromEntries(await bundleDownloads(version.id, refs)),
+		downloads: {...Object.fromEntries(await bundleDownloads(version.id, refs)),...Object.fromEntries(saved.filter(c=>c.assembledSha256).map(c=>[c.id,files[c.id]!]))},
 	};
 };
 

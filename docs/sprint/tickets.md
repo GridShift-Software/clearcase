@@ -52,4 +52,5 @@ Source: `spec.md`. Feasibility was proven by the spike in `research/spike-hosted
 - Stable references across batches, and results-package format version 2 (a processing-contract amendment).
 - A client production instance on a custom domain, once the domain's nameservers are active.
 - The staff publication UI over the new manifest-bound sign-off.
+- Open owner decision: how a release reaches a client. Either each developer holds a user on every client's Clerk app and previews per client, or a full preview on staging is promoted to the client Worker. Staging alone is enough for the demo.
 - The sprint-to-dev PR with the full review, Greptile, `gate` and `gate:hosted`.

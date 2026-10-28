@@ -13,11 +13,11 @@ Shared files this ticket owns, which others must not edit until it merges: all w
 ## Blocked by
 - None: can start immediately. The owner's steps below gate the Access and sign-in acceptance lines, not the start.
 ## Owner's manual steps (exactly these; everything else is the agent's)
-1. Cloudflare dashboard → Zero Trust → choose a team name, Free plan, enter payment details (not charged). Tell the agent the team name.
-2. Clerk: either create the application `clearcase-staging` (development instance), read its publishable key, secret key and JWKS public key (PEM), and paste them into the agent's `wrangler secret put` prompts; or authorise the agent to create it under the owner's Clerk login. Also the staff application if staff sign-in must stay a separate issuer.
-3. GitHub repo secrets `CLOUDFLARE_API_TOKEN` (account-scoped token: Workers Scripts Edit, KV Edit, D1 Edit, R2 Edit, Account Settings Read) and `CLOUDFLARE_ACCOUNT_ID`.
-4. One Cloudflare API token per developer with the same scopes, 30-day expiry, handed over out of band; they export `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
-5. One R2 "Object Read & Write" S3 token scoped to `clearcase-staging-files` (EU endpoint) for rclone, held by the operator (07 and 06 use it).
+1. Done 28 Oct: Zero Trust is on, team domain `super-limit-6f87.cloudflareaccess.com`. Add a one-time-PIN login method and an Access application covering `clearcase-staging.shiny-sunset-211d.workers.dev` and `*-clearcase-staging.shiny-sunset-211d.workers.dev`, allowing the three developers' emails (the CI token can manage Access).
+2. Done 28 Oct: no new Clerk app. Staging reuses sandbox B's client app `outgoing-walrus-1020` (publishable key `pk_test_b3V0Z29pbmctd2FscnVzLTEwMjAuY2xlcmsuYWNjb3VudHMuZGV2JA`) and the shared staff app `renewed-moth-1294` (`pk_test_cmVuZXdlZC1tb3RoLTEyOTQuY2xlcmsuYWNjb3VudHMuZGV2JA`). Their secret keys are the repo secrets `STAGING_CLERK_SECRET_KEY` and `STAGING_CLERK_STAFF_SECRET_KEY` (the deploy workflow puts them into the Worker), and on the owner's machine in `.local/secrets/staging-clerk.env`. JWT public keys come from each app's `/.well-known/jwks.json`. Grants live in staging's own D1, so sharing the Clerk apps with B gives no access across Workers. Add the staging and preview origins to each app's allowed origins.
+3. Done 28 Oct: the R2 bucket `clearcase-staging-files` exists (EU jurisdiction); the CI token and repo secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set.
+4. Open: one Cloudflare API token per developer with the same scopes, 30-day expiry, handed over out of band; they export `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+5. Open: one R2 "Object Read & Write" S3 token scoped to `clearcase-staging-files` (EU endpoint) for rclone, held by the operator (07 and 06 use it).
 ## Acceptance
 - [ ] `scripts/deploy-staging.sh` from a clean worktree at the sprint head prints `sha url version`; `/health` 200 shows that SHA; `cf-placement: remote-LHR`.
 - [ ] Unauthenticated GET redirects to the Access login; after the PIN, a colleague signs in with the Clerk staging user in one pass (J1 step 1 reaches the case list; sign-in time recorded, target under 5 s is 09a's).
@@ -37,7 +37,7 @@ scripts/deploy-staging.sh && scripts/preview.sh      # then walk the acceptance 
 `docs/sprint/README.md` "Branches and environments"; `research/cloudflare-ops.md` (all); `docs/acceptance/hosting/workers-dev-bootstrap.md`; `docs/hosted-foundation/identity.md` (Clerk vars and secrets).
 ## Decisions already made (don't re-decide)
 - One Worker `clearcase-staging`, one EU D1, one EU R2, one KV; London placement pinned in config; Access covers staging and every preview.
-- One Clerk development application for staging and all previews; test users with `+clerk_test` addresses (code 424242); exact allow-list URLs per origin, added by the preview script.
+- Staging and all previews reuse the existing Clerk apps (client `outgoing-walrus-1020`, staff `renewed-moth-1294`); no new Clerk application; test users with `+clerk_test` addresses (code 424242); exact allow-list URLs per origin, added by the preview script.
 - Wrangler 4.151.1 as pinned; no upgrade. Deploy through `bunx wrangler` under real Node; `versions upload` then `versions deploy`.
 - Deploy-on-merge starts as the committed script run by the merger; 01's workflow calls the same script once the repo secrets exist.
 - Sprint D1 migration numbers are pre-assigned per ticket (README table); this ticket seeds the existing set only. Previews share staging's D1, so schema changes are additive and applied to staging first.

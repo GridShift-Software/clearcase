@@ -84,8 +84,8 @@ Write the SQL once in the library folder at that folder's next free number and a
 ## Owner actions and what they unblock
 | Action | Unblocks |
 | --- | --- |
-| Enable Zero Trust (team name, Free plan, payment details) | 02 Access on staging and previews; 20 |
-| Create the Clerk staging application and hand over its three keys, or authorise an agent to create it | 02 sign-in; 09a |
+| Done 28 Oct: Zero Trust on (`super-limit-6f87`) | 02 Access on staging and previews; 20 |
+| Done 28 Oct: staging reuses Clerk apps `outgoing-walrus-1020` (client) and `renewed-moth-1294` (staff); secret keys are repo secrets | 02 sign-in; 09a |
 | Repo secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | 01's deploy-on-merge workflow |
 | One Cloudflare API token per developer | 02 previews from colleagues' machines; every later ticket's preview walk |
 | R2 S3 token scoped to `clearcase-staging-files` | 07 originals load; 06 shard upload |

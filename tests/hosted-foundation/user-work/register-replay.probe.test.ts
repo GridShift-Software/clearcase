@@ -6,13 +6,16 @@ it('replays register replacement from its stable request after the anchored row 
  const first = written(await work.putRow({ caseId: CASE, store: 'time', rowId: 'r1', fields: { hours: 1 }, anchor, expected: { kind: 'absent' }, operationId: 'create' }));
  const request = { rowId: 'r1', fields: { hours: 2 }, expected: first.version, operationId: 'replace' };
  const registers = work.registers.open({ caseId: CASE, store: 'time' });
+ // GRS-266: the replace commits with its audit event, or not at all.
  audit.state.down = true;
- await expect(registers.replace(request)).rejects.toMatchObject({ code: 'audit-unavailable', outcome: 'written-unaudited' });
+ await expect(registers.replace(request)).rejects.toMatchObject({ code: 'audit-unavailable', outcome: 'not-written' });
  audit.state.down = false;
+ written(await registers.replace(request));
  const current = (await registers.rows())[0];
  written(await work.deleteRow({ caseId: CASE, store: 'time', rowId: 'r1', expected: { kind: 'match', version: current.version }, operationId: 'delete' }));
  const replay = await make().registers.open({ caseId: CASE, store: 'time' }).replace(request).then(r => r, e => ({ error: e.code }));
  console.log('replace replay', replay, db.prepare("SELECT operation_id, audited_at FROM uw_operation").all());
  expect(replay).toMatchObject({ kind: 'written' });
  expect(await registers.rows()).toHaveLength(0);
+ expect([...audit.events.values()].filter(e => e.action === 'user-work.register-replace')).toHaveLength(1);
 });

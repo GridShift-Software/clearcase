@@ -3,10 +3,10 @@
 // Every write is one guarded D1 batch: the first statement fails the batch unless the case's user-work revision is the
 // one the write read and the database is bound to this deployment's client and schema version, so a competing writer
 // can never be overwritten. The same batch records the operation in uw_operation with its request digest, result and
-// audit event. Fresh note changes require AuditSink.atomic; every other fresh change commits its audit in that batch too
-// whenever the sink can prepare it for this binding. A sink that cannot (no AuditSink.atomic, or recovery's guarded
-// binding, which is not the sink's session object) and historical unaudited ledgers keep append-and-replay recovery
-// under the same operationId.
+// audit event, and every fresh change commits its audit event in that same batch through AuditSink.atomic: a sink that
+// cannot prepare it for this binding refuses the change with nothing written. The exceptions append after the batch
+// and recover by replay under the same operationId: a restore (recovery's guarded binding is not the sink's session
+// object), snapshots, table definitions and ledgers written unaudited before GRS-266.
 // A failed batch is never taken as success or failure on its own: the ledger and revision are read back to decide.
 import type * as C from '../../server/runtime/contracts.ts';
 import type { D1, D1Statement } from '../../server/runtime/hosted/bindings.ts';
@@ -178,10 +178,10 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       COALESCE((SELECT revision FROM uw_case WHERE case_id = ?), 'revision-0') = ?
       AND EXISTS (SELECT 1 FROM uw_binding WHERE singleton = 1 AND client_id = ? AND schema_version = ?))`).bind(caseId, revision, config.clientId, USER_WORK_SCHEMA_VERSION);
 
-  /** The event's insert for the change batch. A note change refuses without one. Any other change falls back to
-   * appending after its batch (acknowledged and replayed as before) when the sink cannot prepare one for this binding:
-   * a sink without `atomic`, or one bound to another session object, as recovery's guarded binding is. A refusal the
-   * sink can only make at commit (a full or unbound log) fails the batch, so the change is not written. */
+  /** The event's insert for the change batch. Every change refuses, writing nothing, when the sink cannot prepare one
+   * for this binding, except a restore: recovery restores through a guarded binding that is not the sink's session
+   * object, so a restore appends after its batch (acknowledged and replayed under its operationId, behind its audited
+   * pre-restore snapshot). A refusal the sink makes at commit (a full or unbound log) fails the batch: not written. */
   async function auditInBatch(db: D1, event: C.AuditEvent, required: boolean): Promise<readonly D1Statement[]> {
     try {
       if (!audit.atomic) throw contractError('audit-unavailable', false);
@@ -214,7 +214,7 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       if (expectedRevision !== undefined && revision !== expectedRevision) return { kind: 'stale' };
       const version = token(), when = at();
       const event: C.AuditEvent = { eventId, actor: actor(), action: `user-work.${kind}`, object: { kind: 'case', id: caseId, caseId }, version, outcome: 'succeeded', at: when };
-      const auditStatements = await auditInBatch(db, event, atomicNote);
+      const auditStatements = await auditInBatch(db, event, kind !== 'restore');
       const atomic = auditStatements.length > 0;
       const step: Step = { revision, version, next: nextRevision(), at: when, event, audited: atomic ? when : null };
       const planned = await plan(db, caseId, step);

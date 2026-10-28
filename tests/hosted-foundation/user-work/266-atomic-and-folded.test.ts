@@ -45,17 +45,18 @@ describe('every change audits in its batch', () => {
     } finally { w.db.close(); }
   });
 
-  it('falls back to append-and-replay when the sink cannot prepare the event, as before GRS-266', async () => {
+  it('writes nothing when the atomic audit is refused, and the same operation id saves once the audit is back', async () => {
     const w = setup();
     try {
       w.audit.state.down = true;
       await expect(w.work.putRow({ caseId: CASE, store: 'time', rowId: 'r1', fields: { hours: 1 }, anchor: null, expected: { kind: 'absent' }, operationId: 'op' }))
-        .rejects.toMatchObject({ code: 'audit-unavailable', outcome: 'written-unaudited' });
-      expect([w.count('SELECT count(*) AS n FROM uw_register_row'), w.count('SELECT count(*) AS n FROM uw_operation WHERE audited_at IS NULL')]).toEqual([1, 1]);
+        .rejects.toMatchObject({ code: 'audit-unavailable', outcome: 'not-written' });
+      await expect(w.work.putTableRow({ caseId: CASE, table: MARKS, owner: 'GRS-19', row: mark('a'), expected: { kind: 'absent' }, operationId: 'mark' }))
+        .rejects.toMatchObject({ code: 'audit-unavailable', outcome: 'not-written' });
+      expect([w.count('SELECT count(*) AS n FROM uw_register_row'), w.count('SELECT count(*) AS n FROM uw_table_row'), w.count('SELECT count(*) AS n FROM uw_operation')]).toEqual([0, 0, 0]);
       w.audit.state.down = false;
       expect((await w.work.putRow({ caseId: CASE, store: 'time', rowId: 'r1', fields: { hours: 1 }, anchor: null, expected: { kind: 'absent' }, operationId: 'op' })).kind).toBe('written');
       expect(w.audit.events.size).toBe(1);
-      expect(w.count('SELECT count(*) AS n FROM uw_operation WHERE audited_at IS NULL')).toBe(0);
     } finally { w.db.close(); }
   });
 

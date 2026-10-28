@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '$app/forms';
 	import CitationLink from '$lib/components/CitationLink.svelte';
@@ -19,6 +19,18 @@
 	] as [string, string][]);
 	let ready = $state(false);
 	onMount(() => { ready = true; });
+	// What the page says about the original in one phrase: it is stored, it is not supplied, or it is inside its parent message.
+	const availability = $derived(
+		data.state.file === 'present' && data.state.original && !data.onDisk ? 'available'
+		: data.state.self?.route === 'parent' || data.state.flags.includes('embedded') ? 'embedded'
+		: 'missing'
+	);
+	// OriginalOpen owns the Open control; the journeys' hook goes on it from outside.
+	let original = $state<HTMLElement>();
+	$effect(() => {
+		void data.links;
+		void tick().then(() => original?.querySelector('#open-original')?.setAttribute('data-testid', 'open-original'));
+	});
 	let noteBusy = $state(false);
 	const noteRefused = $derived(!!form && 'body' in form);
 	let noteError = $state<string | null>(null);
@@ -44,7 +56,14 @@
 	</tbody></table></section>
 
 	{#if data.source !== 'results'}<p class="card" id="doc-source" data-source={data.source}>This document comes from the document-row provider <code>{data.source.replace(/^provider:/, '')}</code>, not from the imported results.</p>{/if}
-	<OriginalOpen state={data.state} links={data.links} onDisk={data.onDisk} page={data.page} parentHref={data.parent?.exists ? docPath(vid, data.parent.ref, null, data.base) : null} />
+	<div bind:this={original} data-testid="original-metadata" data-original-availability={availability}>
+		<p class="note" id="original-availability">
+			{#if availability === 'available'}Original available.
+			{:else if availability === 'embedded'}Original inside the parent message{#if data.parent?.exists}: <a href={docPath(vid, data.parent.ref, null, data.base)}>{data.parent.ref}</a>{/if}.
+			{:else}Original not supplied.{/if}
+		</p>
+		<OriginalOpen state={data.state} links={data.links} onDisk={data.onDisk} page={data.page} parentHref={data.parent?.exists ? docPath(vid, data.parent.ref, null, data.base) : null} />
+	</div>
 
 	{#if data.attachments.length || f.attachmentNames.length}
 		<section class="card" aria-labelledby="att-heading" id="attachments"><h2 id="att-heading">Attachments</h2>

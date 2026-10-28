@@ -1,2 +1,2 @@
 import { datasetView } from '$lib/views/hosted/payloads.server';
-export const load: ReturnType<typeof datasetView<'matter'>> = datasetView('matter', d => !d.matter || !(d.matter.storyline.length || d.matter.strategy.length));
+export const load: ReturnType<typeof datasetView<'matter'>> = datasetView('matter', d => !d.matter);

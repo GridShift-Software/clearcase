@@ -111,7 +111,7 @@ export function fake(script: Script): Fake {
     },
   });
   const identity: C.Identity = { kind: 'anonymous', principal: null, sessionId: null, clientId: id('client', 'client-a'), checkRevocation: async () => {}, authorize: async () => { calls.push('identity.authorize'); } };
-  const services: C.RequestServices = { identity, store, assets, userWork, audit: { append: async (e) => ({ eventId: e.eventId }) }, runtime: { now: () => new Date('2026-10-25T00:00:00Z'), probe: async () => ({ ok: false, bindings: { DB: false, BUCKET: false, ASSETS: false }, probes: { d1: false, r2: false } }), build: undefined as never, gate: null, testIdentity: null } };
+  const services: C.RequestServices = { identity, store, assets, userWork, audit: { append: async (e) => ({ eventId: e.eventId }) }, runtime: { now: () => new Date('2026-10-25T00:00:00Z'), probe: async () => ({ ok: false, bindings: { DB: false, BUCKET: false, ASSETS: false }, probes: { d1: false, r2: false } }), build: undefined as never, gate: null, testIdentity: null }, shards: { read: async () => { calls.push('shards.read'); return null; } } };
   return { services, calls, notes, writes };
 }
 

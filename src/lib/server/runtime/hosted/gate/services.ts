@@ -15,6 +15,8 @@ import { testIdentity } from './identity.ts';
 import { d1Audit } from './audit.ts';
 import { fixtureStore } from './store.ts';
 import { fixtureAssets } from './assets.ts';
+import { fixtureShards } from './shards.ts';
+import type { ShardBucket } from '../../../../results/hosted/shards.ts';
 
 /** Marks an artifact that contains the gate doubles; the production artifact scan refuses any artifact holding it. */
 export const TEST_DOUBLE_MARKER = 'clearcase-test-double:hosted-gate';
@@ -46,6 +48,7 @@ export async function gateServices(request: Request, env: Readonly<Record<string
 		userWork: unavailable.userWork,
 		audit: audit.sink,
 		runtime: runtime(identity.double),
+		shards: fixtureShards({ bucket: bucket as unknown as ShardBucket, clientId }),
 	};
 	return { ready: true, services };
 }

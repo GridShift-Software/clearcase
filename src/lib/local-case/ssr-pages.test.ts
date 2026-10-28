@@ -197,7 +197,7 @@ describe('hooks.server.ts: loopback clients only, and a disk-full diagnostic', (
 		const { handle } = (await (vite.environments.ssr as RunnableDevEnvironment).runner.import('/src/hooks.server.ts')) as Hooks;
 		let resolved = false;
 		const res = await handle({ event: event(addr), resolve: async (e) => {
-			expect(Object.keys(e.locals).sort()).toEqual(['assets', 'audit', 'identity', 'runtime', 'store', 'userWork']);
+			expect(Object.keys(e.locals).sort()).toEqual(['assets', 'audit', 'identity', 'runtime', 'shards', 'store', 'userWork']);
 			resolved = true; return new Response('routed');
 		} });
 		return { status: res.status, resolved, text: await res.text() };

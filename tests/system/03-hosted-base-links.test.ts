@@ -48,7 +48,10 @@ const loaders: Record<string, () => Promise<unknown>> = {
 async function page(route: string, Page: never, base: string) {
 	const mod = (await loaders[route]()) as Loader;
 	const data = (await mod.load({ params: { vid: rv }, url: new URL(`http://127.0.0.1/v/${rv}/${route}`), parent: async () => ({ version: version(), base }) })) as J;
-	return render(Page, { props: { data: { ...data, version: version(), base }, form: null } as never }).body;
+	// The version layout sets the base context that CitationLink reads; the local freshness widget is left out, because its
+	// rescan link is local-only slot data and the hosted overview fills that slot itself (06's overview-slots.server.ts).
+	const html = render(Page, { props: { data: { ...data, version: version(), base }, form: null } as never, context: new Map([['clearcase:base', () => base]]) }).body;
+	return html.replace(/<p id="freshness-scan">[\s\S]*?<\/p>/, '');
 }
 const hrefs = (html: string) => [...html.matchAll(/href="([^"]*)"/g)].map((m) => m[1].replaceAll('&amp;', '&'));
 

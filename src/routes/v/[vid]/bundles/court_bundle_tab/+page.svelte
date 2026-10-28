@@ -27,16 +27,21 @@
 	let stored = $derived(data.header);
 	const hd = $derived(header(stored));
 
-	const view = $derived(page.url.searchParams.get('view') === 'build' ? 'build' : page.url.searchParams.has('b') ? 'bundle' : 'list');
+	let pendingQuery = $state<URLSearchParams | null>(null);
+	const query = $derived(pendingQuery ?? page.url.searchParams);
+	const view = $derived(query.get('view') === 'build' ? 'build' : query.has('b') ? 'bundle' : 'list');
 	const repeated = $derived.by(() => { const seen = new Set<string>(), dup = new Set<string>(); for (const x of bs) (seen.has(x.no) ? dup : seen).add(x.no); return dup; });
 	const bq = (i: number): Record<string, string> => (repeated.has(bs[i]!.no) ? { b: bs[i]!.no, at: String(i) } : { b: bs[i]!.no });
 	const cur = $derived.by(() => {
-		const no = page.url.searchParams.get('b'), at = Number(page.url.searchParams.get('at') ?? 'x');
+		const no = query.get('b'), at = Number(query.get('at') ?? 'x');
 		return Number.isInteger(at) && bs[at]?.no === no ? at : bs.findIndex((x) => x.no === no);
 	});
 	const b = $derived(cur >= 0 ? bs[cur]! : null);
-	const tab = $derived(({ items: 'items', view: 'view' } as Record<string, string>)[page.url.searchParams.get('tab') ?? ''] ?? 'index');
-	const go = (q: Record<string, string>) => goto(`?${new URLSearchParams(q)}`);
+	const tab = $derived(({ items: 'items', view: 'view' } as Record<string, string>)[query.get('tab') ?? ''] ?? 'index');
+	const go = (q: Record<string, string>) => {
+		pendingQuery = new URLSearchParams(q);
+		return goto(`?${pendingQuery}`).finally(() => { pendingQuery = null; });
+	};
 	const href = (r: Resolved | null, page?: number) => hrefOf(vid, data.files, r, page);
 	const blob = (x: Bundle) => (x.id ? (blobs[x.id] ?? null) : null);
 	const rl = reloader();

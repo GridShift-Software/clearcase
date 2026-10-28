@@ -111,25 +111,57 @@ describe('11 hosted chronology routes', () => {
     expect(reads).toBe(0);
   });
 
-  test("the original endpoint answers a document's viewer model as private, uncached JSON; a malformed ref is 404", async () => {
-    // The shard world has no originals catalogue (08's); an assets handle answers for one PDF the way 08's reader does.
+  // The shard world has no originals catalogue (08's); an assets handle answers for any asset the way 08's reader does,
+  // and records what it was asked, so a refusal is seen to come before any asset is looked up or a ticket minted.
+  function assetsDouble() {
     const asked: string[] = [];
-    const metadata = { filename: 'BK-0000 Synthetic.pdf', mediaType: 'application/pdf', size: 40 };
+    const metadata = (id: string) => ({ filename: `${id} Synthetic.pdf`, mediaType: 'application/pdf', size: 40 });
     const assets = {
-      metadata: async ({ asset }: { asset: { assetId: string } }) => { asked.push(asset.assetId); return metadata; },
-      links: async () => ({ originalHref: `/cases/${CASE_ID}/originals/BK-0000`, downloadHref: `/cases/${CASE_ID}/originals/BK-0000?download=1` }),
-      availability: async () => ({ kind: 'available', metadata }),
+      metadata: async ({ asset }: { asset: { assetId: string } }) => { asked.push(asset.assetId); return metadata(asset.assetId); },
+      links: async ({ asset }: { asset: { assetId: string } }) => ({ originalHref: `/cases/${CASE_ID}/originals/${asset.assetId}`, downloadHref: `/cases/${CASE_ID}/originals/${asset.assetId}?download=1` }),
+      availability: async ({ asset }: { asset: { assetId: string } }) => ({ kind: 'available', metadata: metadata(asset.assetId) }),
     };
-    const r = (await originalGet(event({ ...locals(dep), assets } as never, listUrl(''), { ref: 'BK-0000' }))) as Response;
+    return { asked, l: () => ({ ...locals(dep), assets }) as never };
+  }
+  const original = (l: never, ref: string, params: Record<string, string> = {}) => originalGet(event(l, listUrl(''), { ref, ...params }));
+  const allRefs = async () => ((await (await list('?all=1')).json()) as ListPage).rows;
+
+  test("the original endpoint answers a document's own original as private, uncached JSON", async () => {
+    const d = assetsDouble();
+    const r = (await original(d.l(), 'BK-0000')) as Response;
     expect(r.status).toBe(200);
     expect(r.headers.get('cache-control')).toBe('private, no-store');
     const body = (await r.json()) as { view: Record<string, unknown>; viewHref: string; notesHref: string };
-    expect(body.view).toMatchObject({ state: 'available', mode: 'pdf', filename: metadata.filename, srcHref: `/cases/${CASE_ID}/originals/BK-0000` });
+    expect(body.view).toMatchObject({ state: 'available', mode: 'pdf', filename: 'BK-0000 Synthetic.pdf', srcHref: `/cases/${CASE_ID}/originals/BK-0000` });
     expect(body.viewHref).toBe(`/cases/${CASE_ID}/originals/BK-0000/view`);
     expect(body.notesHref).toBe(`/cases/${CASE_ID}/originals/BK-0000/notes`);
-    expect(asked).toEqual(['BK-0000']);
-    for (const ref of ['../x', '', 'a b']) expect(await status(() => originalGet(event({ ...locals(dep), assets } as never, listUrl(''), { ref }))), ref).toBe(404);
-    expect(asked).toEqual(['BK-0000']);
+    expect(d.asked).toEqual(['BK-0000']);
+  });
+
+  test('a ref with no document in the version, or a malformed one, is 404 before any asset is looked up', async () => {
+    const d = assetsDouble();
+    for (const ref of ['ZZ-9999', 'BK-9999', '../x', '', 'a b']) expect(await status(() => original(d.l(), ref)), ref).toBe(404);
+    expect(d.asked).toEqual([]);
+  });
+
+  test('a version that is not the published one is 404 before any asset is looked up', async () => {
+    const d = assetsDouble();
+    for (const version of [`sha256:${'0'.repeat(64)}`, 'latest']) expect(await status(() => original(d.l(), 'BK-0000', { version })), version).toBe(404);
+    expect(d.asked).toEqual([]);
+  });
+
+  test("an asset id that is not a document's own (a package file, an attachment) is 404; so is a document without its own original", async () => {
+    const d = assetsDouble();
+    const rows = await allRefs();
+    const docs = new Set(rows.map((r) => r.ref));
+    const originals = JSON.parse(new TextDecoder().decode(b.files.get('originals.json')!)) as { id: string }[];
+    const notDocuments = originals.map((o) => o.id).filter((id) => !docs.has(id));
+    expect(notDocuments.length).toBeGreaterThan(0); // the synthetic package carries package files
+    for (const id of [...notDocuments.slice(0, 3), 'BK-0000.a1']) expect(await status(() => original(d.l(), id)), id).toBe(404);
+    const without = rows.filter((r) => r.file !== 'present').map((r) => r.ref);
+    expect(without.length).toBeGreaterThan(0); // the synthetic case leaves one original out
+    for (const ref of without) expect(await status(() => original(d.l(), ref)), ref).toBe(404);
+    expect(d.asked).toEqual([]);
   });
 });
 

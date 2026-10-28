@@ -7,10 +7,11 @@ import { paymentsWork } from '../payments_tab/work.server';
 
 export const load = async ({ locals, params }: Pick<RequestEvent, 'locals' | 'params'>) => {
   const scope = await publishedVersion(locals, params);
-  const [payload, rows] = await Promise.all([
+  const [payload, work] = await Promise.all([
     shard<ViewShards['interest_calc_tab']>(locals, params, 'view/interest_calc_tab.json'),
-    locals.userWork.listRows({ caseId: scope.caseId, store: 'payments' }).catch(refuse),
+    locals.userWork.readViewWork({ caseId: scope.caseId, store: 'payments' }).catch(refuse),
   ]);
+  const rows = work.rows;
   const data = interestMerge(payload, { payments: paymentsWork(rows) });
   return { ...data, base: scope.base, empty: !data.headlineDue && !data.headlineDate && !data.note && data.paymentDates.length === 0 };
 };

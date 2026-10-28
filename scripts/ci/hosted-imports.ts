@@ -103,7 +103,10 @@ export function checkHostedGraph(a: { root: string; profile?: HostedProfile }): 
     // TypeScript does not resolve Svelte components; a component is named by a relative, $lib or $local path, nothing else.
     if (specifier.endsWith('.svelte')) {
       const file = sourcePath(specifier, importer);
-      if (file === null || !existsSync(file)) fail(chain, `unresolved ${specifier}`); else visit(file, chain);
+      // Rune modules are imported as `name.svelte` too. Prefer a real component, otherwise visit the actual
+      // .svelte.ts/.svelte.js source through the same containment and capability checks as every other module.
+      const resolved = file === null ? undefined : [file, `${file}.ts`, `${file}.js`].find(existsSync);
+      if (!resolved) fail(chain, `unresolved ${specifier}`); else visit(resolved, chain);
       return;
     }
     const module = ts.resolveModuleName(specifier, importer, options, ts.sys).resolvedModule, resolved = module?.resolvedFileName;

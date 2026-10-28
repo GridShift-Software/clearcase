@@ -7,10 +7,11 @@ import type { RequestEvent } from '@sveltejs/kit';
 
 export const load = async ({ locals, params }: Pick<RequestEvent, 'locals' | 'params'>) => {
   const scope = await publishedVersion(locals, params);
-  const [payload, rows] = await Promise.all([
+  const [payload, work] = await Promise.all([
     shard<ViewShards['enforcement_tab']>(locals, params, 'view/enforcement_tab.json'),
-    locals.userWork.listRows({ caseId: scope.caseId, store: 'enforcement-status' }).catch(refuse),
+    locals.userWork.readViewWork({ caseId: scope.caseId, store: 'enforcement-status' }).catch(refuse),
   ]);
+  const rows = work.rows;
   const data = enforcementMerge(payload, { rows: registerRows(rows) });
   return { ...data, base: scope.base, empty: data.rows.length === 0 };
 };

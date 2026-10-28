@@ -12,13 +12,15 @@ import type { ShardModule } from '../types.ts';
 export default {
   name: 'views-mixed',
   async build({ pure, json }) {
+    const seeds = (dataset: string) => pure.store.seeds(pure.vid).filter((s) => s.dataset_key === dataset)
+      .map((s) => ({ datasetKey: s.dataset_key, seedId: s.seed_id, seedSha256: s.seed_sha256, record: JSON.parse(s.record_json) }));
     return [
-      json('view/filings_tab.json', filingsPure(pure)),
+      json('view/filings_tab.json', { ...filingsPure(pure), seeds: seeds('filings') }),
       json('view/payments_tab.json', paymentsPure(pure)),
       json('view/interest_calc_tab.json', interestPure(pure)),
       json('view/settlement_tab.json', settlementPure(pure)),
       json('view/enforcement_tab.json', enforcementPure(pure)),
-      json('view/crossexam_tab.json', crossexamPure(pure)),
+      json('view/crossexam_tab.json', { ...crossexamPure(pure), seeds: seeds('lit-crossexam-seed') }),
       json('view/authorities_tab.json', authoritiesPure(pure)),
       json('view/info_required_tab.json', infoRequiredPure(pure)),
       // Heads starts as an empty user register. Its reference index resolves user-entered citations without another read.

@@ -8,6 +8,7 @@ import {
 	bundleObjectKey,
 } from '$lib/views/bundles/assembled';
 import { uploadBundle } from '$lib/views/bundles/upload';
+import { storedBundles } from '$lib/views/bundles/saved';
 import { customOf } from '$lib/bundles/builder';
 import { readCustom, saveCustom } from '$lib/views/bundles/store.server';
 import type { RequestHandler } from './$types';
@@ -42,7 +43,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		{ mode: 0o600 },
 	);
 	const no = await saveCustom(c, id, entry, []);
-	return json({ saved: true, id, no });
+	return json({ saved: true, id, no, bundles: await readCustom(c).then(storedBundles, () => null) });
 };
 export const GET: RequestHandler = async ({ params, url }) => {
 	const a = app(),

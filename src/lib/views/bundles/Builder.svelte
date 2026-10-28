@@ -10,10 +10,10 @@
 	import { pad, type Bundle, type Header } from './court.ts';
 	import { DOCX_TYPE, indexDocx } from './docx.ts';
 	import { download } from '../../components/download.ts';
-	import { bundleUploadHeaders } from './upload.ts';
+	import { saveBundle, type StoredBundle } from './saved.ts';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 
-	let { bundles, h, creator, off, reload, onback }: { bundles: Bundle[]; h: Header; creator: string; off: boolean; reload: () => Promise<boolean>; onback: () => void } = $props();
+	let { bundles, h, creator, off, onsaved, onback }: { bundles: Bundle[]; h: Header; creator: string; off: boolean; onsaved: (bundles: StoredBundle[] | null) => void; onback: () => void } = $props();
 	const pl = $derived(plan(bld.b));
 	const need = $derived(unlinked(pl));
 	const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -116,23 +116,16 @@
 		bld.saving = true;
 		bld.saveError = null;
 		try {
-			const response = await fetch(page.url.pathname.replace(/\/$/, '') + '/assembled', {
-                method: 'POST', headers: bundleUploadHeaders(o.id, entry), body: o.pdf,
-            });
-			const data = await response.json();
-			const r = { ok: response.ok, message: data.message ?? 'Not saved. Retry.', data };
+			const r = await saveBundle(fetch, page.url.pathname, o.id, o.pdf, entry);
 			if (!r.ok) {
 				if (bld.out?.id === o.id) bld.saveError = r.message;
-				else URL.revokeObjectURL(o.url);
+				else if (r.kind === 'refused') URL.revokeObjectURL(o.url);
 				return;
 			}
-			const no = String(r.data?.no ?? '');
-			o.saved = no;
+			o.saved = r.no;
 			blobs[o.id] = o.url;
-			if (!(await reload())) return;
-			if ((page.shallow?.url ?? page.url).searchParams.get('view') === 'build' && bld.out?.id === o.id) await goto(`?${new URLSearchParams({ b: no, tab: 'index' })}`);
-		} catch {
-			if (bld.out?.id === o.id) bld.saveError = 'Not saved: the upload failed. Retry.';
+			onsaved(r.bundles);
+			if ((page.shallow?.url ?? page.url).searchParams.get('view') === 'build' && bld.out?.id === o.id) await goto(`?${new URLSearchParams({ b: r.no, tab: 'index' })}`, { shallow: true }).catch(() => {});
 		} finally {
 			bld.saving = false;
 		}

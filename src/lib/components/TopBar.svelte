@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { isSearchShortcut } from './shell-keys.ts';
 	import type { ShellData } from './shell.ts';
-	let { shell, navOpen = false, navToggleId = 'nav-toggle', navControls, ontoggle }: { shell: ShellData; navOpen?: boolean; navToggleId?: string; navControls?: string; ontoggle?: () => void } = $props();
+	let { shell, navOpen = false, navToggleId = 'nav-toggle', navControls, ontoggle, beforesearch }: { shell: ShellData; navOpen?: boolean; navToggleId?: string; navControls?: string; ontoggle?: () => void; beforesearch?: () => unknown } = $props();
 	const published = $derived(shell.published);
 	let search = $state<HTMLInputElement>();
-	// Ctrl+K (Cmd+K on a Mac) moves to the search box from anywhere on the page
-	const shortcut = (e: KeyboardEvent) => {
+	// Ctrl+K (Cmd+K on a Mac) moves to the search box from anywhere on the page; an open drawer (which makes this bar
+	// inert) is closed first by the shell
+	const shortcut = async (e: KeyboardEvent) => {
 		if (!isSearchShortcut(e)) return;
 		e.preventDefault();
+		await beforesearch?.();
 		search?.focus();
 		search?.select();
 	};

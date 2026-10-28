@@ -60,3 +60,10 @@ it('L5 signs attachment and octet-stream presentation and refuses missing accoun
  const {readFileSync}=await import('node:fs');
  expect(readFileSync('src/lib/viewer/hosted/original-delivery.ts','utf8')).not.toContain('fb4c31b91c5d89b7a54afbdc34823170');
 });
+
+it('L5 canonical query uses byte order across response and X-Amz parameters',async()=>{
+ const {presignOriginal}=await import('../../../src/lib/viewer/hosted/presign');
+ const url=new URL(await presignOriginal({accountId:'a'.repeat(32),bucket:'synthetic',sha256:claims.sha256,accessKeyId:'synthetic-key',secretAccessKey:'synthetic-secret'}));
+ const keys=[...url.searchParams.keys()].filter(k=>k!=='X-Amz-Signature');
+ expect(keys).toEqual([...keys].sort());
+});

@@ -56,7 +56,7 @@ put(bytes);
 const result = {
 	bodyBytes: length,
 	peakArrayBuffersDelta: peakBuffers - start.arrayBuffers,
-	peakRssDelta: peakRss - start.rss,
+	peakRssDelta: Math.max(peakRss, process.resourceUsage().maxRSS * 1024) - start.rss,
 };
 console.log(JSON.stringify(result));
 if (

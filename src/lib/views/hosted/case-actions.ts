@@ -2,7 +2,8 @@
 import type { ShellData } from '../../components/shell.ts';
 import { notesHref } from './paths.ts';
 
-export const caseActions = (caseId: string): ShellData['actions'] => [
+export const caseActions = (caseId: string, canUpload = false): ShellData['actions'] => [
   { label: '← All cases', href: '/cases' },
   { label: 'Notes', href: notesHref(caseId) },
+  ...(canUpload ? [{ label: 'Upload documents', href: `/client/intake/${encodeURIComponent(caseId)}` }] : []),
 ];

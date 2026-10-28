@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { shardPrefix } from '../../../src/lib/results/hosted/shards.ts';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import { localLoad } from '../../../scripts/publish/local-loader.ts';
 import { service } from '../../../src/lib/local-case/test-support.ts';
@@ -35,6 +36,26 @@ test.each(routes)('%s shard props equal the unchanged local loader', async (rout
   const hosted = await load({ locals: locals(dep), params: { caseId: CASE_ID, version: b.synth.resultsVersion } as never });
   const { base, empty, ...props } = hosted;
   expect(base).toBe(`/cases/${CASE_ID}/v`);
-  expect(typeof empty).toBe('boolean');
-  expect(props).toEqual(JSON.parse(JSON.stringify(local)));
+  expect(empty).toBe(false);
+  // JSON is the actual shard wire format: prove its bytes match the local output first.
+  const bytes = b.files.get(`view/${route.split('/').at(-1)}.json`)!;
+  expect(bytes).toEqual(new TextEncoder().encode(JSON.stringify(local)));
+  expect(props).toStrictEqual(JSON.parse(new TextDecoder().decode(bytes)));
+});
+
+test('matter title and contradiction summary remain content without narrative/items', async () => {
+  const edge = await published(b);
+  const prefix = shardPrefix(b.synth.resultsVersion);
+  const m = { matter: { title: 'Synthetic matter summary', storyline: [], strategy: [] }, known: [] };
+  const original = JSON.parse(new TextDecoder().decode(b.files.get('view/contradictions_tab.json')!));
+  const c = { ...original, c: { ...original.c, categories: [] } };
+  for (const [name, value] of [['matter', m], ['contradictions_tab', c]] as const)
+    edge.bucket.objects.set(`${prefix}view/${name}.json`, new TextEncoder().encode(JSON.stringify(value)));
+  const event = () => ({ locals: locals(edge), params: { caseId: CASE_ID, version: b.synth.resultsVersion } as never });
+  expect((await matter(event())).empty).toBe(false);
+  expect((await contradictions_tab(event())).empty).toBe(false);
+  edge.bucket.objects.set(`${prefix}view/matter.json`, new TextEncoder().encode(JSON.stringify({ ...m, matter: null })));
+  edge.bucket.objects.set(`${prefix}view/contradictions_tab.json`, new TextEncoder().encode(JSON.stringify({ ...c, c: null })));
+  expect((await matter(event())).empty).toBe(true);
+  expect((await contradictions_tab(event())).empty).toBe(true);
 });

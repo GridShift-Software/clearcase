@@ -1,7 +1,7 @@
 import type { AuditSink, IdentityState } from '../server/runtime/contracts.ts';
 import type { D1 } from '../server/runtime/hosted/bindings.ts';
 import type { AuditConfig } from './config.ts';
-import { auditCore, type AuditLookup, type AuditQuery, type AuditReadGate, type PublicAuditPage } from './d1-log.ts';
+import { requestReadAudit as deferredReadAudit, auditCore, type AuditLookup, type AuditQuery, type AuditReadGate, type PublicAuditPage } from './d1-log.ts';
 
 // The owned facades the parent composes into a request. Each is a frozen object with exactly the methods its holder may
 // use, backed by its own core: handing one to a route hands over nothing else (no find, no query on the sink, no
@@ -35,4 +35,9 @@ export function trustedGrantAuditPort(a: Common): GrantAuditPort {
   const core = auditCore({ ...a, gate: null });
   const port: GrantAuditPort = { append: (event) => core.append(event), find: (eventId) => core.find(eventId) };
   return Object.freeze(port);
+}
+
+/** Trusted composition of one request’s best-effort page-read log. */
+export function requestReadAudit(a: Pick<Common, 'db' | 'config'> & { waitUntil?: (work: Promise<void>) => void }) {
+  return deferredReadAudit(a);
 }

@@ -20,6 +20,8 @@
 	type Result = { op?: 'add' | 'save' | 'delete'; code?: string; values?: Values; editing?: string | null; version?: string | null; message?: string; target?: string; confirm?: string | null; draft?: { values: Values; editing: string | null; version: string | null; failed: string | null } } | null;
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
+	// the hosted route names each add, so a retry of one submission is one row; the local page sends none
+	const operationId = $derived((data as { operationId?: string }).operationId);
 	const files = $derived(new Map(data.files));
 
 	const blank = (): Values => Object.fromEntries(INPUTS.map((k) => [k, '']));
@@ -197,7 +199,7 @@
 		<h2 id="register-heading">Filing ↔ Replying-affidavit register</h2>
 		<p class="register-intro">{data.content.registerIntro}</p>
 		<form method="POST" action={editing ? '?/save' : '?/add'} class="register-form" use:enhance={submit} id="register-form" data-mode={editing ? 'edit' : 'add'} aria-busy={busy !== null}>
-			{#if editing}<input type="hidden" name="key" value={editing} /><input type="hidden" name="version" value={version ?? ''} />{/if}
+			{#if operationId}<input type="hidden" name="operationId" value={operationId} />{/if}{#if editing}<input type="hidden" name="key" value={editing} /><input type="hidden" name="version" value={version ?? ''} />{/if}
 			{#if saveError}<input type="hidden" name="failed" value={saveError.code} />{/if}
 			<fieldset class="row" disabled={busy !== null}>
 				<div><label class="fld" for="fl_filing">Filing</label><input class="in" id="fl_filing" name="filing" bind:value={values.filing} /></div>

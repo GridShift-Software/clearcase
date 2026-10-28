@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { clerkBrowserHandshakeFromEnv, clerkCookieClears, handshakeResponse, planSignIn, safeReturnTo, signOutClerkSession, type HandshakeOutcome } from '../../../src/lib/auth/clerk/browser.ts';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
+import { bindingStarted, consumed, startedBound } from './started-here.ts';
 
 const ORIGIN = 'https://client-a.clearcase.test';
 const A = craftedInstance('client-a.clerk.test'), B = craftedInstance('staff-b.clerk.test'), C = craftedInstance('client-c.clerk.test');
@@ -29,7 +30,7 @@ const env = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
 function handshake(extra: Record<string, unknown> = {}) {
 	const made = clerkBrowserHandshakeFromEnv(env(extra));
 	if (!made.ok) throw new Error(made.reason);
-	return made.handshake;
+	return bindingStarted(made.handshake, env(extra));
 }
 const doc = { 'sec-fetch-dest': 'document', accept: 'text/html' };
 const page = (path: string, cookie?: string, headers: Record<string, string> = {}) => new Request(`${ORIGIN}${path}`, { headers: { ...doc, ...(cookie ? { cookie } : {}), ...headers } });
@@ -44,7 +45,7 @@ const redirectOf = (o: HandshakeOutcome) => {
 describe('the handshake that returns a session cookie to this origin', () => {
 	it('sends a browser with no session to its own Clerk instance handshake and back to the same page, never with a nonce format', async () => {
 		const calls = status.calls.length, fetched = vi.spyOn(globalThis, 'fetch');
-		const o = redirectOf(await handshake().handle(page('/cases?tab=1')));
+		const o = startedBound(redirectOf(await handshake().handle(page('/cases?tab=1'))));
 		const to = new URL(o.location);
 		expect(`${to.origin}${to.pathname}`).toBe('https://client-a.clerk.test/v1/client/handshake');
 		// marked, so a return the browser kept no cookies of stops (heavy review M2)
@@ -58,7 +59,7 @@ describe('the handshake that returns a session cookie to this origin', () => {
 	it('applies the cookies of a verified handshake token host-only, and the session it sets signs the user in at this origin', async () => {
 		const session = tokenA();
 		const handshakeToken = A.sign({ iss: A.iss, handshake: [`__session=${session}; Path=/; Max-Age=60; Domain=.attacker.example.test; SameSite=None; Secure`, '__client_uat=1700000000; Path=/; Domain=.attacker.example.test'] });
-		const o = redirectOf(await handshake().handle(page(`/cases?__clerk_handshake=${handshakeToken}`, '__client_uat=1699999999')));
+		const o = consumed(redirectOf(await handshake().handle(page(`/cases?__clerk_handshake=${handshakeToken}`, '__client_uat=1699999999'))));
 		expect(o.location).toBe(`${ORIGIN}/cases`);
 		const jar = o.setCookies.map((c) => c.split(';')[0]).join('; ');
 		expect(jar).toBe(`__session=${session}; __client_uat=1700000000`);
@@ -96,7 +97,7 @@ describe('the handshake that returns a session cookie to this origin', () => {
 		expect(await handshake().handle(new Request(`${ORIGIN}/cases`, { method: 'POST', headers: doc }))).toEqual({ kind: 'continue' });
 		expect(await handshake().handle(new Request('https://attacker.example.test/cases', { headers: doc }))).toMatchObject({ kind: 'refuse' });
 		expect(await handshake().handle(page('/cases', undefined, { 'x-forwarded-host': 'attacker.example.test', 'x-forwarded-proto': 'https' }))).toMatchObject({ kind: 'redirect' });
-		const o = redirectOf(await handshake().handle(page('/cases', undefined, { 'x-forwarded-host': 'attacker.example.test' })));
+		const o = startedBound(redirectOf(await handshake().handle(page('/cases', undefined, { 'x-forwarded-host': 'attacker.example.test' }))));
 		expect(new URL(o.location).searchParams.get('redirect_url')).toBe(`${ORIGIN}/cases?__clearcase_reauth=1`);
 	});
 	it('continues without a redirect for a browser that holds a live session', async () => {
@@ -207,7 +208,7 @@ describe('the cookies a real development handshake returns', () => {
 
 	it('signs the browser in from the real directive set, storing the session and the instance refresh token HttpOnly', async () => {
 		const session = tokenA();
-		const o = redirectOf(await handshake().handle(page(`/cases?__clerk_handshake=${A.sign({ handshake: real(session) })}`)));
+		const o = consumed(redirectOf(await handshake().handle(page(`/cases?__clerk_handshake=${A.sign({ handshake: real(session) })}`))));
 		expect(o.location).toBe(`${ORIGIN}/cases`);
 		const names = o.setCookies.map((c) => c.split('=')[0]);
 		expect(names).toEqual(['__client_uat', '__client_uat', '__session', '__clerk_db_jwt', '__Host-clearcase_refresh']);

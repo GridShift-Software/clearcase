@@ -11,6 +11,7 @@ import { clerkBrowserHandshakeFromEnv, clerkCookieClears, signOutClerkSession, t
 import { clearableNames, cookiePairs, devBrowserOf, sdkCookieHeader } from '../../../src/lib/auth/clerk/flow.ts';
 import { CLERK_COOKIE_NAME, REFRESH_COOKIE_NAME, SESSION_COOKIE_NAME, presentedToken, sessionCookieNames } from '../../../src/lib/auth/clerk/session.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
+import { bindingStarted, consumed } from './started-here.ts';
 
 const ORIGIN = 'https://client-a.clearcase.test';
 // Hosts whose publishable key gives a cookie suffix with an underscore (zW_MaF8B) and a hyphen (a3-vmljj), as the SDK derives it.
@@ -40,7 +41,7 @@ const env = (client: typeof U): Record<string, unknown> => ({
 const handshake = (client: typeof U) => {
 	const made = clerkBrowserHandshakeFromEnv(env(client));
 	if (!made.ok) throw new Error(made.reason);
-	return made.handshake;
+	return bindingStarted(made.handshake, env(client));
 };
 const page = (path: string, cookie?: string) => new Request(`${ORIGIN}${path}`, { headers: { 'sec-fetch-dest': 'document', accept: 'text/html', ...(cookie ? { cookie } : {}) } });
 const cookie = (value: string) => new Request(ORIGIN, { headers: { cookie: value } });
@@ -205,7 +206,7 @@ describe('a handshake with base64url-suffixed cookies', () => {
 	];
 	it.each([['an underscore', U, SU, tokenU], ['a hyphen', H, SH, tokenH]] as const)('signs a browser in whose cookie suffix has %s, storing the session and its instance refresh token HttpOnly', async (_name, client, s, token) => {
 		const session = token();
-		const o = redirectOf(await handshake(client).handle(page(`/cases?__clerk_handshake=${client.sign({ handshake: suffixed(s, session) })}`)));
+		const o = consumed(redirectOf(await handshake(client).handle(page(`/cases?__clerk_handshake=${client.sign({ handshake: suffixed(s, session) })}`))));
 		expect(o.location).toBe(`${ORIGIN}/cases`);
 		expect(o.setCookies.map((c) => c.split('=')[0])).toEqual([`__client_uat_${s}`, `__client_uat_${s}`, `__session_${s}`, `__clerk_db_jwt_${s}`, '__Host-clearcase_refresh']);
 		expect(o.setCookies.slice(0, 4).join('\n')).not.toContain(REFRESH);

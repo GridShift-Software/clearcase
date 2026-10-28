@@ -43,7 +43,7 @@
 import { createClerkClient } from '@clerk/backend';
 import { isSignInFlowPage, readClerkIdentityConfig, rsaJwkOf, SIGN_IN_PAGE, type ClerkIdentityConfig, type InstanceKind } from './config.ts';
 import {
-	MAX_SESSION_LIFETIME_MS, OPERATOR_PATH, nextHoldName, REFRESH_TOKEN_VALUE, cookieDomains, cookieSuffix, ownedCookieNames, sessionClears, SESSION_HOLD_COOKIE, STAFF_DEV_BROWSER_TIE, STAFF_HANDSHAKE_CLEAR, STAFF_HANDSHAKE_COOKIE, STAFF_HANDSHAKE_PARAM, cookiePairs, sdkCookieHeader, sessionHoldClear,
+	MAX_SESSION_LIFETIME_MS, OPERATOR_PATH, nextHoldName, REFRESH_TOKEN_VALUE, cookieDomains, cookieSuffix, ownedCookieNames, sessionClears, SESSION_HOLD_COOKIE, STAFF_DEV_BROWSER_TIE, STAFF_HANDSHAKE_CLEAR, STAFF_HANDSHAKE_COOKIE, STAFF_HANDSHAKE_PARAM, HANDSHAKE_BINDING_PARAM, cookiePairs, handshakeBindingOf, sdkCookieHeader, sessionHoldClear, startHandshakeBinding,
 	sessionHoldCookie, sessionHoldNames, sessionHoldOf, staffDevBrowserTie, staffHandshakeOf, startStaffHandshake, tiedDevBrowser,
 	type ClerkBrowserHandshake, type HandshakeOutcome, type SessionHold, type SessionRefresh,
 } from './flow.ts';
@@ -59,7 +59,14 @@ const REAUTH_PARAM = '__clearcase_reauth', REAUTH_COOKIE = '__Host-clearcase_rea
 // was not signed in by it (the browser kept none of its cookies, so no cookie can count), and gets the session-ended
 // page instead (heavy review M2). A page that needs no handshake drops the parameter with one same-origin redirect.
 const returnedJustNow = (url: URL) => { const at = url.searchParams.get(REAUTH_PARAM); return at !== null && /^\d{10}$/.test(at) && Math.abs(Date.now() / 1000 - Number(at)) <= REAUTH_MAX_AGE; };
-const HANDSHAKE_PARAMS = ['__clerk_handshake', '__clerk_handshake_nonce', '__clerk_help', '__clerk_db_jwt', STAFF_HANDSHAKE_PARAM, REAUTH_PARAM];
+const HANDSHAKE_PARAMS = ['__clerk_handshake', '__clerk_handshake_nonce', '__clerk_help', '__clerk_db_jwt', STAFF_HANDSHAKE_PARAM, HANDSHAKE_BINDING_PARAM, REAUTH_PARAM];
+/** The page a handshake return lands on once its parameters are gone; a return mark becomes the time it returned. */
+const cleanReturn = (url: URL) => {
+	const clean = new URL(url);
+	for (const p of HANDSHAKE_PARAMS) clean.searchParams.delete(p);
+	if (url.searchParams.has(REAUTH_PARAM)) clean.searchParams.set(REAUTH_PARAM, String(Math.floor(Date.now() / 1000)));
+	return clean;
+};
 const TOKEN = /^[A-Za-z0-9._-]{16,8192}$/;
 const DEV_BROWSER = /^[A-Za-z0-9._-]{16,4096}$/;
 const DEV_BROWSER_COOKIE = /^__clerk_db_jwt(?:_[A-Za-z0-9_-]{1,32})?$/;
@@ -414,6 +421,10 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			const pairs = cookiePairs(request);
 			if (url.searchParams.has('__clerk_handshake_nonce') || pairs.some((c) => c.name === '__clerk_handshake_nonce')) return refuse(400, 'handshake-format-unsupported');
 			const hasToken = url.searchParams.has('__clerk_handshake');
+			// A return counts only in the browser that started its handshake (flow.ts startHandshakeBinding): any other goes
+			// to its page with no cookie of the handshake's, before the SDK reads the token (GRS-268).
+			const binding = hasToken ? await handshakeBindingOf(request, config) : null;
+			if (hasToken && binding === null) return { kind: 'redirect', location: cleanReturn(url).href, setCookies: [], code: 'handshake-unbound' };
 			const path = url.pathname, operator = path === OPERATOR_PATH || path.startsWith(`${OPERATOR_PATH}/`);
 			const kind = (!operator && hasToken ? await signerOf(url.searchParams.get('__clerk_handshake')!) : null) ?? handoffKind.get(request) ?? handshakeKind(request, config), instance = config[kind];
 			// only the browser's own hints reach the SDK: no Authorization header, no forwarded host or proto
@@ -458,6 +469,9 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				if (returnedJustNow(url)) return { kind: 'stop', signIn: kind === 'staff' ? OPERATOR_PATH : '/sign-in' };
 				to.searchParams.delete('format');
 				back.searchParams.set(REAUTH_PARAM, '1');
+				const bound = await startHandshakeBinding(config, request);
+				back.searchParams.set(HANDSHAKE_BINDING_PARAM, bound.id);
+				setCookies.push(...bound.setCookies);
 				to.searchParams.set('redirect_url', back.href);
 				if (kind === 'staff' && staffDevelopment) {
 					setCookies.unshift(...view.clears);
@@ -474,9 +488,8 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			const document = request.headers.get('sec-fetch-dest') === 'document';
 			if (hasToken) {
 				if (setCookies.length === 0) return refuse(400, 'handshake-invalid');
-				const clean = new URL(url);
-				for (const p of HANDSHAKE_PARAMS) clean.searchParams.delete(p);
-				if (url.searchParams.has(REAUTH_PARAM)) clean.searchParams.set(REAUTH_PARAM, String(Math.floor(Date.now() / 1000)));
+				const clean = cleanReturn(url);
+				setCookies.unshift(binding!.consume);
 				if (state.status !== 'signed-in' && setCookies.some(setsSession)) return refuse(502, 'handshake-cookie-refused');
 				// A session cookie the browser carries beside the ones this handshake sets would make its credential ambiguous, so
 				// each owned one it carries goes, at every scope, before the handshake's own are set: a browser a renewal left with

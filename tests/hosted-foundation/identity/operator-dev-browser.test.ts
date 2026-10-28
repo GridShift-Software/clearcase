@@ -8,6 +8,7 @@ import { createRedirect } from '@clerk/backend/internal';
 import { signInFormActionOrigins } from '../../../src/lib/auth/clerk/config.ts';
 import { clerkBrowserHandshakeFromEnv, type HandshakeOutcome } from '../../../src/lib/auth/clerk/browser.ts';
 import { craftedInstance } from './synthetic.ts';
+import { bindingStarted } from './started-here.ts';
 
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
 vi.mock('cloudflare:workers', () => workers);
@@ -46,7 +47,7 @@ const apply = (jar: Jar, o: HandshakeOutcome): Jar => {
 const handshake = (env = workers.env) => {
 	const made = clerkBrowserHandshakeFromEnv(env);
 	if (!made.ok) throw new Error(made.reason);
-	return made.handshake;
+	return bindingStarted(made.handshake, env);
 };
 /** The jar after the browser's GET of `path` came back from an instance's Frontend API with a handshake signed by `signer`. */
 const handedBack = async (jar: Jar, path: string, signer: typeof B, dvb: string, env = workers.env) =>

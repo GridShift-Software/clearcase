@@ -26,7 +26,7 @@ export type HandshakeOutcome =
 	 * on its own sign-in page, whose route may answer its own redirect in place of this one, reading the identity from this
 	 * credential (handshakeAnswer).
 	 */
-	| { kind: 'redirect'; location: string; setCookies: string[]; refresh?: true; credential?: Request }
+	| { kind: 'redirect'; location: string; setCookies: string[]; refresh?: true; credential?: Request; code?: 'handshake-unbound' }
 	/** Answer `status` and stop: a handshake that must not be followed. */
 	| { kind: 'refuse'; status: 400 | 502; code: 'wrong-origin' | 'handshake-invalid' | 'handshake-format-unsupported' | 'handshake-cookie-refused' }
 	/** Answer the session-ended page for a browser the last handshake could not sign in: it kept none of its cookies. */
@@ -215,6 +215,62 @@ export async function staffHandshakeOf(request: Request, config: ClerkIdentityCo
 /** The directive that deletes the staff handshake correlation (an accepted handshake return consumes it in this browser). */
 export const STAFF_HANDSHAKE_CLEAR = `${STAFF_HANDSHAKE_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly; Secure`;
 
+/**
+ * The binding of every handshake to the browser that started it (GRS-268). A Clerk handshake token is signed by the
+ * instance but says nothing about which browser asked for it, so a return URL one user captured would sign any other
+ * browser into that user's account (login CSRF), and its dev browser would tie that browser to the same Clerk client.
+ * Each handshake this app starts puts a random id in its redirect_url (HANDSHAKE_BINDING_PARAM) and sets a cookie of its
+ * own under that id: the issue time under a MAC for this app, client and staff instance. A return counts only with
+ * exactly one id that names a cookie whose MAC verifies, issued within HANDSHAKE_BINDING_TTL, and its answer deletes that
+ * cookie, so a second use in the same browser is refused too. Every name is per attempt, so two tabs never overwrite one
+ * another's, and a start keeps at most HANDSHAKE_BINDING_LIMIT of them. On https it is a `__Host-` cookie, which a sibling
+ * origin cannot plant; a loopback http origin, which cannot hold one, uses a plain name.
+ */
+export const HANDSHAKE_BINDING_PARAM = '__clearcase_hs';
+/** Seconds a started handshake may take to come back: its round trip is automatic redirects. */
+export const HANDSHAKE_BINDING_TTL = 120;
+const HANDSHAKE_BINDING_LIMIT = 4, BINDING_LABEL = 'clearcase handshake binding v1';
+const BINDING_ID = /^[A-Za-z0-9_-]{22}$/, BINDING_STATE = /^(\d{1,12})\.([A-Za-z0-9_-]{43})$/;
+const bindingPrefix = (config: ClerkIdentityConfig) => (hostCookies(config) ? '__Host-clearcase_hs_' : 'clearcase_hs_');
+const bindingFlags = (config: ClerkIdentityConfig) => `Path=/; SameSite=Lax; HttpOnly${hostCookies(config) ? '; Secure' : ''}`;
+const bindingClear = (config: ClerkIdentityConfig, name: string) => `${name}=; Max-Age=0; ${bindingFlags(config)}`;
+/** The issue time of one binding cookie value for `id`, or null when it does not verify or has lapsed. */
+async function bindingIssued(config: ClerkIdentityConfig, id: string, values: readonly string[]): Promise<number | null> {
+	const m = values.length === 1 && BINDING_ID.test(id) ? BINDING_STATE.exec(values[0]!) : null;
+	if (!m) return null;
+	const issued = Number(m[1]), age = Math.floor(Date.now() / 1000) - issued;
+	if (age < -60 || age > HANDSHAKE_BINDING_TTL) return null;
+	return (await macVerifies(BINDING_LABEL, config, [id, m[1]!], m[2]!)) ? issued : null;
+}
+/**
+ * A new binding for a handshake `request` starts: the id for its redirect_url, and the directives that set its cookie
+ * and delete the request's lapsed, invalid or oldest bindings beyond HANDSHAKE_BINDING_LIMIT.
+ */
+export async function startHandshakeBinding(config: ClerkIdentityConfig, request: Request): Promise<{ id: string; setCookies: string[] }> {
+	const prefix = bindingPrefix(config), pairs = cookiePairs(request).filter((c) => c.name.startsWith(prefix));
+	const kept: Array<{ name: string; issued: number }> = [], drop: string[] = [];
+	for (const name of [...new Set(pairs.map((c) => c.name))]) {
+		const issued = await bindingIssued(config, name.slice(prefix.length), pairs.filter((c) => c.name === name).map((c) => c.value));
+		if (issued === null) drop.push(name);
+		else kept.push({ name, issued });
+	}
+	kept.sort((a, b) => a.issued - b.issued);
+	while (kept.length >= HANDSHAKE_BINDING_LIMIT) drop.push(kept.shift()!.name);
+	const id = b64url(crypto.getRandomValues(new Uint8Array(16))), issued = String(Math.floor(Date.now() / 1000));
+	const value = `${issued}.${await macOf(BINDING_LABEL, config, [id, issued])}`;
+	return { id, setCookies: [...drop.map((n) => bindingClear(config, n)), `${prefix}${id}=${value}; Max-Age=${HANDSHAKE_BINDING_TTL}; ${bindingFlags(config)}`] };
+}
+/**
+ * Whether a returning handshake was started by this browser: the directive that consumes its binding, or null when the
+ * return names no binding, several, or one whose cookie is absent, repeated, lapsed or does not verify.
+ */
+export async function handshakeBindingOf(request: Request, config: ClerkIdentityConfig): Promise<{ consume: string } | null> {
+	const ids = new URL(request.url).searchParams.getAll(HANDSHAKE_BINDING_PARAM);
+	if (ids.length !== 1) return null;
+	const name = `${bindingPrefix(config)}${ids[0]}`, values = cookiePairs(request).filter((c) => c.name === name).map((c) => c.value);
+	return (await bindingIssued(config, ids[0]!, values)) === null ? null : { consume: bindingClear(config, name) };
+}
+
 // Public suffixes above this app's origins, which browsers refuse as a Domain, so a clear for one would never match a cookie.
 const PUBLIC_SUFFIXES = new Set(['workers.dev', 'pages.dev', 'co.za']);
 /** Clerk's cookie suffix for an instance (@clerk/shared getCookieSuffix): base64url SHA-1 of its publishable key, 8 characters. */
@@ -292,7 +348,7 @@ export function handshakeResponse(o: HandshakeOutcome): Response | null {
 		const href = o.signIn.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]!);
 		return new Response(`<!doctype html><title>Your session has ended</title><h1>Your session has ended</h1><p>ClearCase could not keep you signed in: this browser did not keep the cookies sign-in sets. Allow cookies for this site, then sign in again.</p><p><a href="${href}">Sign in</a></p>`, { status: 401, headers: { ...page, 'x-clearcase-auth': 'cookies-refused' } });
 	}
-	const headers = new Headers(o.refresh ? page : { location: o.location, 'cache-control': 'no-store' });
+	const headers = new Headers(o.refresh ? page : { location: o.location, 'cache-control': 'no-store', ...(o.code ? { 'x-clearcase-auth': o.code } : {}) });
 	for (const c of o.setCookies) headers.append('set-cookie', c);
 	if (!o.refresh) return new Response(null, { status: 303, headers });
 	const href = o.location.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]!);

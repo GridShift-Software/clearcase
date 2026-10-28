@@ -13,6 +13,7 @@ import { auditConfig, requestAuditSink, type AuditConfig } from '../../../audit/
 import { cloudBindings } from '../../../storage/cloud/bindings.ts';
 import { storageBudgets } from '../../../storage/cloud/budgets.ts';
 import { createCloudResults } from '../../../results/hosted/index.ts';
+import { createShardReader, defaultShardCache } from '../../../results/hosted/shards.ts';
 import { createD1UserWork, d1WorkRevision, userWorkConfig } from '../../../user-work/hosted/index.ts';
 import { createUploadAuthorizer, createUploadHolding, d1UploadGrantReader } from '../../../tenancy/upload-capability.ts';
 import { createOriginalIntake } from '../../../storage/cloud/intake.ts';
@@ -129,6 +130,8 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 				});
 				const work = createD1UserWork({ db: native.db, config, identity: services.identity, audit: services.audit, store: results.store, now, tableDefinitions: null });
 				services.store = results.store; services.assets = results.assets; services.userWork = work;
+				services.shards = createShardReader({ bucket: cloud.bucket, clientId: clerk.config.clientId, cache: defaultShardCache(),
+					...(scheduler ? { waitUntil: (w: Promise<unknown>) => scheduler.waitUntil(w.then(() => undefined)) } : {}) });
 				const identity = services.identity;
 				const authority = caseAuthority({ identity, deployment: context.deployment, db: context.db, audit: services.audit, now });
 				const { session, cases, grants, authorizer, authorizeOperate } = authority;

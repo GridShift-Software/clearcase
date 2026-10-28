@@ -122,6 +122,30 @@ describe('CI gate-hosted step state directory', () => {
 	});
 });
 
+// GRS-244: CI-lite, the job a pull request into a sprint/ branch runs instead of the full one (tests/ci/workflow-admission.test.ts
+// proves which job runs when). It has to keep the checks the sprint's loop relies on and set sprint mode for the count guards.
+describe('CI-lite workflow job', () => {
+	type Lite = { env?: Record<string, string>; steps: Record<string, unknown>[] };
+	const lite = (doc.jobs as unknown as Record<string, Lite>)['check-lite']!;
+	const script = lite.steps.map((s) => String(s.run ?? '')).join('\n');
+	it('sets CLEARCASE_SPRINT for the count guards', () => {
+		expect(lite.env?.CLEARCASE_SPRINT).toBe('1');
+	});
+	it('runs the typecheck, the import guard, the fixed test set, the changed tests and the hosted build', () => {
+		for (const part of ['tsc --noEmit', 'svelte-check', 'check:hosted-imports', 'tests/hosted-smoke tests/publication src/lib', '--changed "origin/$BASE_REF"', 'build:hosted'])
+			expect(script, part).toContain(part);
+	});
+	it('runs gate:hosted only when deploy/ or src/lib/server changed, and not through the full job\'s receipts or guard', () => {
+		const gate = lite.steps.find((s) => s.name === 'gate-hosted')!;
+		expect(String(gate.if)).toContain("steps.changes.outputs.hosted == 'true'");
+		expect(script).toContain("'^(deploy/|src/lib/server)'");
+		expect(script).not.toMatch(/agent-tools\/(receipt|fix-round-guard)/);
+	});
+	it('never reads a secret', () => {
+		expect(JSON.stringify(lite)).not.toMatch(/\$\{\{\s*secrets\./);
+	});
+});
+
 describe('hosted run limits', () => {
 	it('stops the offline namespace before the job\'s own limit, so a hang still leaves a gate-hosted receipt', () => {
 		const limit = Number(/VERIFY_CLEARCASE_HOSTED_TIMEOUT_MS \?\? ([\d_]+)/.exec(readFileSync(new URL('../../.agents/skills/verify-clearcase-hosted/lib/main.mjs', import.meta.url), 'utf8'))![1]!.replaceAll('_', ''));

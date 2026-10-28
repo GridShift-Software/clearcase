@@ -1,6 +1,7 @@
 // The RC latency paths (GRS-266) through the real hostedServices composition, as 16-note-save.test.ts builds it: the case
 // notes list, the bundle save POST and the bundle page loads. Every D1 round trip is counted, batches apart, and each D1
-// call can be held for a fixed delay so the elapsed time over that delay gives the round trips on the critical path.
+// call can be held for a fixed delay; `serial` counts the delayed calls on the critical path (`sequential` is the elapsed time over
+// that delay, for 269, which keeps it beside exact call counts).
 // Synthetic SQLite and in-memory doubles, not a deployed Worker.
 import { vi } from 'vitest';
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
@@ -30,7 +31,7 @@ export const SHARDS = {
   'view/discovery_tab.json': { pathShard: { paths: {} }, present: true, schedules: { discovery: [], supplementary: [] }, files: {}, downloads: {}, caption: {}, meta: {}, mode: 'discovery', selected: [], marks: [] },
 } as const;
 
-/** `slowReads` also holds every KV get and R2 get or head for one D1 delay, so `sequential` counts those round trips too. */
+/** `slowReads` also holds every KV get and R2 get or head for one D1 delay, so `serial` and `sequential` count those round trips too. */
 export async function rcWorld(o: { slowReads?: boolean } = {}) {
   const w = await hostedWorld();
   w.db.sqlite.exec(MIGRATION);
@@ -50,7 +51,16 @@ export async function rcWorld(o: { slowReads?: boolean } = {}) {
   const file = planNativeRuntimeConfig(exampleInput()).clients.find(c => c.clientId === 'client-a')!;
   let delay = 0, batches = 0;
   const raw = w.db as unknown as { prepare: (...a: unknown[]) => object; batch: (s: unknown[]) => Promise<unknown> };
-  const wait = () => delay ? new Promise(r => setTimeout(r, delay)) : Promise.resolve();
+  // `serial` counts the delayed calls one after another, not the elapsed time: a call that starts once the longest chain
+  // so far has finished extends it by its own units, a call that starts beside it does not. A loaded runner stretches the
+  // time between calls, not this count. `settled` is the longest finished chain, in D1-call units.
+  let settled = 0;
+  const wait = async (units = 1) => {
+    if (!delay) return;
+    const from = settled;
+    await new Promise(r => setTimeout(r, delay * units));
+    settled = Math.max(settled, from + units);
+  };
   const slowStatement = (s: object): object => new Proxy(s, { get(t, p) {
     const v = Reflect.get(t, p);
     if (p === 'bind' && typeof v === 'function') return (...a: unknown[]) => slowStatement(Reflect.apply(v, t, a) as object);
@@ -71,7 +81,7 @@ export async function rcWorld(o: { slowReads?: boolean } = {}) {
     const v = Reflect.get(t, p);
     if (p === 'put') return async (...a: unknown[]) => {
       if (held) { held.reached(); await held.released; }
-      if (delay) await new Promise(r => setTimeout(r, delay * R2_PUT_DELAYS));
+      await wait(R2_PUT_DELAYS);
       return Reflect.apply(v, t, a);
     };
     if (o.slowReads && (p === 'get' || p === 'head')) return async (...a: unknown[]) => { await wait(); return Reflect.apply(v, t, a); };
@@ -99,12 +109,12 @@ export async function rcWorld(o: { slowReads?: boolean } = {}) {
   }
   /** `request` with every D1 call delayed: its counts, batches and the critical-path round trips. */
   async function timed<T>(path: string, init: RequestInit, route: (locals: RequestServices, request: Request, url: URL) => Promise<T>) {
-    delay = DELAY_MS; batches = 0;
+    delay = DELAY_MS; batches = 0; settled = 0;
     const start = performance.now();
     try {
       const result = await request(path, init, route);
       const sequential = Math.round((performance.now() - start) / DELAY_MS);
-      return { ...result, batches, sequential };
+      return { ...result, batches, sequential, serial: settled };
     } finally { delay = 0; await Promise.all(pending.splice(0)); }
   }
   /** Holds the next R2 puts until `release()`; `reached` resolves once one is waiting. */
@@ -118,5 +128,5 @@ export async function rcWorld(o: { slowReads?: boolean } = {}) {
     async cleanup() { await Promise.all(pending); w.db.sqlite.close(); } };
 }
 export type RcWorld = Awaited<ReturnType<typeof rcWorld>>;
-export const show = (label: string, r: { counts: Counts; batches?: number; sequential?: number }) =>
-  console.log(`266 ${label}: d1=${r.counts.d1} r2=${r.counts.r2} clerk=${r.counts.clerk} batches=${r.batches ?? '-'} sequential≈${r.sequential ?? '-'}`);
+export const show = (label: string, r: { counts: Counts; batches?: number; sequential?: number; serial?: number }) =>
+  console.log(`266 ${label}: d1=${r.counts.d1} r2=${r.counts.r2} clerk=${r.counts.clerk} batches=${r.batches ?? '-'} serial=${r.serial ?? '-'} elapsed≈${r.sequential ?? '-'}`);

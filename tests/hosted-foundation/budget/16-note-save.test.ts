@@ -80,6 +80,8 @@ it('16 a note delete from the document page stays within its D1 round-trip ceili
   const w = await world();
   try {
     expect(await w.post('note', { body: 'Synthetic note to delete', operationId: 'delete-budget-add' })).toMatchObject({ saved: true });
+    // The add's deferred read-audit insert (a setTimeout(0), then a D1 write) is not the delete's: settle it before counting.
+    await Promise.all(w.pending.splice(0));
     const note = w.db.rows<{ note_id: string; version: string }>('SELECT note_id, version FROM uw_note')[0]!;
     const deleted = await measure(w.counters, () => w.post('delnote', { id: note.note_id, version: note.version, operationId: 'delete-budget' }));
     expect(deleted.thrown).toBeUndefined(); expect(deleted.value).toEqual({ deleted: true });

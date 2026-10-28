@@ -86,9 +86,11 @@ window.clearcasePdfReader = {
 		} catch (error) { destroy(); throw error; }
 		// The served worker checks the last page only after drawing one (scripts/hosted-pdf-assets.ts, WORKER_PATCH), so a
 		// wrong /Count is found after the open. Its added request answers once that check has run: the corrected count, or null.
+		// A recount that cannot be asked or answered leaves the count as it was; it never fails a draw.
 		let pages = doc.numPages, counted = null;
+		const asked = () => doc._transport.messageHandler.sendWithPromise('ClearcasePageCount', null);
 		const recount = () => {
-			counted ??= Promise.race([doc._transport.messageHandler.sendWithPromise('ClearcasePageCount', null), failure]).then((n) => {
+			counted ??= Promise.race([Promise.resolve().then(asked), failure]).then((n) => {
 				if (destroyed || !Number.isSafeInteger(n) || n < 1 || n === pages) return;
 				pages = n;
 				onPages?.(n);

@@ -229,7 +229,7 @@ SQLite, so they are not renderer acceptance.
    explicit account-allocated budgets, trusted origin/clock and immutable input.
 3. Supply the reviewed inventory from `scripts/hosted-pdf-assets.ts`: exact PDF.js
    6.4.299 package digest `sha256:ae9a1328f4de3e2cf14b24d711e34299963dc64c10eab7b1afe849b79846e577`
-   and reader digest `sha256:2ff3ba6dff548be174a1d366245ae31f4dc6dd655d4667887624f32de18c398f`.
+   and reader digest `sha256:8a7d21be12efd49c75795471a06e6f27450e3b2815871fc7e2cb8a3b465f68c5`.
    The viewer's patched worker `pdfjs/pdf-viewer-worker.mjs` is pinned by `HOSTED_PDF_VIEWER_WORKER_DIGEST`
    and is never served to the render check. All 192 inventory entries must match. Copy pinned static bytes through normal
    build provenance; do not import the node:fs preparer into the Worker.

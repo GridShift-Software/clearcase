@@ -47,7 +47,7 @@ export function patchPdfWorker(upstream: Buffer): Buffer {
 	}
 	return Buffer.from(text, 'utf8');
 }
-export const HOSTED_PDF_READER_DIGEST = 'sha256:2ff3ba6dff548be174a1d366245ae31f4dc6dd655d4667887624f32de18c398f';
+export const HOSTED_PDF_READER_DIGEST = 'sha256:8a7d21be12efd49c75795471a06e6f27450e3b2815871fc7e2cb8a3b465f68c5';
 const READER = 'src/lib/viewer/hosted/static/pdf-reader.mjs';
 const hash = (bytes: Buffer | string) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 export type PdfAsset = { path: string; bytes: number; sha256: string };

@@ -14,7 +14,7 @@ import { checkedPageSet, decide, lookupReceiptRows, MAX_CHECKED_PAGES, MAX_DOCUM
 const PDF_VERSION = '6.4.299';
 const PACKAGE_DIGEST = 'sha256:ae9a1328f4de3e2cf14b24d711e34299963dc64c10eab7b1afe849b79846e577';
 const VIEWER_WORKER_DIGEST = 'sha256:79bdd72351096425f4efd42b4c238e7513f321c1a38951a825a148119530b511';
-const READER_DIGEST = 'sha256:2ff3ba6dff548be174a1d366245ae31f4dc6dd655d4667887624f32de18c398f';
+const READER_DIGEST = 'sha256:8a7d21be12efd49c75795471a06e6f27450e3b2815871fc7e2cb8a3b465f68c5';
 export const NATIVE_PDF_RENDERER_ALGORITHM = 'clearcase.native-pdf/2';
 const SDK_INTEGRITY = 'sha512-39lo96Y7ErOJFmu/KIJU1VLaOibhynx/BauKCZOW5+RVH/mG0jZrAEGJlqCdx5ZxLHyWppm78YX3jLNPCBB+fA==';
 export const NATIVE_PDF_RENDER_CEILINGS: Readonly<NativePreviewRenderBudget> = Object.freeze({

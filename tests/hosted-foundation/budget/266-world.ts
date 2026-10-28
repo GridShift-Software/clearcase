@@ -83,7 +83,7 @@ export async function rcWorld() {
   const cookie = `clearcase_session=${await signAppSession(config, session)}`;
   w.db.exec(`INSERT INTO tenant_case_grants (grant_id,client_id,scope,case_id,issuer,subject,principal_kind,role,slot,state,version,created_operation_id,request,created_by_issuer,created_by_subject,created_at) VALUES ('rc-grant','client-a','case','case-a',?,'rc-editor','client','editor','content','active',1,'seed','[]','seed','seed','2001-01-01T00:00:00.000Z')`, issuer);
   const native = JSON.parse(String(env.CLEARCASE_NATIVE_CONFIG));
-  await provisionAuditBinding({ db, config: auditConfig({ clientId: id('client', 'client-a'), trustedIssuers: [issuer, instances.staff.iss], limits: native.auditLimits }), now: () => new Date() });
+  await provisionAuditBinding({ db: db as unknown as Parameters<typeof provisionAuditBinding>[0]['db'], config: auditConfig({ clientId: id('client', 'client-a'), trustedIssuers: [issuer, instances.staff.iss], limits: native.auditLimits }), now: () => new Date() });
   const base = `${origin}/cases/case-a`;
   /** The request's services, as hooks build them for `path`, then `route` over them; counted from the services on. */
   async function request<T>(path: string, init: RequestInit, route: (locals: RequestServices, request: Request, url: URL) => Promise<T>) {

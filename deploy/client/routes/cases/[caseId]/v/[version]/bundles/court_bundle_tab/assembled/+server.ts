@@ -3,6 +3,7 @@ import { error, json, type RequestEvent } from '@sveltejs/kit';
 import { publishedVersion } from '$lib/views/hosted/payloads.server';
 import { refuse } from '$lib/server/runtime/hosted/http';
 import { cloudBindings } from '$lib/storage/cloud/bindings';
+import { id as brand } from '$lib/server/runtime/ids';
 import {
 	pdfBytes,
 	pdfDigest,
@@ -22,12 +23,14 @@ export async function POST({ locals, params, request }: RequestEvent) {
 	const total = performance.now();
 	// The version check and the write authorization are independent reads, so they run together; both must pass before
 	// the body is read, and a version refusal is reported first, as when they ran one after the other.
+	const caseParam = (params as Partial<Record<string, string>>).caseId ?? '';
 	const [version, authorized] = await Promise.allSettled([
 		publishedVersion(locals, params),
-		locals.identity.authorize({
-			caseId: String(params.caseId ?? ''),
-			operation: 'write-user-work',
-		}),
+		(async () =>
+			locals.identity.authorize({
+				caseId: brand('case', caseParam),
+				operation: 'write-user-work',
+			}))(),
 	]);
 	if (version.status === 'rejected') throw version.reason;
 	if (authorized.status === 'rejected') refuse(authorized.reason, 'write');

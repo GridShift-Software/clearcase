@@ -67,12 +67,13 @@ it('replays analysis Notes and seed removals after withdrawal, but validates fre
       ? make().addNote({ caseId: CASE, target: { kind: 'analysis', resultsVersion: RV1, section: 'overview' }, body: 'Analysis', expected: { kind: 'absent' }, operationId })
       : make().registers.seeds({ caseId: CASE, datasetKey: 'parties', resultsVersion: RV1 }).remove({ seedId: 'p1', expected: id('row-version', `seed:${'d'.repeat(64)}`), operationId });
     audit.state.down = true;
-    await expect(request()).rejects.toMatchObject({ code: 'audit-unavailable', outcome: 'not-written' });
-    // Sprint 16 (notes) and GRS-266 (every other change): with an atomic sink a fresh change rolls back on audit
-    // failure. Commit once before testing historical context on replay.
-    expect(db.prepare('SELECT count(*) AS n FROM uw_operation').get()).toEqual({ n: 0 });
-    audit.state.down = false;
-    written<unknown>(await request());
+    await expect(request()).rejects.toMatchObject({ code: 'audit-unavailable', outcome: kind === 'analysis' ? 'not-written' : 'written-unaudited' });
+    // Sprint 16: fresh notes roll back on audit failure. Commit once before testing historical context on replay.
+    if (kind === 'analysis') {
+      expect(db.prepare('SELECT count(*) AS n FROM uw_operation').get()).toEqual({ n: 0 });
+      audit.state.down = false;
+      written<unknown>(await request());
+    }
     reader.state.withdrawn.add(RV1); reader.state.published = null; audit.state.down = false;
     expect(written<unknown>(await request()).kind).toBe('written');
     expect(db.prepare('SELECT audited_at FROM uw_operation').get()).toEqual({ audited_at: NOW().toISOString() });

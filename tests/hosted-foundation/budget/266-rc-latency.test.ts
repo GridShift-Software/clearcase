@@ -31,7 +31,7 @@ it('266 the Court Bundle and Discovery pages each read their work in one query p
   const w = await rcWorld();
   try {
     for (const [label, load, path] of [['court load', courtLoad, 'court_bundle_tab'], ['discovery load', discoveryLoad, 'discovery_tab']] as const) {
-      const r = await w.timed(`${version(w)}/bundles/${path}`, { method: 'GET' }, (locals, _r, url) => load({ locals, params: params(w), url } as never));
+      const r = await w.timed(`${version(w)}/bundles/${path}`, { method: 'GET' }, (locals, _r, url) => (load as (e: never) => Promise<unknown>)({ locals, params: params(w), url } as never));
       expect(r.thrown).toBeUndefined(); show(label, r);
       expect(r.counts).toMatchObject({ d1: 4, r2: 1, clerk: 0, otherFetch: 0 }); expect(r.sequential).toBeLessThanOrEqual(3);
     }

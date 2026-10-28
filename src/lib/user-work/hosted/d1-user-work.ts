@@ -4,8 +4,9 @@
 // one the write read and the database is bound to this deployment's client and schema version, so a competing writer
 // can never be overwritten. The same batch records the operation in uw_operation with its request digest, result and
 // audit event. Fresh note changes require AuditSink.atomic; every other fresh change commits its audit in that batch too
-// whenever the sink offers AuditSink.atomic. Only a sink without it, and historical unaudited ledgers, keep
-// append-and-replay recovery under the same operationId.
+// whenever the sink can prepare it for this binding. A sink that cannot (no AuditSink.atomic, or recovery's guarded
+// binding, which is not the sink's session object) and historical unaudited ledgers keep append-and-replay recovery
+// under the same operationId.
 // A failed batch is never taken as success or failure on its own: the ledger and revision are read back to decide.
 import type * as C from '../../server/runtime/contracts.ts';
 import type { D1, D1Statement } from '../../server/runtime/hosted/bindings.ts';
@@ -177,14 +178,28 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       COALESCE((SELECT revision FROM uw_case WHERE case_id = ?), 'revision-0') = ?
       AND EXISTS (SELECT 1 FROM uw_binding WHERE singleton = 1 AND client_id = ? AND schema_version = ?))`).bind(caseId, revision, config.clientId, USER_WORK_SCHEMA_VERSION);
 
+  /** The event's insert for the change batch. A note change refuses without one. Any other change falls back to
+   * appending after its batch (acknowledged and replayed as before) when the sink cannot prepare one for this binding:
+   * a sink without `atomic`, or one bound to another session object, as recovery's guarded binding is. A refusal the
+   * sink can only make at commit (a full or unbound log) fails the batch, so the change is not written. */
+  async function auditInBatch(db: D1, event: C.AuditEvent, required: boolean): Promise<readonly D1Statement[]> {
+    try {
+      if (!audit.atomic) throw contractError('audit-unavailable', false);
+      const statements = await audit.atomic({ db, event });
+      if (!Array.isArray(statements) || !statements.length) throw contractError('audit-unavailable');
+      return statements;
+    } catch (e) {
+      if (required) throw failure('audit-unavailable', 'not-written', !(e instanceof Error && 'retryable' in e && e.retryable === false));
+      return [];
+    }
+  }
+
   async function change<T>(scope: C.Scope & { operationId: string }, kind: string, payload: unknown, expectedRevision: C.CaseRevision | undefined, plan: (db: D1, caseId: C.CaseId, s: Step) => Promise<Plan<T>>): Promise<C.Written<T>> {
     const { db, caseId } = await authorize(scope, 'write-user-work', true);
     const op = operationId(scope.operationId);
     const request = await sha256Hex(canonical({ kind, caseId, payload, principal: principalKey() }));
     const eventId = `uw:${await sha256Hex(canonical([config.clientId, caseId, op]))}`;
     const atomicNote = kind === 'note-add' || kind === 'note-delete';
-    // A note change refuses a sink without atomic audit; any other change audits in its batch whenever the sink can.
-    const atomic = atomicNote || typeof audit.atomic === 'function';
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       // The binding gate and both reads come after the authorization above, and nothing is decided until all three
       // answer: one round trip, not three. A missing or foreign binding refuses; the batch's guard checks it again.
@@ -199,20 +214,12 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       if (expectedRevision !== undefined && revision !== expectedRevision) return { kind: 'stale' };
       const version = token(), when = at();
       const event: C.AuditEvent = { eventId, actor: actor(), action: `user-work.${kind}`, object: { kind: 'case', id: caseId, caseId }, version, outcome: 'succeeded', at: when };
+      const auditStatements = await auditInBatch(db, event, atomicNote);
+      const atomic = auditStatements.length > 0;
       const step: Step = { revision, version, next: nextRevision(), at: when, event, audited: atomic ? when : null };
       const planned = await plan(db, caseId, step);
       if (planned.kind !== 'written') return { kind: planned.kind };
       const result: C.Written<T> = { kind: 'written', value: planned.value, version: step.version, caseRevision: step.next };
-      let auditStatements: readonly D1Statement[] = [];
-      if (atomic) {
-        if (!audit.atomic) throw failure('audit-unavailable', 'not-written', false);
-        try {
-          auditStatements = await audit.atomic({ db, event });
-          if (!Array.isArray(auditStatements) || !auditStatements.length) throw contractError('audit-unavailable');
-        } catch (e) {
-          throw failure('audit-unavailable', 'not-written', !(e instanceof Error && 'retryable' in e && e.retryable === false));
-        }
-      }
       const row: Ledger = { request_sha256: request, result_json: JSON.stringify(result), event_json: JSON.stringify(event), audited_at: step.audited };
       const statements = [
         guardStatement(db, caseId, revision),

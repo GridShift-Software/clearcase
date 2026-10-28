@@ -11,7 +11,7 @@
 	const vid = $derived(data.version.id);
 	const known = $derived(new Set(data.known));
 	const c = $derived(data.content);
-	const href = (id: string) => viewHref(vid, viewById(id)!);
+	const href = (id: string) => viewHref(vid, viewById(id)!, data.base);
 	let hydrated = $state(false);
 	onMount(() => { hydrated = true; });
 </script>

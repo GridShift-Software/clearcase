@@ -10,18 +10,21 @@
 		try { if (isQuery(search)) store?.setItem(queryKey(caseId, viewId), search); else store?.removeItem(queryKey(caseId, viewId)); } catch { /* blocked or full */ }
 	}
 	export const tabStorage = (): Storage | null => { try { return sessionStorage; } catch { return null; } };
-	export function rememberQueries(store: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null, caseId: string, resultsVersion: string, current: string | null, address: { pathname: string; search: string }) {
+	export function rememberQueries(store: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null, caseId: string, resultsVersion: string, current: string | null, address: { pathname: string; search: string }, base?: string) {
 		const views = grouped().flatMap((g) => g.views);
 		const v = views.find((x) => x.id === current);
-		if (v && decodeURIComponent(address.pathname) === decodeURIComponent(viewHref(resultsVersion, v))) saveQuery(store, caseId, v.id, address.search);
+		if (v && decodeURIComponent(address.pathname) === decodeURIComponent(viewHref(resultsVersion, v, base))) saveQuery(store, caseId, v.id, address.search);
 		return Object.fromEntries(views.map((x) => [x.id, savedQuery(store, caseId, x.id)]));
 	}
 </script>
 
 <script lang="ts">
+	import { hostedStatus } from '../views/hosted/availability.ts';
+	import { routeBase } from './shell.ts';
 	import { blockedBy } from './views.ts';
-	let { resultsVersion, current = null, brand = null, queries = {} }: { resultsVersion: string; current?: string | null; brand?: string | null; queries?: Record<string, string> } = $props();
-	const groups = grouped();
+	let { resultsVersion, current = null, brand = null, queries = {}, hosted = false }: { resultsVersion: string; current?: string | null; brand?: string | null; queries?: Record<string, string>; hosted?: boolean } = $props();
+	const base = routeBase();
+	const groups = $derived(grouped().map((g) => ({ ...g, views: hosted ? g.views.filter((v) => hostedStatus(v.id) !== 'never') : g.views })).filter((g) => g.views.length));
 </script>
 
 <nav class="views" aria-label="Case views">
@@ -32,9 +35,10 @@
 			<ul>
 				{#each g.views as v (v.id)}
 					{@const owner = blockedBy(v)}
+					{@const status = hosted ? hostedStatus(v.id) : undefined}
 					<li>
-						<a href="{viewHref(resultsVersion, v)}{queries[v.id] ?? ''}" id="nav-{v.id}" data-view={v.id} data-status={v.status} aria-current={current === v.id ? 'page' : undefined} class:unavailable={!!owner}>
-							{v.label}{#if owner}<span class="visually-hidden"> (not yet available)</span>{/if}
+						<a href="{viewHref(resultsVersion, v, base())}{queries[v.id] ?? ''}" id="nav-{v.id}" data-view={v.id} data-status={v.status} data-hosted-status={status} aria-disabled={status === 'soon' ? 'true' : undefined} aria-current={current === v.id ? 'page' : undefined} class:unavailable={!!owner || status === 'soon'}>
+							{v.label}{#if owner}<span class="visually-hidden"> (not yet available)</span>{:else if status === 'soon'}<span class="visually-hidden"> (coming soon)</span>{/if}
 						</a>
 					</li>
 				{/each}

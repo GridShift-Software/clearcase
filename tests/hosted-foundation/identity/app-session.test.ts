@@ -132,4 +132,11 @@ describe('app session', () => {
 		expect(clerkBrowserNeeded(f.env, new Request(f.config.origin + '/cases', { headers: { cookie: '__Host-clearcase_staff_refresh=synthetic' } }))).toBe(true);
 	});
 
+	it('skips the initial development handshake only on a fresh client sign-in GET', () => {
+		const f = fixture();
+		expect(clerkBrowserNeeded(f.env, new Request(f.config.origin + '/sign-in'))).toBe(false);
+		for (const cookie of ['__client_uat=1', '__clerk_db_jwt=synthetic', '__session=synthetic']) expect(clerkBrowserNeeded(f.env, new Request(f.config.origin + '/sign-in', { headers: { cookie } }))).toBe(true);
+		expect(clerkBrowserNeeded(f.env, new Request(f.config.origin + '/sign-in/operator'))).toBe(true);
+	});
+
 });

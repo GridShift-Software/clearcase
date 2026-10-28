@@ -1062,7 +1062,8 @@ try {
 			await q.click(`[data-delete="${no}"]`);
 			await until(() => mine().length === 0, 30000);
 			const hasLink = (hrefs) => hrefs.some((h) => /\/assembled\?id=/.test(h ?? ''));
-			const names = (l) => l.filter((n) => /SYN/.test(n));
+			// CB-BUILD-RACE leaves its own bundle behind when it fails, so only this scenario's bundles are compared
+			const names = (l) => l.filter((n) => n === 'SYN OTHER' || n === 'SYN RELOAD');
 			const refusedOk = /locked|busy/.test(refused.error) && refused.alert === 'alert' && refused.saving === false && refused.saveDisabled === false && refused.retryDisabled === false && refused.stored === 0;
 			const lostOk = /upload failed/.test(lost.error) && lost.alert === 'alert' && lost.saving === false && lost.saveDisabled === false && lost.retryDisabled === false && lost.dialogs.length === 0;
 			return { pass: refusedOk && lostOk && /^200 /.test(other) && retryShown && judge === 'SYN TYPED BEFORE BUILDING' && J(names(afterRetry)) === J(['SYN OTHER', 'SYN RELOAD']) && again === 0 && J(names(afterAgain)) === J(['SYN OTHER', 'SYN RELOAD']) && gone === 0 && J(names(afterGone)) === J(['SYN RELOAD']) && link.length === 1 && hasLink(link[0]) && J(names(reloaded)) === J(['SYN RELOAD']) && mine().length === 0, evidence: { refused, lost, other, judge, afterRetry, again, afterAgain, gone, afterGone, link, reloaded } };

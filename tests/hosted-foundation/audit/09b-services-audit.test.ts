@@ -69,3 +69,10 @@ it('L2/M2: real hostedServices page wiring collapses two authorizations to one l
   expect(w.db.rows('SELECT action FROM native_audit_events')).toEqual([{ action: 'case.read' }]);
  } finally { await w.cleanup(); }
 });
+it('M2: a version asset byte route does not enter page authorization or deferred audit mode', async () => {
+ const w = await world();
+ try {
+  const s = await w.compose('/cases/case-a/v/placeholder/assets/synthetic-preview');
+  expect(s.caseRead).toBeUndefined();
+ } finally { await w.cleanup(); }
+});

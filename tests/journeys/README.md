@@ -51,6 +51,25 @@ Browsers run under the host's lock: start the command through `orch-bin/browser-
 `CLEARCASE_BROWSER_SLOT`, which the journeys require), and set `CLEARCASE_BROWSER_LOCK=none` where no workspace lock exists
 (`docs/development.md`, "Browser admission").
 
+## Returning-device sign-in (opt-in)
+
+Clerk's Device Trust asks for an email code whenever a password sign-in comes from a browser it has not seen, and every journey
+starts a fresh browser, so a timed `sign-in` with credentials normally includes that code step (a `STORAGE_STATE` run starts
+already signed in and skips it). A real user meets it once per device.
+`SIGN_IN_DEVICE=returning` times the sign-in a returning user sees; unset (or `fresh`) is today's behaviour, byte for byte, and
+the budgets do not change.
+
+With `SIGN_IN_DEVICE=returning` the journey, in one browser context:
+
+1. signs in once, untimed: the `sign-in-enrol` step, with the code step, reported as information only (no budget);
+2. signs out through the app's own sign-out control and confirms `/cases` answers 401, keeping the Clerk device cookies;
+3. times a second sign-in as the `sign-in` step against `SIGN_IN_MS`, unchanged.
+
+If Clerk still asks for the code in step 3, that step runs it and the result says so. In this mode both steps carry
+`deviceCodeStep: true|false`; a fresh run does not record it. Every result records `metadata.signInDevice` (`"fresh"` or `"returning"`), and `summary.md` ends with
+a `Sign-in device:` line, so the two modes cannot be confused. The mode refuses without `MODE=hosted` and `CREDENTIALS_JSON`.
+Space runs at least 45 s apart on a development Clerk instance, which rate-limits sign-ins.
+
 ## Refusals and skips
 
 - `MODE=hosted` without `EXPECTED_SHA` (the build revision `/health` must report), `CASE_ID` or `BASE_URL` refuses to run, exit 2.
@@ -78,6 +97,7 @@ Browsers run under the host's lock: start the command through `orch-bin/browser-
 | `STORAGE_STATE` | private Playwright storage state carrying an existing Access or app session |
 | `SIGN_IN_PATH` | default `/sign-in` |
 | `SIGN_IN_MS` | the sign-in budget, default 5000. The shared Clerk development instance is run with 8000 (accepted interim); the release-candidate gate on a production instance uses 5000 (`docs/sprint/runbooks/09c-clerk-instance.md`) |
+| `SIGN_IN_DEVICE` | `fresh` (default, unset) or `returning`; see "Returning-device sign-in". Needs `MODE=hosted` and `CREDENTIALS_JSON` |
 | `IDLE_MINUTES` | J10's idle, default 20 |
 | `READ_ONLY` | `1` skips the write journeys |
 | `DEADLINE_DATE`, `BUNDLE_MS`, `RUN_ID` | J8's synthetic date (default `2026-11-04`), J9's bundle budget (5000), the entry-name tag |

@@ -6,7 +6,7 @@ import type { UserWork } from '../../local-case/user-work.server.ts';
 import { evidenceRows } from './rows.server.ts';
 import type { ChronologyListRow } from '../../local-case/model.ts';
 import type { PureInput } from '../payloads/views.ts';
-import { REGISTER_STORE, SEED_DATASET, filingsMerge, type FilingsData, type SeedViewLike } from './filings.ts';
+import { REGISTER_STORE, SEED_DATASET, filingsMerge, rowVersion, type FilingsData, type SeedViewLike } from './filings.ts';
 import { filingsActionsOver, type FilingsPort } from './filings-actions.server.ts';
 
 function register(caseId: string, rv: string, w: UserWork = app().userWork) {
@@ -52,6 +52,9 @@ export function localFilingsPort({ params }: { params: Record<string, string | u
 		putRow: async (rowId, fields) => { await w.putRow(caseId, REGISTER_STORE, rowId, fields); },
 		putOverlay: (seedId, baseSeedSha256, fields) => w.putSeedOverlay({ caseId, datasetKey: SEED_DATASET, seedId, baseSeedSha256, fields }),
 		deleteRow: async (rowId) => { await w.deleteRow(caseId, REGISTER_STORE, rowId); },
+		deleteVersion: (entry) => rowVersion(entry.fields),
+		requireDeleteVersion: false,
+		published: async () => {},
 		statusOf: (e) => (isHttpError(e) && e.status === 503 ? 503 : 500),
 	};
 }

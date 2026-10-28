@@ -6,11 +6,12 @@ import { REGISTER_STORE, SEED_DATASET, type SeedViewLike } from '$lib/views/evid
 import type { FilingsPort, FilingsPortOf } from '$lib/views/evidence/filings-actions.server';
 import { shard } from '$lib/views/hosted/payloads.server';
 import { hostedWork } from '$lib/views/hosted/work-adapter.server';
-import { operationOf, statusOf, writeScope } from '$lib/views/litigation/hosted.server';
+import { authorizeWrite, fence, operationOf, statusOf, writeScope } from '$lib/views/litigation/hosted.server';
 import { refuse } from '$lib/server/runtime/hosted/http';
 
-export const hostedFilingsPort: FilingsPortOf = ({ locals, params }): FilingsPort => {
+export const hostedFilingsPort: FilingsPortOf = async ({ locals, params }): Promise<FilingsPort> => {
   const { caseId, resultsVersion: rv } = writeScope(params);
+  await authorizeWrite(locals, caseId);
   // the versions the last read found, by row and by seed
   const rowVersion = new Map<string, string>(), overlayVersion = new Map<string, string>();
   const readWork = () => locals.userWork.readViewWork({ caseId, store: REGISTER_STORE, datasetKey: SEED_DATASET }).catch((e: unknown) => refuse(e));
@@ -40,6 +41,9 @@ export const hostedFilingsPort: FilingsPortOf = ({ locals, params }): FilingsPor
       await work(operationOf('filing-overlay', seedId, v, fields), v).putSeedOverlay({ caseId, datasetKey: SEED_DATASET, seedId, baseSeedSha256, fields });
     },
     async deleteRow(rowId) { const v = rowVersion.get(rowId); await work(operationOf('filing-delete', rowId, v), v).deleteRow(caseId, REGISTER_STORE, rowId); },
+    deleteVersion: (entry) => (entry.key.startsWith('row:') ? rowVersion.get(entry.key.slice('row:'.length)) : overlayVersion.get(entry.key.slice('seed:'.length))) ?? 'none',
+    requireDeleteVersion: true,
+    published: fence({ locals, params }),
     statusOf,
   };
 };

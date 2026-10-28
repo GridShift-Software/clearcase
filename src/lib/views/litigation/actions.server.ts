@@ -10,7 +10,7 @@ import type { StatusResult } from './writes.server.ts';
 
 export const authoritiesActions = (ctxOf: CtxOf) => ({
 	add: async (e: RequestEvent) => {
-		const ctx = ctxOf(e);
+		const ctx = await ctxOf(e);
 		const f = await e.request.formData();
 		const values = valuesOf(f, AUTH_FIELDS) as AuthValues;
 		if (!canAddAuthority(values)) return fail(400, { op: 'add', values, message: null });
@@ -20,14 +20,14 @@ export const authoritiesActions = (ctxOf: CtxOf) => ({
 
 export const headsActions = (ctxOf: CtxOf) => ({
 	add: async (e: RequestEvent) => {
-		const ctx = ctxOf(e);
+		const ctx = await ctxOf(e);
 		const f = await e.request.formData();
 		const values = valuesOf(f, HEADS_FIELDS) as HeadsValues;
 		if (!canAddHead(values)) return fail(400, { op: 'add', values, message: null });
 		return addAnswer(ctx, STORES.heads, values, formAddId(f));
 	},
 	delete: async (e: RequestEvent) => {
-		const ctx = ctxOf(e);
+		const ctx = await ctxOf(e);
 		const f = await e.request.formData();
 		const raw = field(f, 'rowId'), values = valuesOf(f, HEADS_FIELDS);
 		const refused = unconfirmed(f, raw, values);
@@ -39,14 +39,14 @@ export const headsActions = (ctxOf: CtxOf) => ({
 
 export const crossexamActions = (ctxOf: CtxOf) => ({
 	add: async (e: RequestEvent) => {
-		const ctx = ctxOf(e);
+		const ctx = await ctxOf(e);
 		const f = await e.request.formData();
 		const values = valuesOf(f, CX_FIELDS) as CxValues;
 		if (!canAddCx(values)) return fail(400, { op: 'add', values, message: null });
 		return addAnswer(ctx, STORES.crossexam, values, formAddId(f));
 	},
 	delete: async (e: RequestEvent) => {
-		const ctx = ctxOf(e);
+		const ctx = await ctxOf(e);
 		const f = await e.request.formData();
 		const values = valuesOf(f, CX_FIELDS);
 		const row = field(f, 'rowId');
@@ -57,6 +57,7 @@ export const crossexamActions = (ctxOf: CtxOf) => ({
 			return deleteAnswerOf(ctx, id, values, () => ctx.entries.remove(STORES.crossexam, id, version));
 		}
 		const { id, version } = deleteTarget(field(f, 'seedId'));
+		await ctx.published();
 		return deleteAnswerOf(ctx, id, values, () => ctx.entries.removeSeed(CX_SEED, id, version));
 	},
 });
@@ -89,7 +90,7 @@ function changesOf(f: FormData): { changes: Change[]; choices: Record<string, st
 
 export const enforcementActions = (ctxOf: CtxOf<EnforcementCtx>) => ({
 	status: async (e: RequestEvent) => {
-		const ctx = ctxOf(e);
+		const ctx = await ctxOf(e);
 		const { changes, choices } = changesOf(await e.request.formData());
 		const errors: Record<string, { message: string; retry: boolean }> = {};
 		const saved: string[] = [];

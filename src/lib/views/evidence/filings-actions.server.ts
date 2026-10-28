@@ -4,7 +4,7 @@
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { deleteStep } from '../../components/confirm-delete.ts';
 import { formAddId, type Fields } from '../litigation/answers.server.ts';
-import { SAVE_FAILURES, asFields, formFields, nextSeq, registerEntries, rowVersion, saveFailure, type SaveFailure, type SeedViewLike, type UserRowLike } from './filings.ts';
+import { SAVE_FAILURES, asFields, formFields, nextSeq, registerEntries, rowVersion, saveFailure, type RegisterEntry, type SaveFailure, type SeedViewLike, type UserRowLike } from './filings.ts';
 
 export interface FilingsRead {
 	seeds: readonly SeedViewLike[];
@@ -24,10 +24,17 @@ export interface FilingsPort {
 	putRow(rowId: string, fields: Fields): Promise<void>;
 	putOverlay(seedId: string, baseSeedSha256: string, fields: Fields): Promise<void>;
 	deleteRow(rowId: string): Promise<void>;
+	/** The version a page names for an entry's Delete: the local fields digest, or the store's version of the row or overlay (`none` for an imported row as imported). */
+	deleteVersion(entry: RegisterEntry): string;
+	/** The hosted store refuses a delete that names no version; a scripted local post that names none still deletes. */
+	requireDeleteVersion: boolean;
+	/** Refuses a URL that is not the current publication, for a write that rests on an imported row (a no-op locally). */
+	published(): Promise<void>;
 	/** The status a failed write answers: 503 when the store is busy or unavailable, 409 when the row changed under the write. */
 	statusOf(e: unknown): 503 | 409 | 500;
 }
-export type FilingsPortOf = (event: Pick<RequestEvent, 'params' | 'locals'>) => FilingsPort | null;
+/** A port is made before the form is read, so a hosted one can refuse a viewer first; null is an unknown version. */
+export type FilingsPortOf = (event: Pick<RequestEvent, 'params' | 'locals'>) => FilingsPort | null | Promise<FilingsPort | null>;
 
 /** What a save or delete of `key` reads: a row of the register needs the register alone, an imported row needs the seeds as well. */
 const readFor = async (port: FilingsPort, key: string): Promise<FilingsRead> => (key.startsWith('row:') ? { seeds: [], rows: await port.rows(), overlays: [] } : port.read());
@@ -53,22 +60,23 @@ async function write(port: FilingsPort, fn: () => Promise<unknown>): Promise<num
 
 export const filingsActionsOver = (portOf: FilingsPortOf) => ({
 	add: async (e: RequestEvent) => {
+		const port = await portOf(e);
 		const fd = await e.request.formData();
 		const typed = formFields((k) => fd.get(k));
-		const port = portOf(e);
 		if (!port) return refuse(404, 'version', typed.values, null);
 		if (!typed.ok) return refuse(400, 'empty-add', typed.values, null);
 		const status = await port.queued(async () => write(port, async () => port.addRow({ seq: nextSeq(await port.rows()), ...typed.values, status: '' }, formAddId(fd))));
 		return status ? refuse(status, 'busy', typed.values, null) : { op: 'add' as const, saved: true };
 	},
 	save: async (e: RequestEvent) => {
+		const port = await portOf(e);
 		const fd = await e.request.formData();
 		const key = String(fd.get('key') ?? '');
 		const seen = typeof fd.get('version') === 'string' ? String(fd.get('version')) : null;
 		const typed = formFields((k) => fd.get(k));
-		const port = portOf(e);
 		if (!port) return refuse(404, 'version', typed.values, key || null, seen);
 		if (!typed.ok) return refuse(400, 'empty-edit', typed.values, key, seen);
+		if (key.startsWith('seed:')) await port.published();
 		const outcome = await port.queued(async () => {
 			const { seeds, rows, overlays } = await readFor(port, key);
 			const entry = registerEntries(seeds, rows).find((x) => x.key === key);
@@ -93,18 +101,22 @@ export const filingsActionsOver = (portOf: FilingsPortOf) => ({
 		redirect(303, e.url.pathname);
 	},
 	delete: async (e: RequestEvent) => {
+		const port = await portOf(e);
 		const fd = await e.request.formData();
 		const draft = draftOf(fd);
 		const target = String(fd.get('delete') ?? '');
-		const port = portOf(e);
 		if (!port) return fail(404, { op: 'delete' as const, target, message: 'Unknown results version: nothing was deleted.', draft });
 		// a Delete that is not confirmed deletes nothing: the page asks (or, after Cancel, shows the draft again)
 		const step = deleteStep(fd, target);
 		if (step !== 'confirm') return fail(400, { op: 'delete' as const, target, confirm: step === 'ask' ? target : null, draft });
+		if (target.startsWith('seed:')) await port.published();
+		// the version the Delete button showed for this entry, independent of the edit draft's own `version`
+		const shown = fd.get(`deleteVersion.${target}`);
 		const outcome = await port.queued(async () => {
 			const { seeds, rows, overlays } = await readFor(port, target);
 			const entry = registerEntries(seeds, rows).find((x) => x.key === target);
 			if (!entry) return 'gone' as const;
+			if ((typeof shown === 'string' || port.requireDeleteVersion) && shown !== port.deleteVersion(entry)) return 409 as const;
 			return write(port, async () => {
 				if (target.startsWith('row:')) await port.deleteRow(target.slice('row:'.length));
 				else {

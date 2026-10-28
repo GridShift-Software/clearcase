@@ -35,14 +35,15 @@ const adds: [string, { actions?: Record<string, unknown>; load?: unknown }, stri
   ['crossexam_tab', crossexam, 'add', { witness: 'Synthetic witness', topic: 'T', put: '', docs: '' }],
   ['payments_tab', payments, 'add', { date: '2026-03-01', amount: '10.00', method: '', note: '' }],
   ['filings_tab', filings, 'add', { filing: 'Synthetic notice', fdate: '', fparty: '', response: '', rdate: '', ref: '' }],
-  ['info_required_tab', info, 'toggle', { key: 'info:one', done: 'true' }],
+  ['info_required_tab', info, 'toggle', { key: 'info:one', done: 'true', version: 'none' }],
   ['enforcement_tab', enforcement, 'status', { stepKey: 'step-key-1', status: 'Done', version: 'none' }],
 ];
 
 // Measurement, not a claim that the ticket's one-batch target is met. The store commits a register row (and its operation
 // ledger) in one batch, then appends the row's audit event and acknowledges it in a second: only note-add and note-delete
 // audit inside their batch (d1-user-work.ts `atomicNote`). Folding row-put, row-delete and overlay-put in is 16's store to
-// change, as 17a found for the registers. TARGET: one batch per write; NOT MET: two.
+// change, as 17a found for the registers: the atomic change-plus-audit batch lands with the RC latency PR
+// (sprint/grs-266-rc-latency), not here. TARGET: one batch per write; NOT MET: two.
 it.each(adds)('17b a %s save is one change batch, then the audit acknowledgement', async (name, route, action, form) => {
   const w = world();
   try {

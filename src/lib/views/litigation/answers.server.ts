@@ -27,8 +27,18 @@ export type Guard = <T, V extends Record<string, string> | null, X extends Recor
 	op: string, values: V, write: () => Promise<T>, say: Say, extra?: X,
 ) => Promise<{ ok: true; value: T } | { ok: false; failure: ActionFailure<X & { op: string; values: V; message: string; retry: boolean }> }>;
 
-export interface Ctx { caseId: string; entries: Entries; guard: Guard }
-export type CtxOf<C extends Ctx = Ctx> = (event: Pick<RequestEvent, 'params' | 'locals'>) => C;
+export interface Ctx {
+	caseId: string;
+	entries: Entries;
+	guard: Guard;
+	/**
+	 * Refuses a URL that is not the case's current publication. A write that rests on published content (an imported row, a roadmap
+	 * step, a checklist item) calls it before it mutates; a plain user row does not (17a). The local pages have one version: no-op.
+	 */
+	published(): Promise<void>;
+}
+/** A context is made before the form is read or validated, so a hosted one can refuse a viewer first. */
+export type CtxOf<C extends Ctx = Ctx> = (event: Pick<RequestEvent, 'params' | 'locals'>) => C | Promise<C>;
 
 export const field = (f: FormData, k: string) => { const v = f.get(k); return typeof v === 'string' ? v : ''; };
 

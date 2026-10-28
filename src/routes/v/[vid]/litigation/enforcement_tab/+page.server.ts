@@ -21,7 +21,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 const localCtx = ({ params }: { params: Record<string, string | undefined> }): EnforcementCtx => {
 	const { vid, caseId } = actionCase(params as { vid: string });
 	return {
-		caseId, entries: localEntries(caseId, vid), guard: guarded,
+		caseId, entries: localEntries(caseId, vid), guard: guarded, published: async () => {},
 		rows: async () => pageOf(vid, caseId).rows,
 		save: (stepKey, status, version) => saveStatus(app().userWork, caseId, STORES.enforcement, stepKey, status, version),
 	};

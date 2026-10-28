@@ -49,9 +49,12 @@ describe('14b mixed shard seam', () => {
       if ('addId' in expected) expected.addId = fixed;
       const h = await hosted[`../../../deploy/client/routes/cases/[caseId]/v/[version]/${route}/+page.server.ts`]!() as { load: (event: unknown) => Promise<Record<string, unknown>> };
       const result = await h.load({ locals, params: { caseId: b.caseId, version: b.rv } });
-      // 17b: the two add forms that carry no id of their own (payments, filings register) get one from the hosted load
-      const { base, empty, operationId, ...actual } = result;
+      // 17b: the hosted load adds what a write names: an operation id for the two add forms that carry none of their own
+      // (payments, filings register), the version each Delete names (filings) and the version each tick rests on (checklist)
+      const { base, empty, operationId, versions, deleteVersions, ...actual } = result;
       if (route === 'quantum/payments_tab' || route === 'evidence/filings_tab') expect(operationId).toMatch(/^[0-9a-f-]{36}$/);
+      if (route === 'evidence/filings_tab') expect(Object.keys(deleteVersions as object)).toEqual(expected.entries.map((e: { key: string }) => e.key));
+      if (route === 'analysis/info_required_tab') expect(Object.keys(versions as object)).toEqual(expected.rows.map((r: { key: string }) => r.key));
       expect(base).toBe(`/cases/${b.caseId}/v`);
       expect(typeof empty).toBe('boolean');
       expect(actual).toEqual(expected);

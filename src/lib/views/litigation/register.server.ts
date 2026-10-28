@@ -25,7 +25,7 @@ export const localEntries = (caseId: string, resultsVersion: string, w: Work = a
 
 export const localCtx = ({ params }: { params: Record<string, string | undefined> }): Ctx => {
 	const { vid, caseId } = actionCase(params as { vid: string });
-	return { caseId, entries: localEntries(caseId, vid), guard: guarded };
+	return { caseId, entries: localEntries(caseId, vid), guard: guarded, published: async () => {} };
 };
 
 export const knownRefs = (resultsVersion: string, texts: Iterable<unknown>, store: CaseStore = app().store) =>

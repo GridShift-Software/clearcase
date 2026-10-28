@@ -22,6 +22,8 @@
 	const vid = $derived(data.version.id);
 	// the hosted route names each add, so a retry of one submission is one row; the local page sends none
 	const operationId = $derived((data as { operationId?: string }).operationId);
+	// the hosted route names the store's version of each entry for its Delete; the local page names the fields digest
+	const deleteVersions = $derived((data as { deleteVersions?: Record<string, string> }).deleteVersions);
 	const files = $derived(new Map(data.files));
 
 	const blank = (): Values => Object.fromEntries(INPUTS.map((k) => [k, '']));
@@ -246,6 +248,7 @@
 						<td>{#if e.fields.ref && files.get(e.fields.ref)}<CitationLink resultsVersion={vid} ref={e.fields.ref} label="{e.fields.ref} ↗" />{:else}{e.fields.ref}{/if}</td>
 						<td>{#if e.fields.status}<span class="badge info">{e.fields.status}</span>{/if}</td>
 						<td class="actions">
+							<input type="hidden" form="register-form" name="deleteVersion.{e.key}" value={deleteVersions?.[e.key] ?? rowVersion(e.fields)} />
 							<form method="GET"><input type="hidden" name="edit" value={e.key} /><button class="ghost" data-edit disabled={busy !== null || held}>Edit</button></form>
 							<ConfirmDelete bind:pending={confirming} target={e.key} question="Delete this entry?" form="register-form" formaction="?/delete" name="delete" class="ghost" data-delete aria-describedby={deleteError?.key === e.key ? 'register-delete-message' : undefined} disabled={busy !== null || e.key === editing} title={e.key === editing ? 'Cancel the edit to delete this row' : undefined} />
 						</td>

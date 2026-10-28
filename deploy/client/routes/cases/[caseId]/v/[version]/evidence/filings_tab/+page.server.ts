@@ -15,7 +15,9 @@ export const load = async ({ locals, params, url }: Pick<RequestEvent, 'locals' 
   ]);
   const seeds = viewSeeds(payload.seeds, work.overlays), rows = work.rows;
   const data = filingsMerge(payload, { seeds, rows }, url?.searchParams.get('edit') ?? null);
-  return { ...data, base: scope.base, empty: !data.groups?.some((g) => g.items.length) && data.entries.length === 0, operationId: crypto.randomUUID() };
+  // the version each entry's Delete names: the store's version of its row or overlay, `none` for an imported row as imported
+  const deleteVersions = Object.fromEntries(data.entries.map((e) => [e.key, (e.key.startsWith('row:') ? rows.find((r) => r.rowId === e.key.slice(4))?.version : work.overlays.find((o) => o.seedId === e.key.slice(5))?.version) ?? 'none']));
+  return { ...data, deleteVersions, base: scope.base, empty: !data.groups?.some((g) => g.items.length) && data.entries.length === 0, operationId: crypto.randomUUID() };
 };
 
 export const actions: Actions = filingsActionsOver(hostedFilingsPort);

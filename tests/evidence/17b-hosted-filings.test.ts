@@ -78,9 +78,10 @@ describe('17b filings register', () => {
 		try {
 			await post(w, filings, 'add', entry);
 			const shown = (await list(w, filings)).entries.find((e: { state: string }) => e.state === 'user');
+			const version = (await list(w, filings)).deleteVersions[shown.key];
 			expect(await post(w, filings, 'delete', { delete: shown.key })).toMatchObject({ status: 400, data: { confirm: shown.key } });
 			expect(rowCount(w)).toBe(1);
-			expect(await post(w, filings, 'delete', { delete: shown.key, confirm: shown.key })).toMatchObject({ op: 'delete', deleted: true });
+			expect(await post(w, filings, 'delete', { delete: shown.key, confirm: shown.key, [`deleteVersion.${shown.key}`]: version })).toMatchObject({ op: 'delete', deleted: true });
 			expect(rowCount(w)).toBe(0);
 		} finally { w.db.close(); }
 	});
@@ -100,7 +101,7 @@ describe('17b filings register', () => {
 		const w = world();
 		try {
 			const seed = (await list(w, filings)).entries[0];
-			expect(await post(w, filings, 'delete', { delete: seed.key, confirm: seed.key })).toMatchObject({ op: 'delete', deleted: true });
+			expect(await post(w, filings, 'delete', { delete: seed.key, confirm: seed.key, [`deleteVersion.${seed.key}`]: 'none' })).toMatchObject({ op: 'delete', deleted: true });
 			expect(overlays(w)).toMatchObject([{ seed_id: 'fr-1' }]);
 			expect(JSON.parse(overlays(w)[0]!.fields_json)).toMatchObject({ deleted: true });
 			expect(rowCount(w)).toBe(0);

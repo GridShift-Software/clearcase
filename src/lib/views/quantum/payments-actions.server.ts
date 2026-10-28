@@ -18,15 +18,16 @@ const entryOf = (f: FormData) => Object.fromEntries(FIELDS.map((k) => [k, String
 
 export const paymentsActions = (ctxOf: CtxOf) => ({
 	add: async (e: RequestEvent) => {
+		const ctx = await ctxOf(e);
 		const f = await e.request.formData();
 		const values = entryOf(f);
 		const c = checkEntry(values);
 		if (!c.ok) return fail(400, { op: 'add', values, message: c.error, field: c.field, retry: false });
-		const ctx = ctxOf(e);
 		const w = await ctx.guard('add', values, () => ctx.entries.add(PAYMENTS_STORE, paymentFields(values, c.cents), formAddId(f)), SAY.add);
 		return w.ok ? { op: 'add', added: true } : w.failure;
 	},
 	delete: async (e: RequestEvent) => {
+		const ctx = await ctxOf(e);
 		const f = await e.request.formData();
 		const values = entryOf(f);
 		const rowId = String(f.get('rowId') ?? '');
@@ -34,7 +35,6 @@ export const paymentsActions = (ctxOf: CtxOf) => ({
 		const typed = FIELDS.some((k) => values[k] !== '');
 		const c = typed ? checkEntry(values) : null;
 		const pending = typed ? { addError: c && !c.ok ? c.error : 'The entry in the form is not saved yet: press Add to save it.', field: c && !c.ok ? c.field : null } : {};
-		const ctx = ctxOf(e);
 		const w = await ctx.guard('delete', values, () => ctx.entries.remove(PAYMENTS_STORE, rowId, hash), SAY.delete, { target: rowId, ...pending });
 		if (!w.ok) return w.failure;
 		if (w.value === 'gone') return fail(404, { op: 'delete', target: rowId, values, ...pending, gone: true, message: 'This payment was already deleted elsewhere (another tab or window). Nothing else changed.', retry: false });

@@ -1,8 +1,9 @@
 // The entry actions of Litigation and Quantum on the hosted app (sprint ticket 17b): `hostedCtx` is the `Ctx` the shared
 // actions (`actions.server.ts`) run over, built on the user-work adapter's `hostedWork`. Each write is one `putRow`,
-// `deleteRow` or `putSeedOverlay`, which is one D1 batch with its audit, and carries the version of the row it replaces, so a
-// change made elsewhere is refused (409) and never overwritten. An operation id is derived from the request, so a retry of one
-// submission is one write and a changed one is a new write.
+// `deleteRow` or `putSeedOverlay`, which is one change batch and then its audit acknowledgement (one atomic batch lands with the
+// RC latency work, not here), and carries the version of the row it replaces, so a change made elsewhere is refused (409) and
+// never overwritten. Every action authorizes `write-user-work` first, before it reads the form. A plain user row waits on no
+// publication lookup, as in 17a; a write that rests on published content (an imported row, a roadmap step) calls `published`.
 import { createHash } from 'node:crypto';
 import { error, isHttpError } from '@sveltejs/kit';
 import { viewSeeds, type SeedOverlay, type SeedRow, type SeedView } from '../../case-package/user-work.ts';
@@ -10,7 +11,7 @@ import type { CaseId, RequestServices, ResultsVersion, Versioned, WorkRegisterRo
 import { codeOf, isDenial } from '../../server/runtime/errors.ts';
 import { id, resultsVersion } from '../../server/runtime/ids.ts';
 import { refuse } from '../../server/runtime/hosted/http.ts';
-import { shard } from '../hosted/payloads.server.ts';
+import { publishedVersion, shard } from '../hosted/payloads.server.ts';
 import { guarded, hostedWork } from '../hosted/work-adapter.server.ts';
 import type { EnforcementCtx } from './actions.server.ts';
 import { STORES, type Ctx, type CtxOf, type Entries, type Fields, type Guard } from './answers.server.ts';
@@ -27,6 +28,15 @@ export function writeScope(params: Params): { caseId: CaseId; resultsVersion: Re
 	try { return { caseId: id('case', params.caseId ?? ''), resultsVersion: resultsVersion(params.version ?? '') }; }
 	catch { error(404, { message: 'Not found.', code: 'not-found' }); }
 }
+
+/** Refuses a caller who may not write this case's user work, at the entry of an action, before the form is read or any no-op path is taken. */
+export async function authorizeWrite(locals: RequestServices, caseId: CaseId): Promise<void> {
+	try { await locals.identity.authorize({ caseId, operation: 'write-user-work' }); }
+	catch (e) { refuse(e, 'write'); }
+}
+
+/** Refuses a URL that is not the case's current publication (404), for a write that rests on published content. */
+export const fence = (event: Event) => async () => { await publishedVersion(event.locals, event.params); };
 
 /** An operation id from what the write is: the same request is the same operation, a changed one is a new operation. */
 export const operationOf = (kind: string, ...parts: readonly unknown[]) => `17b.${kind}.${createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 48)}`;
@@ -103,17 +113,24 @@ export function hostedEntries({ locals, params }: Event): Entries {
 	};
 }
 
-export const hostedCtx: CtxOf = (event): Ctx => ({ caseId: writeScope(event.params).caseId, entries: hostedEntries(event), guard: hostedGuard });
+export const hostedCtx: CtxOf = async (event): Promise<Ctx> => {
+	const { caseId } = writeScope(event.params);
+	await authorizeWrite(event.locals, caseId);
+	return { caseId, entries: hostedEntries(event), guard: hostedGuard, published: fence(event) };
+};
 
 /** The Enforcement Roadmap's status save over the adapter: the step's saved status row, replaced against the version the page showed. */
-export const hostedEnforcementCtx: CtxOf<EnforcementCtx> = (event) => {
+export const hostedEnforcementCtx: CtxOf<EnforcementCtx> = async (event) => {
 	const { locals, params } = event;
 	const { caseId, resultsVersion: rv } = writeScope(params);
+	await authorizeWrite(locals, caseId);
+	// every status rests on a step of the published roadmap
+	await fence(event)();
 	let saved: Promise<readonly Versioned<WorkRegisterRow>[]> | null = null;
 	// one read of the store for the request; a write drops it, so the next answer shows the write
 	const read = () => (saved ??= locals.userWork.readViewWork({ caseId, store: STORES.enforcement }).then((w) => w.rows).catch((e: unknown) => { saved = null; return refuse(e); }));
 	return {
-		caseId, entries: hostedEntries(event), guard: hostedGuard,
+		caseId, entries: hostedEntries(event), guard: hostedGuard, published: fence(event),
 		async rows() {
 			const [payload, rows] = await Promise.all([shard<EnforcementShard>(locals, params, 'view/enforcement_tab.json'), read()]);
 			return enforcementMerge(payload, { rows: registerRows(rows) as unknown as VersionedRow[] }).rows;
@@ -124,10 +141,13 @@ export const hostedEnforcementCtx: CtxOf<EnforcementCtx> = (event) => {
 			const keep = mine.at(-1);
 			const fields: Fields = { stepKey, status };
 			if (typeof keep?.fields.seq === 'number') fields.seq = keep.fields.seq;
+			// A step with no saved status gets the one row id its key names, written only if absent: of two first saves the store
+			// accepts one and answers the other as stale. A step that already has a row (an import, an older store) keeps it.
+			const rowId = keep?.rowId ?? `enf:${stepKey}`;
 			// A retry of a save the store made finds the step at a new version and is refused as changed: the operation id need not name it.
 			const w = hostedWork(locals, caseId, rv, { operationId: crypto.randomUUID(), version: keep?.version ?? '' });
 			saved = null;
-			try { await w.putRow(caseId, STORES.enforcement, keep?.rowId ?? null, fields); }
+			try { await w.putRow(caseId, STORES.enforcement, rowId, fields); }
 			catch (e) { if (conflictOf(e)) return 'stale'; throw e; }
 			return 'saved';
 		},

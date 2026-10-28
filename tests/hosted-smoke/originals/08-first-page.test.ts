@@ -100,7 +100,9 @@ it('starts the tail of a 3 MiB original with the stream, so its xref costs no ro
   expect(log).toEqual(inFlightAtFirstAnswer);
   expect(log.map((l) => l.range)).toContain(`bytes=${Math.floor((size - 2 ** 20) / 2 ** 18) * 2 ** 18}-${size - 1}`);
   expect(log.map((l) => l.range)).toContain(null);
-  expect(ms).toBeLessThan(ROUND_TRIP * 3);
+  // The structural check above is the proof that nothing is chained. This bound only catches a regression to sequential
+  // chunk fetches (3 MiB in 64 KiB chunks is dozens of round trips); 3 round trips flaked on loaded CI runners (129 ms).
+  expect(ms).toBeLessThan(ROUND_TRIP * 10);
 });
 
 it('ends the open with an error when the original refuses a range, so the viewer offers its download link', async () => {

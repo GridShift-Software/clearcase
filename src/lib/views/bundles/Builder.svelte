@@ -10,7 +10,6 @@
 	import { pad, type Bundle, type Header } from './court.ts';
 	import { DOCX_TYPE, indexDocx } from './docx.ts';
 	import { download } from '../../components/download.ts';
-	import { postAction } from './post.ts';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 
 	let { bundles, h, creator, off, reload, onback }: { bundles: Bundle[]; h: Header; creator: string; off: boolean; reload: () => Promise<boolean>; onback: () => void } = $props();
@@ -80,8 +79,9 @@
 			const sources = sourcesOf(snap).map((s) => ({ doc: docs.get(s.fileId)!, from: s.from, to: s.to }));
 			const res = await assemble(sources, { start: 1, index: spec(snap, t, h), onProgress: (d, n, pages) => void (bld.prog = `Assembling… ${d} of ${n} ranges, ${pages} pages`) });
 			if (bld.out && !bld.out.saved && !bld.saving) URL.revokeObjectURL(bld.out.url);
-			const url = URL.createObjectURL(new Blob([res.bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }));
-			bld.out = { id: newId(), title: t, file: pdfName(t), pages: res.pages, indexPages: res.indexPages, bodyPages: res.bodyPages, plan: snap, url, saved: null };
+			const pdf = new Blob([res.bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
+			const url = URL.createObjectURL(pdf);
+			bld.out = { id: newId(), title: t, file: pdfName(t), pages: res.pages, indexPages: res.indexPages, bodyPages: res.bodyPages, plan: snap, pdf, url, saved: null };
 			bld.saveError = null;
 			bld.prog = `Done in ${((performance.now() - t0) / 1000).toFixed(1)}s`;
 		} catch (e) {
@@ -114,7 +114,13 @@
 		bld.saving = true;
 		bld.saveError = null;
 		try {
-			const r = await postAction('save', [['id', o.id], ['bundle', JSON.stringify(entry)]]);
+			const f = new FormData();
+			f.set('id', o.id);
+			f.set('bundle', JSON.stringify(entry));
+			f.set('pdf', o.pdf, 'bundle.pdf');
+			const response = await fetch(page.url.pathname.replace(/\/$/, '') + '/assembled', { method: 'POST', body: f });
+			const data = await response.json();
+			const r = { ok: response.ok, message: data.message ?? 'Not saved. Retry.', data };
 			if (!r.ok) {
 				if (bld.out?.id === o.id) bld.saveError = r.message;
 				else URL.revokeObjectURL(o.url);
@@ -125,6 +131,8 @@
 			blobs[o.id] = o.url;
 			if (!(await reload())) return;
 			if (page.url.searchParams.get('view') === 'build' && bld.out?.id === o.id) await goto(`?${new URLSearchParams({ b: no, tab: 'index' })}`);
+		} catch {
+			if (bld.out?.id === o.id) bld.saveError = 'Not saved: the upload failed. Retry.';
 		} finally {
 			bld.saving = false;
 		}
@@ -133,13 +141,13 @@
 
 <section id="cb-builder" aria-labelledby="cb-builder-h">
 	<div class="toolbar"><h2 id="cb-builder-h">Build a bundle</h2><button type="button" class="btn sec" id="cb-builder-back" disabled={off} onclick={onback}>All bundles</button></div>
-	<p class="sub">Choose PDFs, choose the pages you want out of each, and the app assembles them into one numbered bundle with its own index — in the browser, with nothing uploaded anywhere.</p>
+	<p class="sub">Choose PDFs, choose the pages you want out of each, and the app assembles them into one numbered bundle with its own index — in the browser, and you can save the assembled PDF to this case.</p>
 	{#if off}
 		<p class="notice" id="cb-builder-nojs">The bundle builder needs JavaScript, which is off or still loading: it reads the PDFs and assembles the bundle in this browser.</p>
 	{:else}
 		<div class="card" id="cbb-sources"><h3>1 · Source documents</h3>
 			<div class="toolbar"><label class="btn primary" for="cbbfile">Add PDFs…</label>
-				<input type="file" id="cbbfile" class="vh" multiple accept="application/pdf,.pdf" disabled={bld.busy} onchange={(e) => addFiles(e.currentTarget)} />
+				<input type="file" data-testid="bundle-files" id="cbbfile" class="vh" multiple accept="application/pdf,.pdf" disabled={bld.busy} onchange={(e) => addFiles(e.currentTarget)} />
 				<select class="in" id="cbbfrom" aria-label="Start from a defined bundle" onchange={(e) => startFrom(e.currentTarget)}>
 					<option value="">Start from a defined bundle…</option>
 					{#each bundles as x, i (i)}<option value={String(i)}>{x.title}</option>{/each}
@@ -186,11 +194,11 @@
 		</div>
 
 		<div class="card" id="cbb-create"><h3>3 · Create the bundle</h3>
-			<div class="fld"><label class="tag" for="cbbname">Bundle name</label><input class="in" id="cbbname" placeholder="e.g. EXPERT REPORTS" bind:value={bld.b.name} /></div>
-			<div class="toolbar"><button type="button" class="btn primary" id="cbbrun" disabled={bld.busy || !pl.pages} onclick={run}>Create Bundle</button><button type="button" class="btn sec" id="cbbindex" disabled={!pl.rows.length} onclick={indexPdf}>Index only (PDF)</button><button type="button" class="btn ghost" id="cbbword" disabled={!pl.rows.length} onclick={indexWord}>Index (Word)</button><span class="count" id="cbbprog" role="status">{bld.prog}</span></div>
+			<div class="fld"><label class="tag" for="cbbname">Bundle name</label><input class="in" data-testid="bundle-name" id="cbbname" placeholder="e.g. EXPERT REPORTS" bind:value={bld.b.name} /></div>
+			<div class="toolbar"><button type="button" class="btn primary" data-testid="bundle-create" id="cbbrun" disabled={bld.busy || !pl.pages} onclick={run}>Create Bundle</button><button type="button" class="btn sec" id="cbbindex" disabled={!pl.rows.length} onclick={indexPdf}>Index only (PDF)</button><button type="button" class="btn ghost" id="cbbword" disabled={!pl.rows.length} onclick={indexWord}>Index (Word)</button><span class="count" id="cbbprog" role="status">{bld.prog}</span></div>
 			<div class="tag">The header details set on the Court Bundles page are used for the index. Page numbering starts at 1 on the first page of item 1 and runs continuously; the index pages sit in front and are not numbered.</div>
 			{#if bld.out}
-				<div class="toolbar out" id="cbbout"><a class="btn primary" id="cbbdownload" href={bld.out.url} download={bld.out.file}>Download PDF</a><a class="btn sec" href={bld.out.url} target="_blank" rel="noopener">Open in a new tab</a><button type="button" class="btn sec" onclick={print}>Print</button><button type="button" class="btn ghost" id="cbbsave" disabled={bld.saving} onclick={save}>Save to the bundle list</button><span class="badge b-ok">{bld.out.pages} pages ({bld.out.indexPages} index + {bld.out.bodyPages} numbered)</span>{#if bld.saving}<span class="saving" role="status">Saving…</span>{:else if bld.out.saved}<span class="tag" id="cbbsaved">Saved to the bundle list as {bld.out.saved}</span>{/if}</div>
+				<div class="toolbar out" id="cbbout"><a class="btn primary" data-testid="bundle-download" id="cbbdownload" href={bld.out.url} download={bld.out.file}>Download PDF</a><a class="btn sec" href={bld.out.url} target="_blank" rel="noopener">Open in a new tab</a><button type="button" class="btn sec" onclick={print}>Print</button><button type="button" class="btn ghost" data-testid="bundle-save" id="cbbsave" disabled={bld.saving} onclick={save}>Save to the bundle list</button><span class="badge b-ok">{bld.out.pages} pages ({bld.out.indexPages} index + {bld.out.bodyPages} numbered)</span>{#if bld.saving}<span class="saving" role="status">Saving…</span>{:else if bld.out.saved}<span class="tag" id="cbbsaved">Saved to the bundle list as {bld.out.saved}</span>{/if}</div>
 				{#if bld.saveError}<p class="error" role="alert" id="cbb-save-error">{bld.saveError} <button type="button" class="btn sm" disabled={bld.saving} onclick={save}>Retry</button></p>{/if}
 				<!-- v5 shows the built PDF in the page (CSP frame-src blob: only). No sandbox: Chromium does not render a PDF in a sandboxed frame. -->
 				<div class="preview"><iframe id="cbbpreview" src="{bld.out.url}#page=1" title="New bundle"></iframe></div>

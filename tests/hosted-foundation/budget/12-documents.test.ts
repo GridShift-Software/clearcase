@@ -19,7 +19,8 @@ import { oneLookupLocals } from './one-lookup.ts';
  * authorization, 1 R2 cold. Documents list: warm 1 D1 and 0 R2, fully cold 1 D1 and 2 R2 (shell, default shard); target MET, and
  * cold is one read per cold shard. Document page: warm 4 D1 and 1 R2, fully cold 4 D1 and 3 R2; its target of at most 2 D1
  * beyond authorization is NOT MET: 1 authorization + 2 original-links calls + 1 notes query = 4, or 3 beyond authorization.
- * Its links call runs its own authorization (a second authorize call), and two deferred audit inserts, not one.
+ * Method calls authorize the layout, original-links and notes (3 calls sharing the request lookup); the visit writes
+ * two deferred audit inserts, not one.
  * The deferred audit inserts add D1 after the response,
  * asserted separately, never counted in the next visit.
  * Before 09b: list 7 D1 and 1 R2 warm, 3 R2 cold; document page 14 D1 and 2 R2 warm, 4 R2 cold.
@@ -89,7 +90,7 @@ describe('12 documents list and document page budget', () => {
     await flushAudit();
     expect(w.c.d1).toBe(cold.counts.d1 + DOC_AUDITS);
     const warm = await expectWithinBudget('12 document page (warm)', DOC, w.c, view);
-    expect([warm.thrown, cold.counts.r2 - warm.counts.r2, w.authorizations()]).toEqual([undefined, 2, 2]);
+    expect([warm.thrown, cold.counts.r2 - warm.counts.r2, w.authorizations()]).toEqual([undefined, 2, 3]);
     await flushAudit();
     expect(w.c.d1).toBe(warm.counts.d1 + DOC_AUDITS);
     const data = (warm.value as [unknown, { attachments: unknown[] }])[1];

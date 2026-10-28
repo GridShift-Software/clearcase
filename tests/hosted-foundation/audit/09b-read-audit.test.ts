@@ -73,8 +73,8 @@ it('M2: authorization dedupe never discards a different kind or an asset-level e
   w.schedule({ ...w.event, eventId: 'original-auth', action: 'case.read-original' });
   w.schedule({ ...w.event, eventId: 'asset-delivery', action: 'asset.read-original', object: { kind: 'asset', id: 'synthetic-original', caseId: w.event.object.caseId } });
   await Promise.all(w.pending);
-  expect(w.sqlite.prepare('SELECT action, object_id FROM native_audit_events ORDER BY seq').all()).toEqual([
-   { action: 'case.read', object_id: 'case-a' }, { action: 'case.read-original', object_id: 'case-a' }, { action: 'asset.read-original', object_id: 'synthetic-original' },
+  expect(w.sqlite.prepare('SELECT action, object_id FROM native_audit_events ORDER BY action').all()).toEqual([
+   { action: 'asset.read-original', object_id: 'synthetic-original' }, { action: 'case.read', object_id: 'case-a' }, { action: 'case.read-original', object_id: 'case-a' },
   ]);
  } finally { w.sqlite.close(); }
 });

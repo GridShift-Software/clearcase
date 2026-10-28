@@ -72,8 +72,8 @@ case ${1:-} in
 	current_sha=$(tag_of "$current")
 	target=${2:-}
 	if [[ -z $target ]]; then
-		# Newest earlier deployment whose version carries a different SHA tag: a secret change re-deploys the same code.
-		target=$(V=$versions json "[...j].reverse().map(d => d.versions[0].version_id).find(id => id !== '$current' && (JSON.parse(process.env.V).find(v => v.id === id)?.annotations?.['workers/tag'] ?? '') !== '$current_sha') ?? ''" <<<"$deployments")
+		# Newest earlier deployment of a version this script tagged with another SHA. Untagged versions are secret changes.
+		target=$(V=$versions json "[...j].reverse().map(d => d.versions[0].version_id).find(id => { const tag = JSON.parse(process.env.V).find(v => v.id === id)?.annotations?.['workers/tag'] ?? ''; return /^[0-9a-f]{40}\$/.test(tag) && tag !== '$current_sha'; }) ?? ''" <<<"$deployments")
 	fi
 	[[ -n $target ]] || die "no earlier version with a different SHA than $current_sha to roll back to"
 	target_sha=$(tag_of "$target")

@@ -1,9 +1,13 @@
 // The RC latency paths (GRS-266) through the real hostedServices composition, as 16-note-save.test.ts builds it: the case
 // notes list, the bundle save POST and the bundle page loads. Every D1 round trip is counted, batches apart, and each D1
-// call can be held for a fixed delay; `serial` counts the delayed calls on the critical path (`sequential` is the elapsed time over
-// that delay, for 269, which keeps it beside exact call counts).
+// call can be held for a fixed delay so the elapsed time over that delay gives the round trips on the critical path.
 // Synthetic SQLite and in-memory doubles, not a deployed Worker.
+//
+// `timed` runs the request on a virtual clock: setTimeout and performance.now are Vitest fake timers, advanced only while
+// the request is idle, so a delay (a D1 call, an R2 put, or any setTimeout the route itself makes) costs exactly its
+// virtual milliseconds and the elapsed time is the critical path of the delays, whatever the CPU load.
 import { vi } from 'vitest';
+import { setImmediate as realImmediate } from 'node:timers';
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
 vi.mock('cloudflare:workers', () => workers);
 import { readFileSync } from 'node:fs';
@@ -26,12 +30,39 @@ import type { RequestServices } from '../../../src/lib/server/runtime/contracts.
 export const DELAY_MS = 50;
 export const R2_PUT_DELAYS = 6;
 
+// crypto.subtle finishes on a thread pool, outside the event loop's turns, so the virtual clock must not advance while
+// one is in flight: the request would see a later start than the causal one.
+let subtleInflight = 0;
+for (const name of Object.getOwnPropertyNames(Object.getPrototypeOf(crypto.subtle))) {
+  const original = (crypto.subtle as unknown as Record<string, unknown>)[name];
+  if (name === 'constructor' || typeof original !== 'function') continue;
+  (crypto.subtle as unknown as Record<string, unknown>)[name] = function (this: unknown, ...a: unknown[]) {
+    subtleInflight++;
+    const done = () => { subtleInflight--; };
+    try { const r = Reflect.apply(original, crypto.subtle, a) as Promise<unknown>; r.then(done, done); return r; } catch (e) { done(); throw e; }
+  };
+}
+/** Waits until nothing the request started can still run: two event-loop turns with no subtle-crypto call in flight. */
+async function quiet() {
+  do { await new Promise<void>(r => realImmediate(r)); await new Promise<void>(r => realImmediate(r)); } while (subtleInflight > 0);
+}
+/** Awaits `work` while advancing the virtual clock to the next timer whenever the request is idle. */
+async function onVirtualClock<T>(work: Promise<T>): Promise<T> {
+  let done = false;
+  work.then(() => { done = true; }, () => { done = true; });
+  while (!done) {
+    await quiet();
+    if (!done && vi.getTimerCount() > 0) await vi.advanceTimersToNextTimerAsync();
+  }
+  return work;
+}
+
 export const SHARDS = {
   'view/court_bundle_tab.json': { pathShard: { paths: {} }, bundles: [], links: [], header: {} },
   'view/discovery_tab.json': { pathShard: { paths: {} }, present: true, schedules: { discovery: [], supplementary: [] }, files: {}, downloads: {}, caption: {}, meta: {}, mode: 'discovery', selected: [], marks: [] },
 } as const;
 
-/** `slowReads` also holds every KV get and R2 get or head for one D1 delay, so `serial` and `sequential` count those round trips too. */
+/** `slowReads` also holds every KV get and R2 get or head for one D1 delay, so `sequential` counts those round trips too. */
 export async function rcWorld(o: { slowReads?: boolean } = {}) {
   const w = await hostedWorld();
   w.db.sqlite.exec(MIGRATION);
@@ -51,16 +82,7 @@ export async function rcWorld(o: { slowReads?: boolean } = {}) {
   const file = planNativeRuntimeConfig(exampleInput()).clients.find(c => c.clientId === 'client-a')!;
   let delay = 0, batches = 0;
   const raw = w.db as unknown as { prepare: (...a: unknown[]) => object; batch: (s: unknown[]) => Promise<unknown> };
-  // `serial` counts the delayed calls one after another, not the elapsed time: a call that starts once the longest chain
-  // so far has finished extends it by its own units, a call that starts beside it does not. A loaded runner stretches the
-  // time between calls, not this count. `settled` is the longest finished chain, in D1-call units.
-  let settled = 0;
-  const wait = async (units = 1) => {
-    if (!delay) return;
-    const from = settled;
-    await new Promise(r => setTimeout(r, delay * units));
-    settled = Math.max(settled, from + units);
-  };
+  const wait = (units = 1) => delay ? new Promise(r => setTimeout(r, delay * units)) : Promise.resolve();
   const slowStatement = (s: object): object => new Proxy(s, { get(t, p) {
     const v = Reflect.get(t, p);
     if (p === 'bind' && typeof v === 'function') return (...a: unknown[]) => slowStatement(Reflect.apply(v, t, a) as object);
@@ -107,15 +129,16 @@ export async function rcWorld(o: { slowReads?: boolean } = {}) {
       return route(ready.services, req, url);
     });
   }
-  /** `request` with every D1 call delayed: its counts, batches and the critical-path round trips. */
+  /** `request` with every D1 call delayed, on the virtual clock: its counts, batches and the critical-path round trips. */
   async function timed<T>(path: string, init: RequestInit, route: (locals: RequestServices, request: Request, url: URL) => Promise<T>) {
-    delay = DELAY_MS; batches = 0; settled = 0;
+    delay = DELAY_MS; batches = 0;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
     const start = performance.now();
     try {
-      const result = await request(path, init, route);
+      const result = await onVirtualClock(request(path, init, route));
       const sequential = Math.round((performance.now() - start) / DELAY_MS);
-      return { ...result, batches, sequential, serial: settled };
-    } finally { delay = 0; await Promise.all(pending.splice(0)); }
+      return { ...result, batches, sequential };
+    } finally { delay = 0; await onVirtualClock(Promise.all(pending.splice(0))); vi.clearAllTimers(); vi.useRealTimers(); }
   }
   /** Holds the next R2 puts until `release()`; `reached` resolves once one is waiting. */
   function holdPut() {
@@ -128,5 +151,5 @@ export async function rcWorld(o: { slowReads?: boolean } = {}) {
     async cleanup() { await Promise.all(pending); w.db.sqlite.close(); } };
 }
 export type RcWorld = Awaited<ReturnType<typeof rcWorld>>;
-export const show = (label: string, r: { counts: Counts; batches?: number; sequential?: number; serial?: number }) =>
-  console.log(`266 ${label}: d1=${r.counts.d1} r2=${r.counts.r2} clerk=${r.counts.clerk} batches=${r.batches ?? '-'} serial=${r.serial ?? '-'} elapsed≈${r.sequential ?? '-'}`);
+export const show = (label: string, r: { counts: Counts; batches?: number; sequential?: number }) =>
+  console.log(`266 ${label}: d1=${r.counts.d1} r2=${r.counts.r2} clerk=${r.counts.clerk} batches=${r.batches ?? '-'} sequential≈${r.sequential ?? '-'}`);

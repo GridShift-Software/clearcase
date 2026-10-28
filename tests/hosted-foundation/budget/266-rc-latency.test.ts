@@ -1,11 +1,11 @@
 // GRS-266: the three staging overruns of the RC journeys (J7 case-notes-list, J9 bundle-save, J1 discovery), over the
-// real hostedServices composition (./266-world.ts). Counts include the deferred read-audit insert. `serial` counts the
-// delayed calls on the critical path (an R2 put held as long as six D1 calls): a call that starts after the longest chain
-// so far has finished extends it, one that starts beside it does not. It is a count, not an elapsed time, so a loaded
-// runner cannot move it (before, the ceilings rounded elapsed time and flaked: 18 against 16 on CI). Each ceiling keeps
-// its value and one of slack; the pin beside it is the measured count. Before GRS-266 (base 68480080 sources): notes list 35 D1
+// real hostedServices composition (./266-world.ts). Counts include the deferred read-audit insert. `sequential` is the
+// elapsed time over a fixed per-call D1 delay, with an R2 put held as long as six D1 calls: the round trips on the
+// critical path, rounded, so its ceiling keeps one of slack. The clock is virtual (./266-world.ts): every setTimeout the
+// route makes runs on it too, so any added wait, D1 or not, lengthens `sequential`, and CPU load cannot. Beside each
+// ceiling the test pins the measured value, exact on the virtual clock. Before GRS-266 (base 68480080 sources): notes list 35 D1
 // (about 29 sequential), each bundle page 7 (4), bundle save 20 in 2 batches (22).
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { rcWorld, show, type RcWorld } from './266-world.ts';
 import { load as notesLoad } from '../../../deploy/client/routes/cases/[caseId]/notes/+page.server.ts';
 import { load as courtLoad } from '../../../deploy/client/routes/cases/[caseId]/v/[version]/bundles/court_bundle_tab/+page.server.ts';
@@ -25,7 +25,7 @@ it('266 the case notes list reads through the one lookup: 3 D1 calls, 2 on the c
     const r = await w.timed('/notes', { method: 'GET' }, (locals, _r, url) => notesLoad({ locals, params: params(w), url } as never));
     expect(r.thrown).toBeUndefined(); show('notes list', r);
     expect(r.value?.notes.state).toBe('available');
-    expect(r.counts).toMatchObject({ d1: 3, clerk: 0, otherFetch: 0 }); expect(r.serial).toBeLessThanOrEqual(3); expect(r.serial).toBe(2);
+    expect(r.counts).toMatchObject({ d1: 3, clerk: 0, otherFetch: 0 }); expect(r.sequential).toBeLessThanOrEqual(3); expect(r.sequential).toBe(2);
   } finally { await w.cleanup(); }
 });
 
@@ -35,7 +35,7 @@ it('266 the Court Bundle and Discovery pages each read their work in one query p
     for (const [label, load, path] of [['court load', courtLoad, 'court_bundle_tab'], ['discovery load', discoveryLoad, 'discovery_tab']] as const) {
       const r = await w.timed(`${version(w)}/bundles/${path}`, { method: 'GET' }, (locals, _r, url) => (load as (e: never) => Promise<unknown>)({ locals, params: params(w), url } as never));
       expect(r.thrown).toBeUndefined(); show(label, r);
-      expect(r.counts).toMatchObject({ d1: 4, r2: 1, clerk: 0, otherFetch: 0 }); expect(r.serial).toBeLessThanOrEqual(3); expect(r.serial).toBe(2);
+      expect(r.counts).toMatchObject({ d1: 4, r2: 1, clerk: 0, otherFetch: 0 }); expect(r.sequential).toBeLessThanOrEqual(3); expect(r.sequential).toBe(2);
     }
   } finally { await w.cleanup(); }
 });
@@ -49,7 +49,7 @@ it('266 a bundle save is one batch, its audit included, and its row work runs be
     // lost during the object write refuses the row. Those 3 follow the put; the row's preflight reads still overlap it.
     // 19 since GRS-264: the answer carries the stored bundle list, one table read after the commit (measured 19, one more).
     expect(r.counts).toMatchObject({ d1: 19, clerk: 0, otherFetch: 0 }); expect(r.batches).toBe(1);
-    expect(r.serial).toBeLessThanOrEqual(16); expect(r.serial).toBe(15);
+    expect(r.sequential).toBeLessThanOrEqual(16); expect(r.sequential).toBe(15);
     expect(w.db.rows<{ action: string }>("SELECT action FROM native_audit_events WHERE action = 'user-work.table-row-put'")).toHaveLength(1);
     expect(w.db.rows('SELECT audited_at FROM uw_operation WHERE audited_at IS NULL')).toEqual([]);
   } finally { await w.cleanup(); }
@@ -61,6 +61,9 @@ it('266 a bundle row commits only after its PDF is stored, reading while the PDF
     const hold = w.holdPut(), before = w.batches();
     const saving = w.request(`${version(w)}/bundles/court_bundle_tab/assembled`, save('rc-held'), (locals, request, url) => assembledPost({ locals, params: params(w), request, url } as never));
     await hold.reached;
+    // The reads run beside the held put: wait for them (a loaded runner needs more than a fixed pause), then give anything
+    // that must not happen yet a pause to show itself.
+    await vi.waitFor(() => expect(w.counters.d1).toBe(14), { timeout: 15000, interval: 5 });
     await new Promise(r => setTimeout(r, 50));
     // Authorization, the table read, the write authorization and the preflight reads are done; nothing is committed.
     // The second write authorization and the batch come only after the PDF is stored.

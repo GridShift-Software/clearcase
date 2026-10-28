@@ -1,7 +1,7 @@
 import type { CaseId, HostedNote, HostedNoteSummary, RequestServices, Versioned } from '../server/runtime/contracts.ts';
 import { contractError } from '../server/runtime/errors.ts';
 import { id } from '../server/runtime/ids.ts';
-import { sha256Hex } from '../audit/event.ts';
+import { sha256Hex } from '../case-package/hash.ts';
 import { fastOriginals, registerFastOriginals } from '../viewer/hosted/fast-original.ts';
 import type { requestCaseLookup } from './request-case.ts';
 
@@ -28,7 +28,7 @@ export function bindPageReads(services: RequestServices, lookup: ReturnType<type
     const result: HostedNoteSummary = { total: raw.length, here: 0, exact: 0, ambiguous: 0, missing: 0, unanchored: 0, byRef: [], detached: [] };
     for (const n of raw) {
       const { bodySha256, ...plain } = n;
-      const note: Versioned<HostedNote> = { ...plain, version: id('row-version', n.version), intact: await sha256Hex(n.body) === bodySha256, status: 'here', candidates: [] };
+      const note: Versioned<HostedNote> = { ...plain, version: id('row-version', n.version), intact: sha256Hex(n.body) === bodySha256, status: 'here', candidates: [] };
       const target = note.target;
       let status: 'here' | 'exact' | 'ambiguous' | 'missing' | 'unanchored' = target.kind === 'case' ? 'here' : 'unanchored';
       let refs: string[] = [];

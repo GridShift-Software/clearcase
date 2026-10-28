@@ -9,7 +9,7 @@ export const HOSTED_PDF_VERSION = '6.4.299';
 // Captured from the frozen bun.lock install at c6f0d9536e381dc8eebbf2035f49834409434761.
 export const HOSTED_PDF_PACKAGE_DIGEST = 'sha256:ae9a1328f4de3e2cf14b24d711e34299963dc64c10eab7b1afe849b79846e577';
 // The in-app viewer's pdf.js worker, pdfjs/pdf-viewer-worker.mjs: build/pdf.worker.min.mjs with WORKER_PATCH applied.
-export const HOSTED_PDF_VIEWER_WORKER_DIGEST = 'sha256:c14b50d04c16081a41c1756232923c0087bcb3113de3540ada92d6d774fd6115';
+export const HOSTED_PDF_VIEWER_WORKER_DIGEST = 'sha256:79bdd72351096425f4efd42b4c238e7513f321c1a38951a825a148119530b511';
 
 /**
  * The one patch to pdf.js (upstream pdfjs-dist 6.4.299, build/pdf.worker.min.mjs; GRS-251), served only to the in-app
@@ -17,20 +17,25 @@ export const HOSTED_PDF_VIEWER_WORKER_DIGEST = 'sha256:c14b50d04c16081a41c175623
  * so the package digest and the render check's renderer version do not move. Upstream `BasePdfManager.initDocument`
  * awaits `checkLastPage` before the document opens, and `checkLastPage` reaches the last page through
  * `Catalog.getPageDict`, which fetches every top-level /Kids entry in turn: on a large file that is not linearized, with
- * its page dictionaries spread through the whole file, that is most of the file before page 1 shows. The patch keeps the
- * check and only moves it: `initDocument` stores it, and the first finished `GetOperatorList` (the worker's part of
- * drawing a page) starts it. It still runs once a page is drawn and still corrects the worker's page count when /Count is
- * wrong; the document's reported page count is /Count's, so a page /Count names but the tree lacks fails when drawn, and
- * the check's own failure is no longer a load failure. Each replacement must match exactly once, so another pdf.js build
- * is refused, never half-patched.
+ * its page dictionaries spread through the whole file, that is most of the file before page 1 shows. The patch moves the
+ * check when /Count is a positive integer: `initDocument` stores it, and the first finished `GetOperatorList` (the
+ * worker's part of drawing a page) starts it. When /Count is anything else the document cannot open without the check's
+ * recovery, so it still blocks, as upstream. A deferred check still corrects the worker's page count when /Count is
+ * wrong, and the added `ClearcasePageCount` request answers, once the check has run, with the corrected count (null when
+ * /Count stood), which pdf-reader.mjs passes to the viewer. A deferred check's own failure is no longer a load failure.
+ * Each replacement must match exactly once, so another pdf.js build is refused, never half-patched.
  */
 const WORKER_PATCH: ReadonlyArray<readonly [string, string]> = [
 	['await this.ensureDoc("checkFirstPage",[e]);await this.ensureDoc("checkLastPage",[e])}',
-		'await this.ensureDoc("checkFirstPage",[e]);this.deferredLastPageCheck=()=>{this.deferredLastPageCheck=null;this.ensureDoc("checkLastPage",[e]).catch(()=>{})}}'],
+		'await this.ensureDoc("checkFirstPage",[e]);let clearcaseCount;try{clearcaseCount=await this.ensureCatalog("numPages")}catch{}' +
+		'if(!(Number.isInteger(clearcaseCount)&&clearcaseCount>0)){await this.ensureDoc("checkLastPage",[e]);return}' +
+		'let clearcaseChecked;this.lastPageChecked=new Promise(t=>{clearcaseChecked=t});' +
+		'this.deferredLastPageCheck=()=>{this.deferredLastPageCheck=null;this.ensureDoc("checkLastPage",[e]).catch(()=>{}).then(clearcaseChecked)}}'],
 	['l){a.getPage(e).then(function(e){const a=new WorkerTask(`GetOperatorList: page ${t}`);',
 		'l){const clearcasePdfManager=a;a.getPage(e).then(function(e){const a=new WorkerTask(`GetOperatorList: page ${t}`);'],
 	['pageIndex:t,pageProxyId:n}).then(()=>{l.close()},e=>{a.terminated||l.error(e)}).finally(()=>{finishWorkerTask(a)})})});c.on("GetTextContent"',
-		'pageIndex:t,pageProxyId:n}).then(()=>{l.close()},e=>{a.terminated||l.error(e)}).finally(()=>{finishWorkerTask(a);clearcasePdfManager.deferredLastPageCheck?.()})})});c.on("GetTextContent"'],
+		'pageIndex:t,pageProxyId:n}).then(()=>{l.close()},e=>{a.terminated||l.error(e)}).finally(()=>{finishWorkerTask(a);clearcasePdfManager.deferredLastPageCheck?.()})})});' +
+		'c.on("ClearcasePageCount",async function(){await a.lastPageChecked;const t=a.pdfDocument.catalog;return t.hasActualNumPages?t.numPages:null});c.on("GetTextContent"'],
 ];
 /** The served worker: the upstream bytes with WORKER_PATCH applied, or an error when any replacement is not exactly one match. */
 export function patchPdfWorker(upstream: Buffer): Buffer {
@@ -42,7 +47,7 @@ export function patchPdfWorker(upstream: Buffer): Buffer {
 	}
 	return Buffer.from(text, 'utf8');
 }
-export const HOSTED_PDF_READER_DIGEST = 'sha256:782e60af7b31feb6d7e58677e54bdbde307afb7da6dc197ac03ec0f3d8522b63';
+export const HOSTED_PDF_READER_DIGEST = 'sha256:2ff3ba6dff548be174a1d366245ae31f4dc6dd655d4667887624f32de18c398f';
 const READER = 'src/lib/viewer/hosted/static/pdf-reader.mjs';
 const hash = (bytes: Buffer | string) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 export type PdfAsset = { path: string; bytes: number; sha256: string };

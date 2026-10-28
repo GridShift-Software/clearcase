@@ -50,8 +50,9 @@ export class Ranges extends pdfjs.PDFDataRangeTransport {
 }
 
 window.clearcasePdfReader = {
-	/** Opens `src` (`size`, its byte length, when known); resolves { pages, draw(page, scale), destroy() } or rejects when the file cannot be read as a PDF. */
-	async open({ src, size, canvas, signal }) {
+	/** Opens `src` (`size`, its byte length, when known); resolves { pages, draw(page, scale), destroy() } or rejects when the file cannot be read as a PDF.
+	 *  `pages` is /Count until the worker's deferred last-page check corrects it; `onPages` then receives the real count. */
+	async open({ src, size, canvas, signal, onPages }) {
 		// A refused or failed read rejects the open and every draw (the viewer then offers the download), never leaves them waiting.
 		const reads = new AbortController();
 		let failed;
@@ -83,14 +84,25 @@ window.clearcasePdfReader = {
 			doc = await Promise.race([task.promise, failure]);
 			if (destroyed) throw new Error('reader cancelled');
 		} catch (error) { destroy(); throw error; }
+		// The served worker checks the last page only after drawing one (scripts/hosted-pdf-assets.ts, WORKER_PATCH), so a
+		// wrong /Count is found after the open. Its added request answers once that check has run: the corrected count, or null.
+		let pages = doc.numPages, counted = null;
+		const recount = () => {
+			counted ??= Promise.race([doc._transport.messageHandler.sendWithPromise('ClearcasePageCount', null), failure]).then((n) => {
+				if (destroyed || !Number.isSafeInteger(n) || n < 1 || n === pages) return;
+				pages = n;
+				onPages?.(n);
+			}, () => {});
+		};
 		return {
-			pages: doc.numPages,
+			get pages() { return pages; },
 			draw(number, scale, fitWidth) {
 				const mine = ++ticket;
 				rendering?.cancel();
 				// Cancel promptly, but do not resize or reuse the canvas until the prior RenderTask settles.
 				const drawing = tail.then(async () => {
 					if (destroyed || mine !== ticket) return;
+					if (number > pages) throw new Error('no such page');
 					const page = await Promise.race([doc.getPage(number), failure]);
 					if (destroyed || mine !== ticket) return;
 					const natural = page.getViewport({ scale: 1 });
@@ -101,6 +113,7 @@ window.clearcasePdfReader = {
 					const render = rendering = page.render({ canvas, viewport });
 					try { await Promise.race([render.promise, failure]); }
 					finally { if (rendering === render) rendering = null; }
+					recount();
 				}).catch((error) => {
 					// A superseded/destroyed draw has no UI to report to. Current PDF failures still reject.
 					if (!destroyed && mine === ticket) throw error;

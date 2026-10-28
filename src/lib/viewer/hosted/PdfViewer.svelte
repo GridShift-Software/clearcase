@@ -22,8 +22,8 @@
 	let pending = $state(false);
  let canUseNotes = $state(untrack(() => notesAvailable));
 	let draftRevision = 0;
-	type Reader = { pages: number; draw(page: number, scale: number, fitWidth?: number): Promise<void>; destroy(): void };
-	type Global = { clearcasePdfReader?: { open(a: { src: string; size?: number; canvas: HTMLCanvasElement; signal: AbortSignal }): Promise<Reader> } };
+	type Reader = { readonly pages: number; draw(page: number, scale: number, fitWidth?: number): Promise<void>; destroy(): void };
+	type Global = { clearcasePdfReader?: { open(a: { src: string; size?: number; canvas: HTMLCanvasElement; signal: AbortSignal; onPages?: (pages: number) => void }): Promise<Reader> } };
 	let reader: Reader | null = null;
 	let active = false;
 	let drawGeneration = 0;
@@ -70,8 +70,14 @@
 		if (viewport) observer?.observe(viewport);
 		// The route keys this component by its authorized load. Capture the source before any await.
 		const source = src, bytes = size, target = canvas!;
+		// The reader learns the real page count after the first draw when /Count was wrong: drop the pages that do not exist.
+		const recounted = (n: number) => {
+			if (!active) return;
+			pages = n;
+			if (current > n) { current = n; void draw(); }
+		};
 		adapter()
-			.then((a) => active ? a.open({ src: source, size: bytes, canvas: target, signal: lifetime.signal }) : null)
+			.then((a) => active ? a.open({ src: source, size: bytes, canvas: target, signal: lifetime.signal, onPages: recounted }) : null)
 			.then(async (r) => {
 				if (!r) return;
 				if (!active) return r.destroy();

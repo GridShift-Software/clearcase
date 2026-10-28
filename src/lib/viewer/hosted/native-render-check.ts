@@ -13,8 +13,8 @@ import { checkedPageSet, decide, lookupReceiptRows, MAX_CHECKED_PAGES, MAX_DOCUM
 // Deliberately not an import of the build-time (node:fs) asset preparer. Parent supplies its reviewed inventory.
 const PDF_VERSION = '6.4.299';
 const PACKAGE_DIGEST = 'sha256:ae9a1328f4de3e2cf14b24d711e34299963dc64c10eab7b1afe849b79846e577';
-const VIEWER_WORKER_DIGEST = 'sha256:c14b50d04c16081a41c1756232923c0087bcb3113de3540ada92d6d774fd6115';
-const READER_DIGEST = 'sha256:782e60af7b31feb6d7e58677e54bdbde307afb7da6dc197ac03ec0f3d8522b63';
+const VIEWER_WORKER_DIGEST = 'sha256:79bdd72351096425f4efd42b4c238e7513f321c1a38951a825a148119530b511';
+const READER_DIGEST = 'sha256:2ff3ba6dff548be174a1d366245ae31f4dc6dd655d4667887624f32de18c398f';
 export const NATIVE_PDF_RENDERER_ALGORITHM = 'clearcase.native-pdf/2';
 const SDK_INTEGRITY = 'sha512-39lo96Y7ErOJFmu/KIJU1VLaOibhynx/BauKCZOW5+RVH/mG0jZrAEGJlqCdx5ZxLHyWppm78YX3jLNPCBB+fA==';
 export const NATIVE_PDF_RENDER_CEILINGS: Readonly<NativePreviewRenderBudget> = Object.freeze({

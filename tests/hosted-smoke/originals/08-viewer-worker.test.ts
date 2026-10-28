@@ -12,9 +12,12 @@ it('patches the pinned worker to the reviewed bytes: the last-page check is stor
   const patched = patchPdfWorker(upstream);
   expect(sha(patched)).toBe(HOSTED_PDF_VIEWER_WORKER_DIGEST);
   const text = patched.toString('utf8');
-  expect(text).not.toContain('await this.ensureDoc("checkLastPage"');
+  // It still blocks the open when /Count is not a positive integer; otherwise it is stored and run after a drawn page.
+  expect(text.split('await this.ensureDoc("checkLastPage"').length).toBe(2);
+  expect(text.split('if(!(Number.isInteger(clearcaseCount)&&clearcaseCount>0)){await this.ensureDoc("checkLastPage",[e]);return}').length).toBe(2);
   expect(text.split('this.deferredLastPageCheck=()=>').length).toBe(2);
   expect(text.split('clearcasePdfManager.deferredLastPageCheck?.()').length).toBe(2);
+  expect(text.split('c.on("ClearcasePageCount",').length).toBe(2);
 });
 
 it('refuses a build the patch does not match exactly once, so nothing is half-patched', () => {

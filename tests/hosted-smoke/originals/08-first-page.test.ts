@@ -139,6 +139,8 @@ it('tells the viewer the real page count once the deferred check finds /Count 10
   let told: (pages: number) => void;
   const corrected = new Promise<number>((resolve) => { told = resolve; });
   const reader = await open(bytes.byteLength, (pages) => told(pages));
+  // A numeric /Count keeps the fast path: the document opens on /Count, before the last-page check.
+  expect(reader.pages).toBe(10);
   await reader.draw(1, 1);
   await expect(Promise.race([corrected, wait(2000).then(() => 'not told')])).resolves.toBe(3);
   expect(reader.pages).toBe(3);

@@ -30,13 +30,15 @@ bun scripts/publish/cli.ts upload --out "$OUT" --remote cc-staging:clearcase-sta
 bun scripts/publish/cli.ts register --out "$OUT" --config deploy/staging/wrangler.jsonc
 
 # 4. Sign off: one --ack per warning code of the import, with a reason. The command lists any code you missed.
-bun scripts/publish/cli.ts signoff --out "$OUT" --signer you@example.com \
-  --ack CITE_UNRESOLVED='...' --ack TEXT_NONE='...' --ack V5_META_COUNT_DISAGREEMENT='...' --config deploy/staging/wrangler.jsonc
+bun scripts/publish/cli.ts signoff --out "$OUT" --signer you@example.com --config deploy/staging/wrangler.jsonc \
+  --ack CITE_UNRESOLVED='...' --ack TEXT_CONTROL_CHARS='...' --ack TEXT_NONE='...' --ack V5_META_COUNT_DISAGREEMENT='...'
 
 # 5. Publish: hashes the manifest.json R2 holds; rs_publication flips only if a sign-off binds that hash.
 bun scripts/publish/cli.ts publish --out "$OUT" --config deploy/staging/wrangler.jsonc --remote cc-staging:clearcase-staging-files
 
-# 6. Grant the test user viewer on the case (offline owned seed, docs/acceptance/hosting/case-grant-provisioning.md).
+# 6. Bind the client's audit log and user-work database (once), and grant the test user viewer on the case
+#    (offline owned seed, docs/acceptance/hosting/case-grant-provisioning.md). Without the user-work binding the
+#    overview answers 503: its notes summary is refused.
 bun scripts/publish/cli.ts grant --case-id v5-demo --email grs249-viewer+clerk_test@example.com \
   --credentials .local/publish/credentials.json --config deploy/staging/wrangler.jsonc
 ```

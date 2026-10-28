@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { grantViewer } from '../../../scripts/publish/grant.ts';
 import { deployment } from '../../hosted-foundation/storage/fixture.ts';
+import { MIGRATION as USER_WORK } from '../../hosted-foundation/user-work/world.ts';
 import { CASE_ID } from './world.ts';
 
 const read = (p: string) => readFileSync(new URL(`../../../src/lib/${p}`, import.meta.url), 'utf8');
@@ -20,11 +21,12 @@ const now = () => new Date('2001-01-01T00:00:00.000Z');
 function world() {
   const dep = deployment('client-a', [CASE_ID]);
   dep.db.sqlite.exec(SCHEMA);
+  dep.db.sqlite.exec(USER_WORK);
   return dep.db;
 }
 
 describe('06 grant', () => {
-  test('grants viewer on the case once, audited; a second run replays it', async () => {
+  test('binds user work, grants viewer on the case once, audited; a second run replays it', async () => {
     const db = world();
     const first = await grantViewer({ db, nativeConfig: NATIVE, caseId: CASE_ID, subject: 'user_viewer', now });
     expect(first).toMatchObject({ kind: 'applied', repeated: false });
@@ -34,6 +36,7 @@ describe('06 grant', () => {
       { case_id: CASE_ID, issuer: ISSUER, subject: 'user_viewer', principal_kind: 'client', role: 'viewer', state: 'active', expires_at: null },
     ]);
     expect(db.rows<{ n: number }>("SELECT COUNT(*) AS n FROM native_audit_events WHERE event_id LIKE 'grant-op:%'")[0]!.n).toBe(1);
+    expect(db.rows('SELECT client_id FROM uw_binding')).toEqual([{ client_id: 'client-a' }]);
   });
 
   test('refuses a case the deployment does not have, and grants nothing to anyone else', async () => {

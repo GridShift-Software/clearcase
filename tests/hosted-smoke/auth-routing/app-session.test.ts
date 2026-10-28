@@ -31,7 +31,7 @@ async function cookie(sid: string) {
 async function invoke(request: Request, signOut = false) {
 	const cleared: string[] = [];
 	const event = { request, url: new URL(request.url), locals: {}, cookies: { delete: (name: string) => cleared.push(name) } };
-	const response = await handle({ event, resolve: async (e) => {
+	const response = await handle({ event: event as never, resolve: async (e) => {
 		if (signOut) {
 			try { await actions.default!(e); } catch (error) {
 				if (typeof error === 'object' && error !== null && 'status' in error && typeof error.status === 'number') return new Response(null, { status: error.status });
@@ -39,7 +39,7 @@ async function invoke(request: Request, signOut = false) {
 			}
 		}
 		return new Response(null, { status: e.locals.identity.kind === 'verified' ? 200 : 401 });
-	} } as Parameters<typeof handle>[0]);
+	} });
 	return { response, cleared };
 }
 describe('client app-session hook and actions', () => {
@@ -48,16 +48,14 @@ describe('client app-session hook and actions', () => {
 		const provider = clerkIdentityProviderFromEnv(workers.env, { authorizeCase: async () => {} });
 		if (!provider.ok) throw new Error(provider.reason);
 		const identity = await provider.provider.authenticate({ request });
-		let installed = false;
-		const cookies = { set: async (name: string, value: string, options: { httpOnly: boolean; secure: boolean; sameSite: string; path: string }) => {
-			installed = name === 'clearcase_session' && (await readAppSession(config(), value))?.name === 'user_smoke' && options.httpOnly && options.secure && options.sameSite === 'lax' && options.path === '/';
+		const installed: Promise<boolean>[] = [];
+		const cookies = { set: (name: string, value: string, options: { httpOnly: boolean; secure: boolean; sameSite: string; path: string }) => {
+			installed.push((async () => name === 'clearcase_session' && (await readAppSession(config(), value))?.name === 'user_smoke' && options.httpOnly && options.secure && options.sameSite === 'lax' && options.path === '/')());
 		}, delete: () => {} };
 		let location = '';
 		try { await load({ request, url: new URL(request.url), locals: { identity, runtime: { testIdentity: null } }, cookies, isDataRequest: false } as never); }
 		catch (error) { if (typeof error === 'object' && error !== null && 'location' in error && typeof error.location === 'string') location = error.location; else throw error; }
-		// SvelteKit's cookie port is synchronous; await the crypto check started by this test port.
-		await new Promise((resolve) => setTimeout(resolve, 0));
-		expect(installed).toBe(true);
+		expect(await Promise.all(installed)).toEqual([true]);
 		expect(location).toBe('/cases');
 	});
 	it('survives 20 minutes idle, slides through the real hook, and never calls Clerk or marks reauthentication', async () => {

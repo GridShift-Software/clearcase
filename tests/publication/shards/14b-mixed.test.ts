@@ -65,3 +65,72 @@ describe('14b mixed shard seam', () => {
     }
   });
 });
+
+// These writes seed only the synthetic D1 double. Hosted page modules expose no mutation actions.
+async function readHosted(route: string) {
+  const h = await hosted[`../../../deploy/client/routes/cases/[caseId]/v/[version]/${route}/+page.server.ts`]!() as { load: (event: unknown) => Promise<Record<string, any>> };
+  return h.load({ locals, params: { caseId: b.caseId, version: b.rv } });
+}
+async function put(store: string, rowId: string, fields: Record<string, string | number | boolean | null>) {
+  expect((await locals.userWork.putRow({ caseId: id('case', b.caseId), store, rowId, fields, anchor: null, expected: { kind: 'absent' }, operationId: crypto.randomUUID() })).kind).toBe('written');
+}
+
+describe('14b user work from the D1 double', () => {
+  test('payments, net settlement and interest dates include saved receipts with the local hash and cents format', async () => {
+    await put('payments', 'receipt-one', { seq: 2, date: '2200-02-03', amount: '10.25', amountCents: 1025, method: 'Transfer', note: 'Synthetic receipt' });
+    const payments = await readHosted('quantum/payments_tab');
+    expect(payments.payments).toEqual([expect.objectContaining({ rowId: 'receipt-one', amountCents: '1025', date: '2200-02-03', hash: expect.stringMatching(/^[a-f0-9]{32}$/) })]);
+    expect((await readHosted('quantum/settlement_tab')).payments).toMatchObject({ count: 1, counted: 1, paid: '1025' });
+    expect((await readHosted('quantum/interest_calc_tab')).paymentDates).toEqual(['2200-02-03']);
+  });
+
+  test('enforcement applies the saved status to the matching imported step', async () => {
+    const before = await readHosted('litigation/enforcement_tab');
+    const step = before.rows.find((r: { key: string | null }) => r.key);
+    expect(step).toBeDefined();
+    await put('enforcement-status', 'step-one', { seq: 1, stepKey: step.key, status: 'Done' });
+    const after = await readHosted('litigation/enforcement_tab');
+    expect(after.rows.find((r: { key: string }) => r.key === step.key)).toMatchObject({ override: 'Done' });
+  });
+
+  test('filings combines imported seed overlays and the user register and ignores edit requests', async () => {
+    const seed = b.lc.store.seeds(b.rv).find((s) => s.dataset_key === 'filings')!;
+    expect(seed).toBeDefined();
+    const result = await locals.userWork.putSeedOverlay({ caseId: id('case', b.caseId), operationId: crypto.randomUUID(), expected: { kind: 'absent' }, overlay: {
+      caseId: b.caseId, datasetKey: 'filings', seedId: seed.seed_id, baseSeedSha256: seed.seed_sha256, fields: { filing: 'Edited synthetic filing' },
+    } });
+    expect(result.kind).toBe('written');
+    await put('filings-register', 'filing-one', { seq: 1, filing: 'Added synthetic filing', ref: 'OD-002' });
+    const data = await readHosted('evidence/filings_tab');
+    expect(data.entries.map((e: { state: string; fields: { filing: string } }) => [e.state, e.fields.filing])).toEqual(expect.arrayContaining([['edited', 'Edited synthetic filing'], ['user', 'Added synthetic filing']]));
+    expect(data.editing).toBeNull();
+    expect(data.empty).toBe(false);
+  });
+
+  test('cross-examination combines seed overlays and user rows', async () => {
+    const seed = b.lc.store.seeds(b.rv).find((s) => s.dataset_key === 'lit-crossexam-seed')!;
+    expect(seed).toBeDefined();
+    expect((await locals.userWork.putSeedOverlay({ caseId: id('case', b.caseId), operationId: crypto.randomUUID(), expected: { kind: 'absent' }, overlay: {
+      caseId: b.caseId, datasetKey: 'lit-crossexam-seed', seedId: seed.seed_id, baseSeedSha256: seed.seed_sha256, fields: { topic: 'Edited synthetic topic' },
+    } })).kind).toBe('written');
+    await put('crossexam', 'topic-one', { seq: 1, witness: 'Synthetic Witness', topic: 'User topic', put: 'Invented question', docs: '' });
+    const data = await readHosted('litigation/crossexam_tab');
+    expect(data.rows).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'edited', topic: 'Edited synthetic topic' }), expect.objectContaining({ kind: 'user', topic: 'User topic' })]));
+  });
+
+  test('heads and authorities show saved rows, and heads resolves only known document references', async () => {
+    await put('heads', 'head-one', { head: 'Synthetic head', sub: 'Synthetic argument', auth: '', ref: 'OD-001 ZZ-404' });
+    const heads = await readHosted('litigation/heads_tab');
+    expect(heads.empty).toBe(false);
+    expect(heads.rows[0].evidence).toEqual([{ text: 'OD-001', ref: true }, { text: 'ZZ-404', ref: false }]);
+    await put('authorities', 'authority-one', { topic: 'Synthetic topic', authority: 'Synthetic authority', proposition: 'Invented proposition' });
+    expect((await readHosted('litigation/authorities_tab')).user).toEqual([expect.objectContaining({ authority: 'Synthetic authority' })]);
+  });
+
+  test('information-required checks merge and detached work counts as non-empty', async () => {
+    const data = await readHosted('analysis/info_required_tab');
+    expect(data.rows.length).toBeGreaterThan(0);
+    await put('info-required', data.rows[0].key, { done: true });
+    expect((await readHosted('analysis/info_required_tab')).rows[0].done).toBe(true);
+  });
+});

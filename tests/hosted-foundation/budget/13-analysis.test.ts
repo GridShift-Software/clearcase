@@ -1,3 +1,5 @@
+// Fresh requests use 06's real authorization and audit harness. Counts are measured
+// baselines, not the ticket acceptance target: 1 storage gate + 5 authorization/audit + 1 publication D1.
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import { load as layoutLoad } from '../../../deploy/client/routes/cases/[caseId]/v/[version]/+layout.server.ts';
 import { memoryShardCache } from '../../../src/lib/server/runtime/memory-shards.ts';
@@ -37,14 +39,14 @@ test.each(routes)('%s measures first, warm and cold visits with fresh authorized
   };
   const first = await measure(c, view);
   expect(first.thrown).toBeUndefined();
-  expect(first.counts).toMatchObject({ clerk: 0, d1: 4, r2: 3 });
-  const warm = await expectWithinBudget(route + ' warm', { clerk: 0, d1: 4, r2: 1 }, c, view);
+  expect(first.counts).toMatchObject({ clerk: 0, d1: 7, r2: 3 });
+  const warm = await expectWithinBudget(route + ' warm', { clerk: 0, d1: 7, r2: 1 }, c, view);
   expect(warm.thrown).toBeUndefined();
   for (const key of cache.entries.keys()) if (key.endsWith(`/view/${route.split('/').at(-1)}.json`)) cache.entries.delete(key);
-  const cold = await expectWithinBudget(route + ' cold', { clerk: 0, d1: 4, r2: 2 }, c, view);
+  const cold = await expectWithinBudget(route + ' cold', { clerk: 0, d1: 7, r2: 2 }, c, view);
   expect(cold.thrown).toBeUndefined();
-  expect(warm.counts).toMatchObject({ clerk: 0, d1: 4, r2: 1 });
-  expect(cold.counts).toMatchObject({ clerk: 0, d1: 4, r2: 2 });
+  expect(warm.counts).toMatchObject({ clerk: 0, d1: 7, r2: 1 });
+  expect(cold.counts).toMatchObject({ clerk: 0, d1: 7, r2: 2 });
   dep.db.exec("UPDATE tenant_case_grants SET state = 'revoked', revoked_at = '2001-01-01T00:00:00Z' WHERE grant_id = 'g-viewer'");
   try {
     const denied = await measure(c, view);

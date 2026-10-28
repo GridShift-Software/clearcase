@@ -53,8 +53,11 @@ export function registerRows(rows: readonly Versioned<WorkRegisterRow>[]) {
 		.map((r) => ({ ...r, anchor: r.anchor?.sha256 ? { ...r.anchor, sha256: r.anchor.sha256 } : null }));
 }
 
-/** The token a page shows for a seed: its overlay's version, or `none` while the seed is as imported. */
-export const seedVersion = (view: SeedView): string => ('overlay' in view ? (view.overlay as Partial<Versioned<SeedOverlay>>).version ?? 'none' : 'none');
+const digest = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex').slice(0, 32);
+/** The token a page shows for a seed, as the local register's: what the seed and the user's overlay over it are. */
+export const seedVersion = (s: SeedView): string => digest(['seed', s.state === 'orphaned' ? null : s.seed.seedSha256, s.state === 'seed' ? null : [s.overlay.baseSeedSha256, s.overlay.fields]]);
+/** The store's version of the overlay a seed view rests on: what a write over it must name, empty while the seed is as imported. */
+const overlayVersion = (s: SeedView): string => ('overlay' in s ? (s.overlay as Partial<Versioned<SeedOverlay>>).version ?? '' : '');
 
 /** The imported rows of the views that keep seed overlays: the register they are kept with, and the shard that holds the seeds. */
 const SEEDED = { [CX_SEED]: { store: STORES.crossexam, shard: 'view/crossexam_tab.json' } } as const;
@@ -93,7 +96,7 @@ export function hostedEntries({ locals, params }: Event): Entries {
 			if ((view.state === 'edited' || view.state === 'orphaned') && view.overlay.fields.deleted === true) return 'gone';
 			if (!version || version !== view.version) return 'stale';
 			const overlay = view.state === 'orphaned' ? view.overlay : { baseSeedSha256: view.seed.seedSha256 };
-			const r = await run(operationOf('seed-delete', datasetKey, seedId, version), view.version === 'none' ? '' : view.version,
+			const r = await run(operationOf('seed-delete', datasetKey, seedId, version), overlayVersion(view),
 				(w) => w.putSeedOverlay({ caseId, datasetKey, seedId, baseSeedSha256: overlay.baseSeedSha256, fields: { deleted: true } }));
 			return r === 'stale' || r === 'gone' ? r : 'deleted';
 		},

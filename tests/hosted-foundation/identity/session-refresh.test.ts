@@ -33,6 +33,7 @@ import { handle } from '../../../src/lib/server/runtime/hosted/hooks.server.ts';
 // @ts-expect-error jsdom ships no types and the root pins no @types/jsdom; BrowserJar below types the part used here.
 import { CookieJar } from 'jsdom';
 import { craftedInstance } from './synthetic.ts';
+import { startedHere } from './started-here.ts';
 
 const signOut = await import('../../../deploy/client/routes/sign-out/+page.server.ts');
 const operator = await import('../../../deploy/client/routes/sign-in/operator/+page.server.ts');
@@ -114,7 +115,9 @@ const route = vi.fn(async (event: { locals: { identity: { kind: string; checkRev
 	await identity.checkRevocation();
 	return new Response(JSON.stringify({ note: {} }), { status: 201, headers: { 'content-type': 'application/json' } });
 });
-async function invoke(request: Request) {
+async function invoke(given: Request) {
+	// a handshake return here is one this browser started (started-here.ts; handshake-binding.test.ts pins the others)
+	const request = await startedHere(given, workers.env);
 	const event = { request, url: new URL(request.url), locals: {} as Record<string, unknown>, isSubRequest: false };
 	return handle({ event, resolve: route } as unknown as Parameters<typeof handle>[0]);
 }
@@ -200,7 +203,7 @@ describe('a signed-in user whose session token expired between page loads', () =
 		if (!made.ok) throw new Error(made.reason);
 		const fresh = A.token({ sub: s.user, sid: s.sid, azp: origin });
 		const directives = [`__session=${fresh}; Path=/; Max-Age=60; SameSite=Lax`, `${REFRESH_A}=${s.refresh}; Path=/; Max-Age=315360000; HttpOnly; SameSite=Lax`];
-		const o = await made.handshake.handle(new Request(`${origin}/cases?__clerk_handshake=${A.sign({ handshake: directives })}`, { headers: { 'sec-fetch-dest': 'document', accept: 'text/html' } }));
+		const o = await made.handshake.handle(await startedHere(new Request(`${origin}/cases?__clerk_handshake=${A.sign({ handshake: directives })}`, { headers: { 'sec-fetch-dest': 'document', accept: 'text/html' } }), { ...workers.env, CLEARCASE_APP_ORIGIN: origin }));
 		expect(o).toMatchObject({ kind: 'redirect' });
 		expect((o as { setCookies: string[] }).setCookies.join('\n')).not.toContain(s.refresh);
 		const stale = A.token({ sub: s.user, sid: s.sid, azp: origin, now: STALE() });
@@ -1023,7 +1026,7 @@ describe('a save after an idle, when an earlier renewal spent the refresh token 
 		await signedIn(b, s);
 		later(90_000);
 		expect(await save(b)).toBe(201);
-		const first = await handshakeAt(await invoke(documentGet(CASE_NOTES, b.cookie(CASE_NOTES))));
+		const first = await handshakeAt(b.take(await invoke(documentGet(CASE_NOTES, b.cookie(CASE_NOTES)))));
 		expect(first?.origin).toBe(A.iss);
 		// a handshake return that signs in again but keeps the browser's spent hold: the marker stops a second handshake
 		const back = new URL(first!.searchParams.get('redirect_url')!);

@@ -84,6 +84,14 @@ describe('a captured handshake return signs no other browser in', () => {
 			expect(o.kind === 'redirect' ? o.credential : undefined).toBeUndefined();
 		}
 	});
+	it('refuses the review probe\'s exact shape: a return that names no binding at all, replayed twice', async () => {
+		const url = `${ORIGIN}/sign-in?__clerk_handshake=${signedIn(A, clientToken())}&__clearcase_reauth=1`;
+		for (let n = 0; n < 2; n++) {
+			const o = await handshake().handle(get(url, new Map()));
+			expect(o).toMatchObject({ kind: 'redirect', code: 'handshake-unbound', setCookies: [] });
+			expect(o.kind === 'redirect' ? o.credential : undefined).toBeUndefined();
+		}
+	});
 	it('refuses it on any page, not only a sign-in page', async () => {
 		const { back } = await start('/cases/case-7');
 		expect(setsAnyClerkCookie(await handshake().handle(get(returned(back, signedIn(A, clientToken())), new Map())))).toBe(false);

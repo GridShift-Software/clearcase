@@ -1,7 +1,7 @@
 import { fail, type Actions, type RequestEvent } from '@sveltejs/kit';
 import { shard, publishedVersion } from '$lib/views/hosted/payloads.server';
 import { hostedWork } from '$lib/views/hosted/work-adapter.server';
-import { hostedGuard, operationOf, writeScope } from '$lib/views/litigation/hosted.server';
+import { hostedGuard, writeScope } from '$lib/views/litigation/hosted.server';
 import { infoRequiredMerge } from '$lib/views/payloads/info-required';
 import type { ViewShards } from '$lib/views/payloads/views';
 import { refuse } from '$lib/server/runtime/hosted/http';
@@ -40,8 +40,8 @@ const SAY = {
 
 /**
  * A tick sets one row, keyed by its item, to done or not. The row's version is the store's own, read just before the write, so
- * a tick made in another tab in between is refused (409) instead of overwritten; the operation id names the tick, so a retry of
- * one tick writes once.
+ * a tick made in another tab in between is refused (409) instead of overwritten; a tick that leaves the row as it is writes nothing,
+ * so a retry of one tick writes once.
  */
 export const actions: Actions = {
   toggle: async ({ request, params, locals }: RequestEvent) => {
@@ -59,7 +59,7 @@ export const actions: Actions = {
     const row = saved.rows.find((r) => r.rowId === key);
     // already as asked (a double click, or a tick another tab made): nothing to write
     if ((row?.fields.done === true) === done) return { saved: key, done, pending };
-    const w = hostedWork(locals, caseId, rv, { operationId: operationOf('info-toggle', key, done, row?.version ?? null), version: row?.version ?? '' });
+    const w = hostedWork(locals, caseId, rv, { operationId: crypto.randomUUID(), version: row?.version ?? '' });
     const r = await hostedGuard('toggle', null, () => w.putRow(caseId, INFO_STORE, key, { item: item.item, done, resultsVersion: rv }), SAY);
     if (!r.ok) return fail(r.failure.status, { key, done, message: r.failure.data.message, pending });
     return { saved: key, done, pending };

@@ -96,7 +96,7 @@ export function hostedEntries({ locals, params }: Event): Entries {
 			if ((view.state === 'edited' || view.state === 'orphaned') && view.overlay.fields.deleted === true) return 'gone';
 			if (!version || version !== view.version) return 'stale';
 			const overlay = view.state === 'orphaned' ? view.overlay : { baseSeedSha256: view.seed.seedSha256 };
-			const r = await run(operationOf('seed-delete', datasetKey, seedId, version), overlayVersion(view),
+			const r = await run(crypto.randomUUID(), overlayVersion(view),
 				(w) => w.putSeedOverlay({ caseId, datasetKey, seedId, baseSeedSha256: overlay.baseSeedSha256, fields: { deleted: true } }));
 			return r === 'stale' || r === 'gone' ? r : 'deleted';
 		},
@@ -124,7 +124,8 @@ export const hostedEnforcementCtx: CtxOf<EnforcementCtx> = (event) => {
 			const keep = mine.at(-1);
 			const fields: Fields = { stepKey, status };
 			if (typeof keep?.fields.seq === 'number') fields.seq = keep.fields.seq;
-			const w = hostedWork(locals, caseId, rv, { operationId: operationOf('status', stepKey, status, keep?.rowId ?? null, keep?.version ?? null), version: keep?.version ?? '' });
+			// A retry of a save the store made finds the step at a new version and is refused as changed: the operation id need not name it.
+			const w = hostedWork(locals, caseId, rv, { operationId: crypto.randomUUID(), version: keep?.version ?? '' });
 			saved = null;
 			try { await w.putRow(caseId, STORES.enforcement, keep?.rowId ?? null, fields); }
 			catch (e) { if (conflictOf(e)) return 'stale'; throw e; }

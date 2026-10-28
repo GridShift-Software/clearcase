@@ -202,6 +202,16 @@ describe('17b enforcement roadmap', () => {
 		} finally { w.db.close(); }
 	});
 
+	it('a first status still writes after the row it made was removed out of band (an operation is never replayed for it)', async () => {
+		const w = world();
+		try {
+			await post(w, enforcement, 'status', { stepKey: 'step-key-1', status: 'Done', version: 'none' });
+			w.db.prepare('DELETE FROM uw_register_row').run();
+			expect(await post(w, enforcement, 'status', { stepKey: 'step-key-1', status: 'Done', version: 'none' })).toMatchObject({ saved: 'step-key-1' });
+			expect(statusOf(await list(w, enforcement), 'step-key-1').override).toBe('Done');
+		} finally { w.db.close(); }
+	});
+
 	it('refuses a status the step does not offer, and a step the version does not have, writing nothing', async () => {
 		const w = world();
 		try {

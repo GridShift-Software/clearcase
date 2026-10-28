@@ -38,6 +38,16 @@ describe('17b information required', () => {
 		} finally { w.db.close(); }
 	});
 
+	it('a first tick still writes after the row it made was removed out of band (an operation is never replayed for it)', async () => {
+		const w = world();
+		try {
+			await post(w, info, 'toggle', { key: 'info:one', done: 'true' });
+			w.db.prepare('DELETE FROM uw_register_row').run();
+			expect(await post(w, info, 'toggle', { key: 'info:one', done: 'true' })).toMatchObject({ saved: 'info:one' });
+			expect(await doneOf(w)).toMatchObject({ 'info:one': true });
+		} finally { w.db.close(); }
+	});
+
 	it('a viewer cannot tick', async () => {
 		const w = world('viewer');
 		try {

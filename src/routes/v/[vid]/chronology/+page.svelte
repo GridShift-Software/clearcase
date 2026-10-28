@@ -121,7 +121,7 @@
 					<div class="no-match card" role="status"><p>No documents match these filters.</p><button type="button" onclick={clear}>Clear filters</button></div>
 				{:else}
 					<DataGrid {columns} {rows} rowKey={(r: ChronologyListRow) => r.ref} label="Chronology" gridClass={showBasis ? 'chrono-grid chrono-sel' : 'chrono-grid chrono-sel no-basis'} sort={{ key: query.sort, dir: query.dir }} onsort={sortBy} rowAttrs={(r: ChronologyListRow) => ({ 'data-ref': r.ref })}
-						onselect={(r: ChronologyListRow) => void select(r)} {selected} previewLabel={(r: ChronologyListRow) => `Preview ${r.ref}`}>
+						onselect={(r: ChronologyListRow) => void select(r)} {selected} previewLabel={(r: ChronologyListRow) => `Preview ${r.ref}`} firstRows={50}>
 						{#snippet cell(r: ChronologyListRow, c: Column)}
 							{#if c.key === 'date'}{r.date || 'undated'}
 							{:else if c.key === 'basis'}<span title={dateBasis(r)} data-date-basis={r.dateType || r.dateSource ? 'supplied' : r.date ? 'unknown' : 'undated'}>{basisLabel(r)}</span>

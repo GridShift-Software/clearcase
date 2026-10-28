@@ -3,21 +3,24 @@
 </script>
 
 <script lang="ts" generics="T">
-	import type { Snippet } from 'svelte';
+	import { untrack, type Snippet } from 'svelte';
 	import TableScroll from './TableScroll.svelte';
-	let { columns, rows, rowKey, label, gridClass, sort = null, onsort, cell, rowAttrs = () => ({}), onselect, selected = null, previewLabel = (r: T) => `Preview ${rowKey(r)}` }: {
+	let { columns, rows, rowKey, label, gridClass, sort = null, onsort, cell, rowAttrs = () => ({}), onselect, selected = null, previewLabel = (r: T) => `Preview ${rowKey(r)}`, firstRows = 150 }: {
 		columns: readonly Column[]; rows: readonly T[]; rowKey: (r: T) => string; label: string; gridClass: string;
 		sort?: { key: string; dir: 1 | -1 } | null; onsort?: (key: string) => void; cell: Snippet<[T, Column]>;
 		rowAttrs?: (r: T) => Record<string, string>;
 		/** Selecting a row: a click on it outside its own controls, or its leading Preview button (the keyboard path). */
 		onselect?: (r: T) => void; selected?: string | null; previewLabel?: (r: T) => string;
+		/** Rows rendered at once (and so in the server's HTML); the rest follow a frame at a time. */
+		firstRows?: number;
 	} = $props();
 	const CONTROLS = 'a, button, input, select, textarea, label, summary';
 	const rowClick = (e: MouseEvent, r: T) => { if (onselect && !(e.target instanceof Element && e.target.closest(CONTROLS))) onselect(r); };
-	const FIRST = 150, STEP = 400;
-	let limit = $state(FIRST);
+	const STEP = 400;
+	let limit = $state(untrack(() => firstRows));
 	$effect(() => {
 		void rows;
+		const FIRST = firstRows;
 		limit = FIRST;
 		let id = 0;
 		const grow = () => { limit = Math.min(rows.length, limit + STEP); if (limit < rows.length) id = requestAnimationFrame(grow); };

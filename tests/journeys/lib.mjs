@@ -1,4 +1,4 @@
-import { chromium } from 'playwright-core';
+import { chromium, request as playwrightRequest } from 'playwright-core';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -21,6 +21,10 @@ const budgetMs = (name, fallback) => {
   return value;
 };
 export const PAGE_MS = 2000, PDF_MS = 3000, SIGN_IN_MS = budgetMs('SIGN_IN_MS', 5000);
+// GRS-269: Clerk's Device Trust asks for an email code whenever a password sign-in comes from a browser it has not seen, and every
+// journey starts a fresh browser. Unset (or "fresh") is that behaviour. "returning" signs in once untimed to enrol the device,
+// signs out of the app, and times a second sign-in in the same context against the same SIGN_IN_MS.
+export const SIGN_IN_DEVICE = env('SIGN_IN_DEVICE') || 'fresh';
 const bytesOf = name => (env(name) ? Number(env(name)) : null);
 // No case value is committed: the three PDF samples (a small, a medium and the largest original of the case under test)
 // come from the environment. The byte sizes and the bundle (group) names are optional; a size is checked when given.
@@ -35,6 +39,8 @@ const NEED_WHAT = { EXPECTED_DOCUMENTS: 'the Overview document count of the case
 export function preflightProblems(needs = []) {
   const problems = [];
   if (!['local', 'hosted'].includes(MODE)) problems.push('MODE must be local or hosted');
+  if (!['fresh', 'returning'].includes(SIGN_IN_DEVICE)) problems.push('SIGN_IN_DEVICE must be fresh (the default) or returning');
+  else if (SIGN_IN_DEVICE === 'returning' && (MODE !== 'hosted' || !process.env.CREDENTIALS_JSON)) problems.push('SIGN_IN_DEVICE=returning needs MODE=hosted and CREDENTIALS_JSON; without a sign-in there is nothing to time');
   if (MODE === 'hosted') {
     if (!env('EXPECTED_SHA')) problems.push('MODE=hosted needs EXPECTED_SHA, the deployed build revision that /health must report; refusing to run against an unidentified deployment');
     if (!env('CASE_ID')) problems.push('MODE=hosted needs CASE_ID');
@@ -113,8 +119,9 @@ function capture(context) {
 // A sign-in failure whose message is safe to show: it names a step, never a URL, value or Playwright stack.
 class SignInError extends Error {}
 const SIGN_IN_DEADLINE_MS = 60000;
-async function signIn(j) {
-  if (MODE !== 'hosted' || !process.env.CREDENTIALS_JSON) return;
+// One password sign-in, timed as the step `name` against `budget` (null: information only). Returns whether Clerk asked for the code.
+async function signIn(j, { name = 'sign-in', budget = SIGN_IN_MS } = {}) {
+  let codeStep = false;
   // No secret values, URLs, headers, DOM snapshots or Playwright exception stacks are logged.
   let credentials;
   try { credentials = JSON.parse(await fs.readFile(process.env.CREDENTIALS_JSON, 'utf8')); }
@@ -127,7 +134,7 @@ async function signIn(j) {
   const onResponse = response => { const p = prepares.find(x => x.request === response.request()); if (p) { p.done = true; p.ok = response.ok(); } };
   const onFailed = request => { const p = prepares.find(x => x.request === request); if (p) p.done = true; };
   j.page.on('request', onRequest); j.page.on('response', onResponse); j.page.on('requestfailed', onFailed);
-  await j.measure('sign-in', async () => {
+  await j.measure(name, async () => {
     // One deadline bounds the whole sign-in: navigation, every wait, and the final paint.
     const deadline = Date.now() + SIGN_IN_DEADLINE_MS;
     const remaining = () => Math.max(1, deadline - Date.now());
@@ -167,6 +174,7 @@ async function signIn(j) {
           const atCode = await quietly(code.isVisible());
           let typed = false;
           if (atCode) {
+            codeStep = true;
             if (!credentials.otp) throw new SignInError('Hosted sign-in failed: the sign-in code is needed but the credentials hold none');
             await codeSent();
             // typed key by key, which Clerk's code boxes take (a single fill leaves them empty); the last digit submits the step
@@ -189,7 +197,33 @@ async function signIn(j) {
       let timer;
       await Promise.race([paint(j.page), new Promise((_, reject) => { timer = setTimeout(() => reject(new SignInError('Hosted sign-in failed: no paint before the deadline')), remaining()); })]).finally(() => clearTimeout(timer));
     } catch (error) { throw error instanceof SignInError ? error : new Error('Hosted sign-in failed; inspect authentication privately'); }
-  }, async () => {}, SIGN_IN_MS).finally(() => { j.page.off('request', onRequest); j.page.off('response', onResponse); j.page.off('requestfailed', onFailed); });
+  }, async () => {}, budget).finally(() => { j.page.off('request', onRequest); j.page.off('response', onResponse); j.page.off('requestfailed', onFailed); });
+  return codeStep;
+}
+// The app's own sign-out, then proof the app session is gone: /cases answers 401 to the context's cookies, read through a separate
+// request context so the expected 401 is not counted as a network error of the journey. Clerk's device cookies stay in the context.
+async function signOutOfApp(j) {
+  // the hosted app's own sign-out is the control of its case list, a POST to /sign-out
+  const out = hook(j.page, 'sign-out', '#sign-out');
+  await j.page.goto(`${BASE_URL}/cases`, { waitUntil: 'domcontentloaded' });
+  await out.waitFor({ state: 'visible', timeout: 15000 }).catch(() => { throw new Error('Returning-device sign-in failed: no sign-out control on the case list'); });
+  await out.click();
+  await out.waitFor({ state: 'detached', timeout: 30000 }); // the POST navigated away from the case list
+  const api = await playwrightRequest.newContext({ storageState: await j.context.storageState() });
+  try {
+    const response = await api.get(`${BASE_URL}/cases`, { maxRedirects: 0, failOnStatusCode: false });
+    check(response.status() === 401, `Returning-device sign-in failed: /cases answered ${response.status()} after sign-out, expected 401`);
+  } finally { await api.dispose(); }
+}
+// The timed sign-in of a journey. Returning: the enrol pass (no budget) and the sign-out come first, so the timed step is the second sign-in.
+async function signInSteps(j) {
+  if (MODE !== 'hosted' || !process.env.CREDENTIALS_JSON) return;
+  const record = (name, deviceCodeStep) => Object.assign(j.results.findLast(x => x.name === name), { deviceCodeStep });
+  if (SIGN_IN_DEVICE === 'returning') {
+    record('sign-in-enrol', await signIn(j, { name: 'sign-in-enrol', budget: null }));
+    await signOutOfApp(j);
+    record('sign-in', await signIn(j));
+  } else await signIn(j);
 }
 export async function createJourney(id) {
   const problems = preflightProblems();
@@ -208,7 +242,7 @@ export async function createJourney(id) {
     });
     const network = capture(context);
     const page = await context.newPage(); page.setDefaultTimeout(10000); page.setDefaultNavigationTimeout(30000);
-    const j = { id, browser, context, page, rv: process.env.RESULTS_VERSION, network, results: [], startedAt: new Date().toISOString(), metadata: { mode: MODE, baseURL: BASE_URL, chromium: browser.version(), sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim(), signIn: MODE === 'hosted' && process.env.CREDENTIALS_JSON ? 'requested' : 'not-tested', runId: process.env.RUN_ID || `${Date.now()}` } };
+    const j = { id, browser, context, page, rv: process.env.RESULTS_VERSION, network, results: [], startedAt: new Date().toISOString(), metadata: { mode: MODE, baseURL: BASE_URL, chromium: browser.version(), sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim(), signIn: MODE === 'hosted' && process.env.CREDENTIALS_JSON ? 'requested' : 'not-tested', runId: process.env.RUN_ID || `${Date.now()}`, signInDevice: SIGN_IN_DEVICE } };
     j.measure = async (name, action, target = async () => {}, budgetMs = PAGE_MS, targetPage = page) => {
       const start = performance.now();
       try {
@@ -259,7 +293,7 @@ export async function createJourney(id) {
       const h = await health.json(); j.metadata.build = h.build;
       check(h.build?.revision === process.env.EXPECTED_SHA, 'Hosted build differs from EXPECTED_SHA');
     }
-    await signIn(j);
+    await signInSteps(j);
     if (!j.rv) {
       await page.goto(`${BASE_URL}${MODE === 'hosted' ? `/cases/${encodeURIComponent(process.env.CASE_ID || '')}` : '/cases'}`, { waitUntil: 'domcontentloaded' });
       const link = page.locator('a[href*="/v/"][href$="/overview"]').first(); await link.waitFor();

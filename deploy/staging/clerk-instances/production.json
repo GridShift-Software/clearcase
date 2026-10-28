@@ -1,0 +1,15 @@
+{
+	"mode": "production",
+	"note": "PLACEHOLDER values: the owner creates the two production instances and replaces every PLACEHOLDER (docs/sprint/runbooks/09c-clerk-instance.md). scripts/clerk-instance.sh refuses a profile that still has one.",
+	"secretsFile": "staging-clerk-production.env",
+	"client": {
+		"publishableKey": "pk_live_PLACEHOLDER_CLIENT",
+		"frontendApi": "clerk.PLACEHOLDER-client-domain.example",
+		"signInUrl": "https://accounts.PLACEHOLDER-client-domain.example/sign-in"
+	},
+	"staff": {
+		"publishableKey": "pk_live_PLACEHOLDER_STAFF",
+		"frontendApi": "clerk.PLACEHOLDER-staff-domain.example",
+		"signInUrl": "https://accounts.PLACEHOLDER-staff-domain.example/sign-in"
+	}
+}

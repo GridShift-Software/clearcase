@@ -64,6 +64,8 @@ node node_modules/wrangler/bin/wrangler.js d1 time-travel restore clearcase-stag
 
 `scripts/deploy-staging.sh --secrets` puts `CLERK_CLIENT_SECRET_KEY`, `CLERK_STAFF_SECRET_KEY`, `CLERK_CLIENT_JWT_KEY` and `CLERK_STAFF_JWT_KEY` on the Worker and on the Preview base config, through Wrangler's stdin. The JWT keys are each instance's public RSA key, read from the Backend API (`GET /v1/jwks`) and converted to PEM. Rerun it after a Clerk key rotation; secrets survive deploys.
 
+The Clerk instance (development or production) is one setting: `scripts/clerk-instance.sh --use <mode>`; see `09c-clerk-instance.md`.
+
 ## Who holds which credential
 
 | Credential | Holder | Used by |

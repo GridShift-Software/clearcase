@@ -43,15 +43,16 @@ it('266 a bundle save is one batch, its audit included, and its row work runs be
   try {
     const r = await w.timed(`${version(w)}/bundles/court_bundle_tab/assembled`, save('rc-bundle'), (locals, request, url) => assembledPost({ locals, params: params(w), request, url } as never));
     expect(r.thrown).toBeUndefined(); expect(r.value?.status).toBe(200); show('bundle save POST', r);
-    expect(r.counts).toMatchObject({ d1: 15, clerk: 0, otherFetch: 0 }); expect(r.batches).toBe(1);
-    // Serial, the held put would add its six round trips to the row's: 17 or more.
-    expect(r.sequential).toBeLessThanOrEqual(13);
+    // 18 D1 calls: 15, then the write authorization again once the PDF is stored (#194 review), so a grant or session
+    // lost during the object write refuses the row. Those 3 follow the put; the row's preflight reads still overlap it.
+    expect(r.counts).toMatchObject({ d1: 18, clerk: 0, otherFetch: 0 }); expect(r.batches).toBe(1);
+    expect(r.sequential).toBeLessThanOrEqual(16);
     expect(w.db.rows<{ action: string }>("SELECT action FROM native_audit_events WHERE action = 'user-work.table-row-put'")).toHaveLength(1);
     expect(w.db.rows('SELECT audited_at FROM uw_operation WHERE audited_at IS NULL')).toEqual([]);
   } finally { await w.cleanup(); }
 });
 
-it('266 a bundle row commits only after its PDF is stored, with every other D1 call made while the PDF is in flight', async () => {
+it('266 a bundle row commits only after its PDF is stored, reading while the PDF is in flight and authorizing again after', async () => {
   const w = await rcWorld();
   try {
     const hold = w.holdPut(), before = w.batches();
@@ -59,11 +60,12 @@ it('266 a bundle row commits only after its PDF is stored, with every other D1 c
     await hold.reached;
     await new Promise(r => setTimeout(r, 50));
     // Authorization, the table read, the write authorization and the preflight reads are done; nothing is committed.
+    // The second write authorization and the batch come only after the PDF is stored.
     expect(w.counters.d1).toBe(14); expect(w.batches() - before).toBe(0);
     expect(w.db.rows("SELECT row_key FROM uw_table_row WHERE table_name = 'bundles_custom'")).toEqual([]);
     hold.release();
     const r = await saving;
-    expect(r.value?.status).toBe(200); expect(r.counts.d1).toBe(15); expect(w.batches() - before).toBe(1);
+    expect(r.value?.status).toBe(200); expect(r.counts.d1).toBe(18); expect(w.batches() - before).toBe(1);
     expect(w.db.rows("SELECT row_key FROM uw_table_row WHERE table_name = 'bundles_custom'")).toHaveLength(1);
   } finally { await w.cleanup(); }
 });

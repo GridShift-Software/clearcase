@@ -554,8 +554,10 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
         if (current && current.case_id !== caseId) throw contractError('restore-key-collision');
         const conflict = compare(a.expected, current); if (conflict) return { kind: conflict };
         const commitAfter = a.commitAfter;
+        // The object write can outlast the authority checked before it: once it is stored, authorize again, so a grant
+        // or session lost during the wait refuses the row with nothing committed.
         return { kind: 'written', value: undefined, statements: [putTableStatement(db, caseId, t.name, key, row, s.version, !!current)], collision: collisionOf(db, caseId, t.name, [key]),
-          ...(commitAfter ? { beforeCommit: async () => { await commitAfter; } } : {}) };
+          ...(commitAfter ? { beforeCommit: async () => { await commitAfter; await authorize(a, 'write-user-work'); } } : {}) };
       });
     },
     async putTableRows(a) {

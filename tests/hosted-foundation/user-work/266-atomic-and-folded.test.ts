@@ -121,4 +121,28 @@ describe('a table row that waits for an object', () => {
       expect([w.count('SELECT count(*) AS n FROM uw_table_row'), w.count('SELECT count(*) AS n FROM uw_operation'), w.batches()]).toEqual([1, 1, 1]);
     } finally { w.db.close(); }
   });
+
+  // #194 review: the object write can outlast the authority checked before it. A grant or session lost while the row
+  // waits refuses the row (`forbidden`, or `invalid-session` as every user-work call refuses a revoked session), with
+  // nothing committed and no audit event.
+  for (const [lost, code, revoke] of [
+    ['the case grant is removed', 'forbidden', (w: ReturnType<typeof setup>) => w.auth.grant('editor', CASE, null)],
+    ['the session is revoked', 'invalid-session', (w: ReturnType<typeof setup>) => w.auth.revoke('session-editor')],
+  ] as const) {
+    it(`refuses the row when ${lost} while it waits for the object`, async () => {
+      const w = setup();
+      try {
+        let release!: () => void;
+        const object = new Promise<void>((r) => { release = r; });
+        const saving = w.work.putTableRow({ caseId: CASE, table: MARKS, owner: 'GRS-19', row: mark('a'), expected: { kind: 'absent' }, operationId: 'held', commitAfter: object });
+        saving.catch(() => undefined);
+        await new Promise((r) => setTimeout(r, 20));
+        revoke(w);
+        release();
+        await expect(saving).rejects.toMatchObject({ code });
+        expect([w.count('SELECT count(*) AS n FROM uw_table_row'), w.count('SELECT count(*) AS n FROM uw_operation'), w.batches()]).toEqual([0, 0, 0]);
+        expect([...w.audit.events.values()].filter((e) => e.outcome === 'succeeded')).toEqual([]);
+      } finally { w.db.close(); }
+    });
+  }
 });

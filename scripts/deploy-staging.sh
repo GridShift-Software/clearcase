@@ -98,8 +98,23 @@ bookmark=$(wrangler d1 time-travel info "$DB" --json -c "$CONFIG" | json 'j.book
 say "D1 bookmark before migrations: $bookmark"
 CI=1 wrangler d1 migrations apply "$DB" --remote -c "$CONFIG" >&2
 
-# /health needs the runtime sentinels: a D1 row naming the SHA-256 of an R2 object (src/lib/server/runtime/hosted/runtime.ts).
-if [[ -z $(wrangler d1 execute "$DB" --remote --json -c "$CONFIG" --command "SELECT value FROM runtime_sentinel WHERE name = 'r2-sha256'" | json 'j[0].results[0]?.value ?? ""') ]]; then
+# First deploy only. /health needs the runtime sentinels: a D1 row naming the SHA-256 of an R2 object
+# (src/lib/server/runtime/hosted/runtime.ts). Every case route needs the storage identity: the D1 row and the R2 object
+# identity/client.json both naming CLEARCASE_CLIENT_ID (src/lib/storage/cloud/gate.ts).
+state=$(wrangler d1 execute "$DB" --remote --json -c "$CONFIG" --command "SELECT (SELECT value FROM runtime_sentinel WHERE name = 'r2-sha256') AS sentinel, (SELECT client_id FROM rs_storage_identity WHERE singleton = 1) AS client")
+case $(json 'j[0].results[0].client ?? ""' <<<"$state") in
+staging) ;;
+'')
+	tmp=$(mktemp)
+	printf '{"client_id":"staging"}' >"$tmp"
+	wrangler r2 object put "$BUCKET/identity/client.json" --file "$tmp" --content-type application/json --jurisdiction eu --remote -c "$CONFIG" >&2
+	wrangler d1 execute "$DB" --remote -c "$CONFIG" --command "INSERT INTO rs_storage_identity (singleton, client_id, layout) VALUES (1, 'staging', 'clearcase.rs/1')" >&2
+	rm -f "$tmp"
+	say 'storage identity provisioned'
+	;;
+*) die "the staging D1 names another client in rs_storage_identity: $(json 'j[0].results[0].client' <<<"$state")" ;;
+esac
+if [[ -z $(json 'j[0].results[0].sentinel ?? ""' <<<"$state") ]]; then
 	tmp=$(mktemp)
 	printf 'clearcase runtime sentinel staging %s\n' "$(date -u +%Y%m%dT%H%M%SZ)" >"$tmp"
 	wrangler r2 object put "$BUCKET/runtime/sentinel" --file "$tmp" --jurisdiction eu --remote -c "$CONFIG" >&2

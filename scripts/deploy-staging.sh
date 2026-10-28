@@ -27,10 +27,17 @@ wrangler() { CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false WRANGLER_SEND_METRICS=f
 # Reads one JSON document on stdin and prints the value of a JS expression over it, bound as `j`.
 json() { bun -e "const j = JSON.parse(await Bun.stdin.text()); const v = ($1); console.log(typeof v === 'string' ? v : JSON.stringify(v));"; }
 
+# The Access service token never reaches argv or an xtrace line: tracing is off while the variables are read, and curl
+# takes the headers from a 0600 file (`-H @file`), so `bash -x` or a process listing shows only the file name.
 access_headers=()
+{ xtrace=$(set +o | grep xtrace); set +x; } 2>/dev/null
 if [[ -n ${CF_ACCESS_CLIENT_ID:-} && -n ${CF_ACCESS_CLIENT_SECRET:-} ]]; then
-	access_headers=(-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET")
+	access_file=$(umask 077 && mktemp)
+	trap 'rm -f "$access_file"' EXIT
+	printf 'CF-Access-Client-Id: %s\nCF-Access-Client-Secret: %s\n' "$CF_ACCESS_CLIENT_ID" "$CF_ACCESS_CLIENT_SECRET" >"$access_file"
+	access_headers=(-H "@$access_file")
 fi
+eval "$xtrace"
 # smoke <base> <sha>: /health 200 at that SHA, /sign-in 200, /cases 401, cf-placement remote-LHR.
 smoke() {
 	local base=$1 want=$2 hdr body code
@@ -79,7 +86,7 @@ case ${1:-} in
 	target_sha=$(tag_of "$target")
 	say "rollback: $current ($current_sha) -> $target ($target_sha)"
 	wrangler rollback "$target" -y -m "deploy-staging.sh --rollback from $current_sha" -c "$CONFIG" >&2
-	smoke "$URL" "$target_sha" || true
+	smoke "$URL" "$target_sha" || die "rolled back to $target but could not verify it (smoke exit $?; message above)"
 	say "rollback: done in $(($(date +%s) - started)) s; a D1 restore is separate: see .local/staging/deploys.jsonl and the runbook"
 	echo "$target_sha $URL $target"
 	exit 0
@@ -144,6 +151,6 @@ fi
 
 mkdir -p "$(dirname "$LOG")"
 printf '{"at":"%s","sha":"%s","version":"%s","bookmark":"%s"}\n' "$(date -u +%FT%TZ)" "$sha" "$version" "$bookmark" >>"$LOG"
-smoke "$URL" "$sha" || true
+smoke "$URL" "$sha" || die "deployed $version but could not verify it (smoke exit $?; message above)"
 say "done in $(($(date +%s) - started)) s"
 echo "$sha $URL $version"

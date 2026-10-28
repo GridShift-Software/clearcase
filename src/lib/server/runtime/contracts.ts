@@ -119,7 +119,11 @@ export interface SystemAuditActor { readonly kind: 'system'; readonly component:
 export type AuditActor = IdentityState | SystemAuditActor;
 /** An event whose producer is the provisioning system, never a request. Not appendable through AuditSink. */
 export type SystemAuditEvent = Omit<AuditEvent, 'actor'> & { actor: SystemAuditActor };
-export interface AuditSink { append(a: AuditEvent): Promise<{ eventId: string }> }
+export interface AuditSink {
+  append(a: AuditEvent): Promise<{ eventId: string }>;
+  /** Prepare fail-closed audit SQL for the caller's exact D1 session; execute only in the business mutation's batch. */
+  atomic?(a: { db: import('./hosted/bindings.ts').D1; event: AuditEvent }): Promise<readonly import('./hosted/bindings.ts').D1Statement[]>;
+}
 export type Profile = 'production' | 'hosted-gate';
 export interface BuildStamp<P extends Profile> { revision: string; dirty: boolean; exported: boolean; builtAt: string; bun: string; buildId: string; target: 'cloudflare'; profile: P }
 export interface BindingProbe { ok: boolean; bindings: { DB: boolean; BUCKET: boolean; ASSETS: boolean }; probes: { d1: boolean; r2: boolean } }

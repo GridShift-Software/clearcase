@@ -5,6 +5,11 @@ import { load as document } from '../../../deploy/client/routes/cases/[caseId]/v
 import { counters, countedD1, measure } from './harness.ts';
 import { authority, auditLog, bind, CASE, caseReader, CLIENT, d1, database, LIMITS, RV1, SHA_A } from '../user-work/world.ts';
 import type * as C from '../../../src/lib/server/runtime/contracts.ts';
+import { readFileSync } from 'node:fs';
+import { requestAuditSink } from '../../../src/lib/audit/facades.ts';
+import { auditConfig } from '../../../src/lib/audit/config.ts';
+import { provisionAuditBinding } from '../../../src/lib/audit/d1-log.ts';
+import { ISSUER } from '../user-work/world.ts';
 
 function notes() {
   const db = database(); bind(db);
@@ -50,4 +55,28 @@ it('16 document loader uses one notes query plus one links call beyond publicati
     expect(result.value?.notes).toMatchObject([{ body: 'Synthetic page note', refAtCreation: 'D-001' }]);
     expect([result.counts.d1, links, anchors]).toEqual([1, 1, 0]);
   } finally { w.db.close(); }
+});
+
+it('16 note save commits its audit in exactly one D1 batch, with no post-commit audit append', async () => {
+  const db = database(); bind(db);
+  const auth = authority(); auth.grant('editor', CASE, 'editor');
+  db.exec(readFileSync('src/lib/audit/migrations/0001_native_audit.sql', 'utf8'));
+  const config = auditConfig({ clientId: CLIENT, trustedIssuers: [ISSUER], limits: { maxEventBytes: 4096, maxRows: 100, maxReadRows: 100, maxDenialRows: 100, maxDenialsPerActor: 100, maxPageRows: 50, maxPagesPerRequest: 5 } });
+  const c = counters(), raw = d1(db), now = () => new Date('2200-01-01T00:00:00Z');
+  let batches = 0, appended = 0;
+  const original = raw.batch;
+  raw.batch = async statements => { batches++; return original(statements); };
+  const binding = countedD1(raw, c);
+  await provisionAuditBinding({ db: binding, config, now });
+  const identity = auth.identity(), real = requestAuditSink({ db: binding, config, requester: identity, now });
+  const work = createD1UserWork({ db: binding, config: { clientId: CLIENT, limits: LIMITS }, identity,
+    audit: { ...real, append: async event => { appended++; return real.append(event); } },
+    store: caseReader({ published: RV1, versions: {} }).reader, now });
+  try {
+    const result = await measure(c, () => work.addNote({ caseId: CASE, operationId: 'atomic-budget', expected: { kind: 'absent' }, target: { kind: 'case' }, body: 'Synthetic budget note' }));
+    expect(result.thrown).toBeUndefined(); expect(result.value?.kind).toBe('written');
+    expect([batches, appended]).toEqual([1, 0]);
+    expect(db.prepare('SELECT action FROM native_audit_events').get()).toEqual({ action: 'user-work.note-add' });
+    console.log('16 atomic note save foreground calls (authorization double; preflight reads included)', result.counts);
+  } finally { db.close(); }
 });

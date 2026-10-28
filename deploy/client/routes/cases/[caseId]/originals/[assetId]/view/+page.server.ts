@@ -1,3 +1,4 @@
+import { fastOriginals } from '$lib/viewer/hosted/fast-original';
 import type { RequestEvent } from '@sveltejs/kit';
 import { codeOf, isDenial } from '$lib/server/runtime/errors';
 import { refuse } from '$lib/server/runtime/hosted/http';
@@ -12,7 +13,7 @@ export async function load({ locals, params, url }: RequestEvent) {
 	const asset = assetRefOf('original', params as Record<string, string | undefined>);
 	const view = await originalView({ assets: locals.assets, caseId: asset.caseId, assetId: asset.assetId }).catch((e) => refuse(e));
 	const notes =
-		view.state === 'available'
+		view.state === 'available' && !fastOriginals(locals.assets)
 			? await listPageNotes({ work: locals.userWork, assets: locals.assets, caseId: asset.caseId, assetId: asset.assetId }).then(
 					(items) => ({ state: 'available' as const, items }),
 					(e: unknown) => (isDenial(e) ? refuse(e) : { state: 'unavailable' as const, items: [], code: codeOf(e) ?? 'error' }),

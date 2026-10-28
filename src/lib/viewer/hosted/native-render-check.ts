@@ -13,7 +13,8 @@ import { checkedPageSet, decide, lookupReceiptRows, MAX_CHECKED_PAGES, MAX_DOCUM
 // Deliberately not an import of the build-time (node:fs) asset preparer. Parent supplies its reviewed inventory.
 const PDF_VERSION = '6.4.299';
 const PACKAGE_DIGEST = 'sha256:ae9a1328f4de3e2cf14b24d711e34299963dc64c10eab7b1afe849b79846e577';
-const READER_DIGEST = 'sha256:78f5434b84b4078dd7120377345a57d6fe30877b717efb2cba4edd6fa7a0290e';
+const VIEWER_WORKER_DIGEST = 'sha256:c14b50d04c16081a41c1756232923c0087bcb3113de3540ada92d6d774fd6115';
+const READER_DIGEST = 'sha256:782e60af7b31feb6d7e58677e54bdbde307afb7da6dc197ac03ec0f3d8522b63';
 export const NATIVE_PDF_RENDERER_ALGORITHM = 'clearcase.native-pdf/2';
 const SDK_INTEGRITY = 'sha512-39lo96Y7ErOJFmu/KIJU1VLaOibhynx/BauKCZOW5+RVH/mG0jZrAEGJlqCdx5ZxLHyWppm78YX3jLNPCBB+fA==';
 export const NATIVE_PDF_RENDER_CEILINGS: Readonly<NativePreviewRenderBudget> = Object.freeze({
@@ -224,15 +225,17 @@ async function prepareRenderer(o: RendererBindings): Promise<PreparedRenderer | 
  // Captured before the first await: the options object is not an immutable authority.
  const pins = o.pins, bound = { db: o.db, browserBinding: o.browser, assets: o.assets, clientId: o.clientId, now: o.now };
  if (pins.schema !== 'clearcase.hosted-pdf-assets/1' || pins.pdfjsVersion !== PDF_VERSION ||
-     pins.packageDigest !== PACKAGE_DIGEST || pins.readerDigest !== READER_DIGEST || !Array.isArray(pins.files) || pins.files.length !== 191) return null;
+     pins.packageDigest !== PACKAGE_DIGEST || pins.readerDigest !== READER_DIGEST || !Array.isArray(pins.files) || pins.files.length !== 192) return null;
  const files: PinnedFiles = new Map();
  for (const f of pins.files) {
-  if (!f || typeof f.path !== 'string' || !/^pdfjs\/(?:pdf(?:\.worker)?\.min\.mjs|pdf-reader\.mjs|LICENSE|(?:cmaps|iccs|standard_fonts)\/[A-Za-z0-9_.-]+)$/.test(f.path) ||
+  if (!f || typeof f.path !== 'string' || !/^pdfjs\/(?:pdf(?:\.worker)?\.min\.mjs|pdf-reader\.mjs|pdf-viewer-worker\.mjs|LICENSE|(?:cmaps|iccs|standard_fonts)\/[A-Za-z0-9_.-]+)$/.test(f.path) ||
       files.has('/' + f.path) || !integer(f.bytes, MAX_STATIC_BYTES) || !/^sha256:[a-f0-9]{64}$/.test(f.sha256)) return null;
   files.set('/' + f.path, { path: f.path, bytes: f.bytes, sha256: f.sha256 });
  }
- const packageFiles = [...files.values()].filter(f => f.path !== 'pdfjs/pdf-reader.mjs').sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
- if ('sha256:' + await sha(encode(packageFiles)) !== PACKAGE_DIGEST || files.get('/pdfjs/pdf-reader.mjs')?.sha256 !== READER_DIGEST) return null;
+ // The reader and the viewer's patched worker (scripts/hosted-pdf-assets.ts, WORKER_PATCH) are the in-app viewer's, not the package's.
+ const packageFiles = [...files.values()].filter(f => f.path !== 'pdfjs/pdf-reader.mjs' && f.path !== 'pdfjs/pdf-viewer-worker.mjs').sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+ if ('sha256:' + await sha(encode(packageFiles)) !== PACKAGE_DIGEST || files.get('/pdfjs/pdf-reader.mjs')?.sha256 !== READER_DIGEST ||
+     files.get('/pdfjs/pdf-viewer-worker.mjs')?.sha256 !== VIEWER_WORKER_DIGEST) return null;
  if (sdkVersion !== '1.4.0') return null;
  // NATIVE_SDK_HOST_SYMBOLS: the transformed SDK keys disposal on the host's own symbols and never defines them.
  if (typeof Symbol.dispose !== 'symbol' || typeof Symbol.asyncDispose !== 'symbol') return null;
@@ -360,7 +363,7 @@ function intercept(a: {
     body = a.input.subarray(at, at + a.parts.bytes); contentType = 'application/octet-stream';
    } else {
     const pin = a.files.get(url.pathname);
-    if (!pin || !['script', 'fetch', 'other'].includes(request.resourceType()) || /(?:LICENSE|pdf-reader\.mjs)$/.test(url.pathname)) refuse(url.pathname === '/favicon.ico' ? 'favicon-path' : 'unowned-path');
+    if (!pin || !['script', 'fetch', 'other'].includes(request.resourceType()) || /(?:LICENSE|pdf-reader\.mjs|pdf-viewer-worker\.mjs)$/.test(url.pathname)) refuse(url.pathname === '/favicon.ico' ? 'favicon-path' : 'unowned-path');
     let pending = a.cache.get(url.pathname);
     if (!pending) {
      a.statics.bytes += pin.bytes;

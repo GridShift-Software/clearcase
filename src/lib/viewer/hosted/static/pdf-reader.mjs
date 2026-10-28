@@ -5,7 +5,8 @@
 // no external link is followed, and no byte leaves this origin.
 import * as pdfjs from './pdf.min.mjs';
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.min.mjs', import.meta.url).href;
+// The viewer's own worker: the pinned pdf.js worker with one reviewed patch (scripts/hosted-pdf-assets.ts, WORKER_PATCH).
+pdfjs.GlobalWorkerOptions.workerSrc = new URL('./pdf-viewer-worker.mjs', import.meta.url).href;
 const base = new URL('./', import.meta.url).href;
 // Every request to the original route costs a round trip of about 300 ms before its first byte, so the reader keeps the
 // sequential ones few: 256 KiB chunks (a file up to 512 KiB is one plain GET), and for a larger file of known size the

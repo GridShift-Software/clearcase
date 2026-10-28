@@ -33,6 +33,8 @@ function build(objects: string[]) {
 
 type Logged = { range: string | null; at: number };
 let bytes = new Uint8Array(), log: Logged[] = [], inFlightAtFirstAnswer: Logged[] | null = null, refuseRanges = false, t0 = 0;
+/** Extra wait for a range that starts in the middle of the file, and the pause between 64 KiB pieces of the stream. */
+let slowMiddle: { from: number; to: number; ms: number } | null = null, pace = 10;
 const ROUND_TRIP = 40;
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** The original route as the browser sees it: every answer waits a round trip, a whole-file body arrives in 64 KiB pieces. */
@@ -47,13 +49,14 @@ async function original(input: RequestInfo | URL, init: RequestInit = {}): Promi
   if (range) {
     if (refuseRanges) return new Response(null, { status: 412, headers: common });
     const [, a, b] = /^bytes=(\d+)-(\d+)$/.exec(range)!;
+    if (slowMiddle && Number(a) >= slowMiddle.from && Number(a) < slowMiddle.to) await wait(slowMiddle.ms);
     const part = bytes.slice(Number(a), Number(b) + 1);
     return new Response(part, { status: 206, headers: { ...common, 'content-length': String(part.byteLength), 'content-range': `bytes ${a}-${Number(a) + part.byteLength - 1}/${bytes.byteLength}` } });
   }
   const whole = bytes;
   let at = 0;
   const body = new ReadableStream<Uint8Array>({ async pull(c) {
-    await wait(10);
+    await wait(pace);
     if (at >= whole.byteLength) return c.close();
     c.enqueue(whole.slice(at, at += 65536));
   } });
@@ -70,7 +73,7 @@ beforeAll(async () => {
   await import(/* @vite-ignore */ join(assets.dir, 'pdf-reader.mjs'));
 });
 afterAll(() => assets?.dispose());
-beforeEach(() => { log = []; inFlightAtFirstAnswer = null; refuseRanges = false; t0 = performance.now(); });
+beforeEach(() => { log = []; inFlightAtFirstAnswer = null; refuseRanges = false; slowMiddle = null; pace = 10; t0 = performance.now(); });
 const open = (size: number) => (globalThis as unknown as { window: { clearcasePdfReader: { open(a: object): Promise<{ pages: number; draw(n: number, s: number): Promise<void>; destroy(): void }> } } })
   .window.clearcasePdfReader.open({ src: SRC, size, canvas: createCanvas(100, 100), signal: new AbortController().signal });
 
@@ -104,18 +107,19 @@ it('ends the open with an error when the original refuses a range, so the viewer
   await expect(open(bytes.byteLength)).rejects.toThrow();
 });
 
-it('draws page 1 of a flat 40-page tree spread over 10 MiB before checking the last page, then still checks it', async () => {
+it('draws page 1 of a flat 40-page tree spread over 10 MiB without waiting for the last-page walk', async () => {
   bytes = spread(40, 256 * 1024);
-  const size = bytes.byteLength, middle = (l: Logged) => l.range !== null && Number(/^bytes=(\d+)/.exec(l.range)![1]) < Math.floor((size - 2 ** 20) / 2 ** 18) * 2 ** 18 && l.range !== 'bytes=0-262143';
+  const size = bytes.byteLength;
+  // Every range through the middle of the file (where pages 2 to 40 keep their dictionaries) answers 2.5 s late, and the
+  // stream is too slow to bring them sooner. Upstream pdf.js 6.4.299 walks to page 40 before the document opens, so it
+  // cannot open in less than 2.5 s; the served worker opens and draws page 1 from the head and the tail alone.
+  slowMiddle = { from: 2 ** 18, to: Math.floor((size - 2 ** 20) / 2 ** 18) * 2 ** 18, ms: 2500 }; pace = 40;
+  const started = performance.now();
   const reader = await open(size);
   await reader.draw(1, 1);
-  const drawn = log.length;
+  expect(performance.now() - started).toBeLessThan(1500);
   expect(reader.pages).toBe(40);
-  // Upstream pdf.js 6.4.299 reads all 40 page dictionaries (ranges through the middle of the file) before the document
-  // opens; the served worker reads none of them before page 1 is drawn.
-  expect(log.filter(middle)).toEqual([]);
-  // The last-page check still runs after the first page: it asks for the middle of the file, ahead of the stream.
-  await vi.waitFor(() => expect(log.slice(drawn).filter(middle).length).toBeGreaterThan(0), { timeout: 5000 });
+  // The rest of the document is still there once its bytes arrive.
   await reader.draw(40, 1);
   reader.destroy();
 });

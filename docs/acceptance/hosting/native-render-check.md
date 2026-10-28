@@ -229,8 +229,9 @@ SQLite, so they are not renderer acceptance.
    explicit account-allocated budgets, trusted origin/clock and immutable input.
 3. Supply the reviewed inventory from `scripts/hosted-pdf-assets.ts`: exact PDF.js
    6.4.299 package digest `sha256:ae9a1328f4de3e2cf14b24d711e34299963dc64c10eab7b1afe849b79846e577`
-   and reader digest `sha256:78f5434b84b4078dd7120377345a57d6fe30877b717efb2cba4edd6fa7a0290e`.
-   All 191 inventory entries must match. Copy pinned static bytes through normal
+   and reader digest `sha256:782e60af7b31feb6d7e58677e54bdbde307afb7da6dc197ac03ec0f3d8522b63`.
+   The viewer's patched worker `pdfjs/pdf-viewer-worker.mjs` is pinned by `HOSTED_PDF_VIEWER_WORKER_DIGEST`
+   and is never served to the render check. All 192 inventory entries must match. Copy pinned static bytes through normal
    build provenance; do not import the node:fs preparer into the Worker.
 4. Install the narrowly scoped [SDK policy hook](../../../scripts/native-render-sdk-policy.ts)
    in the parent's renderer artifact build, then review the SDK's module closure

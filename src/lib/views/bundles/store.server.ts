@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fail, isHttpError } from '@sveltejs/kit';
 import { app } from '../../local-case/app.server.ts';
@@ -81,7 +83,7 @@ export function customTable(): Promise<void> {
 	}).catch((e) => { customDefined = null; throw e; });
 	return customDefined;
 }
-export type SavedCustom = Custom & { id: string; seq: number };
+export type SavedCustom = Custom & { id: string; seq: number; assembledSha256: string | null; bytes: number };
 export async function readCustom(caseId: string): Promise<SavedCustom[]> {
 	await customTable();
 	const out: SavedCustom[] = [];
@@ -89,7 +91,15 @@ export async function readCustom(caseId: string): Promise<SavedCustom[]> {
 		let rows: unknown = [];
 		try { rows = JSON.parse(String(r.rows ?? '[]')); } catch { rows = []; }
 		const c = customOf({ no: r.no, name: r.name, pages: r.pages, indexPages: r.index_pages, filePages: r.file_pages, note: r.note, rows });
-		if (c) out.push({ ...c, id: String(r.id), seq: Number(r.seq) || 0 });
+		if (c) {
+   const id=String(r.id); let assembledSha256:string|null=null, bytes=0;
+   if (/^[A-Za-z0-9_-]{1,64}$/.test(id)) {
+    try { const meta:unknown=JSON.parse(await readFile(path.join(app().config.dataDir,'work',encodeURIComponent(caseId),'bundles',id,'assembled.json'),'utf8'));
+     if(meta && typeof meta==='object' && 'sha256' in meta && typeof meta.sha256==='string' && /^[a-f0-9]{64}$/.test(meta.sha256) && 'bytes' in meta && typeof meta.bytes==='number') {assembledSha256=meta.sha256;bytes=meta.bytes;}
+    } catch {}
+   }
+   out.push({...c,id,seq:Number(r.seq)||0,assembledSha256,bytes});
+  }
 	}
 	return out.sort((a, b) => a.seq - b.seq || (a.id < b.id ? -1 : 1));
 }

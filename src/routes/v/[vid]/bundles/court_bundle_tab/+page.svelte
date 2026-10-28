@@ -5,7 +5,7 @@
 	import ConfirmDelete from '$lib/components/ConfirmDelete.svelte';
 	import { CONFIRM } from '$lib/components/confirm-delete';
 	import PageHeader from '$lib/components/PageHeader.svelte';
-	import { NOT_SERVED, hrefOf, type Resolved } from '$lib/views/bundles/links';
+	import { NOT_SERVED as LOCAL_NOT_SERVED, hrefOf, type Resolved } from '$lib/views/bundles/links';
 	import { download } from '$lib/components/download';
 	import { postAction } from '$lib/views/bundles/post';
 	import { RELOAD_LOST, reloader } from '$lib/components/reload.svelte';
@@ -16,6 +16,7 @@
 	import { blobs } from '$lib/views/bundles/builder.svelte';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
+ const NOT_SERVED = $derived('hosted' in data && data.hosted ? 'not available on hosted' : LOCAL_NOT_SERVED);
 	const vid = $derived(data.version.id);
 	const c = $derived(data.content);
 	const bs = $derived(data.bundles);
@@ -26,16 +27,20 @@
 	let stored = $derived(data.header);
 	const hd = $derived(header(stored));
 
-	const view = $derived(page.url.searchParams.get('view') === 'build' ? 'build' : page.url.searchParams.has('b') ? 'bundle' : 'list');
+	const query = $derived((page.shallow?.url ?? page.url).searchParams);
+	const view = $derived(query.get('view') === 'build' ? 'build' : query.has('b') ? 'bundle' : 'list');
 	const repeated = $derived.by(() => { const seen = new Set<string>(), dup = new Set<string>(); for (const x of bs) (seen.has(x.no) ? dup : seen).add(x.no); return dup; });
 	const bq = (i: number): Record<string, string> => (repeated.has(bs[i]!.no) ? { b: bs[i]!.no, at: String(i) } : { b: bs[i]!.no });
 	const cur = $derived.by(() => {
-		const no = page.url.searchParams.get('b'), at = Number(page.url.searchParams.get('at') ?? 'x');
+		const no = query.get('b'), at = Number(query.get('at') ?? 'x');
 		return Number.isInteger(at) && bs[at]?.no === no ? at : bs.findIndex((x) => x.no === no);
 	});
 	const b = $derived(cur >= 0 ? bs[cur]! : null);
-	const tab = $derived(({ items: 'items', view: 'view' } as Record<string, string>)[page.url.searchParams.get('tab') ?? ''] ?? 'index');
-	const go = (q: Record<string, string>) => goto(`?${new URLSearchParams(q)}`);
+	const tab = $derived(({ items: 'items', view: 'view' } as Record<string, string>)[query.get('tab') ?? ''] ?? 'index');
+	const go = (q: Record<string, string>) => {
+		void goto(`?${new URLSearchParams(q)}`, { shallow: true, reset: false });
+		confirming = null;
+	};
 	const href = (r: Resolved | null, page?: number) => hrefOf(vid, data.files, r, page);
 	const blob = (x: Bundle) => (x.id ? (blobs[x.id] ?? null) : null);
 	const rl = reloader();
@@ -124,7 +129,7 @@
 
 <main id="main" tabindex="-1" data-ready="court_bundle_tab" data-hydrated={ready ? '1' : null} data-busy={busy ? '1' : '0'}>
 	<PageHeader heading="Court Bundle" section="Court Bundle" caseName={data.version.titleName} subtitle="{bs.length} bundles · {ti} index items · {tp} paginated pages. Every bundle is a finished PDF: index first, then the extracted documents, numbered continuously from page 1.">
-		{#snippet actions()}<button type="button" class="btn sec" id="cb-word-all" disabled={off} onclick={wordAll}>All indexes (Word)</button> <button type="button" class="btn primary" id="cb-build" disabled={off} onclick={() => go({ view: 'build' })}>Build a bundle</button>{/snippet}
+		{#snippet actions()}<button type="button" class="btn sec" id="cb-word-all" disabled={off} onclick={wordAll}>All indexes (Word)</button> <button type="button" class="btn primary" data-testid="bundle-build" id="cb-build" disabled={off} onclick={() => go({ view: 'build' })}>Build a bundle</button>{/snippet}
 	</PageHeader>
 	{#if off}<p class="notice" id="cb-nojs">The header, the Word and print exports and the bundle tabs need JavaScript, which is off or still loading; nothing on this page can be saved without it.</p>{/if}
 	{#if message}<p class="notice" role="status" id="cb-message">{message}</p>{/if}
@@ -136,7 +141,7 @@
 		{@const t = totals(b)}
 		{@const l = data.links[cur]!}
 		<section id="cb-bundle" aria-labelledby="cb-bundle-h">
-			<h2 id="cb-bundle-h">{b.title}</h2>
+			<h2 data-testid="bundle-heading" id="cb-bundle-h">{b.title}</h2>
 			<p class="sub" id="cb-bundle-sub">{t.items} items · {t.pages} pages, numbered 1 to {t.pages}{t.missing ? ` · ${t.missing} item(s) flagged for review` : ''}</p>
 			<div class="toolbar"><button type="button" class="btn sec" id="cb-all" disabled={off} onclick={() => go({})}>All bundles</button>
 				{#if href(l.file)}<a class="btn sec" href={href(l.file)} target="_blank" rel="noopener">Open bundle PDF</a> {#if data.downloads[l.file!.ref]}<a class="btn primary" href={data.downloads[l.file!.ref]} rel="noopener noreferrer" download>Download bundle</a>{/if}{:else if blob(b)}<a class="btn sec" href={blob(b)} target="_blank" rel="noopener">Open bundle PDF</a>{:else if b.file}{@render notServed('Bundle PDF')}{/if}</div>

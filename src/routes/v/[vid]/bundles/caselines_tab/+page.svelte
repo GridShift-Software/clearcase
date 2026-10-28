@@ -3,10 +3,11 @@
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import PageHeader from '$lib/components/PageHeader.svelte';
-	import { NOT_SERVED, hrefOf } from '$lib/views/bundles/links';
+	import { NOT_SERVED as LOCAL_NOT_SERVED, hrefOf } from '$lib/views/bundles/links';
 	import { postAction } from '$lib/views/bundles/post';
 	import { sizeLabel, uploadUrl } from '$lib/views/bundles/caselines';
 	let { data } = $props();
+ const NOT_SERVED = $derived('hosted' in data && data.hosted ? 'not available on hosted' : LOCAL_NOT_SERVED);
 	const vid = $derived(data.version.id);
 	const c = $derived(data.content);
 	const pagesLabel = $derived(data.pages === null ? '' : data.pages.toLocaleString('en'));

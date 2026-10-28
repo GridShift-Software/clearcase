@@ -505,7 +505,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-_shell-3",
-      "reason": "v5 has no URL routing, so reload, Back and a deep link always land on the Overview. In ClearCase each navigation entry is a real link to its own route, so reload, Back and deep links return to the same view, and the current view is marked for navigation. Evidence: src/lib/components/ViewNav.svelte:36.",
+      "reason": "v5 has no URL routing, so reload, Back and a deep link always land on the Overview. In ClearCase each navigation entry is a real link to its own route, so reload, Back and deep links return to the same view, and the current view is marked for navigation. Evidence: src/lib/components/ViewNav.svelte:41.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": "Vaperizer2",

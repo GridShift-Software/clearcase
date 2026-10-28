@@ -20,7 +20,8 @@ describe('06 shard builder', () => {
   test('writes the shell, overview, list pages and facets, originals and the manifest', () => {
     const pages = [...b.files.keys()].filter((n) => n.startsWith('list/page-')).length;
     expect(pages).toBeGreaterThan(1);
-    expect([...b.files.keys()].sort()).toEqual(['list/facets.json', ...Array.from({ length: pages }, (_, i) => `list/page-${i + 1}.json`), 'manifest.json', 'originals.json', 'overview.json', 'shell.json'].sort());
+    // Later tickets add shard families (a file under scripts/publish/shards/); 06's own are all present.
+    expect([...b.files.keys()]).toEqual(expect.arrayContaining(['list/facets.json', ...Array.from({ length: pages }, (_, i) => `list/page-${i + 1}.json`), 'manifest.json', 'originals.json', 'overview.json', 'shell.json']));
   });
 
   test('the manifest is canonical, sorted by name, and names every other shard with its bytes and sha256', () => {

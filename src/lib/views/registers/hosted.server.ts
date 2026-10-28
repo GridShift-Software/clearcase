@@ -12,7 +12,8 @@ import { registerOf, type RegisterDef, type RegisterView } from './defs.ts';
 import { byDate, type Entry } from './logic.ts';
 import { checkDelete, checkSave, deletionFailure, GONE, readDelete, readSave, registerHead, shownRows, STALE, STALE_DELETE, type RowView } from './shown.ts';
 
-type Event = Pick<RequestEvent, 'locals' | 'params'>;
+type Params = Partial<Record<string, string>>;
+type Event = { locals: RequestServices; params: Params };
 type Fingerprints = Awaited<ReturnType<RequestServices['store']['fingerprints']>>;
 export type HostedRow = RowView & { anchor: Anchor | null; createdAt: string };
 
@@ -79,13 +80,13 @@ export function hostedRegisterLoad(view: RegisterView) {
  * store authorizes the case itself, so a write does not wait on the publication lookup; an entry that names a document does
  * (see `anchorOf`).
  */
-function writeScope(params: Event['params']): { caseId: CaseId; resultsVersion: ResultsVersion } {
+function writeScope(params: Params): { caseId: CaseId; resultsVersion: ResultsVersion } {
 	try { return { caseId: id('case', params.caseId ?? ''), resultsVersion: resultsVersion(params.version ?? '') }; }
 	catch { error(404, { message: 'Not found.', code: 'not-found' }); }
 }
 
 /** The anchor a saved entry carries: kept when its ref is unchanged and was anchored in this version, else a fresh one for a ref this version holds. */
-async function anchorOf(def: RegisterDef, locals: RequestServices, params: Event['params'], e: Entry, cur?: HostedRow): Promise<DocumentAnchor | null> {
+async function anchorOf(def: RegisterDef, locals: RequestServices, params: Params, e: Entry, cur?: HostedRow): Promise<DocumentAnchor | null> {
 	const k = refFieldOf(def);
 	const ref = k ? e[k] : undefined;
 	if (!k || !ref) return null;

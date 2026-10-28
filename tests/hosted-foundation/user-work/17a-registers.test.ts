@@ -53,7 +53,7 @@ describe('17a hosted registers: deadlines', () => {
       const form = (d: Record<string, string>) => { const f = new FormData(); for (const [k, v] of Object.entries(d)) f.set(k, v); return f; };
       for (const d of [{ ...deadline, title: 'Later', date: '2026-12-01' }, { ...deadline, title: 'Sooner', date: '2026-11-02' }])
         await (deadlineActions.save as (e: never) => Promise<unknown>)({ locals: w.locals, params: w.params, request: new Request('https://synthetic.invalid/?/save', { method: 'POST', body: form(d) }) } as never);
-      expect((await w.list('deadlines_tab')).rows.map((r: { values: { title: string } }) => r.values.title)).toEqual(['Sooner', 'Later']);
+      expect((await w.list('deadlines_tab')).rows.map((r: { values: Record<string, string> }) => r.values.title!)).toEqual(['Sooner', 'Later']);
     } finally { w.db.close(); }
   });
 
@@ -65,7 +65,7 @@ describe('17a hosted registers: deadlines', () => {
       expect(await w.post('save', 'deadlines_tab', { ...deadline, title: 'Edited once', rowId: shown.rowId, version: shown.version })).toMatchObject({ saved: true });
       const stale = await w.post('save', 'deadlines_tab', { ...deadline, title: 'Edited from a stale page', rowId: shown.rowId, version: shown.version });
       expect(stale).toMatchObject({ status: 409, data: { op: 'save', message: STALE, rowId: shown.rowId, values: { title: 'Edited from a stale page' } } });
-      expect((await w.list('deadlines_tab')).rows.map((r: { values: { title: string } }) => r.values.title)).toEqual(['Edited once']);
+      expect((await w.list('deadlines_tab')).rows.map((r: { values: Record<string, string> }) => r.values.title!)).toEqual(['Edited once']);
     } finally { w.db.close(); }
   });
 
@@ -129,7 +129,7 @@ describe('17a hosted registers: deadlines', () => {
         await w.post('save', 'deadlines_tab', { ...deadline, title: 'Changed in another tab', rowId: shown.rowId, version: shown.version });
         const refused = await w.post('delete', 'deadlines_tab', { delete: shown.rowId, deleteVersion: shown.version, confirm: shown.rowId });
         expect(refused).toMatchObject({ status: 409, data: { op: 'delete', rowId: shown.rowId, message: STALE_DELETE } });
-        expect((await w.list('deadlines_tab')).rows.map((r: { values: { title: string } }) => r.values.title)).toEqual(['Changed in another tab']);
+        expect((await w.list('deadlines_tab')).rows.map((r: { values: Record<string, string> }) => r.values.title!)).toEqual(['Changed in another tab']);
       } finally { w.db.close(); }
     });
 
@@ -196,7 +196,7 @@ describe('17a hosted registers: documents refs', () => {
     try {
       await w.post('save', 'privilege_tab', { ref: 'D-001', date: '2026-11-02', desc: 'Held', basis: 'Litigation' });
       await w.post('save', 'privilege_tab', { ref: 'D-404', date: '2026-11-02', desc: 'Unknown', basis: 'Litigation' });
-      const rows = (await privilegeLoad({ locals: w.locals, params: w.params } as never) as { rows: { values: { ref: string }; cells: { kind: string; target?: string | null }[] }[] }).rows;
+      const rows = (await privilegeLoad({ locals: w.locals, params: w.params } as never) as unknown as { rows: { values: { ref: string }; cells: { kind: string; target?: string | null }[] }[] }).rows;
       // the fixture's clock is fixed, so both rows share a creation time: compare by ref, not by list order
       expect(rows.map((r) => [r.values.ref, r.cells[0]]).sort((x, y) => String(x[0]).localeCompare(String(y[0])))).toEqual([['D-001', { kind: 'ref', text: 'D-001', target: 'D-001' }], ['D-404', { kind: 'ref', text: 'D-404', target: null }]]);
       const stored = w.db.prepare("SELECT anchor_json FROM uw_register_row ORDER BY json_extract(fields_json, '$.ref')").all() as { anchor_json: string | null }[];

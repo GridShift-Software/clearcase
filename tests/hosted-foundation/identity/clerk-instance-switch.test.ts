@@ -2,7 +2,7 @@
 // deploy/staging/instance.ts (scripts/clerk-instance.sh) refuses placeholders and rewrites wrangler.jsonc to a profile.
 // SYNTHETIC hosts and keys throughout; the real profiles are read only for their shape, and no value is printed.
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { accountsPortalHost, CLERK_ENV, frontendApiHost, readClerkIdentityConfig } from '../../../src/lib/auth/clerk/config.ts';
 import { activeProfile, loadProfile, plan, problems, rewrite, type Profile } from '../../../deploy/staging/instance.ts';
 import { craftedInstance } from './synthetic.ts';
@@ -97,7 +97,11 @@ describe('the instance profiles (deploy/staging/clerk-instances, scripts/clerk-i
 		// The switched file is consistent for the runtime: its issuers are the ones its publishable keys name.
 		expect(frontendApiHost(parse(switched).vars.CLERK_CLIENT_PUBLISHABLE_KEY)).toBe('clerk.demo-a.example');
 	});
+	afterEach(() => vi.unstubAllEnvs());
 	it('names what a switch changes and never a value', () => {
+		// Synthetic development secrets, so the plan does not depend on the machine's keys file.
+		vi.stubEnv('STAGING_CLERK_SECRET_KEY', ['sk', 'test', 'Ab12Cd34Ef56Gh78Ij90Kl12'].join('_'));
+		vi.stubEnv('STAGING_CLERK_STAFF_SECRET_KEY', ['sk', 'test', 'Mn34Op56Qr78St90Uv12Wx34'].join('_'));
 		const planned = plan('development', rewrite(wrangler, synthetic));
 		expect(planned.refused).toBe(false);
 		const text = planned.lines.join('\n');

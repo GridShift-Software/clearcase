@@ -17,6 +17,8 @@ cd "$root"
 say() { printf 'clerk-instance: %s\n' "$*" >&2; }
 die() { say "FAIL: $*"; exit 1; }
 STAGING_ORIGIN=https://clearcase-staging.shiny-sunset-211d.workers.dev
+# The attribution trailer of the commit this script makes; COMMIT_TRAILER overrides it.
+COMMIT_TRAILER=${COMMIT_TRAILER:-'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'}
 
 mode= dry=0 allow=1 deploy=1 active=0
 while (($#)); do
@@ -49,7 +51,7 @@ fi
 bun deploy/staging/instance.ts write "$mode"
 if [[ -n $(git status --porcelain deploy/staging/wrangler.jsonc) ]]; then
 	git add deploy/staging/wrangler.jsonc
-	git commit -q -m "staging: use the $mode Clerk instance (scripts/clerk-instance.sh)"
+	git commit -q -m "staging: use the $mode Clerk instance (scripts/clerk-instance.sh)" -m "$COMMIT_TRAILER"
 	say "committed the wrangler.jsonc change at $(git rev-parse --short HEAD): push it through a PR into the sprint branch"
 fi
 scripts/deploy-staging.sh --secrets

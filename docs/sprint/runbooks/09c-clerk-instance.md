@@ -42,7 +42,7 @@ Per instance, in the dashboard (the redirect URLs and allowed origins for stagin
    CLERK_STAFF_SECRET_KEY=<staff instance secret key>
    ```
 
-   `STAGING_CLERK_ENV` names another file; the repo-secret variables `STAGING_CLERK_SECRET_KEY` and `STAGING_CLERK_STAFF_SECRET_KEY` win over the file, so unset them (or set them to the production keys) first. Keys of the other mode than the profile are refused.
+   `STAGING_CLERK_ENV` names another file; the repo-secret variables `STAGING_CLERK_SECRET_KEY` and `STAGING_CLERK_STAFF_SECRET_KEY` win over the file, so unset them (or set them to the production keys) first. The switch refuses, before it writes or commits anything and in the dry run too, a key that is missing, malformed, a placeholder, the same for client and staff, or of the other mode than the profile.
 
 ## Switch
 

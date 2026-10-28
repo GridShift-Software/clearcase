@@ -93,8 +93,11 @@ export const secretsFile = (p: Profile) => process.env.STAGING_CLERK_ENV ?? path
 
 /**
  * The secret keys for a profile: the repo-secret variables STAGING_CLERK_SECRET_KEY and STAGING_CLERK_STAFF_SECRET_KEY,
- * else the profile's env file (CLERK_SECRET_KEY, CLERK_STAFF_SECRET_KEY). Refuses keys of the other mode.
+ * else the profile's env file (CLERK_SECRET_KEY, CLERK_STAFF_SECRET_KEY). Throws for a missing, malformed, placeholder, identical
+ * or other-mode key; the message names the kind and never a value.
  */
+const SECRET_KEY = /^sk_(test|live)_[A-Za-z0-9]{16,256}$/;
+const PLACEHOLDER_SECRET = /placeholder|changeme|replace|example|xxxx/i;
 export function secretKeys(p: Profile): Record<Kind, string> {
 	let client = process.env.STAGING_CLERK_SECRET_KEY, staff = process.env.STAGING_CLERK_STAFF_SECRET_KEY;
 	if (!client || !staff) {
@@ -105,8 +108,13 @@ export function secretKeys(p: Profile): Record<Kind, string> {
 		staff ||= env.CLERK_STAFF_SECRET_KEY;
 	}
 	const prefix = p.mode === 'production' ? 'sk_live_' : 'sk_test_';
-	if (!client?.startsWith('sk_') || !staff?.startsWith('sk_')) throw new Error('the Clerk secret keys are missing or not sk_ keys');
-	if (!client.startsWith(prefix) || !staff.startsWith(prefix)) throw new Error(`the Clerk secret keys are not ${prefix} keys, which the ${p.mode} profile needs (the other mode's keys are set in the environment or the keys file)`);
+	for (const [kind, value] of [['client', client], ['staff', staff]] as const) {
+		if (!value) throw new Error(`the ${kind} Clerk secret key is missing`);
+		if (!SECRET_KEY.test(value)) throw new Error(`the ${kind} Clerk secret key is not shaped like a Clerk secret key`);
+		if (PLACEHOLDER_SECRET.test(value)) throw new Error(`the ${kind} Clerk secret key is a placeholder`);
+		if (!value.startsWith(prefix)) throw new Error(`the ${kind} Clerk secret key is not a ${prefix} key, which the ${p.mode} profile needs (check STAGING_CLERK_SECRET_KEY, STAGING_CLERK_STAFF_SECRET_KEY and the keys file)`);
+	}
+	if (client === staff) throw new Error('the client and staff Clerk secret keys are the same key');
 	return { client, staff };
 }
 
@@ -122,16 +130,15 @@ export function plan(mode: Mode, text = readConfig()): { lines: string[]; refuse
 	const changed = (name: string) => (changedVar(name, text, next) ? 'change' : 'unchanged');
 	lines.push('vars in wrangler.jsonc (top level and previews):', ...VARS.map((v) => `  ${v}: ${changed(v)}`),
 		`  CLEARCASE_NATIVE_CONFIG (manifest.staffIssuer, manifest.clients[0].clientIssuer): ${changed('Issuer')}`);
-	let source: string;
+	const source = process.env.STAGING_CLERK_ENV ? 'STAGING_CLERK_ENV' : `.local/secrets/${p.secretsFile}`;
 	try {
 		secretKeys(p);
-		source = `found, ${p.mode} keys`;
 	} catch (e) {
-		source = `NOT READY: ${e instanceof Error ? e.message : String(e)}`;
+		return { lines: [...lines, 'REFUSED, the secrets are not usable (nothing would be written):', `  ${e instanceof Error ? e.message : String(e)}`, `  CLERK_CLIENT_SECRET_KEY, CLERK_STAFF_SECRET_KEY: from STAGING_CLERK_SECRET_KEY and STAGING_CLERK_STAFF_SECRET_KEY, else ${source}`], refused: true };
 	}
 	lines.push('secrets (Worker and Preview base config):',
-		...['CLERK_CLIENT_SECRET_KEY', 'CLERK_STAFF_SECRET_KEY'].map((s) => `  ${s}: put from ${process.env.STAGING_CLERK_ENV ? 'STAGING_CLERK_ENV' : `.local/secrets/${p.secretsFile}`} (${source})`),
-		...['CLERK_CLIENT_JWT_KEY', 'CLERK_STAFF_JWT_KEY'].map((s) => `  ${s}: refreshed from the instance's /v1/jwks`));
+		...['CLERK_CLIENT_SECRET_KEY', 'CLERK_STAFF_SECRET_KEY'].map((n) => `  ${n}: put from ${source} (found, ${p.mode} keys)`),
+		...['CLERK_CLIENT_JWT_KEY', 'CLERK_STAFF_JWT_KEY'].map((n) => `  ${n}: refreshed from the instance's /v1/jwks`));
 	return { lines, refused: false };
 }
 // Whether the text of any line naming `needle` differs between the two files (values are compared, never printed).
@@ -145,8 +152,9 @@ const parse = (text: string) => JSON.parse(text.replace(/^\s*\/\/.*$/gm, '')) as
 
 function write(mode: Mode) {
 	const p = loadProfile(mode);
-	const bad = problems(p);
-	if (bad.length) throw new Error(`REFUSED, the ${mode} profile is not sound:\n${bad.map((b) => `  ${b}`).join('\n')}`);
+	// The same refusals as the plan (profile and secrets), so no caller can write the config of a switch that cannot finish.
+	const planned = plan(mode);
+	if (planned.refused) throw new Error(planned.lines.join('\n'));
 	const next = rewrite(readConfig(), p);
 	const c = parse(next);
 	const native = JSON.parse(c.vars.CLEARCASE_NATIVE_CONFIG) as { manifest: { staffIssuer: string; clients: { clientIssuer: string }[] } };

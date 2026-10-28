@@ -95,6 +95,12 @@ main .banner.active { border-color: #bfe3d2; }
 .case-head .banner { display: inline-block; border: 1px solid; border-radius: 999px; padding: 3px 12px; font-size: 12px; font-weight: 500; line-height: 1.5; }
 .case-head .banner.active { border-color: #bfe3d2; }
 .case-head .banner.candidate { border-color: #ecd9b3; border-radius: var(--radius); flex-basis: 100%; }
+.top-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
+.top-bar .top-brand { flex-basis: 100%; margin: 0; font-family: var(--font-brand); font-size: 13px; font-weight: 700; color: var(--ink-3); }
+.top-bar .top-search { display: flex; gap: 6px; margin-left: auto; }
+.top-bar .version-pill { margin: 0; font-size: 12px; color: var(--ink-2); }
+.top-bar .account, .top-bar .account form { display: flex; align-items: center; gap: 8px; margin: 0; }
+.top-bar .top-actions { display: flex; gap: 1rem; font-size: 13px; }
 
 .case-shell { display: grid; grid-template-columns: var(--nav-w) minmax(0, 1fr); gap: 0 2rem; align-items: start; max-width: var(--content-max); margin: 0 auto; padding: 16px 24px 0; }
 nav.views { position: sticky; top: 16px; max-height: calc(100vh - 2rem); overflow: auto; padding: 0 12px 24px 0; font-size: 13px; overscroll-behavior: contain; }
@@ -325,10 +331,48 @@ span.error, small.error { display: inline-block; padding: 4px 10px; }
 
 @media print {
 	:root { background: #fff; }
-	header.top, nav.views, .skip, body > .banner, .page-actions, .no-print { display: none !important; }
+	header.top, nav.views, .skip, body > .banner, .page-actions, .no-print, .top-search, .top-actions, .top-bar .account { display: none !important; }
 	.case-shell { display: block; padding: 0; }
 	.case-head { padding: 0 0 8px; }
 	main, .case-shell > main { padding: 0; max-width: none; }
 	.card, .q-card, .an-card, .cl-card, .tl-card, .kpi, details { break-inside: avoid; box-shadow: none; }
 	a { color: inherit; }
+}
+
+/* Hosted pages outside a case version (case list, sign-in, operator). The tokens and element rules are scoped, so the
+   local app and the hosted version pages, which render local page components, keep the rules above. */
+.hosted-root {
+  --navy: #162436; --navy-hover: #0F1A28;
+  --navy-10: #E8E9EB; --navy-20: #D0D3D7; --navy-40: #A2A7AF; --navy-60: #737B87; --navy-80: #454F5E;
+  --teal: #14B8A2; --teal-hover: #0FA08D;
+  --teal-10: #E8F8F6; --teal-20: #D0F1EC; --teal-40: #A1E3DA; --teal-60: #72D4C7; --teal-80: #43C6B5;
+  --canvas: #F7F8FA; --subtle: #F1F3F5; --surface: #FFFFFF;
+  --border: #E4E7EB; --border-strong: #CBD2D9; --border-control: var(--navy-60);
+  --focus-ring: var(--navy);
+  --text: #162436; --text-secondary: #52606D; --text-tertiary: #7B8794;
+  --danger: #B91C1C; --info: #1D4ED8; --success: #047857; --warning: #B45309;
+  --danger-tint: #FEF2F2; --info-tint: #EFF6FF; --success-tint: #ECFDF5; --warning-tint: #FFFBEB;
+  --radius: 6px; --shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 1px 3px rgba(15, 23, 42, .06);
+  --sidebar: 240px; --topbar: 56px;
+  min-height: 100vh; background: var(--canvas); color: var(--text); font: 400 16px/1.5 var(--font-sans);
+  h1, h2, h3, h4, h5, h6 { color: var(--navy); font-weight: 600; line-height: 1.25; }
+  label, th { font-weight: 500; }
+  a { color: var(--navy); }
+  a:hover { color: var(--navy-hover); }
+  :focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button, input[type='submit'] { background: var(--navy); color: var(--surface); border: 1px solid var(--navy); border-radius: var(--radius); padding: .6rem 1rem; font-weight: 600; cursor: pointer; }
+  button:hover, input[type='submit']:hover { background: var(--navy-hover); }
+  button:disabled, input:disabled { cursor: not-allowed; opacity: .65; }
+  input:not([type='checkbox']):not([type='radio']):not([type='submit']), select, textarea { background: var(--surface); border: 1px solid var(--border-control); border-radius: var(--radius); padding: .5rem; max-width: 100%; }
+  fieldset { border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+  legend { font-weight: 600; }
+  table { border-collapse: collapse; background: var(--surface); max-width: 100%; }
+  th { background: var(--subtle); }
+  th, td { border-bottom: 1px solid var(--border); padding: .5rem; text-align: left; vertical-align: top; }
+  code, pre { font-family: ui-monospace, monospace; }
+  .hosted { min-height: var(--topbar); display: flex; align-items: center; padding: 0 1.5rem; background: var(--navy); font-weight: 600; }
+  .hosted a { color: var(--surface); }
+  .hosted a:focus-visible { outline-color: var(--surface); }
+  > main { padding: 1.5rem; max-width: 80rem; margin: 0 auto; }
 }

@@ -66,6 +66,9 @@ export async function revokeAppSession(config: AppSessionConfig, request: Reques
 	const value = appCookieValue(request);
 	const session = value ? await readAppSession(config, value, nowSeconds(), true) : null;
 	if (!session) return;
-	try { await config.sessions.put(revokedBeforeKey(config, session.subject), String(Date.now()), { expirationTtl: SESSION_MAX }); }
+	try {
+		await config.sessions.put(revokedBeforeKey(config, session.subject), String(Date.now()), { expirationTtl: SESSION_MAX });
+		await config.sessions.put(`revoked:${session.sid}`, '1', { expirationTtl: Math.max(60, session.max - nowSeconds()) });
+	}
 	catch { throw contractError('identity-unavailable', true); }
 }

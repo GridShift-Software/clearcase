@@ -55,6 +55,11 @@ export async function statusDouble() {
 			row.status = 'revoked';
 			return send(200, { object: 'session', id: revoke[1], ...row, client_id: 'client_synthetic', last_active_at: 0, expire_at: 0, abandon_at: 0, created_at: 0, updated_at: 0 });
 		}
+		if (req.method === 'GET' && req.url?.startsWith('/v1/sessions?')) {
+			const query = new URL(req.url, 'http://127.0.0.1').searchParams;
+			const rows = [...sessions].filter(([, row]) => row.user_id === query.get('user_id') && row.status === query.get('status')).map(([id, row]) => ({ id, ...row }));
+			return send(200, rows.slice(Number(query.get('offset')), Number(query.get('offset')) + Number(query.get('limit'))));
+		}
 		const m = /^\/v1\/sessions\/([^/?]+)$/.exec(req.url ?? '');
 		const row = m && req.method === 'GET' ? sessions.get(m[1]!) : undefined;
 		if (!row) return send(404, { errors: [{ code: 'resource_not_found', message: 'not found' }] });

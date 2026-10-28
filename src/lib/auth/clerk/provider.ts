@@ -31,8 +31,8 @@ export interface ClerkIdentityProvider extends IdentityProvider {
 const backendsOf = (config: ClerkIdentityConfig) =>
 	new Map([config.client, config.staff].map((i) => [i, createClerkClient({ secretKey: i.secretKey, publishableKey: i.publishableKey, apiUrl: config.apiUrl ?? undefined, telemetry: { disabled: true } })]));
 
-export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; authorizeCase: CaseAuthorizer; app: AppSessionConfig | null }): ClerkIdentityProvider {
-	const { config, authorizeCase } = a;
+export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; authorizeCase: CaseAuthorizer; app?: AppSessionConfig | null }): ClerkIdentityProvider {
+	const { config, authorizeCase, app = null } = a;
 	if (typeof authorizeCase !== 'function') throw new TypeError('createClerkIdentityProvider needs the case authorizer');
 	const backends = backendsOf(config);
 
@@ -96,13 +96,13 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 	return {
 		signOut: ({ principal, sessionId }) => revokeClerkSession({ config, principal, sessionId }),
 		async authenticate({ request }) {
-			if (!a.app && appCookieValue(request) !== null) throw unavailable();
-			if (a.app) {
+			if (!app && appCookieValue(request) !== null) throw unavailable();
+			if (app) {
 				const value = appCookieValue(request);
 				if (value !== null) {
-					const session = await readAppSession(a.app, value);
+					const session = await readAppSession(app, value);
 					if (!session) return refusedIdentity('invalid-session');
-					try { if (!await issuedAfterRevocation(a.app, session.subject, session.iat * 1000)) return refusedIdentity('invalid-session'); }
+					try { if (!await issuedAfterRevocation(app, session.subject, session.iat * 1000)) return refusedIdentity('invalid-session'); }
 					catch { throw unavailable(); }
 					let sessionId: SessionId;
 					try { sessionId = id('session', session.sid); } catch { return refusedIdentity('invalid-session'); }
@@ -121,9 +121,9 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 			const result = await verify(token);
 			if (result === 'unauthenticated' || result === 'invalid-session') return refusedIdentity(result);
 			const verified: Verified = result;
-			const bootstrap = a.app && verified.instance.kind === 'client' && new URL(request.url).pathname === '/sign-in';
-			if (a.app && verified.instance.kind === 'client' && !bootstrap) return refusedIdentity('unauthenticated');
-			if (bootstrap && (!Number.isFinite(verified.issuedAt) || !await issuedAfterRevocation(a.app!, verified.subject, verified.issuedAt))) return refusedIdentity('invalid-session');
+			const bootstrap = app && verified.instance.kind === 'client' && new URL(request.url).pathname === '/sign-in';
+			if (app && verified.instance.kind === 'client' && !bootstrap) return refusedIdentity('unauthenticated');
+			if (bootstrap && (!Number.isFinite(verified.issuedAt) || !await issuedAfterRevocation(app!, verified.subject, verified.issuedAt))) return refusedIdentity('invalid-session');
 			const refused = bootstrap ? null : await sessionStands(verified);
 			if (refused) return refusedIdentity(refused);
 			let sessionId: SessionId;

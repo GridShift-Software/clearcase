@@ -1,9 +1,9 @@
-import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // The hosted /sign-in and /sign-out routes with a verified Clerk identity (GRS-113): sign-out revokes the right Clerk
 // session before it clears cookies, and signing in as the other identity signs the first out or refuses ambiguity.
 // SYNTHETIC keys and a loopback Backend API. Route-handler unit evidence only: no browser, no hook, no real Clerk.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SIGN_IN_RETURN_PREFIX } from '../../../src/lib/auth/clerk/flow.ts';
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
 
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
@@ -21,7 +21,6 @@ beforeAll(async () => {
 });
 afterAll(() => status.close());
 const configured = () => ({
-	CLEARCASE_SESSION_KEY: 'a'.repeat(64), SESSIONS: { get: async () => null, put: async () => {} },
 	CLEARCASE_CLIENT_ID: 'client-a', CLEARCASE_APP_ORIGIN: ORIGIN, CLERK_CLIENT_SIGN_IN_URL: CLIENT_SIGN_IN, CLERK_STAFF_SIGN_IN_URL: STAFF_SIGN_IN,
 	CLERK_CLIENT_PUBLISHABLE_KEY: A.publishableKey, CLERK_CLIENT_SECRET_KEY: A.secretKey, CLERK_CLIENT_JWT_KEY: A.jwtKey,
 	CLERK_STAFF_PUBLISHABLE_KEY: B.publishableKey, CLERK_STAFF_SECRET_KEY: B.secretKey, CLERK_STAFF_JWT_KEY: B.jwtKey, CLERK_API_URL: status.url,

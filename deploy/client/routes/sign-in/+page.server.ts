@@ -26,10 +26,12 @@ export async function load({ locals, url, request, cookies, isDataRequest }: Req
 	if (locals.identity.kind === 'verified' && locals.identity.principal.kind === 'client') {
 		if (appCookieValue(request) === null && documentNavigation(request, url, isDataRequest)) {
 			const config = appSessionConfig(env, locals.identity.principal.issuer);
-			if (!config) unconfigured();
+			if (!config && (env.CLEARCASE_SESSION_KEY !== undefined || env.SESSIONS !== undefined)) unconfigured();
 			const name = 'name' in locals.identity && typeof locals.identity.name === 'string' ? locals.identity.name : locals.identity.principal.subject;
-			const session = await mintAppSession(config!, { sid: locals.identity.sessionId, subject: locals.identity.principal.subject, name });
+			if (config) {
+			const session = await mintAppSession(config, { sid: locals.identity.sessionId, subject: locals.identity.principal.subject, name });
 			cookies.set(SESSION_COOKIE, await signAppSession(config!, session), appCookieOptions(session));
+			}
 		}
 		const back = await signInReturn(env, request, url, 'client', isDataRequest);
 		applySignInReturnChange(cookies, back.change);

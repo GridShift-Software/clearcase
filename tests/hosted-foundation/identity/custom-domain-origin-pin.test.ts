@@ -1,4 +1,3 @@
-import { appSessionConfig, mintAppSession, signAppSession } from '../../../src/lib/auth/app-session.ts';
 // Under the custom-domain origin the deployment serves ONE origin (CLEARCASE_APP_ORIGIN). A valid session replayed at any other
 // origin of the same Worker (workers.dev, a preview, another scheme or port) must be refused for every method before identity is
 // resolved or a route runs: no protected read, no form action, and above all no sign-out revocation of the session.
@@ -22,7 +21,6 @@ const pin = (value: unknown) => { injected.env.CLEARCASE_APP_ORIGIN = value; };
 beforeAll(async () => {
 	status = await statusDouble();
 	Object.assign(injected.env, {
-		CLEARCASE_SESSION_KEY: 'a'.repeat(64), SESSIONS: { get: async () => null, put: async () => {} },
 		CLEARCASE_CLIENT_ID: 'client-a', CLEARCASE_APP_ORIGIN: CUSTOM,
 		CLERK_CLIENT_PUBLISHABLE_KEY: A.publishableKey, CLERK_CLIENT_SECRET_KEY: A.secretKey, CLERK_CLIENT_JWT_KEY: A.jwtKey,
 		CLERK_STAFF_PUBLISHABLE_KEY: B.publishableKey, CLERK_STAFF_SECRET_KEY: B.secretKey, CLERK_STAFF_JWT_KEY: B.jwtKey,
@@ -35,10 +33,9 @@ afterAll(async () => { await status.close(); });
 /** One request carrying a valid session for the custom origin, sent to `origin` with that origin's own Origin header. */
 async function invoke(origin: string, method: string, path = method === 'POST' ? '/sign-out' : '/cases') {
 	status.set('sess_pin', 'user_pin');
-	const config = appSessionConfig({ ...injected.env, CLEARCASE_APP_ORIGIN: CUSTOM }, A.iss)!;
-	const token = await signAppSession(config, await mintAppSession(config, { sid: 'sess_pin', subject: 'user_pin', name: 'Synthetic Lawyer' }));
+	const token = A.token({ sub: 'user_pin', sid: 'sess_pin', azp: CUSTOM });
 	const request = new Request(origin + path, {
-		method, headers: { origin, cookie: `clearcase_session=${token}`, 'content-type': 'application/x-www-form-urlencoded' },
+		method, headers: { origin, authorization: `Bearer ${token}`, 'content-type': 'application/x-www-form-urlencoded' },
 		...(method === 'POST' ? { body: '' } : {}),
 	});
 	let resolved = false, identity = '';

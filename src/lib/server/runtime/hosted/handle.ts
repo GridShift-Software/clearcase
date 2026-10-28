@@ -124,7 +124,7 @@ export function createHandle(servicesFor: (request: Request, credential?: Reques
 				path === '/sign-out' || path === '/sign-in' || path === '/sign-in/operator' ||
 				event.locals.identity.kind !== 'verified' ||
 				response.headers.getSetCookie().some((cookie) => cookie.startsWith(`${APP_COOKIE}=`)) ||
-				(event.cookies && event.cookies.get(APP_COOKIE) !== appCookieValue(event.request))
+				(event.cookies && typeof event.cookies.get === 'function' && event.cookies.get(APP_COOKIE) !== appCookieValue(event.request))
 			)) continue;
 			response.headers.append('set-cookie', c);
 		}

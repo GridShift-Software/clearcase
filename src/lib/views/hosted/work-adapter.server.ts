@@ -35,7 +35,8 @@ export function hostedWork(locals: Pick<C.RequestServices, 'userWork'>, rawCaseI
   const anchor = async (a: DocumentAnchor | null) => a ? work.anchorFor({ ...versionScope(a.caseId, a.resultsVersion), ref: a.refAtCreation }) : null;
   return {
     async listRows(c, store) {
-      return (await work.listRows({ ...scope(c), store })).map((row) => ({ ...row, anchor: row.anchor?.sha256 ? row.anchor as DocumentAnchor : null }));
+      // Keep the original ref/version even when its digest is unavailable; legacy local readers accept that anchor.
+      return (await work.listRows({ ...scope(c), store })).map((row) => ({ ...row, anchor: row.anchor as DocumentAnchor | null }));
     },
     async putRow(c, store, rowId, fields, a = null) {
       return unwrap(await work.putRow({ ...scope(c), store, rowId, fields, anchor: await anchor(a), operationId, expected })).rowId;

@@ -13,6 +13,11 @@ const written = <T>(value: T): C.Written<T> => ({ kind: 'written', value, versio
 const say = { busy: 'Busy; try again.', refused: 'Refused.', failed: 'Failed.' };
 
 describe('16 shared hosted work adapter', () => {
+  it('preserves a register anchor without a digest instead of losing its ref and version', async () => {
+    const unanchored = { ...anchor, sha256: null };
+    const work = hostedWork({ userWork: { listRows: async () => [{ rowId: 'row-1', anchor: unanchored, version: VERSION }] } as unknown as C.AsyncUserWork }, CASE, RV1);
+    expect((await work.listRows(CASE, 'time'))[0]?.anchor).toEqual(unanchored);
+  });
   it('maps every Work method, scope, anchor, version and operation id', async () => {
     const row = { rowId: 'row-1', store: 'time', fields: { hours: 2 }, anchor, createdAt: '', updatedAt: '', intact: true, version: VERSION };
     const userWork = {

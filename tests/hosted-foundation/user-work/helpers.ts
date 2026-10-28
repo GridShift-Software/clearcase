@@ -21,7 +21,7 @@ export async function historicalNote(db: DatabaseSync, actor: C.IdentityState, r
  if (actor.kind !== 'verified') throw new Error('synthetic historical actor must be verified');
  const at = '2026-10-25T00:00:00.000Z', version = id('row-version', `historical-${request.operationId}`), revision = id('case-revision', `historical-${request.operationId}`);
  const note: C.HostedNote = { id: `historical-${request.operationId}`, target: request.target, body: request.body, createdAt: at, status: 'here', candidates: [], intact: true };
- const event: C.AuditEvent = { eventId: `uw:${await sha256Hex(canonical([CLIENT, request.caseId, request.operationId]))}`, actor, action: 'user-work.note-add', object: { kind: 'case', id: request.caseId, caseId: request.caseId }, version, outcome: 'succeeded', at };
+ const event: C.AuditEvent = { eventId: `uw:${await sha256Hex(canonical([CLIENT, request.caseId, request.operationId]))}`, actor: { kind: 'verified', principal: actor.principal, sessionId: actor.sessionId }, action: 'user-work.note-add', object: { kind: 'case', id: request.caseId, caseId: request.caseId }, version, outcome: 'succeeded', at };
  const digest = await sha256Hex(canonical({ kind: 'note-add', caseId: request.caseId, payload: { target: request.target, body: request.body }, principal: [actor.principal.issuer, actor.principal.subject, actor.principal.kind] }));
  const anchor = request.target.kind === 'document' ? request.target.anchor : null;
  db.prepare('INSERT INTO uw_note (case_id,note_id,target_kind,anchor_results_version,anchor_ref,anchor_sha256,target_json,body,body_sha256,created_at,version) VALUES (?,?,?,?,?,?,?,?,?,?,?)')

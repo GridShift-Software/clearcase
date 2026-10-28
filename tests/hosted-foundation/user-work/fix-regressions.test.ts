@@ -72,7 +72,7 @@ it('replays analysis Notes and seed removals after withdrawal, but validates fre
     if (kind === 'analysis') {
       expect(db.prepare('SELECT count(*) AS n FROM uw_operation').get()).toEqual({ n: 0 });
       audit.state.down = false;
-      written(await request());
+      written<unknown>(await request());
     }
     reader.state.withdrawn.add(RV1); reader.state.published = null; audit.state.down = false;
     expect(written<unknown>(await request()).kind).toBe('written');

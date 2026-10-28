@@ -18,7 +18,7 @@ async function world(maxRows = 100, fault: Fault = {}) {
   const reader = caseReader({ published: RV1, versions: { [RV1]: [{ ref: 'D-001', sha256: SHA_A }] } });
   await provisionAuditBinding({ db: binding, config, now });
   const make = (identity = auth.identity(), audit?: C.AuditSink) => createD1UserWork({ db: binding, config: { clientId: CLIENT, limits: LIMITS }, identity,
-    audit: audit ?? requestAuditSink({ db: binding, config, requester: identity, now }), store: reader.reader, now });
+    audit: audit ?? requestAuditSink({ db: binding, config, requester: identity.kind === 'verified' ? { kind: 'verified', principal: identity.principal, sessionId: identity.sessionId } : { kind: 'anonymous', principal: null, sessionId: null }, now }), store: reader.reader, now });
   const count = (table: string) => (db.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n;
   return { db, binding, auth, reader, config, make, count };
 }
@@ -63,7 +63,8 @@ it('16 missing hook and a hook from another D1 session fail closed before any no
   const w = await world();
   try {
     await expect(w.make(undefined, { append: async e => ({ eventId: e.eventId }) }).addNote(request)).rejects.toMatchObject({ code: 'audit-unavailable', outcome: 'not-written' });
-    const otherSession = requestAuditSink({ db: d1(w.db), config: w.config, requester: w.auth.identity(), now });
+    const identity = w.auth.identity();
+    const otherSession = requestAuditSink({ db: d1(w.db), config: w.config, requester: { kind: 'verified', principal: identity.principal!, sessionId: identity.sessionId! }, now });
     await expect(w.make(undefined, otherSession).addNote(request)).rejects.toMatchObject({ code: 'audit-unavailable', outcome: 'not-written' });
     expect(w.count('uw_note')).toBe(0);
   } finally { w.db.close(); }

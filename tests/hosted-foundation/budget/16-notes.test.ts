@@ -68,7 +68,7 @@ it('16 note save commits its audit in exactly one D1 batch, with no post-commit 
   raw.batch = async statements => { batches++; return original(statements); };
   const binding = countedD1(raw, c);
   await provisionAuditBinding({ db: binding, config, now });
-  const identity = auth.identity(), real = requestAuditSink({ db: binding, config, requester: identity, now });
+  const identity = auth.identity(), real = requestAuditSink({ db: binding, config, requester: { kind: 'verified', principal: identity.principal!, sessionId: identity.sessionId! }, now });
   const work = createD1UserWork({ db: binding, config: { clientId: CLIENT, limits: LIMITS }, identity,
     audit: { ...real, append: async event => { appended++; return real.append(event); } },
     store: caseReader({ published: RV1, versions: {} }).reader, now });

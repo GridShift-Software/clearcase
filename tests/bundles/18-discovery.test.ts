@@ -56,6 +56,7 @@ test('200 C/O marks persist through bulk adapter batches within staging statemen
 		stateRevision: d1WorkRevision({ db: binding, config }),
 		publication: async () => ({
 			versionId: RV1,
+ publishedAt: null, previousVersionId: null,
 			shardManifestSha256: 'a'.repeat(64),
 			shards: {},
 		}),

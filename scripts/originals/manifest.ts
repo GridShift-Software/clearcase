@@ -4,12 +4,40 @@
 //   bun scripts/originals/manifest.ts --package DIR --case-folder DIR --case-id ID --out DIR [--case-label TEXT] [--etags FILE]
 // --etags is etags.ts output (or `rclone lsjson --metadata`) of the stored objects: it fills rs_original.etag, and the run refuses
 // when any object is absent, differs in size or has no ETag. Without it the rs_original SQL carries NULL etags.
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { link, mkdir, readFile, rm, stat, symlink, writeFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { serveModeOf } from '../../src/lib/case-package/media.ts';
 import { originalKey } from '../../src/lib/storage/cloud/keys.ts';
 
 export const BATCH_ROWS = 50;
+/** load.sh's rclone flags: `--s3-chunk-size 64M` and `--s3-upload-cutoff 200M` (rclone's M is MiB). */
+export const PART_BYTES = 64 * 1024 * 1024;
+export const MULTIPART_FROM = 200 * 1024 * 1024;
+
+/**
+ * A file's sha256 and the ETag R2 stores for it once load.sh uploads it: the MD5 of the bytes, or for a multipart upload
+ * the S3 composite, the MD5 of the parts' MD5s with `-<parts>`.
+ */
+export async function digest(file: string, size: number): Promise<{ sha256: string; etag: string }> {
+  const sha = createHash('sha256'), whole = createHash('md5'), parts: Buffer[] = [];
+  let part = createHash('md5'), filled = 0;
+  for await (const chunk of createReadStream(file, { highWaterMark: 1 << 20 }) as AsyncIterable<Buffer>) {
+    sha.update(chunk);
+    whole.update(chunk);
+    for (let at = 0; at < chunk.length;) {
+      const take = Math.min(PART_BYTES - filled, chunk.length - at);
+      part.update(chunk.subarray(at, at + take));
+      filled += take;
+      at += take;
+      if (filled === PART_BYTES) { parts.push(part.digest()); part = createHash('md5'); filled = 0; }
+    }
+  }
+  if (filled > 0) parts.push(part.digest());
+  const etag = size >= MULTIPART_FROM ? `${createHash('md5').update(Buffer.concat(parts)).digest('hex')}-${parts.length}` : whole.digest('hex');
+  return { sha256: sha.digest('hex'), etag };
+}
 export type MediaFamily = 'pdf' | 'image' | 'email-text' | 'download';
 export interface ManifestEntry { path: string; sha256: string; size: number; mediaType: string; assetId: string }
 export interface Summary { fileAssets: number; uniqueSha256: number; uniqueBytes: number; missing: number; embedded: number; packageFiles: number; sqlBatches: number; etags: number }
@@ -99,6 +127,20 @@ export async function build(o: Options): Promise<Summary> {
     if (!st?.isFile()) throw new Error(`a referenced file is not in the case folder (${u.sha256})`);
     if (st.size !== u.size) throw new Error(`a referenced file's size differs from assets.json (${u.sha256})`);
   }
+  const stage = path.join(o.out, 'orig-stage'), sqlDir = path.join(o.out, 'sql');
+  await rm(sqlDir, { recursive: true, force: true });
+  await mkdir(stage, { recursive: true });
+  await mkdir(sqlDir, { recursive: true });
+  const staged = new Set(await readdir(stage));
+  // A size check alone passes a same-size edit, so the bytes rclone will upload are hashed, a reused entry included.
+  const expected = new Map<string, string>();
+  for (const u of uniques) {
+    const abs = path.resolve(root, u.path), dest = path.join(stage, u.sha256);
+    if (!staged.has(u.sha256)) await link(abs, dest).catch(() => symlink(abs, dest)); // hard link on one filesystem; load.sh passes --copy-links for the fallback
+    const d = await digest(dest, u.size);
+    if (d.sha256 !== u.sha256) throw new Error(`the staged file for ${u.sha256} does not hash to it`);
+    expected.set(u.sha256, d.etag);
+  }
   let remote: Map<string, Remote> | null = null;
   if (o.etags) {
     remote = readEtags(await readFile(o.etags, 'utf8'));
@@ -106,18 +148,8 @@ export async function build(o: Options): Promise<Summary> {
       const r = remote.get(u.sha256);
       if (!r) throw new Error(`no stored object with an ETag for ${u.sha256}`);
       if (r.size !== u.size) throw new Error(`stored object size differs from the manifest for ${u.sha256}`);
+      if (r.etag !== expected.get(u.sha256)) throw new Error(`stored object's ETag differs from the staged bytes for ${u.sha256}`);
     }
-  }
-
-  const stage = path.join(o.out, 'orig-stage'), sqlDir = path.join(o.out, 'sql');
-  await rm(sqlDir, { recursive: true, force: true });
-  await mkdir(stage, { recursive: true });
-  await mkdir(sqlDir, { recursive: true });
-  const staged = new Set(await readdir(stage));
-  for (const u of uniques) {
-    if (staged.has(u.sha256)) continue;
-    const abs = path.resolve(root, u.path), dest = path.join(stage, u.sha256);
-    await link(abs, dest).catch(() => symlink(abs, dest)); // hard link on one filesystem; load.sh passes --copy-links for the fallback
   }
   await writeFile(path.join(o.out, 'files-from.txt'), uniques.map((u) => u.sha256).join('\n') + '\n');
   await writeFile(path.join(o.out, 'manifest.json'), JSON.stringify(entries, null, 1) + '\n');

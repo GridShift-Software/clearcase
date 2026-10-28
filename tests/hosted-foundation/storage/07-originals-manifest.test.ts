@@ -152,6 +152,8 @@ describe('GRS-250 originals manifest', () => {
     await writeFile(path.join(f.folder, 'A/OD-001 one.pdf'), edited);
     await expect(build(base)).rejects.toThrow(/does not hash to/);
     await writeFile(path.join(f.folder, 'A/OD-001 one.pdf'), one);
+    // A fresh stage: the refused run left a hard link to the case file, which a write here would change too.
+    await rm(path.join(f.out, 'orig-stage'), { recursive: true, force: true });
     await mkdir(path.join(f.out, 'orig-stage'), { recursive: true });
     await writeFile(path.join(f.out, 'orig-stage', sha256Hex(one)), edited);
     await expect(build(base)).rejects.toThrow(/does not hash to/);

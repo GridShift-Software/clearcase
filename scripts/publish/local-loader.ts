@@ -8,37 +8,44 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { BuildContext } from './types.ts';
 
-let aliases: Promise<void> | undefined;
-async function resolveAliases() {
-  if (!process.versions.bun) return;
-  await (aliases ??= (async () => {
-    const { plugin }: { plugin: (p: { name: string; setup(builder: { onLoad(filter: { filter: RegExp }, load: (args: { path: string }) => { contents: string; loader: 'ts' }): void; onResolve(filter: { filter: RegExp }, resolve: (args: { path: string }) => { path: string }): void }): void }) => void } = createRequire(import.meta.url)('bun');
-    plugin({ name: 'publish-local-loaders', setup(builder) {
-      builder.onLoad({ filter: /\+page\.server\.ts$/ }, ({ path }) => ({
+type BunPluginHost = { plugin(options: {
+  name: string;
+  setup(builder: { onLoad(options: { filter: RegExp }, load: (args: { path: string }) => { contents: string; loader: 'ts' } | undefined): void }): void;
+}): void };
+let aliasesInstalled = false;
+let loading = false;
+const sourceRoot = fileURLToPath(new URL('../../src/', import.meta.url));
+function resolveAliases() {
+  if (!process.versions.bun || aliasesInstalled) return;
+  const { plugin }: BunPluginHost = createRequire(import.meta.url)('bun');
+  plugin({ name: 'publish-local-loaders', setup(builder) {
+    builder.onLoad({ filter: /\/src\/(routes|lib)\/.*\.ts$/ }, ({ path }) => {
+      // Bun has no per-plugin disposal. Keep the registered hook inert outside a serialized load,
+      // and restrict it to this checkout; never clear plugins installed by another caller.
+      if (!loading || !path.startsWith(sourceRoot)) return;
+      return {
         loader: 'ts',
         contents: readFileSync(path, 'utf8').replace(/(['"])\$lib\/([^'"]+)\1/g, (_match, quote: string, name: string) => {
           const base = fileURLToPath(new URL(`../../src/lib/${name}`, import.meta.url));
           const resolved = [`${base}.ts`, base].find(existsSync) ?? base;
           return `${quote}${resolved}${quote}`;
         }),
-      }));
-      builder.onResolve({ filter: /^\$lib\// }, ({ path }) => {
-        const base = fileURLToPath(new URL(`../../src/lib/${path.slice(5)}`, import.meta.url));
-        return { path: [`${base}.ts`, `${base}/index.ts`, base].find(existsSync) ?? base };
-      });
-    } });
-  })());
+      };
+    });
+  } });
+  aliasesInstalled = true;
 }
 
 let tail: Promise<unknown> = Promise.resolve();
 export function localLoad<T = Record<string, unknown>>(ctx: Pick<BuildContext, 'store' | 'resultsVersion'>, route: string): Promise<T> {
   const run = tail.then(async () => {
-    await resolveAliases();
+    resolveAliases();
     // This is the existing app() seam used by tests/system/stores-21.test.ts.
     const g = globalThis as { __clearcase?: unknown };
     const previous = g.__clearcase;
     const additions = process.env.CLEARCASE_ANALYSIS_ADDITIONS;
     try {
+      loading = true;
       g.__clearcase = { app: { store: ctx.store }, originals: null, id: 'publish', startedAt: '', build: null };
       process.env.CLEARCASE_ANALYSIS_ADDITIONS = '0';
       const v = ctx.store.getVersion(ctx.resultsVersion);
@@ -47,6 +54,7 @@ export function localLoad<T = Record<string, unknown>>(ctx: Pick<BuildContext, '
       const { load } = await import(url.href) as { load: (event: never) => T };
       return await load({ parent: async () => ({ version: { id: v.id, caseId: v.case_id, created: v.created, verdict: v.verdict, inputRevisionId: v.input_revision_id } }), params: { vid: v.id } } as never);
     } finally {
+      loading = false;
       if (previous === undefined) delete g.__clearcase; else g.__clearcase = previous;
       if (additions === undefined) delete process.env.CLEARCASE_ANALYSIS_ADDITIONS; else process.env.CLEARCASE_ANALYSIS_ADDITIONS = additions;
     }

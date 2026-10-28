@@ -38,8 +38,10 @@ test('Bun resolves $lib and extensionless server imports for both routes', () =>
       const m = await localLoad(ctx, 'analysis/matter');
       const p = await localLoad(ctx, 'evidence/people');
       const nested = await localLoad(ctx, 'litigation/elements_tab');
-      console.log(JSON.stringify([!!m.matter, Array.isArray(p.people) && p.people.length > 0, Array.isArray(nested.elements)]));
+      let outsideRejected = false;
+      try { await import(new URL('./src/routes/v/[vid]/litigation/legality_tab/+page.server.ts', 'file://' + process.cwd() + '/').href); } catch { outsideRejected = true; }
+      console.log(JSON.stringify([!!m.matter, Array.isArray(p.people) && p.people.length > 0, Array.isArray(nested.elements), outsideRejected]));
     } finally { await lc.shutdown(); }
   `], { cwd: process.cwd(), encoding: 'utf8' });
-  expect(JSON.parse(output.trim().split('\n').at(-1)!)).toEqual([true, true, true]);
+  expect(JSON.parse(output.trim().split('\n').at(-1)!)).toEqual([true, true, true, true]);
 });

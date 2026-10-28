@@ -1,5 +1,5 @@
-/** Bearer authority for one original. Revocation is deliberately bounded by the 15-minute expiry. Never log a ticket. */
-export interface TicketClaims { caseId: string; assetId: string; sha256: string; etag: string; size: number; mediaType: string; mediaFamily: string; filename: string; subject: string }
+/** Session-bound authority for one original. Revocation is deliberately bounded by the 15-minute expiry. Never log a ticket. */
+export interface TicketClaims { caseId: string; assetId: string; sha256: string; etag: string; size: number; mediaType: string; mediaFamily: string; filename: string; subject: string; issuer?: string; clientId: string }
 export type AssetTicket = TicketClaims & { exp: number };
 const encoder = new TextEncoder();
 const encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
@@ -18,7 +18,7 @@ export async function verifyTicket(ticket: string, secret: string, caseId: strin
   if (!await crypto.subtle.verify('HMAC',await keyOf(secret),decode(signature),encoder.encode(payload))) return null;
   const c = JSON.parse(new TextDecoder().decode(decode(payload)));
   if (c.caseId !== caseId || c.assetId !== assetId || !Number.isSafeInteger(c.exp) || c.exp <= now || c.exp > now+900 || !/^[a-f0-9]{64}$/.test(c.sha256) || !Number.isSafeInteger(c.size) || c.size < 0) return null;
-  for (const k of ['etag','mediaType','mediaFamily','filename','subject']) if (typeof c[k] !== 'string' || !c[k] || c[k].length > 1024) return null;
+  for (const k of ['etag','mediaType','mediaFamily','filename','subject','clientId']) if (typeof c[k] !== 'string' || !c[k] || c[k].length > 1024) return null;
   return c;
  } catch { return null; }
 }

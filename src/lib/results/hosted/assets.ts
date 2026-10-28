@@ -136,20 +136,20 @@ export function createCloudAssets(a: { open: () => Promise<OpenStorage>; identit
     async locate(asset: C.AssetRef): Promise<OriginalRow> {
       const {row} = await described(asset, () => once(asset), 'asset.read-original');
       if (!row.etag || !row.media_family) throw contractError('changed-original');
-      return {caseId:asset.caseId,assetId:asset.assetId,sha256:row.sha256,etag:row.etag,size:row.size,mediaType:row.media_type,mediaFamily:row.media_family,filename:row.filename,subject:identity.kind === 'verified' ? identity.principal.subject : '',objectKey:row.object_key};
+      return {caseId:asset.caseId,assetId:asset.assetId,sha256:row.sha256,etag:row.etag,size:row.size,mediaType:row.media_type,mediaFamily:row.media_family,filename:row.filename,clientId:identity.clientId,issuer:identity.kind === 'verified' ? identity.principal.issuer : undefined,subject:identity.kind === 'verified' ? identity.principal.subject : '',objectKey:row.object_key};
     },
-    record(asset: C.AssetRef, outcome: 'succeeded'|'failed'|'refused') {
-      const pending = new Promise<void>(resolve => setTimeout(resolve,0)).then(() => a.record({action:'asset.read-original',object:{kind:'asset',id:asset.assetId,caseId:asset.caseId},version:null,outcome}));
+    record(asset: C.AssetRef, outcome: 'succeeded'|'failed'|'refused', subject?: string) {
+      const pending = new Promise<void>(resolve => setTimeout(resolve,0)).then(() => a.record({action:'asset.read-original',object:{kind:'asset',id:asset.assetId,caseId:asset.caseId},version:null,outcome,subject}));
       if (a.waitUntil) a.waitUntil(pending); else void pending.catch(() => undefined);
     },
     async get(asset: C.AssetRef, request: C.ByteRequest, ticket?: AssetTicket): Promise<Response> {
-      if (ticket && (ticket.caseId !== asset.caseId || ticket.assetId !== asset.assetId)) return new Response(null,{status:404,headers:HEADERS});
+      if (ticket && (ticket.caseId !== asset.caseId || ticket.assetId !== asset.assetId || ticket.clientId !== identity.clientId || identity.kind !== 'verified' || ticket.subject !== identity.principal.subject || ticket.issuer !== identity.principal.issuer)) return new Response(null,{status:404,headers:HEADERS});
       const row = ticket ?? await fast.locate(asset);
       const bucket = ticket && a.ticketBucket ? a.ticketBucket : (await once(asset)).s.bucket;
       const etag = `"${row.etag}"`;
       const ranged = request.range !== null && (request.ifRange === null || request.ifRange === etag);
       const range = ranged ? singleRange(request.range!,row.size) : null;
-      if (ranged && !range) { fast.record(asset,'refused'); return new Response(null,{status:416,headers:{...HEADERS,'content-range':`bytes */${row.size}`}}); }
+      if (ranged && !range) { fast.record(asset,'refused',row.subject); return new Response(null,{status:416,headers:{...HEADERS,'content-range':`bytes */${row.size}`}}); }
       const headers = new Headers({...HEADERS,etag,'accept-ranges':'bytes','content-length':String(range ? range.end-range.start+1 : row.size)});
       headers.set('content-type',row.mediaType);
       headers.set('content-disposition',servePolicy(row.mediaType,row.filename,true).headers['Content-Disposition']!);
@@ -158,11 +158,11 @@ export function createCloudAssets(a: { open: () => Promise<OpenStorage>; identit
       if (request.method === 'HEAD') response = new Response(null,{headers});
       else {
         const read = await rangedRead(bucket,`orig/${row.sha256}`,row,range);
-        if (read.kind !== 'ok') { fast.record(asset,'failed'); return new Response(null,{status:read.kind === 'changed' ? 412 : read.kind === 'missing' ? 410 : 503,headers:HEADERS}); }
+        if (read.kind !== 'ok') { fast.record(asset,'failed',row.subject); return new Response(null,{status:read.kind === 'changed' ? 412 : read.kind === 'missing' ? 410 : 503,headers:HEADERS}); }
         response = new Response(read.body,{status:range ? 206 : 200,headers});
       }
       // Defer the sink until after this response is returned; the runtime keeps it alive with waitUntil.
-      fast.record(asset,'succeeded');
+      fast.record(asset,'succeeded',row.subject);
       return response;
     },
   };

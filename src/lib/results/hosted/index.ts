@@ -7,7 +7,7 @@ import { createCloudReader } from './reader.ts';
 import { createCloudAssets } from './assets.ts';
 
 /** One protected storage event, appended through the audit owner's sink (GRS-116) by the composing caller. */
-export interface StorageEvent { action: string; object: { kind: string; id: string; caseId: CaseId | null }; version: ResultsVersion | null; outcome: 'succeeded' | 'denied' | 'failed' | 'refused' }
+export interface StorageEvent { subject?: string; action: string; object: { kind: string; id: string; caseId: CaseId | null }; version: ResultsVersion | null; outcome: 'succeeded' | 'denied' | 'failed' | 'refused' }
 export interface CloudResultsOptions {
   /** `cloudBindings(env)`; null when the deployment has no usable D1 or R2 binding. */
   bindings: CloudBindings | null;

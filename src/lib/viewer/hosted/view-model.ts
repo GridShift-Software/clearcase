@@ -27,7 +27,7 @@ export async function originalView(a: { assets: AssetsAccess; caseId: CaseId; as
       const {objectKey: _objectKey, ...claims} = row;
       const ticket = await mintTicket(claims,String(env.CLEARCASE_ASSET_TICKET_KEY ?? ''));
       const base = `/cases/${encodeURIComponent(a.caseId)}/originals/${encodeURIComponent(a.assetId)}`;
-      return {state:'available',mode:row.mediaFamily === 'email-text' && row.mediaType === 'message/rfc822' ? 'email' : modeFor(row.mediaType,row.filename),filename:row.filename,mediaType:row.mediaType,size:row.size,srcHref:`${base}?t=${encodeURIComponent(ticket)}`,downloadHref:`${base}?download=1&t=${encodeURIComponent(ticket)}`};
+      return {state:'available',mode:row.mediaFamily === 'email-text' && row.mediaType === 'message/rfc822' ? 'email' : modeFor(row.mediaType,row.filename),filename:row.filename,mediaType:row.mediaType,size:row.size,srcHref:`${base}?t=${encodeURIComponent(ticket)}`,downloadHref:`${base}?download=1`};
     } catch (e) { if (codeOf(e) === 'not-found' || codeOf(e) === 'missing-original') return {state:'unavailable',reason:'missing',filename:null}; throw e; }
   }
   // Metadata and the links first: both are authorized, byte-free reads, so an inaccessible original reads as absent before the verified read.

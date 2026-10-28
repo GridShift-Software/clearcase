@@ -25,6 +25,6 @@ export async function serveAsset(event: RequestEvent, kind: 'original' | 'previe
   const asset = assetRefOf(kind, event.params as Record<string, string | undefined>);
   const raw = kind === 'original' ? event.url.searchParams.get('t') : null;
   const ticket = raw ? await verifyTicket(raw, String(env.CLEARCASE_ASSET_TICKET_KEY ?? ''),asset.caseId,asset.assetId) : null;
-  if (raw !== null && !ticket) return new Response(null,{status:404,headers:{'cache-control':'private, no-store'}});
-  return deliverAsset({ ticket: ticket ?? undefined, assets: event.locals.assets, asset, method, url: event.url, headers: event.request.headers }).catch((e) => refuse(e));
+  if (raw !== null && (!ticket || event.locals.identity?.kind !== 'verified' || event.locals.identity.principal.subject !== ticket.subject || event.locals.identity.principal.issuer !== ticket.issuer || event.locals.identity.clientId !== ticket.clientId)) return new Response(null,{status:404,headers:{'cache-control':'private, no-store'}});
+  return deliverAsset({ ticket: event.url.searchParams.get('download') === '1' ? undefined : ticket ?? undefined, assets: event.locals.assets, asset, method, url: event.url, headers: event.request.headers }).catch((e) => refuse(e));
 }

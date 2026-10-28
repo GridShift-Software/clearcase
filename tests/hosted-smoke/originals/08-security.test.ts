@@ -3,7 +3,7 @@ import { expect, it } from 'vitest';
 import { mintTicket, verifyTicket } from '../../../src/lib/viewer/hosted/ticket';
 import { rangedRead } from '../../../src/lib/storage/cloud/objects';
 import { singleRange } from '../../../src/lib/results/hosted/assets';
-const claims = { caseId: 'case-a', assetId: 'asset-a', sha256: 'a'.repeat(64), etag: 'stored-tag', size: 258_000_000, mediaType: 'application/pdf', filename: 'synthetic.pdf', mediaFamily: 'pdf', subject: 'user-a' };
+const claims = { caseId: 'case-a', assetId: 'asset-a', sha256: 'a'.repeat(64), etag: 'stored-tag', size: 258_000_000, mediaType: 'application/pdf', filename: 'synthetic.pdf', mediaFamily: 'pdf', subject: 'user-a', clientId:'client-a', issuer:'synthetic' };
 it('binds every ticket claim and rejects expiry, another key, case, asset and tampering', async () => {
  const t = await mintTicket(claims, 'key-a', 1000);
  expect(await verifyTicket(t, 'key-a', 'case-a', 'asset-a', 1001)).toMatchObject(claims);

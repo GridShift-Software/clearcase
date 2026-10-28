@@ -1,7 +1,7 @@
 import { env, waitUntil } from 'cloudflare:workers';
 import { createHandle, handleError } from './handle.ts';
 import { hostedServices } from './services.ts';
-import { clerkBrowserHandshakeFromEnv, handshakeResponse } from '../../../auth/clerk/browser.ts';
+import { clerkBrowserHandshakeFromEnv, handshakeAnswer } from '../../../auth/clerk/browser.ts';
 import { signInFormActionOrigins } from '../../../auth/clerk/config.ts';
 import { installNativeCompositions } from './compositions.ts';
 import { withPinnedOrigin } from './origin-guard.ts';
@@ -19,7 +19,7 @@ let browser: ReturnType<typeof clerkBrowserHandshakeFromEnv> | undefined;
 export const handle = withPinnedOrigin(() => env.CLEARCASE_APP_ORIGIN, createHandle((request, credential) => hostedServices(request, env, { waitUntil: (work) => waitUntil(work) }, credential), async (request) => {
 	if (!clerkBrowserNeeded(env, request)) return null;
 	browser ??= clerkBrowserHandshakeFromEnv(env);
-	return browser.ok ? handshakeResponse(await browser.handshake.handle(request)) : null;
+	return browser.ok ? handshakeAnswer(await browser.handshake.handle(request)) : null;
 }, (path) => signInFormActionOrigins(env, path), async (request) => {
 	const app = await appSessionRefresh(env, request);
 	if (app) return app;

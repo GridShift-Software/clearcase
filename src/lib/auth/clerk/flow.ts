@@ -22,9 +22,11 @@ export type HandshakeOutcome =
 	| { kind: 'continue' }
 	/**
 	 * Answer 303 to `location` with every `setCookies` entry (a handshake redirect, or the clean URL once cookies are set).
-	 * `refresh`: answer 200 with a declarative refresh there instead (handshakeResponse).
+	 * `refresh`: answer 200 with a declarative refresh there instead (handshakeResponse). `credential`: a signed-in return
+	 * on its own sign-in page, whose route may answer its own redirect in place of this one, reading the identity from this
+	 * credential (handshakeAnswer).
 	 */
-	| { kind: 'redirect'; location: string; setCookies: string[]; refresh?: true }
+	| { kind: 'redirect'; location: string; setCookies: string[]; refresh?: true; credential?: Request }
 	/** Answer `status` and stop: a handshake that must not be followed. */
 	| { kind: 'refuse'; status: 400 | 502; code: 'wrong-origin' | 'handshake-invalid' | 'handshake-format-unsupported' | 'handshake-cookie-refused' }
 	/** Answer the session-ended page for a browser the last handshake could not sign in: it kept none of its cookies. */
@@ -295,6 +297,15 @@ export function handshakeResponse(o: HandshakeOutcome): Response | null {
 	if (!o.refresh) return new Response(null, { status: 303, headers });
 	const href = o.location.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]!);
 	return new Response(`<!doctype html><meta http-equiv="refresh" content="0;url=${href}"><title>Signing in</title><p><a href="${href}">Continue to sign in</a></p>`, { status: 200, headers });
+}
+/**
+ * handshakeResponse, with the credential of a signed-in return on its sign-in page beside it: the hosted handle runs that
+ * page's route with it and keeps the route's redirect to the return target, which saves the browser two round trips,
+ * and answers `response` whenever the route would not redirect (hosted/handle.ts).
+ */
+export function handshakeAnswer(o: HandshakeOutcome): Response | { response: Response; credential: Request } | null {
+	const response = handshakeResponse(o);
+	return response && o.kind === 'redirect' && o.credential ? { response, credential: o.credential } : response;
 }
 
 export type SignInPlan = { action: 'proceed' } | { action: 'sign-out-first'; current: InstanceKind } | { action: 'refuse'; reason: 'ambiguous-credential' };

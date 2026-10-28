@@ -10,6 +10,8 @@ import { load as overviewLoad } from '../../../deploy/client/routes/cases/[caseI
 import { load as categoryLoad } from '../../../deploy/client/routes/cases/[caseId]/v/[version]/[category]/+page.server.ts';
 import { load as viewLoad } from '../../../deploy/client/routes/cases/[caseId]/v/[version]/[category]/[view]/+page.server.ts';
 import { memoryShardBucket } from '../../../src/lib/server/runtime/memory-shards.ts';
+import { VIEWS } from '../../../src/lib/components/view-registry.ts';
+import { hostedStatus } from '../../../src/lib/views/hosted/availability.ts';
 import { grantedIdentity, ids } from '../../hosted-foundation/storage/fixture.ts';
 import { builtCase, CASE_ID, locals, published, type BuiltCase, type Deployment } from './world.ts';
 
@@ -47,9 +49,18 @@ describe('06 hosted version routes', () => {
     expect(data.slots.map((s) => [s.slot.id, s.status])).toEqual([['rescan-freshness', 'filled']]);
   });
 
-  test('a registry view is coming soon; a view hosted never shows, or an unknown one, is 404', async () => {
-    expect(await viewLoad(event(undefined, { category: 'analysis', view: 'matter' }))).toMatchObject({ status: 'soon', view: { id: 'matter' } });
-    expect(await status(() => viewLoad(event(undefined, { category: 'system', view: 'backup_tab' })))).toBe(404);
+  test('every registry view hosted marks soon is coming soon; one it ports, never shows, or does not know is 404 here', async () => {
+    // The statuses are read from the availability table at run time: a ticket that ports a view flips its line there and
+    // never edits this test. A ported view has its own route; this fallback never serves it.
+    const fallback = (route: string) => {
+      const [category, view] = route.slice(1).split('/');
+      return view ? viewLoad(event(undefined, { category: category!, view })) : categoryLoad(event(undefined, { category: category! }));
+    };
+    expect(VIEWS.some((v) => hostedStatus(v.id) === 'never')).toBe(true);
+    for (const v of VIEWS) {
+      if (hostedStatus(v.id) === 'soon') expect(await fallback(v.route)).toMatchObject({ status: 'soon', view: { id: v.id } });
+      else expect([v.id, await status(() => fallback(v.route))]).toEqual([v.id, 404]);
+    }
     expect(await status(() => viewLoad(event(undefined, { category: 'analysis', view: 'nope' })))).toBe(404);
     expect(await status(() => categoryLoad(event(undefined, { category: 'nope' })))).toBe(404);
   });

@@ -14,7 +14,7 @@ export async function load({ locals, params }: RequestEvent) {
 	if (info.publication.kind === 'published') {
 		const current = await part(locals.store.publication({ caseId }));
 		const rv = info.publication.resultsVersion;
-		if (current.state === 'available' && current.value?.versionId === rv && current.value.shardManifestSha256) redirect(303, `${versionBase(caseId)}/${encodeURIComponent(rv)}/overview`);
+		if (current.state === 'available' && current.value?.versionId === rv && current.value.shardManifestSha256 && current.value.shards) redirect(303, `${versionBase(caseId)}/${encodeURIComponent(rv)}/overview`);
 	}
 	const label = info.caseLabel ?? info.caseId;
 	const resultsPart = async (): Promise<{ results: ResultsStatus | null; overview: OverviewData | null }> => {

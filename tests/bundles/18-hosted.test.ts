@@ -74,30 +74,28 @@ function world() {
 test('POST saves bytes and metadata; a new GET streams identical bytes with attachment disposition', async () => {
 	const w = world();
 	try {
-		const form = new FormData();
-		form.set('id', 'bundle-test');
-		form.set(
-			'pdf',
-			new Blob([w.bytes], { type: 'application/pdf' }),
-			'bundle.pdf',
-		);
-		form.set(
-			'bundle',
-			JSON.stringify({
-				name: 'Synthetic bundle',
-				pages: 3,
-				indexPages: 1,
-				filePages: 2,
-				rows: [],
-				note: '',
-			}),
-		);
+		const headers = {
+			'content-type': 'application/pdf',
+			'content-length': String(w.bytes.length),
+			'x-bundle-id': 'bundle-test',
+			'x-bundle': encodeURIComponent(
+				JSON.stringify({
+					name: 'Synthetic bundle',
+					pages: 3,
+					indexPages: 1,
+					filePages: 2,
+					rows: [],
+					note: '',
+				}),
+			),
+		};
 		const response = await POST({
 			locals: w.locals,
 			params: w.params,
 			request: new Request('https://synthetic.invalid/assembled', {
 				method: 'POST',
-				body: form,
+				body: w.bytes,
+				headers,
 			}),
 		} as unknown as RequestEvent);
 		expect(response.status).toBe(200);

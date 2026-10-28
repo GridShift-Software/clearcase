@@ -10,6 +10,7 @@
 	import { pad, type Bundle, type Header } from './court.ts';
 	import { DOCX_TYPE, indexDocx } from './docx.ts';
 	import { download } from '../../components/download.ts';
+	import { bundleUploadHeaders } from './upload.ts';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 
 	let { bundles, h, creator, off, reload, onback }: { bundles: Bundle[]; h: Header; creator: string; off: boolean; reload: () => Promise<boolean>; onback: () => void } = $props();
@@ -115,11 +116,9 @@
 		bld.saving = true;
 		bld.saveError = null;
 		try {
-			const f = new FormData();
-			f.set('id', o.id);
-			f.set('bundle', JSON.stringify(entry));
-			f.set('pdf', o.pdf, 'bundle.pdf');
-			const response = await fetch(page.url.pathname.replace(/\/$/, '') + '/assembled', { method: 'POST', body: f });
+			const response = await fetch(page.url.pathname.replace(/\/$/, '') + '/assembled', {
+                method: 'POST', headers: bundleUploadHeaders(o.id, entry), body: o.pdf,
+            });
 			const data = await response.json();
 			const r = { ok: response.ok, message: data.message ?? 'Not saved. Retry.', data };
 			if (!r.ok) {

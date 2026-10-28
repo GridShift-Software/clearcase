@@ -90,8 +90,9 @@ export function bundleStore(locals: C.RequestServices, scope: C.VersionScope) {
 		c: Custom,
 		shipped: readonly { no: string }[],
 		assembled?: { sha256: string; bytes: number },
+		prefetched?: Awaited<ReturnType<typeof table>>,
 	) {
-		const rows = customRows(await table(CUSTOM_TABLE));
+		const rows = customRows(prefetched ?? (await table(CUSTOM_TABLE)));
 		const old = rows.find((r) => r.id === id);
 		const no = old?.no ?? nextCustomNo(rows, shipped),
 			seq = old?.seq ?? Math.max(0, ...rows.map((r) => r.seq)) + 1;

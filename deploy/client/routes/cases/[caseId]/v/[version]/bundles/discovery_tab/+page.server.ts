@@ -9,7 +9,30 @@ import {
 	OWNER,
 	guarded,
 } from '$lib/views/bundles/store.hosted';
-import { hostedWork } from '$lib/views/hosted/work-adapter.server';
+import { env } from 'cloudflare:workers';
+import { contractError } from '$lib/server/runtime/errors';
+import { MARK_REQUEST_KEYS } from '$lib/views/bundles/ops';
+
+function markBatchRows() {
+	try {
+		const config: unknown = JSON.parse(
+			String(env.CLEARCASE_NATIVE_CONFIG ?? '{}'),
+		);
+		if (config && typeof config === 'object' && 'userWorkLimits' in config) {
+			const limits = config.userWorkLimits;
+			if (
+				limits &&
+				typeof limits === 'object' &&
+				'maxStatementsPerBatch' in limits &&
+				typeof limits.maxStatementsPerBatch === 'number' &&
+				Number.isSafeInteger(limits.maxStatementsPerBatch) &&
+				limits.maxStatementsPerBatch >= 8
+			)
+				return Math.min(MARK_REQUEST_KEYS, limits.maxStatementsPerBatch - 3);
+		}
+	} catch {}
+	return 5; // The adapter's minimum is eight statements, three of which are transaction bookkeeping.
+}
 export const load = async ({ locals, params }: RequestEvent) => {
 	const scope = await publishedVersion(locals, params),
 		work = bundleStore(locals, scope);
@@ -47,7 +70,7 @@ async function mark(e: RequestEvent, action: 'select' | 'co') {
 		val = f.get('val'),
 		base = f.getAll('base');
 	if (
-		keys.length > 5000 ||
+		keys.length > MARK_REQUEST_KEYS ||
 		!keys.every(
 			(k): k is string =>
 				typeof k === 'string' && k.length > 0 && k.length <= 4096,
@@ -56,6 +79,7 @@ async function mark(e: RequestEvent, action: 'select' | 'co') {
 	)
 		return fail(400, { message: 'Invalid marks.' });
 	return guarded(async () => {
+		let revision = await e.locals.store.stateRevision({ caseId: scope.caseId });
 		const work = bundleStore(e.locals, scope),
 			rows = await work.table(MARK_TABLE),
 			map = new Map(rows.map((r) => [String(r.cells.locator), r]));
@@ -74,48 +98,29 @@ async function mark(e: RequestEvent, action: 'select' | 'co') {
 					conflicts,
 				});
 		}
-		for (const key of new Set(keys)) {
-			const old = map.get(key),
-				form = new FormData();
-			if (old) form.set('version', old.version);
-			if (action === 'select' && f.get('on') !== '1' && !old?.cells.co) {
-				if (old) {
-					const removed = await e.locals.userWork.deleteTableRow({
-						caseId: scope.caseId,
-						table: MARK_TABLE,
-						owner: OWNER,
-						key: { case_id: scope.caseId, locator: key },
-						expected: { kind: 'match', version: old.version },
-						operationId: crypto.randomUUID(),
-					});
-					if (removed.kind !== 'written')
-						return fail(409, {
-							message:
-								'The selection changed in another tab. Reload and retry.',
-						});
-				}
-				continue;
-			}
-			await hostedWork(
-				e.locals,
-				scope.caseId,
-				scope.resultsVersion,
-				form,
-			).putTableRow(
-				MARK_TABLE,
-				{
-					case_id: scope.caseId,
-					locator: key,
-					selected:
-						action === 'select'
-							? f.get('on') === '1'
-								? 1
-								: 0
-							: (old?.cells.selected ?? 0),
-					co: action === 'co' ? String(val) : (old?.cells.co ?? null),
-				},
-				{ owner: OWNER },
-			);
+		const next = [...new Set(keys)].map((key) => ({
+			case_id: scope.caseId,
+			locator: key,
+			selected:
+				action === 'select'
+					? f.get('on') === '1'
+						? 1
+						: 0
+					: (map.get(key)?.cells.selected ?? 0),
+			co: action === 'co' ? String(val) : (map.get(key)?.cells.co ?? null),
+		}));
+		const chunk = markBatchRows();
+		for (let offset = 0; offset < next.length; offset += chunk) {
+			const result = await e.locals.userWork.putTableRows({
+				caseId: scope.caseId,
+				table: MARK_TABLE,
+				owner: OWNER,
+				rows: next.slice(offset, offset + chunk),
+				expectedRevision: revision,
+				operationId: crypto.randomUUID(),
+			});
+			if (result.kind !== 'written') throw contractError(result.kind);
+			revision = result.caseRevision;
 		}
 		return { saved: keys.length };
 	});

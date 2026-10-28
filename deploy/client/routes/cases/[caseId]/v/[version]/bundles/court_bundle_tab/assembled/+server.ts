@@ -4,8 +4,12 @@ import { publishedVersion } from '$lib/views/hosted/payloads.server';
 import { refuse } from '$lib/server/runtime/hosted/http';
 import { cloudBindings } from '$lib/storage/cloud/bindings';
 import { writeOnce } from '$lib/storage/cloud/objects';
-import { digest } from '$lib/server/runtime/data';
-import { pdfForm, bundleObjectKey } from '$lib/views/bundles/assembled';
+import {
+	pdfBytes,
+	pdfDigest,
+	bundleObjectKey,
+} from '$lib/views/bundles/assembled';
+import { uploadBundle } from '$lib/views/bundles/upload';
 import { customOf } from '$lib/bundles/builder';
 import {
 	bundleStore,
@@ -18,21 +22,11 @@ export async function POST({ locals, params, request }: RequestEvent) {
 	await locals.identity
 		.authorize({ caseId: scope.caseId, operation: 'write-user-work' })
 		.catch((e) => refuse(e, 'write'));
-	const data = await pdfForm(request);
-	if (!data)
-		return json(
-			{ message: 'Upload a PDF no larger than 64 MiB.' },
-			{ status: 400 },
-		);
-	const id = String(data.form.get('id') ?? '');
-	if (!/^[A-Za-z0-9_-]{1,64}$/.test(id))
-		return json({ message: 'Invalid bundle id.' }, { status: 400 });
-	let value: unknown;
-	try {
-		value = JSON.parse(String(data.form.get('bundle') ?? ''));
-	} catch {
-		return json({ message: 'Invalid bundle.' }, { status: 400 });
-	}
+	const metadata = uploadBundle(request);
+	if (!metadata)
+		return json({ message: 'Invalid bundle metadata.' }, { status: 400 });
+	const { id, value } = metadata;
+
 	const c = customOf(
 		value && typeof value === 'object' ? { ...value, no: 'C' } : null,
 	);
@@ -40,20 +34,35 @@ export async function POST({ locals, params, request }: RequestEvent) {
 		return json({ message: 'Invalid bundle.' }, { status: 400 });
 	const binding = cloudBindings(env);
 	if (!binding) error(503, 'Storage unavailable.');
-	const sha256 = await digest(data.bytes),
+	const bytes = await pdfBytes(request);
+	if (!bytes)
+		return json(
+			{ message: 'Upload a PDF with Content-Length, no larger than 64 MiB.' },
+			{ status: 400 },
+		);
+	const work = bundleStore(locals, scope);
+	const prefetched = work.table(CUSTOM_TABLE);
+	// Observe failures immediately while the object write is in flight.
+	const rowsPromise = prefetched.then(
+		(rows) => ({ rows }),
+		(error) => ({ error }),
+	);
+	const sha256 = pdfDigest(bytes),
 		storedAt = performance.now();
 	const outcome = await writeOnce(
 		binding.bucket,
 		bundleObjectKey(scope.caseId, id, sha256),
-		data.bytes,
+		bytes,
 		sha256,
 	);
 	if (outcome !== 'written' && outcome !== 'present')
 		error(503, 'The PDF could not be stored. Retry.');
 	const writeAt = performance.now();
 	// Custom numbering is derived from saved custom rows (C1, C2, …); shipped numbers are numeric.
-	const no = await bundleStore(locals, scope)
-		.putCustom(id, c, [], { sha256, bytes: data.bytes.length })
+	const prefetchedRows = await rowsPromise;
+	if ('error' in prefetchedRows) refuse(prefetchedRows.error, 'write');
+	const no = await work
+		.putCustom(id, c, [], { sha256, bytes: bytes.length }, prefetchedRows.rows)
 		.catch((e) => refuse(e, 'write'));
 	const end = performance.now();
 	return json(

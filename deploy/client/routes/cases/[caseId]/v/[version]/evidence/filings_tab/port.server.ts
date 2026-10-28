@@ -18,7 +18,11 @@ export const hostedFilingsPort: FilingsPortOf = ({ locals, params }): FilingsPor
   return {
     caseId,
     queued: (fn) => fn(),
-    rows: async () => (await readWork()).rows,
+    async rows() {
+      const saved = await readWork();
+      for (const r of saved.rows) rowVersion.set(r.rowId, r.version);
+      return saved.rows;
+    },
     async read() {
       const [payload, saved] = await Promise.all([shard<{ seeds: SeedRow[] }>(locals, params, 'view/filings_tab.json'), readWork()]);
       for (const r of saved.rows) rowVersion.set(r.rowId, r.version);

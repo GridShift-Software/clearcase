@@ -29,6 +29,9 @@ export interface FilingsPort {
 }
 export type FilingsPortOf = (event: Pick<RequestEvent, 'params' | 'locals'>) => FilingsPort | null;
 
+/** What a save or delete of `key` reads: a row of the register needs the register alone, an imported row needs the seeds as well. */
+const readFor = async (port: FilingsPort, key: string): Promise<FilingsRead> => (key.startsWith('row:') ? { seeds: [], rows: await port.rows(), overlays: [] } : port.read());
+
 type Draft = { values: Record<string, string>; editing: string | null; version: string | null; failed: SaveFailure | null };
 const draftOf = (fd: FormData): Draft => {
 	const key = fd.get('key'), version = fd.get('version');
@@ -67,7 +70,7 @@ export const filingsActionsOver = (portOf: FilingsPortOf) => ({
 		if (!port) return refuse(404, 'version', typed.values, key || null, seen);
 		if (!typed.ok) return refuse(400, 'empty-edit', typed.values, key, seen);
 		const outcome = await port.queued(async () => {
-			const { seeds, rows, overlays } = await port.read();
+			const { seeds, rows, overlays } = await readFor(port, key);
 			const entry = registerEntries(seeds, rows).find((x) => x.key === key);
 			if (!entry) return 'gone' as const;
 			if (seen !== rowVersion(entry.fields)) return 'stale' as const;
@@ -99,7 +102,7 @@ export const filingsActionsOver = (portOf: FilingsPortOf) => ({
 		const step = deleteStep(fd, target);
 		if (step !== 'confirm') return fail(400, { op: 'delete' as const, target, confirm: step === 'ask' ? target : null, draft });
 		const outcome = await port.queued(async () => {
-			const { seeds, rows, overlays } = await port.read();
+			const { seeds, rows, overlays } = await readFor(port, target);
 			const entry = registerEntries(seeds, rows).find((x) => x.key === target);
 			if (!entry) return 'gone' as const;
 			return write(port, async () => {

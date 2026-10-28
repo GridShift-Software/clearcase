@@ -19,10 +19,12 @@ const profile = {
 };
 
 let dir: string;
-const git = (...args: string[]) => spawnSync('git', args, { cwd: dir, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t.test', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t.test' } });
+// Hermetic: the identity comes from this test (also in the script's own `git commit`), never from the host's Git config.
+const identity = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t.test', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t.test' };
+const git = (...args: string[]) => spawnSync('git', args, { cwd: dir, encoding: 'utf8', env: { ...process.env, ...identity } });
 const config = () => readFileSync(path.join(dir, 'deploy/staging/wrangler.jsonc'), 'utf8');
 function run(args: string[], secrets: { env?: Record<string, string>; file?: string } = {}) {
-	const env: Record<string, string | undefined> = { ...process.env, ...secrets.env };
+	const env: Record<string, string | undefined> = { ...process.env, ...identity, ...secrets.env };
 	for (const name of ['STAGING_CLERK_SECRET_KEY', 'STAGING_CLERK_STAFF_SECRET_KEY', 'STAGING_CLERK_ENV']) if (!secrets.env || !(name in secrets.env)) delete env[name];
 	const file = path.join(dir, '.local/secrets/staging-clerk-production.env');
 	rmSync(file, { force: true });
@@ -40,6 +42,9 @@ beforeAll(() => {
 	symlinkSync(path.join(repo, 'src'), path.join(dir, 'src'));
 	writeFileSync(path.join(dir, '.gitignore'), '.local/\n');
 	git('init', '-q');
+	git('config', 'user.name', identity.GIT_AUTHOR_NAME);
+	git('config', 'user.email', identity.GIT_AUTHOR_EMAIL);
+	git('config', 'commit.gpgsign', 'false');
 	git('add', '-A');
 	git('commit', '-q', '-m', 'base');
 });
@@ -83,8 +88,12 @@ describe('the switch refuses unusable secrets before it writes or commits anythi
 	});
 	it('puts the Co-Authored-By trailer on the commit it makes', () => {
 		// Stops after the commit: scripts/deploy-staging.sh is not in the throwaway repository.
+		const before = git('rev-list', '--count', 'HEAD').stdout;
 		const apply = run(['scripts/clerk-instance.sh', '--use', 'production', '--no-deploy'], { file: fileOf(GOOD_CLIENT, GOOD_STAFF) });
 		expect(apply.status).not.toBe(0);
+		expect(apply.stderr).toContain('committed the wrangler.jsonc change');
+		expect(Number(git('rev-list', '--count', 'HEAD').stdout)).toBe(Number(before) + 1);
+		expect(git('log', '-1', '--format=%s').stdout).toContain('staging: use the production Clerk instance');
 		expect(git('log', '-1', '--format=%B').stdout).toMatch(/^Co-Authored-By: .+ <.+@.+>$/m);
 	});
 });

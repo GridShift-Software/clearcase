@@ -10,8 +10,10 @@
 	import { allRows, clearFilters, excerptPreview, isFiltered, paramsFromQuery, queryFromParams, queryRows, statusChoices, statusLabel, type ChronologyQuery, type SortKey } from '$lib/local-case/chronology';
 	import { docPath, type ChronologyListRow } from '$lib/local-case/model';
 	import ChronologyPane from '$lib/views/evidence/ChronologyPane.svelte';
+	import LocalOriginal from '$lib/views/evidence/LocalOriginal.svelte';
 	import type { PageData } from './$types';
-	// `original` shows a selected document's original in the pane; hosted passes its viewer, local has none.
+	// `original` shows a selected document's original in the pane: hosted passes its viewer; locally the page's `original`
+	// action gives the document page's links to the isolated viewer.
 	let { data, original }: { data: PageData; original?: Snippet<[string]> } = $props();
 	const vid = $derived(data.version.id);
 	// replaceState is shallow routing: page.url keeps the URL the page was loaded with, and Back restores that entry's
@@ -94,6 +96,8 @@
 	});
 </script>
 
+{#snippet localOriginal(ref: string)}<LocalOriginal {ref} />{/snippet}
+
 <main id="main" tabindex="-1" data-ready={ready ? 'chronology' : null}>
 	<PageHeader heading="Chronology" section="Chronology" caseName={data.version.titleName} subtitle="{total.toLocaleString('en')} items · sorted by date">
 		{#snippet actions()}<button type="button" onclick={exportCsv} id="export-csv">Export CSV ({count === null ? '…' : count.toLocaleString('en')} rows)</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}{/snippet}
@@ -131,7 +135,7 @@
 				{/if}
 			</div>
 			<div class="chrono-divider" aria-hidden="true"></div>
-			<ChronologyPane row={selectedRow} {selected} notFound={complete && !!selected && !selectedRow} docHref={selected ? docPath(vid, selected, null, data.base) : null} {original} onback={back} bind:pane />
+			<ChronologyPane row={selectedRow} {selected} notFound={complete && !!selected && !selectedRow} docHref={selected ? docPath(vid, selected, null, data.base) : null} original={original ?? localOriginal} onback={back} bind:pane />
 		</div>
 	</div>
 </main>

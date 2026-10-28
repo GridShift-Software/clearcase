@@ -5,7 +5,7 @@
 // empty = 0 (amount), and are stable: ties keep the source order in both directions. Undated rows ('' dates) sort first
 // ascending. Every imported bundle is selectable (rewrite of S-chronology-1).
 import type { FacetCounts, FacetsShard, ListPage } from '../views/payloads/list.ts';
-import type { ChronologyListRow } from './model.ts';
+import type { ChronologyListRow, OriginalLinks } from './model.ts';
 
 export type SortKey = 'date' | 'ref' | 'docType' | 'bundle' | 'amount';
 export const SORT_KEYS: readonly SortKey[] = ['date', 'ref', 'docType', 'bundle', 'amount'];
@@ -91,3 +91,6 @@ export async function allRows(listHref: string, fetch: typeof globalThis.fetch =
 	if (!r.ok) throw new Error(`chronology list: ${r.status}`);
 	return listRowsOf((await r.json()) as ListPage | ChronologyListRow[]);
 }
+
+/** A document's own original as the local pane gets it from the page's `original` action: its document page's links, or why there are none. */
+export interface LocalOriginal { ref: string; links: OriginalLinks; onDisk: string | null }

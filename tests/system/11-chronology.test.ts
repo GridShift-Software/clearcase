@@ -12,7 +12,7 @@ import { facetsOf } from '../../src/lib/local-case/chronology.ts';
 import { memoryShardBucket, memoryShardCache } from '../../src/lib/server/runtime/memory-shards.ts';
 import type { ListPage } from '../../src/lib/views/payloads/list.ts';
 import ChronologyPane from '../../src/lib/views/evidence/ChronologyPane.svelte';
-import { selectsRow } from '../../src/lib/components/DataGrid.svelte';
+import { selectsRow } from '../../src/lib/components/row-select.ts';
 // @ts-expect-error jsdom ships no types and the root pins no @types/jsdom
 import { JSDOM } from 'jsdom';
 import { grantedIdentity, ids } from '../hosted-foundation/storage/fixture.ts';
@@ -21,6 +21,7 @@ import { builtCase, CASE_ID, EXTRA_ROWS, locals, published, type BuiltCase, type
 const nav = vi.hoisted(() => ({ url: new URL('https://client-a.example.invalid/') }));
 vi.mock('$app/state', () => ({ page: { get url() { return nav.url; }, state: {} } }));
 vi.mock('$app/navigation', () => ({ replaceState: () => {}, goto: () => Promise.resolve(), invalidateAll: () => Promise.resolve() }));
+vi.mock('$app/forms', () => ({ deserialize: (t: string) => JSON.parse(t) }));
 
 let b: BuiltCase, dep: Deployment;
 beforeAll(async () => { b = await builtCase(); dep = await published(b); }, 120_000);

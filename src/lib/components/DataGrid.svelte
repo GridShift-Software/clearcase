@@ -1,12 +1,10 @@
 <script lang="ts" module>
 	export type Column = { key: string; label: string; sortable?: boolean; align?: 'end' };
-	const CONTROLS = 'a, button, input, select, textarea, label, summary';
-	/** Whether a click on `target` inside a row selects the row: anywhere but a control (a link, the Preview button, a field), which keeps its own behaviour. */
-	export const selectsRow = (target: EventTarget | null) => !!target && typeof (target as Element).closest === 'function' && !(target as Element).closest(CONTROLS);
 </script>
 
 <script lang="ts" generics="T">
 	import { untrack, type Snippet } from 'svelte';
+	import { selectsRow } from './row-select.ts';
 	import TableScroll from './TableScroll.svelte';
 	let { columns, rows, rowKey, label, gridClass, sort = null, onsort, cell, rowAttrs = () => ({}), onselect, selected = null, previewLabel = (r: T) => `Preview ${rowKey(r)}`, firstRows = 150 }: {
 		columns: readonly Column[]; rows: readonly T[]; rowKey: (r: T) => string; label: string; gridClass: string;

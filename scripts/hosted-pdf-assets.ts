@@ -8,7 +8,46 @@ export const HOSTED_PDF_VERSION = '6.4.299';
 // Path+size+SHA-256 bindings of the 190 installed browser/resource/license files, in ordinal path order.
 // Captured from the frozen bun.lock install at c6f0d9536e381dc8eebbf2035f49834409434761.
 export const HOSTED_PDF_PACKAGE_DIGEST = 'sha256:ae9a1328f4de3e2cf14b24d711e34299963dc64c10eab7b1afe849b79846e577';
-export const HOSTED_PDF_READER_DIGEST = 'sha256:308102fbbc79e94d08645ac61b54f2c39550800eb9a163d3e10d31e340aa861d';
+// The in-app viewer's pdf.js worker, pdfjs/pdf-viewer-worker.mjs: build/pdf.worker.min.mjs with WORKER_PATCH applied.
+export const HOSTED_PDF_VIEWER_WORKER_DIGEST = 'sha256:79bdd72351096425f4efd42b4c238e7513f321c1a38951a825a148119530b511';
+
+/**
+ * The one patch to pdf.js (upstream pdfjs-dist 6.4.299, build/pdf.worker.min.mjs; GRS-251), served only to the in-app
+ * viewer as pdfjs/pdf-viewer-worker.mjs. pdfjs/pdf.worker.min.mjs, which the native render check uses, stays upstream,
+ * so the package digest and the render check's renderer version do not move. Upstream `BasePdfManager.initDocument`
+ * awaits `checkLastPage` before the document opens, and `checkLastPage` reaches the last page through
+ * `Catalog.getPageDict`, which fetches every top-level /Kids entry in turn: on a large file that is not linearized, with
+ * its page dictionaries spread through the whole file, that is most of the file before page 1 shows. The patch moves the
+ * check when /Count is a positive integer: `initDocument` stores it, and the first finished `GetOperatorList` (the
+ * worker's part of drawing a page) starts it. When /Count is anything else the document cannot open without the check's
+ * recovery, so it still blocks, as upstream. A deferred check still corrects the worker's page count when /Count is
+ * wrong, and the added `ClearcasePageCount` request answers, once the check has run, with the corrected count (null when
+ * /Count stood), which pdf-reader.mjs passes to the viewer. A deferred check's own failure is no longer a load failure.
+ * Each replacement must match exactly once, so another pdf.js build is refused, never half-patched.
+ */
+const WORKER_PATCH: ReadonlyArray<readonly [string, string]> = [
+	['await this.ensureDoc("checkFirstPage",[e]);await this.ensureDoc("checkLastPage",[e])}',
+		'await this.ensureDoc("checkFirstPage",[e]);let clearcaseCount;try{clearcaseCount=await this.ensureCatalog("numPages")}catch{}' +
+		'if(!(Number.isInteger(clearcaseCount)&&clearcaseCount>0)){await this.ensureDoc("checkLastPage",[e]);return}' +
+		'let clearcaseChecked;this.lastPageChecked=new Promise(t=>{clearcaseChecked=t});' +
+		'this.deferredLastPageCheck=()=>{this.deferredLastPageCheck=null;this.ensureDoc("checkLastPage",[e]).catch(()=>{}).then(clearcaseChecked)}}'],
+	['l){a.getPage(e).then(function(e){const a=new WorkerTask(`GetOperatorList: page ${t}`);',
+		'l){const clearcasePdfManager=a;a.getPage(e).then(function(e){const a=new WorkerTask(`GetOperatorList: page ${t}`);'],
+	['pageIndex:t,pageProxyId:n}).then(()=>{l.close()},e=>{a.terminated||l.error(e)}).finally(()=>{finishWorkerTask(a)})})});c.on("GetTextContent"',
+		'pageIndex:t,pageProxyId:n}).then(()=>{l.close()},e=>{a.terminated||l.error(e)}).finally(()=>{finishWorkerTask(a);clearcasePdfManager.deferredLastPageCheck?.()})})});' +
+		'c.on("ClearcasePageCount",async function(){await a.lastPageChecked;const t=a.pdfDocument.catalog;return t.hasActualNumPages?t.numPages:null});c.on("GetTextContent"'],
+];
+/** The served worker: the upstream bytes with WORKER_PATCH applied, or an error when any replacement is not exactly one match. */
+export function patchPdfWorker(upstream: Buffer): Buffer {
+	let text = upstream.toString('utf8');
+	if (!Buffer.from(text, 'utf8').equals(upstream)) throw new Error('pdf.js worker is not plain UTF-8');
+	for (const [from, to] of WORKER_PATCH) {
+		if (text.split(from).length !== 2) throw new Error('pdf.js worker patch does not match this build exactly once');
+		text = text.replace(from, () => to);
+	}
+	return Buffer.from(text, 'utf8');
+}
+export const HOSTED_PDF_READER_DIGEST = 'sha256:8a7d21be12efd49c75795471a06e6f27450e3b2815871fc7e2cb8a3b465f68c5';
 const READER = 'src/lib/viewer/hosted/static/pdf-reader.mjs';
 const hash = (bytes: Buffer | string) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 export type PdfAsset = { path: string; bytes: number; sha256: string };
@@ -67,9 +106,12 @@ export function prepareHostedPdfAssets(a: { root: string; publicRoot: string }):
 	}
 	const describe = (): PdfAsset[] => [...inputs].sort(([a], [b]) => ordinal(a, b)).map(([path, b]) => ({ path, bytes: b.length, sha256: hash(b) }));
 	if (hash(JSON.stringify(describe())) !== HOSTED_PDF_PACKAGE_DIGEST) throw new Error('installed PDF.js browser/resource/license path+bytes mismatch');
+	const viewerWorker = patchPdfWorker(inputs.get('pdfjs/pdf.worker.min.mjs')!);
+	if (hash(viewerWorker) !== HOSTED_PDF_VIEWER_WORKER_DIGEST) throw new Error('patched PDF.js viewer worker bytes mismatch');
 	const reader = regular(join(root, READER));
 	if (hash(reader) !== HOSTED_PDF_READER_DIGEST) throw new Error('reviewed PDF reader bytes mismatch');
 	inputs.set('pdfjs/pdf-reader.mjs', reader);
+	inputs.set('pdfjs/pdf-viewer-worker.mjs', viewerWorker);
 	const inventory: PdfAssetInventory = {
 		schema: 'clearcase.hosted-pdf-assets/1', pdfjsVersion: HOSTED_PDF_VERSION,
 		packageDigest: HOSTED_PDF_PACKAGE_DIGEST, readerDigest: HOSTED_PDF_READER_DIGEST, files: describe(),

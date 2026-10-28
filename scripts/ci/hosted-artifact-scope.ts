@@ -246,6 +246,12 @@ export const PINNED_BROWSER_MODULES: Readonly<Record<string, PinnedBrowserModule
 		sha256: 'sha256:9536359f1b8367850d485731ca1d5e45c159a7b7a0912325e539937aa21ceb18',
 		uses: PDF_PROBE,
 	},
+	// The in-app viewer's worker: pdf.worker.min.mjs with WORKER_PATCH, bound by HOSTED_PDF_VIEWER_WORKER_DIGEST.
+	'.svelte-kit/cloudflare/pdfjs/pdf-viewer-worker.mjs': {
+		asset: 'pdfjs/pdf-viewer-worker.mjs', bytes: 1264922,
+		sha256: 'sha256:79bdd72351096425f4efd42b4c238e7513f321c1a38951a825a148119530b511',
+		uses: PDF_PROBE,
+	},
 };
 
 /** Why `name` (root-relative, `/`-separated) does not get its pinned reviewed uses, or null when it does: the exact

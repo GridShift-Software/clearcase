@@ -13,16 +13,18 @@
 	import { DOCX_TYPE, indexDocx } from '$lib/views/bundles/docx';
 	import { HEADER_FIELDS, HEADER_KEYS, TO_COMPLETE, cleanName, desc, header, indexFileName, pad, partRange, range, totals, type Bundle, type Header } from '$lib/views/bundles/court';
 	import Builder from '$lib/views/bundles/Builder.svelte';
-	import { withSaved, type SavedBundle } from '$lib/views/bundles/saved';
+	import { withStored, type StoredBundle } from '$lib/views/bundles/saved';
 	import { blobs } from '$lib/views/bundles/builder.svelte';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
  const NOT_SERVED = $derived('hosted' in data && data.hosted ? 'not available on hosted' : LOCAL_NOT_SERVED);
 	const vid = $derived(data.version.id);
 	const c = $derived(data.content);
-	// bundles saved from the Builder on this page; each shows from the save's answer until a load of the page carries it (GRS-264)
-	let saved = $state.raw<SavedBundle[]>([]);
-	const lists = $derived(withSaved(data, saved, page.url.pathname));
+	// the custom bundles as the last save answered with them (GRS-264): the store's list replaces the loaded one, until a
+	// load of the page brings its own. It belongs to the data it was answered over, so another case or version, or any
+	// later load, shows that data as loaded.
+	let answered = $state.raw<{ of: typeof data; list: StoredBundle[] } | null>(null);
+	const lists = $derived(answered?.of === data ? withStored(data, answered.list, page.url.pathname) : data);
 	const bs = $derived(lists.bundles);
 	const ti = $derived(bs.reduce((n, b) => n + b.rows.length, 0));
 	const tp = $derived(bs.reduce((n, b) => n + (b.pages || 0), 0));
@@ -61,7 +63,7 @@
 			if (!r.ok) { delErrors[id] = r.message.replace(/^Not saved:/, 'Not removed:'); return; }
 			const u = blobs[id];
 			delete blobs[id];
-			saved = saved.filter((s) => s.id !== id);
+			if (answered) answered = { of: answered.of, list: answered.list.filter((s) => s.id !== id) };
 			if (u) URL.revokeObjectURL(u);
 			await rl.reload();
 		} finally { delete deleting[id]; }
@@ -141,7 +143,7 @@
 	{#if rl.lost}<p class="error" role="alert" id="cb-reload-error">{RELOAD_LOST}</p>{/if}
 
 	{#if view === 'build'}
-		<Builder bundles={bs} h={hd.h} creator={creator()} {off} onsaved={(s) => (saved = [...saved, s])} onback={() => go({})} />
+		<Builder bundles={bs} h={hd.h} creator={creator()} {off} onsaved={(list) => { if (list) answered = { of: data, list }; else void rl.reload(); }} onback={() => go({})} />
 	{:else if view === 'bundle' && b}
 		{@const t = totals(b)}
 		{@const l = lists.links[cur]!}

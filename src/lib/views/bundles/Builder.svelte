@@ -10,10 +10,10 @@
 	import { pad, type Bundle, type Header } from './court.ts';
 	import { DOCX_TYPE, indexDocx } from './docx.ts';
 	import { download } from '../../components/download.ts';
-	import { saveBundle, type SavedBundle } from './saved.ts';
+	import { saveBundle, type StoredBundle } from './saved.ts';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 
-	let { bundles, h, creator, off, onsaved, onback }: { bundles: Bundle[]; h: Header; creator: string; off: boolean; onsaved: (saved: SavedBundle) => void; onback: () => void } = $props();
+	let { bundles, h, creator, off, onsaved, onback }: { bundles: Bundle[]; h: Header; creator: string; off: boolean; onsaved: (bundles: StoredBundle[] | null) => void; onback: () => void } = $props();
 	const pl = $derived(plan(bld.b));
 	const need = $derived(unlinked(pl));
 	const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -122,10 +122,10 @@
 				else if (r.kind === 'refused') URL.revokeObjectURL(o.url);
 				return;
 			}
-			o.saved = r.saved.custom.no;
+			o.saved = r.no;
 			blobs[o.id] = o.url;
-			onsaved(r.saved);
-			if ((page.shallow?.url ?? page.url).searchParams.get('view') === 'build' && bld.out?.id === o.id) await goto(`?${new URLSearchParams({ b: r.saved.custom.no, tab: 'index' })}`, { shallow: true }).catch(() => {});
+			onsaved(r.bundles);
+			if ((page.shallow?.url ?? page.url).searchParams.get('view') === 'build' && bld.out?.id === o.id) await goto(`?${new URLSearchParams({ b: r.no, tab: 'index' })}`, { shallow: true }).catch(() => {});
 		} finally {
 			bld.saving = false;
 		}

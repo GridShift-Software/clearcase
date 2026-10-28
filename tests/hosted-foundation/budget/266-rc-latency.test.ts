@@ -45,7 +45,8 @@ it('266 a bundle save is one batch, its audit included, and its row work runs be
     expect(r.thrown).toBeUndefined(); expect(r.value?.status).toBe(200); show('bundle save POST', r);
     // 18 D1 calls: 15, then the write authorization again once the PDF is stored (#194 review), so a grant or session
     // lost during the object write refuses the row. Those 3 follow the put; the row's preflight reads still overlap it.
-    expect(r.counts).toMatchObject({ d1: 18, clerk: 0, otherFetch: 0 }); expect(r.batches).toBe(1);
+    // 19 since GRS-264: the answer carries the stored bundle list, one table read after the commit (measured 19, one more).
+    expect(r.counts).toMatchObject({ d1: 19, clerk: 0, otherFetch: 0 }); expect(r.batches).toBe(1);
     expect(r.sequential).toBeLessThanOrEqual(16);
     expect(w.db.rows<{ action: string }>("SELECT action FROM native_audit_events WHERE action = 'user-work.table-row-put'")).toHaveLength(1);
     expect(w.db.rows('SELECT audited_at FROM uw_operation WHERE audited_at IS NULL')).toEqual([]);
@@ -65,7 +66,7 @@ it('266 a bundle row commits only after its PDF is stored, reading while the PDF
     expect(w.db.rows("SELECT row_key FROM uw_table_row WHERE table_name = 'bundles_custom'")).toEqual([]);
     hold.release();
     const r = await saving;
-    expect(r.value?.status).toBe(200); expect(r.counts.d1).toBe(18); expect(w.batches() - before).toBe(1);
+    expect(r.value?.status).toBe(200); expect(r.counts.d1).toBe(19); expect(w.batches() - before).toBe(1); // 18 + the answer's list read (GRS-264)
     expect(w.db.rows("SELECT row_key FROM uw_table_row WHERE table_name = 'bundles_custom'")).toHaveLength(1);
   } finally { await w.cleanup(); }
 });

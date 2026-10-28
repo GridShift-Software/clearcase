@@ -19,7 +19,7 @@ variable, with no values).
 | J9 | a bundle of two synthetic PDFs builds, downloads, saves and still downloads after a reload (writes; needs `pdfinfo` and `pdftotext`) |
 | J10 | after an idle (`IDLE_MINUTES`, default 20) the session still navigates and saves, with no 401 or 503 (writes) |
 
-Budgets, strict `<`: page or action 2,000 ms, first PDF page 3,000 ms, sign-in 5,000 ms, saves and downloads 2,000 ms, bundle
+Budgets, strict `<`: page or action 2,000 ms, first PDF page 3,000 ms, sign-in 5,000 ms (`SIGN_IN_MS`), saves and downloads 2,000 ms, bundle
 assembly 5,000 ms (`BUNDLE_MS`). One sequential pass is not a p95 estimate.
 
 ## Run it
@@ -77,6 +77,7 @@ Browsers run under the host's lock: start the command through `orch-bin/browser-
 | `CREDENTIALS_JSON` | private `{email,password,otp?}`; never logged. Without it (or `STORAGE_STATE`) sign-in speed is untested |
 | `STORAGE_STATE` | private Playwright storage state carrying an existing Access or app session |
 | `SIGN_IN_PATH` | default `/sign-in` |
+| `SIGN_IN_MS` | the sign-in budget, default 5000. The shared Clerk development instance is run with 8000 (accepted interim); the release-candidate gate on a production instance uses 5000 (`docs/sprint/runbooks/09c-clerk-instance.md`) |
 | `IDLE_MINUTES` | J10's idle, default 20 |
 | `READ_ONLY` | `1` skips the write journeys |
 | `DEADLINE_DATE`, `BUNDLE_MS`, `RUN_ID` | J8's synthetic date (default `2026-11-04`), J9's bundle budget (5000), the entry-name tag |

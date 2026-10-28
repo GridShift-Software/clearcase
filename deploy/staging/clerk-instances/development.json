@@ -1,0 +1,15 @@
+{
+	"mode": "development",
+	"note": "The shared Clerk development instances (client outgoing-walrus-1020, staff renewed-moth-1294). Sign-in takes about 6.6 s here: the accepted interim (GRS-267).",
+	"secretsFile": "staging-clerk.env",
+	"client": {
+		"publishableKey": "pk_test_b3V0Z29pbmctd2FscnVzLTEwMjAuY2xlcmsuYWNjb3VudHMuZGV2JA",
+		"frontendApi": "outgoing-walrus-1020.clerk.accounts.dev",
+		"signInUrl": "https://outgoing-walrus-1020.accounts.dev/sign-in"
+	},
+	"staff": {
+		"publishableKey": "pk_test_cmVuZXdlZC1tb3RoLTEyOTQuY2xlcmsuYWNjb3VudHMuZGV2JA",
+		"frontendApi": "renewed-moth-1294.clerk.accounts.dev",
+		"signInUrl": "https://renewed-moth-1294.accounts.dev/sign-in"
+	}
+}

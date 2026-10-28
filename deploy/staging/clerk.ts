@@ -7,13 +7,15 @@
 //   bun deploy/staging/clerk.ts put-secrets        the four Clerk secrets into the staging Worker and the Preview base
 //                                                  config, through `wrangler ... secret put` on stdin
 //
-// Key source: STAGING_CLERK_SECRET_KEY and STAGING_CLERK_STAFF_SECRET_KEY (the repo secret names), else the owner's
-// file `.local/secrets/staging-clerk.env` in the main checkout (CLERK_SECRET_KEY, CLERK_STAFF_SECRET_KEY), else
-// STAGING_CLERK_ENV naming another such file. The JWT keys are the instances' public RSA keys from GET /v1/jwks.
+// Key source (instance.ts secretKeys): STAGING_CLERK_SECRET_KEY and STAGING_CLERK_STAFF_SECRET_KEY (the repo secret names),
+// else the active profile's file in the main checkout (`.local/secrets/staging-clerk.env` for development,
+// `staging-clerk-production.env` for production; CLERK_SECRET_KEY, CLERK_STAFF_SECRET_KEY), else STAGING_CLERK_ENV naming
+// another such file. Keys of the other mode than the active profile are refused. The JWT keys are the instances' public RSA
+// keys from GET /v1/jwks.
 import { spawnSync } from 'node:child_process';
 import { createPublicKey } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { activeProfile, secretKeys } from './instance.ts';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const CONFIG = 'deploy/staging/wrangler.jsonc';
@@ -21,18 +23,11 @@ const API = 'https://api.clerk.com/v1';
 type Kind = 'client' | 'staff';
 const CALLBACK: Record<Kind, string> = { client: '/sign-in', staff: '/sign-in/operator' };
 
+/** The secret keys of the Clerk instance wrangler.jsonc names (GRS-267), refused when they are of the other mode. */
 function keys(): Record<Kind, string> {
-	let client = process.env.STAGING_CLERK_SECRET_KEY, staff = process.env.STAGING_CLERK_STAFF_SECRET_KEY;
-	if (!client || !staff) {
-		const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: root, encoding: 'utf8' }).stdout.trim();
-		const file = process.env.STAGING_CLERK_ENV ?? path.join(path.dirname(common), '.local/secrets/staging-clerk.env');
-		if (!existsSync(file)) throw new Error(`no Clerk keys: set STAGING_CLERK_SECRET_KEY and STAGING_CLERK_STAFF_SECRET_KEY, or STAGING_CLERK_ENV (${file} is missing)`);
-		const env = Object.fromEntries(readFileSync(file, 'utf8').split('\n').map((l) => /^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/.exec(l)).filter((m) => m !== null).map((m) => [m[1], m[2].replace(/^(["'])(.*)\1$/, '$2')]));
-		client ||= env.CLERK_SECRET_KEY;
-		staff ||= env.CLERK_STAFF_SECRET_KEY;
-	}
-	if (!client?.startsWith('sk_') || !staff?.startsWith('sk_')) throw new Error('the Clerk secret keys are missing or not sk_ keys');
-	return { client, staff };
+	const profile = activeProfile();
+	if (!profile) throw new Error('wrangler.jsonc matches no Clerk instance profile; run scripts/clerk-instance.sh --use <development|production>');
+	return secretKeys(profile);
 }
 
 async function clerk<T>(key: string, method: string, p: string, body?: unknown): Promise<T> {

@@ -2,10 +2,11 @@
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { build, mediaFamily, BATCH_ROWS } from '../../../scripts/originals/manifest.ts';
+import { build, digest, mediaFamily, BATCH_ROWS, MULTIPART_FROM, PART_BYTES } from '../../../scripts/originals/manifest.ts';
 import { sha256Hex } from '../../../src/lib/case-package/hash.ts';
 import { SqliteD1 } from './doubles.ts';
 import { pdf } from './fixture.ts';
@@ -40,6 +41,12 @@ async function fixture(specs: Spec[]) {
 const apply = async (db: SqliteD1, out: string) => {
   for (const f of (await readdir(path.join(out, 'sql'))).sort()) db.sqlite.exec(readFileSync(path.join(out, 'sql', f), 'utf8'));
 };
+const md5 = (b: Uint8Array) => createHash('md5').update(b).digest('hex');
+/** A stored-object listing for these names, with the sizes and single-part ETags (MD5) the fixture's bytes give. */
+const listing = (names: string[]) => names.map((n) => {
+  const b = SPECS.map((x) => x.bytes).find((x) => x && sha256Hex(x) === n)!;
+  return { Path: n, Name: n, Size: b.byteLength, IsDir: false, Metadata: { etag: `"${md5(b)}"` } };
+});
 const count = (db: SqliteD1, table: string) => (db.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n;
 
 const SAME = pdf('same');
@@ -90,7 +97,7 @@ describe('GRS-250 originals manifest', () => {
     const base = { packageDir: f.pkg, caseFolder: f.folder, caseId: 'v5-demo', out: f.out, finalizedAt: '2001-01-01T00:00:00Z' };
     await build(base);
     const names = (await readFile(path.join(f.out, 'files-from.txt'), 'utf8')).trim().split('\n');
-    const ls = names.map((n, i) => ({ Path: n, Name: n, Size: SPECS.map((s) => s.bytes).filter(Boolean).map((b) => ({ n: sha256Hex(b!), size: b!.byteLength })).find((x) => x.n === n)!.size, IsDir: false, Metadata: { etag: `"etag-${i}"` } }));
+    const ls = listing(names);
     const lsjson = path.join(dir, 'ls.json');
     await writeFile(lsjson, JSON.stringify(ls));
     const s = await build({ ...base, etags: lsjson });
@@ -101,7 +108,7 @@ describe('GRS-250 originals manifest', () => {
     expect(count(db, 'rs_original')).toBe(5);
     expect(count(db, 'rs_case_original')).toBe(6);
     expect(count(db, "rs_original WHERE etag IS NULL")).toBe(0);
-    expect((db.sqlite.prepare('SELECT etag FROM rs_original WHERE sha256 = ?').get(names[0]) as { etag: string }).etag).toBe('etag-0');
+    expect((db.sqlite.prepare('SELECT etag FROM rs_original WHERE sha256 = ?').get(names[0]) as { etag: string }).etag).toBe(ls[0].Metadata.etag.replaceAll('"', ''));
     await build(base); // no ETags this time: the stored ones stay
     await apply(db, f.out);
     expect(count(db, "rs_original WHERE etag IS NULL")).toBe(0);
@@ -137,14 +144,45 @@ describe('GRS-250 originals manifest', () => {
     await expect(build({ packageDir: f.pkg, caseFolder: f.folder, caseId: 'v5-demo', out: f.out })).rejects.toThrow(/size differs/);
   });
 
+  it('refuses a same-size edit to a referenced file, wrong bytes behind a reused staged entry, and a stored ETag that is not the bytes', async () => {
+    const f = await fixture(SPECS);
+    const base = { packageDir: f.pkg, caseFolder: f.folder, caseId: 'v5-demo', out: f.out };
+    const one = pdf('one'), edited = pdf('one');
+    edited[edited.length - 2] ^= 0x01;
+    await writeFile(path.join(f.folder, 'A/OD-001 one.pdf'), edited);
+    await expect(build(base)).rejects.toThrow(/does not hash to/);
+    await writeFile(path.join(f.folder, 'A/OD-001 one.pdf'), one);
+    await mkdir(path.join(f.out, 'orig-stage'), { recursive: true });
+    await writeFile(path.join(f.out, 'orig-stage', sha256Hex(one)), edited);
+    await expect(build(base)).rejects.toThrow(/does not hash to/);
+    await rm(path.join(f.out, 'orig-stage', sha256Hex(one)));
+    await build(base);
+    const names = (await readFile(path.join(f.out, 'files-from.txt'), 'utf8')).trim().split('\n');
+    const lsjson = path.join(dir, 'ls.json');
+    const ls = listing(names);
+    ls[0].Metadata.etag = `"${md5(edited)}"`;
+    await writeFile(lsjson, JSON.stringify(ls));
+    await expect(build({ ...base, etags: lsjson })).rejects.toThrow(/ETag differs/);
+  });
+
+  it('expects the S3 composite ETag for an object rclone uploads in parts', async () => {
+    const big = path.join(dir, 'big.bin');
+    const part = new Uint8Array(PART_BYTES).fill(7);
+    await writeFile(big, Buffer.concat([part, part, part, part, new Uint8Array(5)]));
+    const parts = [part, part, part, part, new Uint8Array(5)].map((p) => createHash('md5').update(p).digest());
+    const d = await digest(big, 4 * PART_BYTES + 5);
+    expect(4 * PART_BYTES + 5).toBeGreaterThanOrEqual(MULTIPART_FROM);
+    expect(d.etag).toBe(`${createHash('md5').update(Buffer.concat(parts)).digest('hex')}-5`);
+    expect(d.sha256).toBe(createHash('sha256').update(readFileSync(big)).digest('hex'));
+  });
+
   it('runs as a command and takes the ETag listing from --etags', async () => {
     const f = await fixture(SPECS);
     const run = (...extra: string[]) => execFileSync('bun', ['scripts/originals/manifest.ts', '--package', f.pkg, '--case-folder', f.folder, '--case-id', 'v5-demo', '--out', f.out, ...extra], { cwd: path.join(import.meta.dirname, '../../..'), encoding: 'utf8' });
     expect(run()).toMatch(/file assets 6; unique sha256 5;.*etags 0/);
     const names = (await readFile(path.join(f.out, 'files-from.txt'), 'utf8')).trim().split('\n');
-    const bySha = new Map(SPECS.filter((s) => s.bytes).map((s) => [sha256Hex(s.bytes!), s.bytes!.byteLength]));
     const etags = path.join(dir, 'etags.json');
-    await writeFile(etags, JSON.stringify(names.map((n) => ({ Path: n, Size: bySha.get(n), Metadata: { etag: 'e' } }))));
+    await writeFile(etags, JSON.stringify(listing(names)));
     expect(run('--etags', etags)).toMatch(/etags 5/);
   });
 

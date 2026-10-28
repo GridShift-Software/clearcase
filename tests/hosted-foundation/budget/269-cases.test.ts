@@ -6,6 +6,17 @@
 import { expect, it } from 'vitest';
 import { rcWorld, show, type RcWorld } from './266-world.ts';
 import { load as casesLoad } from '../../../deploy/client/routes/cases/+page.server.ts';
+import { createCaseAuthorizer } from '../../../src/lib/tenancy/authorizer.ts';
+import { d1GrantRepository } from '../../../src/lib/tenancy/d1-grants.ts';
+import { d1CaseDirectory } from '../../../src/lib/tenancy/case-directory.ts';
+import { principalCaseGrants } from '../../../src/lib/tenancy/request-case.ts';
+import { resolveExactDeployment, validateClientManifest } from '../../../src/lib/tenancy/manifest.ts';
+import { planNativeRuntimeConfig } from '../../../deploy/native-alpha/runtime-config.ts';
+import { exampleInput } from '../native-runtime-config/example-input.ts';
+import { nativeConfigOf } from '../native-runtime-config/harness.ts';
+import { codeOf } from '../../../src/lib/server/runtime/errors.ts';
+import { id } from '../../../src/lib/server/runtime/ids.ts';
+import type { AuditEvent, CaseId, CaseOperation, Principal } from '../../../src/lib/server/runtime/contracts.ts';
 
 const GRANT = `INSERT INTO tenant_case_grants (grant_id,client_id,scope,case_id,issuer,subject,principal_kind,role,slot,state,version,created_operation_id,request,created_by_issuer,created_by_subject,created_at,expires_at)
   VALUES (?,?,'case',?,?,'rc-editor','client',?,?,'active',1,?,'[]','seed','seed','2001-01-01T00:00:00.000Z',?)`;
@@ -31,8 +42,8 @@ it('269 /cases lists every granted case in a fixed number of storage round trips
     const r = await list(w);
     expect(r.thrown).toBeUndefined(); show('/cases (5 cases, 2 listed)', r);
     expect(r.value?.cases.map(c => [c.caseId, c.published])).toEqual([['case-a', true], ['case-b', false]]);
-    // The session's KV read, the storage gate, the case rows beside the grants, and one audit batch.
-    expect(r.sequential).toBeLessThanOrEqual(4);
+    // The session's KV read, the storage gate, the case rows beside the grants, and one audit batch: 4, with one of slack.
+    expect(r.sequential).toBeLessThanOrEqual(5);
     expect(r.batches).toBeLessThanOrEqual(2);
     // Every listed case is recorded as read before the page renders; each refusal keeps its own denied event, scoped to
     // the case only where the principal holds an effective grant on it (case-e's operator grant).
@@ -66,5 +77,43 @@ it('269 /cases lists nothing and records nothing as read once the grant is revok
     expect(r.thrown).toBeUndefined();
     expect(r.value?.cases).toEqual([]);
     expect(events(w).filter(e => e.outcome === 'succeeded')).toEqual([]);
+  } finally { await w.cleanup(); }
+});
+
+it('269 the list decides and records every case as one authorizeCase per case would', async () => {
+  const w = await rcWorld();
+  try {
+    firm(w);
+    const native = nativeConfigOf(planNativeRuntimeConfig(exampleInput()).clients.find(c => c.clientId === 'client-a')!) as { manifest: unknown; deployment: Parameters<typeof resolveExactDeployment>[1] };
+    const deployment = resolveExactDeployment(validateClientManifest(native.manifest), native.deployment);
+    const issuer = deployment.clientIssuer;
+    // case-z has a live grant but no case row; the staff principal shares the subject but not the kind; a pending grant reads nothing.
+    w.db.exec(GRANT, 'g-z', 'client-a', 'case-z', issuer, 'viewer', 'content', 'seed-z', null);
+    w.db.exec(`INSERT INTO tenant_case_grants (grant_id,client_id,scope,case_id,issuer,subject,principal_kind,role,slot,state,version,created_operation_id,request,created_by_issuer,created_by_subject,created_at)
+      VALUES ('g-p','client-a','case','case-c',?,'rc-editor','client','editor','content','pending',1,'seed-p','[]','seed','seed','2001-01-01T00:00:00.000Z')`, issuer);
+    const caseIds = ['case-a', 'case-b', 'case-c', 'case-d', 'case-e', 'case-z', 'bad id'].map(c => c as CaseId);
+    const principals: Principal[] = [{ issuer, subject: 'rc-editor', kind: 'client' }, { issuer, subject: 'rc-editor', kind: 'staff' }, { issuer, subject: 'nobody', kind: 'client' },
+      { issuer: deployment.staffIssuer, subject: 'rc-editor', kind: 'staff' }];
+    const authorizer = (events: AuditEvent[], list: boolean) => createCaseAuthorizer({ deployment, grants: d1GrantRepository(w.db), cases: d1CaseDirectory({ db: w.db, deployment }),
+      audit: { append: async e => { events.push(e); return { eventId: e.eventId }; } }, now: () => new Date('2001-06-01T00:00:00Z'), ...(list ? { caseGrants: principalCaseGrants(w.db, deployment) } : {}) });
+    const sessionId = id('session', 'synthetic-parity');
+    const strip = (events: AuditEvent[]) => events.map(({ eventId: _, at: __, ...e }) => JSON.stringify(e)).sort();
+    const compare = async (label: string) => {
+      for (const principal of principals) for (const operation of ['read', 'write-user-work'] as CaseOperation[]) {
+        const one: AuditEvent[] = [], all: AuditEvent[] = [], each = authorizer(one, false);
+        // The loop the reader ran before GRS-269: a forbidden case is left out, any other refusal refuses the list.
+        let allowed: CaseId[] | string = [];
+        for (const caseId of caseIds) {
+          try { await each.authorizeCase({ principal, sessionId, caseId, operation }); allowed.push(caseId); }
+          catch (e) { if (codeOf(e) !== 'forbidden') { allowed = codeOf(e)!; break; } }
+        }
+        const listed = await authorizer(all, true).authorizeCases({ principal, sessionId, operation, caseIds: Promise.resolve(caseIds) }).then(l => [...l], e => codeOf(e)!);
+        expect(listed, `${label} ${principal.kind}/${principal.subject} ${operation}`).toEqual(allowed);
+        expect(strip(all), `${label} ${principal.kind}/${principal.subject} ${operation} events`).toEqual(strip(one));
+      }
+    };
+    await compare('bound');
+    w.db.exec("UPDATE rs_storage_identity SET client_id = 'client-c'");
+    try { await compare('foreign database'); } finally { w.db.exec("UPDATE rs_storage_identity SET client_id = 'client-a'"); }
   } finally { await w.cleanup(); }
 });

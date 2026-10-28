@@ -16,8 +16,7 @@ export function storageGate(b: CloudBindings, clientId: ClientId): () => Promise
     if (passed) return null;
     let row: { client_id: string; layout: string } | null, object: Awaited<ReturnType<typeof b.bucket.get>>;
     try {
-      row = await b.db.prepare('SELECT client_id, layout FROM rs_storage_identity WHERE singleton = 1').first();
-      object = await b.bucket.get(IDENTITY_KEY);
+      [row, object] = await Promise.all([b.db.prepare('SELECT client_id, layout FROM rs_storage_identity WHERE singleton = 1').first<{ client_id: string; layout: string }>(), b.bucket.get(IDENTITY_KEY)]);
     } catch { return 'unreachable'; }
     if (!row || !object) return 'missing-identity';
     let named: unknown;

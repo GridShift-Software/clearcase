@@ -1,4 +1,4 @@
-import type { CaseId, CaseInfo, Identity, PublicationRecord } from '../server/runtime/contracts.ts';
+import type { CaseId, CaseInfo, Identity, Principal, PublicationRecord } from '../server/runtime/contracts.ts';
 import type { D1 } from '../server/runtime/hosted/bindings.ts';
 import { contractError } from '../server/runtime/errors.ts';
 import { id, resultsVersion } from '../server/runtime/ids.ts';
@@ -19,6 +19,25 @@ export interface RequestCase {
   notesJson: string;
   fingerprintsJson: string;
   original: OriginalRow | null;
+}
+
+/**
+ * Every live case grant of one principal in this client's database, and which of their cases exist here, in one
+ * statement: the grant read of `d1GrantRepository.grantsOf` for all cases at once, and `d1CaseDirectory`'s existence rule
+ * (this deployment's client and layout bound, and the case row present).
+ */
+export function principalCaseGrants(db: D1, deployment: ClientResourceIdentity) {
+  return async (principal: Principal): Promise<{ grants: readonly GrantRecord[]; present: ReadonlySet<string> }> => {
+    const { results } = await db.prepare(`SELECT ${GRANT_COLUMNS.split(', ').map(c => `g.${c}`).join(', ')},
+      i.client_id = ? AND i.layout = ? AND c.case_id IS NOT NULL AS present
+      FROM tenant_case_grants g INDEXED BY tenant_case_grants_principal
+      LEFT JOIN rs_storage_identity i ON i.singleton = 1
+      LEFT JOIN rs_case c ON c.case_id = g.case_id
+      WHERE g.client_id = ? AND g.issuer = ? AND g.subject = ? AND g.scope = 'case' AND g.state <> 'revoked'`)
+      .bind(deployment.clientId, LAYOUT, deployment.clientId, principal.issuer, principal.subject)
+      .all<Parameters<typeof parseGrant>[0] & { present: number | null }>();
+    return { grants: results.map(parseGrant), present: new Set(results.filter(r => r.present === 1).map(r => r.case_id!)) };
+  };
 }
 
 /** One primary-session snapshot per case and verified principal, owned by one request only. */

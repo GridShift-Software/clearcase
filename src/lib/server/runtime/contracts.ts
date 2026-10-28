@@ -19,7 +19,9 @@ export interface ContractError<C extends string> extends Error { readonly code: 
 export interface Principal { readonly issuer: string; readonly subject: string; readonly kind: 'client' | 'staff' }
 export type IdentityState = { kind: 'anonymous'; principal: null; sessionId: null } | { kind: 'verified'; principal: Principal; sessionId: SessionId };
 export type CaseOperation = 'read' | 'read-original' | 'read-preview' | 'write-user-work';
-export type Identity = IdentityState & { readonly clientId: ClientId; checkRevocation(): Promise<void>; authorize(a: Scope & { operation: CaseOperation }): Promise<void> };
+export type Identity = IdentityState & { readonly clientId: ClientId; checkRevocation(): Promise<void>; authorize(a: Scope & { operation: CaseOperation }): Promise<void>;
+  /** authorize() over a list: the cases allowed, each recorded as authorize() records it; refuses as authorize() does. */
+  authorizeCases?(a: { operation: CaseOperation; caseIds: readonly CaseId[] | Promise<readonly CaseId[]> }): Promise<ReadonlySet<CaseId>> };
 export interface IdentityProvider { authenticate(a: { request: Request }): Promise<Identity> }
 export type Publication = { kind: 'none' | 'withdrawn' } | { kind: 'published'; resultsVersion: ResultsVersion };
 /** Why a case shows no results: none published yet, the published version withdrawn, or results that cannot be read now. */

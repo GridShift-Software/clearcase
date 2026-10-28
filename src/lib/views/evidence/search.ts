@@ -1,8 +1,8 @@
 import type { ChronologyListRow } from '../../local-case/model.ts';
+import type { SearchRow as IndexedSearchRow } from '../payloads/search.ts';
 import type { Cell } from '../../components/csv.ts';
-import { MAX_TEXT, bundleLabel, bundleParam, cleanName, echo, paginate, type Page } from './common.ts';
-import { bundlesOf } from './documents.ts';
-import { optionsOf, statusOptions } from '../../local-case/chronology.ts';
+import { MAX_TEXT, bundleLabel, bundleParam, cleanName, echo, pageNotice, pageParam, paginate, type Page } from './common.ts';
+import { TEXT_STATUSES } from '../../local-case/chronology.ts';
 import { money } from '../../components/format.ts';
 
 export const PAGE_SIZE = 50;
@@ -12,6 +12,21 @@ export type SearchQuery = Record<SearchField, string>;
 export const EMPTY: SearchQuery = Object.freeze({ q: '', bundle: '', type: '', sender: '', from: '', to: '', amin: '', amax: '', status: '' });
 
 export type SearchRow = ChronologyListRow & { cc: string };
+
+/**
+ * What search reads of a document: the published index's row (`search/index.json`, the payload's `SearchRow` with the
+ * amount, text status and file state the filters, coverage and result lines need). A local `SearchRow` is one.
+ */
+export type SearchInput = IndexedSearchRow & Pick<ChronologyListRow, 'amount' | 'textStatus' | 'file'>;
+
+/** `search/index.json`: the payload's `SearchShard`, over the wider row. */
+export interface SearchIndex { rows: SearchInput[] }
+
+/** The index row of a document, with exactly the fields the index holds. */
+export const indexRow = (r: SearchRow): SearchInput => ({
+	ref: r.ref, subject: r.subject, filename: r.filename, sender: r.sender, to: r.to, cc: r.cc, date: r.date, bundle: r.bundle, docType: r.docType,
+	excerpt: r.excerpt, amount: r.amount, textStatus: r.textStatus, file: r.file,
+});
 
 export function queryFromParams(p: URLSearchParams): { query: SearchQuery; submitted: boolean } {
 	const query = Object.fromEntries(FIELDS.map((k) => [k, p.get(k) ?? ''])) as SearchQuery;
@@ -30,10 +45,11 @@ function dateProblem(label: string, v: string): string | null {
 }
 
 export interface SearchOptions { bundles: { value: string; label: string }[]; types: string[]; statuses: string[] }
-export const searchOptions = (rows: readonly ChronologyListRow[]): SearchOptions => ({
-	bundles: bundlesOf(rows).map((b) => ({ value: bundleParam(b.name), label: bundleLabel(b.name) })),
-	types: optionsOf(rows, 'docType'),
-	statuses: statusOptions(rows),
+// The same lists the document list offers (bundlesOf, optionsOf, statusOptions), over the fields the index holds.
+export const searchOptions = (rows: readonly Pick<SearchInput, 'bundle' | 'docType' | 'textStatus'>[]): SearchOptions => ({
+	bundles: [...new Set(rows.map((r) => r.bundle))].map((b) => ({ value: bundleParam(b), label: bundleLabel(b) })),
+	types: [...new Set(rows.map((r) => r.docType))].sort(),
+	statuses: [...TEXT_STATUSES, ...[...new Set(rows.map((r) => r.textStatus))].sort().filter((x) => !TEXT_STATUSES.includes(x))],
 });
 
 export function invalidReason(q: SearchQuery, opts?: SearchOptions): string | null {
@@ -54,7 +70,7 @@ export function invalidReason(q: SearchQuery, opts?: SearchOptions): string | nu
 	return bad.length ? bad.join(' ') : null;
 }
 
-export function searchRows(rows: readonly SearchRow[], S: SearchQuery): SearchRow[] {
+export function searchRows<R extends SearchInput>(rows: readonly R[], S: SearchQuery): R[] {
 	let a = rows.slice();
 	if (S.bundle) a = a.filter((r) => bundleParam(r.bundle) === S.bundle);
 	if (S.type) a = a.filter((r) => r.docType === S.type);
@@ -69,14 +85,14 @@ export function searchRows(rows: readonly SearchRow[], S: SearchQuery): SearchRo
 }
 
 export interface ResultLine { ref: string; date: string; title: string; excerpt: string; type: string; bundle: string; amount: string; file: string }
-const line = (r: SearchRow): ResultLine => ({ ref: r.ref, date: r.date, title: r.subject || cleanName(r.filename), excerpt: r.excerpt ? `${r.excerpt.slice(0, 120)}…` : '', type: r.docType, bundle: r.bundle, amount: money(r.amount), file: r.file });
+const line = (r: SearchInput): ResultLine => ({ ref: r.ref, date: r.date, title: r.subject || cleanName(r.filename), excerpt: r.excerpt ? `${r.excerpt.slice(0, 120)}…` : '', type: r.docType, bundle: r.bundle, amount: money(r.amount), file: r.file });
 
 export type SearchResult =
 	| { kind: 'idle' }
 	| { kind: 'invalid'; reason: string }
 	| { kind: 'results'; page: Page<ResultLine> };
 
-export function runSearch(rows: readonly SearchRow[], query: SearchQuery, submitted: boolean, page: number, opts: SearchOptions = searchOptions(rows)): SearchResult {
+export function runSearch(rows: readonly SearchInput[], query: SearchQuery, submitted: boolean, page: number, opts: SearchOptions = searchOptions(rows)): SearchResult {
 	if (!submitted) return { kind: 'idle' };
 	const reason = invalidReason(query, opts);
 	if (reason) return { kind: 'invalid', reason };
@@ -84,8 +100,29 @@ export function runSearch(rows: readonly SearchRow[], query: SearchQuery, submit
 	return { kind: 'results', page: { ...p, slice: p.slice.map(line) } };
 }
 
+/**
+ * A search page's data from the corpus and the URL, the same for the local and the hosted route: the query, the page of
+ * results (or the action items), the filter options and the coverage line.
+ */
+export function searchPage(rows: readonly SearchInput[], p: URLSearchParams) {
+	const { query, submitted } = queryFromParams(p);
+	const options = searchOptions(rows);
+	const invalid = invalidReason(query, options);
+	const wantsActions = p.get('actions') === '1';
+	const result = wantsActions ? null : runSearch(rows, query, submitted, pageParam(p.get('page')), options);
+	return {
+		query,
+		submitted,
+		result,
+		pageNotice: result?.kind === 'results' ? pageNotice(p.get('page'), result.page) : null,
+		actions: wantsActions ? (invalid ? { invalid } : actionItems(searchRows(rows, query))) : null,
+		options,
+		coverage: coverage(rows),
+	};
+}
+
 export const EXPORT_COLUMNS = ['ref', 'date', 'filename', 'subject', 'sender', 'doc_type', 'bundle', 'amount', 'text_status', 'url'] as const;
-export const exportRows = (rows: readonly SearchRow[]): Cell[][] => [[...EXPORT_COLUMNS], ...rows.map((r) => [r.ref, r.date, r.filename, r.subject, r.sender, r.docType, r.bundle, r.amount, r.textStatus, r.url])];
+export const exportRows = (rows: readonly (SearchInput & { url: string })[]): Cell[][] => [[...EXPORT_COLUMNS], ...rows.map((r) => [r.ref, r.date, r.filename, r.subject, r.sender, r.docType, r.bundle, r.amount, r.textStatus, r.url])];
 
 export function extractActionItems(text: string): string[] {
 	if (!text) return [];
@@ -95,13 +132,13 @@ export function extractActionItems(text: string): string[] {
 	while ((m = re.exec(text)) !== null) { const s = m[0].trim(); if (s.length > 8 && items.length < 20) items.push(s); }
 	return items;
 }
-export function actionItems(rows: readonly SearchRow[]): { total: number; shown: { ref: string; date: string; t: string }[] } {
+export function actionItems(rows: readonly SearchInput[]): { total: number; shown: { ref: string; date: string; t: string }[] } {
 	const items = rows.flatMap((r) => extractActionItems(`${r.subject}. ${r.excerpt}`).map((t) => ({ ref: r.ref, date: r.date, t })));
 	return { total: items.length, shown: items.slice(0, 300) };
 }
 
 export interface Coverage { documents: number; withExcerpt: number; maxExcerpt: number; extracted: number; none: number; pending: number; other: number }
-export function coverage(rows: readonly Pick<ChronologyListRow, 'excerpt' | 'textStatus'>[]): Coverage {
+export function coverage(rows: readonly Pick<SearchInput, 'excerpt' | 'textStatus'>[]): Coverage {
 	const c: Coverage = { documents: rows.length, withExcerpt: 0, maxExcerpt: 0, extracted: 0, none: 0, pending: 0, other: 0 };
 	for (const r of rows) {
 		if (r.excerpt) { c.withExcerpt++; c.maxExcerpt = Math.max(c.maxExcerpt, r.excerpt.length); }

@@ -121,18 +121,21 @@ async function signIn(j) {
       await j.page.goto(`${BASE_URL}${process.env.SIGN_IN_PATH || '/sign-in'}`, { waitUntil: 'domcontentloaded' });
       // Clerk's hosted flow restarts if its button is clicked again mid-step, and a step can take several seconds on the
       // development instance, so each pass waits up to 1.5 s and a step that throws (a field detached mid-render) is retried.
-      // Every wait is bounded by the 60 s deadline, and the app-ready check is polled so the measured time isn't padded.
+      // Every wait is bounded by the 60 s deadline. The wait ends as soon as the app is ready or the page has moved to the next
+      // step (a URL change, or a password or code field that was not visible at the click), so the measured time isn't padded.
       const deadline = Date.now() + 60000;
       const left = () => Math.max(1, Math.min(5000, deadline - Date.now()));
       const quietly = p => p.catch(() => false);
       const app = new URL(BASE_URL).origin;
       const marker = j.page.locator('[data-auth-state="signed-in"], a[data-action="open-case"], nav[aria-label="Case views"]').first();
       const ready = async () => { const u = new URL(j.page.url()); return u.origin === app && !u.pathname.startsWith('/sign-in') && await quietly(marker.isVisible()); };
+      const email = j.page.locator('input[name="identifier"],input[type="email"]').first();
+      const password = j.page.locator('input[type="password"]').first();
+      const code = j.page.locator('input[autocomplete="one-time-code"]').first();
+      const where = async () => ({ url: j.page.url(), password: await quietly(password.isVisible()), code: await quietly(code.isVisible()) });
+      const moved = async from => { const now = await where(); return now.url !== from.url || (now.password && !from.password) || (now.code && !from.code); };
       while (Date.now() < deadline) {
         if (await ready()) return;
-        const email = j.page.locator('input[name="identifier"],input[type="email"]').first();
-        const password = j.page.locator('input[type="password"]').first();
-        const code = j.page.locator('input[autocomplete="one-time-code"]').first();
         if (await quietly(email.isVisible()) && await quietly(email.isEditable())) await quietly(email.fill(credentials.email, { timeout: left() }));
         if (await quietly(password.isVisible()) && await quietly(password.isEditable())) await quietly(password.fill(credentials.password, { timeout: left() }));
         if (await quietly(code.isVisible())) {
@@ -140,11 +143,12 @@ async function signIn(j) {
           await quietly(code.fill(credentials.otp, { timeout: left() }));
         }
         const submit = j.page.getByRole('button', { name: /^(Continue|Sign in|Sign in to ClearCase)$/i }).first();
+        const before = await where();
         if (await quietly(submit.isVisible()) && await quietly(submit.isEnabled())) await quietly(submit.click({ timeout: left() }));
         const until = Math.min(Date.now() + 1500, deadline);
         while (Date.now() < until) {
-          if (await ready()) return;
-          await new Promise(resolve => setTimeout(resolve, 100));
+          if (await ready() || await moved(before)) break;
+          await new Promise(resolve => setTimeout(resolve, 25));
         }
       }
       throw new Error('Sign-in timeout');

@@ -1,8 +1,10 @@
 import { shard, publishedVersion } from '$lib/views/hosted/payloads.server';
+import { hostedCtx } from '$lib/views/litigation/hosted.server';
 import { paymentsMerge } from '$lib/views/quantum/payments';
+import { paymentsActions } from '$lib/views/quantum/payments-actions.server';
 import type { ViewShards } from '$lib/views/payloads/views';
 import { refuse } from '$lib/server/runtime/hosted/http';
-import type { RequestEvent } from '@sveltejs/kit';
+import type { Actions, RequestEvent } from '@sveltejs/kit';
 import { paymentsWork } from '../payments_tab/work.server';
 
 export const load = async ({ locals, params }: Pick<RequestEvent, 'locals' | 'params'>) => {
@@ -13,5 +15,7 @@ export const load = async ({ locals, params }: Pick<RequestEvent, 'locals' | 'pa
   ]);
   const rows = work.rows;
   const data = paymentsMerge(payload, { payments: paymentsWork(rows) });
-  return { ...data, base: scope.base, empty: !data.claim && data.recon.length === 0 && data.payments.length === 0 };
+  return { ...data, base: scope.base, empty: !data.claim && data.recon.length === 0 && data.payments.length === 0, operationId: crypto.randomUUID() };
 };
+
+export const actions: Actions = paymentsActions(hostedCtx);

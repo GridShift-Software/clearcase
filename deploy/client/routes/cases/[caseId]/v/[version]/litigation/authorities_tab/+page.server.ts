@@ -3,7 +3,9 @@ import { authoritiesMerge } from '$lib/views/litigation/authorities';
 import type { ViewShards } from '$lib/views/payloads/views';
 import { refuse } from '$lib/server/runtime/hosted/http';
 import { registerRows } from '../heads_tab/rows';
-import type { RequestEvent } from '@sveltejs/kit';
+import { authoritiesActions } from '$lib/views/litigation/actions.server';
+import { hostedCtx } from '$lib/views/litigation/hosted.server';
+import type { Actions, RequestEvent } from '@sveltejs/kit';
 
 export const load = async ({ locals, params }: Pick<RequestEvent, 'locals' | 'params'>) => {
   const scope = await publishedVersion(locals, params);
@@ -15,3 +17,5 @@ export const load = async ({ locals, params }: Pick<RequestEvent, 'locals' | 'pa
   const data = authoritiesMerge(payload, { rows: registerRows(rows) }, crypto.randomUUID());
   return { ...data, base: scope.base, empty: data.imported.length === 0 && data.user.length === 0 };
 };
+
+export const actions: Actions = authoritiesActions(hostedCtx);

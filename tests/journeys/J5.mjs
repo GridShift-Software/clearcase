@@ -21,6 +21,12 @@ export const journey = () => run('J5', async j => {
         check(await main.locator('#confsel option').count() > 1, 'Conflict view has no people/entities');
       } else if (id === 'interest_calc_tab') {
         check((await main.locator('.narrative').allTextContents()).join('').trim().length > 0, 'Interest view has no imported narrative');
+      } else if (id === 'heads_tab') {
+        // Heads of argument are the lawyer's own entries; the package imports none. A fresh case shows the add form and
+        // the documented empty state, and an edited one shows rows: either is the view working.
+        check(await main.locator('form#hd-add').count() === 1, 'Heads view has no add form');
+        const rows = await main.locator('#heads-table tbody tr').evaluateAll(rs => rs.filter(r => !r.querySelector('.empty') && r.querySelectorAll('td').length >= 2 && r.textContent.trim().length > 0).length);
+        check(rows > 0 || await main.locator('#heads-table tbody .empty').count() === 1, 'Heads view shows neither entries nor its empty state');
       } else if (id === 'settlement_tab') {
         const input = main.locator('#se_claim');
         check(Number((await input.inputValue()).replace(/,/g, '')) > 0, 'Calculator has no imported principal/claim');

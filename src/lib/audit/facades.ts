@@ -18,7 +18,7 @@ export type GrantAuditPort = Readonly<AuditSink & AuditLookup>;
 
 export function requestAuditSink(a: Common): RequestAuditSink {
   const core = auditCore({ ...a, gate: null });
-  const sink: RequestAuditSink = { append: (event) => core.append(event) };
+  const sink: RequestAuditSink = { append: (event) => core.append(event), atomic: (input) => core.atomic(input) };
   return Object.freeze(sink);
 }
 

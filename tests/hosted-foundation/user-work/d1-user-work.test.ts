@@ -449,8 +449,9 @@ describe('the GRS-116 audit sink as the injected AuditSink', () => {
     await provisionAuditBinding({ db: d1(db), config, now: NOW });
     const { auth, reader } = setup({ db });
     const identity = auth.identity();
-    const sink = requestAuditSink({ db: d1(db), config, requester: { kind: 'verified', principal: identity.kind === 'verified' ? identity.principal : null!, sessionId: identity.sessionId! }, now: NOW });
-    const work = createD1UserWork({ db: d1(db), config: { clientId: CLIENT, limits: LIMITS }, identity, audit: sink, store: reader.reader, now: NOW, tableDefinitions });
+    const binding = d1(db);
+    const sink = requestAuditSink({ db: binding, config, requester: { kind: 'verified', principal: identity.kind === 'verified' ? identity.principal : null!, sessionId: identity.sessionId! }, now: NOW });
+    const work = createD1UserWork({ db: binding, config: { clientId: CLIENT, limits: LIMITS }, identity, audit: sink, store: reader.reader, now: NOW, tableDefinitions });
     const note = written(await work.addNote({ caseId: CASE, expected: { kind: 'absent' }, operationId: 'n', target: { kind: 'case' }, body: 'Audited' }));
     await work.defineTable({ definition: costs });
     const rows = db.prepare('SELECT action, case_id, outcome FROM native_audit_events ORDER BY seq').all();

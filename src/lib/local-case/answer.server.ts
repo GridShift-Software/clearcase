@@ -1,6 +1,12 @@
 import { error, fail, isHttpError, type ActionFailure } from '@sveltejs/kit';
 import { app } from './app.server.ts';
 import { UserWorkError } from './user-work.server.ts';
+import type { UserWork } from './user-work.server.ts';
+
+/** Local argument order with awaitable reads: hosted actions can use the same port without opening local storage. */
+type WorkMethods = Pick<UserWork, 'listRows' | 'putRow' | 'deleteRow' | 'seedViews' | 'putSeedOverlay' | 'notesFor' | 'addNote' | 'deleteNote' | 'listTableRows' | 'putTableRow'>;
+type AwaitableWork = { [K in keyof WorkMethods]: (...args: Parameters<WorkMethods[K]>) => ReturnType<WorkMethods[K]> | Promise<Awaited<ReturnType<WorkMethods[K]>>> };
+export interface Work extends AwaitableWork {}
 
 export interface Answer { op: string; values: Record<string, string> | null; message: string | null; retry: boolean; field?: string | null; target?: string; gone?: boolean }
 export interface Say { busy: string; refused: string | ((e: UserWorkError) => string); failed: string }
@@ -12,10 +18,12 @@ export function answer<V extends Record<string, string> | null, X extends Record
 	return fail(busy ? 503 : refused ? 400 : 500, { ...extra, op, values, message, retry: busy });
 }
 
-export async function guarded<T, V extends Record<string, string> | null, X extends Record<string, unknown> = {}>(op: string, values: V, write: () => Promise<T>, say: Say, extra: X = {} as X):
-	Promise<{ ok: true; value: T } | { ok: false; failure: ActionFailure<X & { op: string; values: V; message: string; retry: boolean }> }> {
+type GuardedResult<T, V, X> = Promise<{ ok: true; value: T } | { ok: false; failure: ActionFailure<X & { op: string; values: V; message: string; retry: boolean }> }>;
+export function guarded<T, V extends Record<string, string> | null, X extends Record<string, unknown> = {}>(op: string, values: V, write: () => Promise<T>, say: Say, extra?: X): GuardedResult<T, V, X>;
+export function guarded<T, V extends Record<string, string> | null, X extends Record<string, unknown> = {}>(op: string, values: V, write: (work: Work) => Promise<T>, say: Say, extra: X, work: Work): GuardedResult<T, V, X>;
+export async function guarded<T, V extends Record<string, string> | null, X extends Record<string, unknown> = {}>(op: string, values: V, write: (() => Promise<T>) | ((work: Work) => Promise<T>), say: Say, extra: X = {} as X, work?: Work): GuardedResult<T, V, X> {
 	try {
-		return { ok: true, value: await write() };
+		return { ok: true, value: await (work ? write(work) : (write as () => Promise<T>)()) };
 	} catch (e) {
 		const failure = answer(op, values, e, say, extra);
 		if (failure.status === 500) console.error('user-work write failed', e);

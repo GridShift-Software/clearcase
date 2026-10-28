@@ -54,7 +54,8 @@ export const load: PageServerLoad = async ({ params, parent, url }) => {
 		children: d ? a.store.childDocuments(version.id, d.ref).map((c) => c.ref) : [],
 		related: refs.map((r) => ({ ref: r, exists: existing.has(r) })),
 		parent: parentRef ? { ref: parentRef, exists: existing.has(parentRef) } : null,
-		notes: a.userWork.notesFor(version.caseId, version.id, r.ref),
+		notes: a.userWork.notesFor(version.caseId, version.id, r.ref).map((note) => ({ ...note, version: undefined as string | undefined })),
+		operationId: crypto.randomUUID(),
 	};
 };
 

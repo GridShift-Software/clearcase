@@ -43,7 +43,7 @@
 	{:else}
 		<h2>{items.length} notes</h2>
 		{#if items.length}
-			<ul class="notes">
+			<ul class="notes" data-testid="case-notes-list">
 				{#each items as n, i (n.id)}
 					<li data-note-id={n.id} data-note-version={n.version}>
 						<NoteText note={n} />

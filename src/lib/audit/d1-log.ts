@@ -1,5 +1,5 @@
 import type { AuditEvent, AuditSink, CaseId, IdentityState, Principal, SessionId, SystemAuditEvent } from '../server/runtime/contracts.ts';
-import type { D1 } from '../server/runtime/hosted/bindings.ts';
+import type { D1, D1Statement } from '../server/runtime/hosted/bindings.ts';
 import { id } from '../server/runtime/ids.ts';
 import { contractError, isDenial } from '../server/runtime/errors.ts';
 import type { AuditConfig } from './config.ts';
@@ -35,7 +35,10 @@ export interface PublicAuditPage { events: PublicAuditEvent[]; next: string | nu
 /** The lookup GRS-114's GrantAuditPort needs: the event stored under an id, exactly as persisted, or null. */
 export interface AuditLookup { find(eventId: string): Promise<StoredAuditEvent | null> }
 /** The full internal log: trusted composition only. A route must receive a facade, never this object. */
-export interface AuditLog extends AuditSink, AuditLookup { query(q: AuditQuery): Promise<PublicAuditPage> }
+export interface AuditLog extends AuditSink, AuditLookup {
+  query(q: AuditQuery): Promise<PublicAuditPage>;
+  atomic(a: { db: D1; event: AuditEvent }): Promise<readonly D1Statement[]>;
+}
 type EventClass = 'protected' | 'read' | 'denial';
 
 const error = (code: AuditErrorCode, retryable = false): AuditError => contractError(code, retryable);
@@ -178,6 +181,22 @@ function build(a: Omit<CoreArgs, 'requester'> & { requester: IdentityState | nul
 
   const log: AuditLog = {
     async append(event) { return write(event, 'protected'); },
+    async atomic(input) {
+      // Prepared statements must execute in the caller's exact primary session, not another database's transaction.
+      if (input.db !== db || mode !== 'request') throw error('audit-unavailable');
+      const env = await envelopeOf(input.event, config);
+      if (!sameActor(env.event.actor) || env.event.action === READ_ACTION) throw error('invalid-event');
+      const e = env.event, key = await actorKey(e.actor);
+      // A failed binding, exhausted capacity or reused event id must FAIL the caller's batch, never silently insert 0.
+      // The table's NOT NULL, binding and append-only triggers make the refusal transactional with the business change.
+      return [db.prepare(`INSERT INTO native_audit_events
+        (event_id, client_id, envelope, class, actor_key, action, object_kind, object_id, case_id, version, outcome, actor_kind, at, canonical, sha256)
+        VALUES (CASE WHEN EXISTS (SELECT 1 FROM native_audit_binding WHERE singleton = 1 AND client_id = ? AND event_count < ?)
+          AND NOT EXISTS (SELECT 1 FROM native_audit_events WHERE event_id = ?) THEN ? ELSE NULL END,
+          ?, ?, 'protected', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(config.clientId, config.limits.maxRows, e.eventId, e.eventId, config.clientId, ENVELOPE, key,
+          e.action, e.object.kind, e.object.id, e.object.caseId, e.version, e.outcome, e.actor.kind, e.at, env.canonical, env.sha256)];
+    },
     async find(eventId) {
       if (!validEventId(eventId)) return null;
       const row = await stored(eventId);

@@ -3,8 +3,8 @@
 // Every write is one guarded D1 batch: the first statement fails the batch unless the case's user-work revision is the
 // one the write read and the database is bound to this deployment's client and schema version, so a competing writer
 // can never be overwritten. The same batch records the operation in uw_operation with its request digest, result and
-// audit event. Success is returned only after the injected AuditSink acknowledges that event; an unacknowledged event
-// leaves the write durable and the operation retryable under the same operationId, which appends the identical event.
+// audit event. Fresh note changes require AuditSink.atomic and commit their audit and acknowledgement in that batch.
+// Other write families and historical unaudited ledgers retain append-and-replay recovery under the same operationId.
 // A failed batch is never taken as success or failure on its own: the ledger and revision are read back to decide.
 import type * as C from '../../server/runtime/contracts.ts';
 import type { D1, D1Statement } from '../../server/runtime/hosted/bindings.ts';
@@ -145,10 +145,14 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
     await standing();
   }
   /** Revocation, then the case grant, on every operation. */
-  async function authorize(scope: C.Scope, operation: 'read' | 'write-user-work'): Promise<{ db: D1; caseId: C.CaseId }> {
+  async function authorize(scope: C.Scope, operation: 'read' | 'write-user-work', inlineBinding = false): Promise<{ db: D1; caseId: C.CaseId }> {
     const caseId = caseOf(scope);
     await standing();
     await identity.authorize({ caseId, operation });
+    if (inlineBinding) {
+      if (!options.db) throw contractError('storage-unavailable');
+      return { db: options.db, caseId };
+    }
     return { db: await gate(), caseId };
   }
   const read = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof Error && 'code' in e) throw e; throw contractError('storage-unavailable', true); } };
@@ -174,6 +178,7 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
     const op = operationId(scope.operationId);
     const request = await sha256Hex(canonical({ kind, caseId, payload, principal: principalKey() }));
     const eventId = `uw:${await sha256Hex(canonical([config.clientId, caseId, op]))}`;
+    const atomicNote = kind === 'note-add' || kind === 'note-delete';
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       const prior = await read(() => ledger(db, caseId, op));
       if (prior) {
@@ -191,16 +196,28 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       const planned = await plan(db, caseId, step);
       if (planned.kind !== 'written') return { kind: planned.kind };
       const result: C.Written<T> = { kind: 'written', value: planned.value, version: step.version, caseRevision: step.next };
-      const row: Ledger = { request_sha256: request, result_json: JSON.stringify(result), event_json: JSON.stringify(event), audited_at: null };
+      let auditStatements: readonly D1Statement[] = [];
+      if (atomicNote) {
+        if (!audit.atomic) throw failure('audit-unavailable', 'not-written', false);
+        try {
+          auditStatements = await audit.atomic({ db, event });
+          if (!Array.isArray(auditStatements) || !auditStatements.length) throw contractError('audit-unavailable');
+        } catch (e) {
+          throw failure('audit-unavailable', 'not-written', !(e instanceof Error && 'retryable' in e && e.retryable === false));
+        }
+      }
+      const row: Ledger = { request_sha256: request, result_json: JSON.stringify(result), event_json: JSON.stringify(event), audited_at: atomicNote ? step.at : null };
       const statements = [
         guardStatement(db, caseId, revision),
-        db.prepare('INSERT INTO uw_operation (case_id, operation_id, request_sha256, result_json, prior_revision, revision, event_json, created_at, audited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)')
-          .bind(caseId, op, request, row.result_json, revision, step.next, row.event_json, step.at),
+        db.prepare('INSERT INTO uw_operation (case_id, operation_id, request_sha256, result_json, prior_revision, revision, event_json, created_at, audited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .bind(caseId, op, request, row.result_json, revision, step.next, row.event_json, step.at, row.audited_at),
         db.prepare('INSERT INTO uw_case (case_id, revision, updated_at) VALUES (?, ?, ?) ON CONFLICT (case_id) DO UPDATE SET revision = excluded.revision, updated_at = excluded.updated_at').bind(caseId, step.next, step.at),
         ...planned.statements,
+        ...auditStatements,
       ];
       if (statements.length > limits.maxStatementsPerBatch) invalid();
       if (planned.beforeCommit) await planned.beforeCommit();
+      else if (atomicNote) await authorize(scope, 'write-user-work');
       try { await db.batch(statements); }
       catch (e) {
         // Decide from durable state, never from the error: the batch may have committed before its response was lost.
@@ -214,9 +231,12 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
         }
         if (current !== revision) { if (expectedRevision !== undefined) return { kind: 'stale' }; continue; }
         if (isConstraintFailure(e) && planned.collision) { const refusal = await read(planned.collision); if (refusal) throw refusal; }
+        if (atomicNote && e instanceof Error && /native_audit/i.test(e.message)) throw failure('audit-unavailable', 'not-written', true);
         throw failure('storage-unavailable', 'not-written', true);
       }
-      return finish<T>(db, caseId, op, row, request);
+      const completed = await finish<T>(db, caseId, op, row, request);
+      if (atomicNote) await authorize(scope, 'write-user-work');
+      return completed;
     }
     throw failure('storage-unavailable', 'not-written', true);
   }
@@ -311,9 +331,17 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       return { status: refs.length === 0 ? 'missing' : refs.length === 1 ? 'exact' : 'ambiguous', refs };
     },
     async notesFor(a) {
-      const { db, caseId } = await authorize(a, 'read');
+      const { db, caseId } = await authorize(a, 'read', true);
       if (a.target !== null && !TargetCheck.Check(a.target)) invalid();
-      const notes = await notesOf(db, caseId);
+      if (a.target?.kind === 'document' && a.target.anchor.caseId !== caseId) throw contractError('forbidden');
+      const document = a.target?.kind === 'document' ? a.target.anchor : null;
+      // The binding and rows share one read, including the empty case. A missing/wrong binding never looks like zero notes.
+      const rows = await read(() => db.prepare(`SELECT n.note_id, n.target_json, n.body, n.body_sha256, n.created_at, n.version
+        FROM uw_binding b LEFT JOIN uw_note n ON n.case_id = ?${document ? " AND n.target_kind = 'document' AND n.anchor_results_version = ? AND n.anchor_ref = ?" : ''}
+        WHERE b.singleton = 1 AND b.client_id = ? AND b.schema_version = ? ORDER BY n.rowid`)
+        .bind(caseId, ...(document ? [document.resultsVersion, document.refAtCreation] : []), config.clientId, USER_WORK_SCHEMA_VERSION).all<NoteDb>());
+      if (!rows.results.length) throw contractError('storage-unavailable');
+      const notes = await Promise.all(rows.results.filter(n => n.note_id !== null).map(noteOf));
       return a.target === null ? notes : notes.filter((n) => sameJson(n.target, a.target));
     },
     async summary(a) {
@@ -344,7 +372,7 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
         const note: C.HostedNote = { id: crypto.randomUUID(), body: text, createdAt: s.at, target, status: 'here', candidates: [], intact: true };
         return { kind: 'written', value: note, statements: [await noteInsert(db, caseId, note, s.version)], beforeCommit: async () => { await authorize(a, 'write-user-work'); } };
       });
-      await authorize(a, 'write-user-work');
+      // change() rechecks current authority before commit and before releasing either a fresh result or a replay.
       return result;
     },
     async deleteNote(a) {

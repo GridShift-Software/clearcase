@@ -1,3 +1,4 @@
+import { requestReadAudit } from '../../../audit/facades.ts';
 import { requestCaseLookup } from '../../../tenancy/request-case.ts';
 import { bindPageReads } from '../../../tenancy/page-reads.ts';
 import type { Readiness } from './handle.ts';
@@ -11,7 +12,7 @@ import { clerkIdentityProviderFromEnv } from '../../../auth/clerk/provider.ts';
 import type { ClerkIdentityConfig } from '../../../auth/clerk/config.ts';
 import { createCaseAuthorizer, d1GrantRepository, resolveExactDeployment, validateClientManifest, type ClientResourceIdentity } from '../../../tenancy/index.ts';
 import { d1CaseDirectory } from '../../../tenancy/case-directory.ts';
-import { requestReadAudit, auditConfig, requestAuditSink, type AuditConfig } from '../../../audit/index.ts';
+import { auditConfig, requestAuditSink, type AuditConfig } from '../../../audit/index.ts';
 import { cloudBindings } from '../../../storage/cloud/bindings.ts';
 import { storageBudgets } from '../../../storage/cloud/budgets.ts';
 import { createCloudResults } from '../../../results/hosted/index.ts';

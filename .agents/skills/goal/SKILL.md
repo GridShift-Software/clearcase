@@ -40,7 +40,7 @@ Claude built it, Codex reviews; Codex built it, Claude reviews. A Codex-only dev
 - A finding you dispute goes to the owner as a comment on the issue, not an argument in the PR.
 
 ## 6. Merge
-When `check-lite` is green at the head, the review has posted with nothing High or Medium open, and `origin/sprint/hosted-demo-20261105` is merged into your branch: `gh pr merge --merge`. Comment the merge SHA on the issue and move it to Done. Staging deploys itself. Then go back to step 1.
+When `check-lite` is green at the head, the review has posted with nothing High or Medium open, and `origin/sprint/hosted-demo-20261105` is merged into your branch: `gh pr merge --merge`. Then deploy staging from a clean checkout of the merge SHA with `scripts/deploy-staging.sh` (it needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; without them, comment that the merge is not deployed yet). There is no deploy workflow: pc1's admission hook refuses pushes other than to `dev` (`docs/ci-runner.md`). Comment the merge SHA and the deployed version on the issue and move it to Done. Then go back to step 1.
 
 ## Stop and ask a human
 Comment on the issue and mention the owner when: blocked over 30 minutes; the third attempt fails; a security-sensitive path (auth, tenancy, audit, sign-in routes, grant producers, R2 object serving) is touched by a ticket not flagged for it; a check needs a secret or Cloudflare spend; anything would change `dev`, `main`, A or B. Otherwise decide, note it in the PR body and continue.

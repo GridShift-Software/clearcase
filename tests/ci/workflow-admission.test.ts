@@ -18,7 +18,6 @@ const workflows = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f)).map((file) 
 const jobs = workflows.flatMap(({ file, doc }) => Object.entries(doc.jobs).map(([id, job]) => ({ name: `${file} ${id}`, job, workflow: doc })));
 const steps = (job: Job) => (Array.isArray(job.steps) ? job.steps : []) as Record<string, unknown>[];
 const ci = workflows.find((w) => w.file === 'ci.yml')!.doc;
-const deploy = workflows.find((w) => w.file === 'deploy-staging.yml')!.doc;
 
 const REPO = 'GridShift-Software/clearcase';
 const SHA = 'a'.repeat(40);
@@ -117,14 +116,14 @@ describe('workflow admission', () => {
 });
 
 // GRS-244: a pull request whose base is a sprint/ branch runs check-lite and not check; every other base, dev above all,
-// runs check and not check-lite; and staging deploys only on a push to the sprint branch of this repository.
+// runs check and not check-lite. Staging is deployed by the merger running scripts/deploy-staging.sh, not by a workflow:
+// pc1's admission hook refuses every push but one to dev (docs/ci-runner.md), so a push-triggered deploy job would never run.
 const SPRINT = 'sprint/hosted-demo-20261105';
 const sprintPull = on('a pull request from a branch of this repository into the sprint branch', 'pull_request', 'refs/pull/9/merge', pullRequest(REPO, {}, SPRINT));
 const sprintFork = on('a pull request from a fork into the sprint branch', 'pull_request', 'refs/pull/9/merge', pullRequest(FORK, {}, SPRINT));
 const sprintOther = on('a pull request into another sprint/ branch', 'pull_request', 'refs/pull/9/merge', pullRequest(REPO, {}, 'sprint/other'));
 const sprintPush = on('a push to the sprint branch', 'push', `refs/heads/${SPRINT}`, { ref: `refs/heads/${SPRINT}` });
-const forkSprintPush = on('a push to the sprint branch of a fork', 'push', `refs/heads/${SPRINT}`, { ref: `refs/heads/${SPRINT}` }, FORK);
-const lite = ci.jobs['check-lite']!, full = ci.jobs.check!, deployJob = deploy.jobs.deploy!;
+const lite = ci.jobs['check-lite']!, full = ci.jobs.check!;
 const decides = (job: Job, c: Case) => runs(job.if, { github: c.github, needs: {} });
 describe('sprint pull requests', () => {
 	it.each([sprintPull, sprintOther])('run check-lite and skip check for $name', (c) => {
@@ -143,15 +142,8 @@ describe('sprint pull requests', () => {
 	it('run neither job for a push to the sprint branch', () => {
 		expect(starts(ci.on, sprintPush.github)).toBe(false);
 	});
-	it('deploys staging only for a push to the sprint branch of this repository', () => {
-		expect(starts(deploy.on, sprintPush.github)).toBe(true);
-		expect(decides(deployJob, sprintPush)).toBe(true);
-		for (const c of [sprintPull, sprintFork, forkSprintPush, ...ADMITTED, ...REJECTED]) expect(starts(deploy.on, c.github) && decides(deployJob, c), c.name).toBe(false);
-	});
-	it('gives the deploy job its Cloudflare secrets as environment variables and nothing else', () => {
-		const env = steps(deployJob).flatMap((s) => Object.entries((s.env ?? {}) as Record<string, string>)).filter(([, v]) => String(v).includes('secrets.'));
-		expect(env.map(([k]) => k).sort()).toEqual(['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN']);
-		expect(workflows.filter(({ doc }) => /\$\{\{\s*secrets\./.test(JSON.stringify(doc))).map(({ file }) => file)).toEqual(['deploy-staging.yml']);
+	it('puts no repository secret into any workflow, so no job hands a Cloudflare token to the runner', () => {
+		expect(workflows.filter(({ doc }) => /\$\{\{\s*secrets\./.test(JSON.stringify(doc))).map(({ file }) => file)).toEqual([]);
 	});
 });
 

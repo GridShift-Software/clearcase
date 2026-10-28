@@ -74,7 +74,10 @@ golden=$(boat exec "${ids[0]}" --timeout 60 --no-update -- cat clearcase/.boat-g
 golden_sha=$(python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("sha",""))' <<<"$golden" 2>/dev/null || true)
 golden_lock=$(python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("bunLockSha256",""))' <<<"$golden" 2>/dev/null || true)
 git update-ref refs/boat/pr "$sha"
-if [ -n "$golden_sha" ] && git merge-base --is-ancestor "$golden_sha" "$sha" 2>/dev/null; then
+if [ "$golden_sha" = "$sha" ]; then
+  # The snapshot already holds $sha; a bundle of no commits would fail, so nothing is sent.
+  : > "$tmp/pr.bundle"
+elif [ -n "$golden_sha" ] && git merge-base --is-ancestor "$golden_sha" "$sha" 2>/dev/null; then
   git bundle create "$tmp/pr.bundle" refs/boat/pr "^$golden_sha" >/dev/null 2>&1 || infra "git bundle failed"
 else
   echo "run-checks: the golden snapshot's commit is unknown or not an ancestor of $sha; sending full history" >&2
@@ -87,10 +90,11 @@ for n in "${!jobs[@]}"; do
   id=${ids[$n]} name=${jobs[$n]%%|*} cmd=${jobs[$n]#*|}
   (
     rc=0
-    if boat scp "$tmp/pr.bundle" "$id:/home/user/pr.bundle" --no-update > "$out/$name.log" 2>&1; then
+    if [ ! -s "$tmp/pr.bundle" ] || boat scp "$tmp/pr.bundle" "$id:/home/user/pr.bundle" --no-update > "$out/$name.log" 2>&1; then
       boat exec "$id" --timeout 0 --stream --cwd clearcase --no-update -- bash -lc "
         set -e
-        git fetch -q /home/user/pr.bundle refs/boat/pr && git checkout -q --detach FETCH_HEAD
+        if [ -s /home/user/pr.bundle ]; then git fetch -q /home/user/pr.bundle refs/boat/pr && git checkout -q --detach FETCH_HEAD; fi
+        [ \"\$(git rev-parse HEAD)\" = '$sha' ] || { echo 'run-checks: sandbox is not at $sha' >&2; exit 2; }
         [ \"\$(sha256sum bun.lock | cut -d' ' -f1)\" = '$golden_lock' ] || bun install --frozen-lockfile
         export CLEARCASE_SPRINT=1
         $cmd" >> "$out/$name.log" 2>&1 || rc=$?

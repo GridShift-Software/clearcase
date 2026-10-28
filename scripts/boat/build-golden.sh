@@ -64,7 +64,6 @@ run '
   bunx svelte-kit sync
   bun run --bun build
   bun run --bun build:hosted
-  bun run --bun fixtures:generate
   bunx vitest run tests/hosted-smoke/native-viewer --maxWorkers=2 || echo "warm-up run failed; the snapshot is still usable"
   printf "{\"sha\":\"%s\",\"bunLockSha256\":\"%s\",\"bun\":\"%s\",\"chrome\":\"%s\",\"builtAt\":\"%s\"}\n" \
     "$(git rev-parse HEAD)" "$(sha256sum bun.lock | cut -d" " -f1)" "$(bun --version)" \

@@ -15,7 +15,7 @@ for (const id of ['elements_tab', 'legality_tab', 'contracts_tab', 'quantum_tab'
     const load = datasetView(id, () => false);
     const view = () => {
       const event = { locals: { ...l }, params: { caseId: CASE_ID, version: b.built.record.resultsVersion } };
-      return Promise.all([layoutLoad(event as never), load(event)]);
+      return Promise.all([layoutLoad(event as never), load(event as never)]);
     };
     // Warm the reader's storage integrity gate; this isn't a per-page query.
     await measure(c, view);

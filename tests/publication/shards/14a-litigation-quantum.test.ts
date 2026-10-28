@@ -33,7 +33,7 @@ test('hosted loaders return the same props as the local loaders', async () => {
     const dep = await published(b);
     for (const [id, route] of Object.entries(routes)) {
       const { datasetView } = await import('../../../src/lib/views/hosted/payloads.server.ts');
-      const props = await datasetView(id as keyof typeof routes, () => false)({ locals: locals(dep), params: { caseId: CASE_ID, version: b.built.record.resultsVersion } });
+      const props = await datasetView(id as keyof typeof routes, () => false)({ locals: locals(dep), params: { caseId: CASE_ID, version: b.built.record.resultsVersion } } as never);
       const { base, empty, ...hosted } = props;
       expect(base).toBe(`/cases/${CASE_ID}/v`);
       expect(empty).toBe(false);

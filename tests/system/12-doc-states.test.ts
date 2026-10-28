@@ -3,6 +3,7 @@ import { render } from 'svelte/server';
 import { describe, expect, test, vi } from 'vitest';
 
 vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
+vi.mock('$app/navigation', () => ({ invalidateAll: () => Promise.resolve() }));
 const { default: Page } = await import('../../src/routes/v/[vid]/doc/[ref]/+page.svelte');
 
 const RV = `sha256:${'b'.repeat(64)}`;

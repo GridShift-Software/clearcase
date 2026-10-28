@@ -73,7 +73,9 @@ it('16 document note action survives a loader roundtrip, and the bound read fetc
     const form = new FormData(); form.set('body', 'Synthetic action roundtrip'); form.set('operationId', 'action-roundtrip');
     const event = { locals, params: { caseId: CASE, version: RV1, ref: 'D-001' }, url: new URL('https://synthetic.invalid/'),
       request: new Request('https://synthetic.invalid/?/note', { method: 'POST', body: form }) };
-    expect(await actions.note!(event as never)).toEqual({ saved: true });
+    // The answer carries the saved note and a fresh operation id for the next form, so the page shows it without a reload.
+    expect(await actions.note!(event as never)).toEqual({ saved: true, operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      note: expect.objectContaining({ body: 'Synthetic action roundtrip', refAtCreation: 'D-001', resultsVersion: RV1, anchorSha256: SHA_A, status: 'here', intact: true, version: expect.any(String) }) });
     // Populate many other targets with deliberately corrupt JSON: a bounded document read must never fetch/decode them.
     const insert = w.db.prepare(`INSERT INTO uw_note (case_id,note_id,target_kind,anchor_results_version,anchor_ref,anchor_sha256,target_json,body,body_sha256,created_at,version) VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
     for (let i = 0; i < 200; i++) insert.run(CASE, `other-${i}`, 'document', RV1, 'D-OTHER', SHA_A, 'not-json', 'Other document', 'invalid', '2200-01-01T00:00:00Z', `other-${i}`);

@@ -1,19 +1,16 @@
 import { fail, type RequestEvent } from '@sveltejs/kit';
 import type { DocumentAnchor } from '../../case-package/index.ts';
-import { now } from '../../components/clock.ts';
-import { CANCEL, deleteStep } from '../../components/confirm-delete.ts';
-import { viewAt } from '../../components/views.ts';
+import { fixedNowSetting, now } from '../../components/clock.ts';
 import { app } from '../../local-case/app.server.ts';
 import { resolveRefs } from '../../local-case/documents.server.ts';
 import { exportFileName, viewContentOf, viewText } from '../../local-case/results.server.ts';
 import type { LocalCase } from '../../local-case/service.server.ts';
 import { addEntry, deleteEntry, editEntry, listRegister, type StoredRow } from '../../user-work/registers.server.ts';
-import { parseAmount } from './amounts.ts';
 import { registerOf, type RegisterDef, type RegisterView } from './defs.ts';
-import { byDate, cellText, countdown, entryFrom, invalidReason, timesheetValue, unsavable, type Entry, type Tone } from './logic.ts';
+import { byDate, type Entry } from './logic.ts';
+import { checkDelete, checkSave, deletionFailure, failure, GONE, readDelete, readSave, registerHead, shownRows, STALE, STALE_DELETE } from './shown.ts';
 
-export type Cell = { kind: 'text'; text: string; flag?: string } | { kind: 'chip'; text: string; tone: Tone } | { kind: 'ref'; text: string; target: string | null };
-export interface ShownRow { rowId: string; values: Entry; cells: Cell[]; version: string; intact: boolean }
+export type { Cell, ShownRow } from './shown.ts';
 
 function refTargets(a: LocalCase, rv: string, rows: readonly StoredRow[], def: RegisterDef): Map<string, string | null> {
 	const refField = def.fields.find((x) => x.docRef)?.k;
@@ -35,18 +32,6 @@ function refTargets(a: LocalCase, rv: string, rows: readonly StoredRow[], def: R
 	return out;
 }
 
-function cells(def: RegisterDef, r: StoredRow, targets: Map<string, string | null>, at: Date): Cell[] {
-	return def.columns.map((c): Cell => {
-		const v = c.field ? (r.values[c.field] ?? '') : '';
-		if (c.kind === 'countdown') return { kind: 'chip', ...countdown(v, at) };
-		if (c.kind === 'category') return { kind: 'chip', text: cellText(c.kind, r.values, c.field), tone: 'info' };
-		if (c.kind === 'ref' && v) { const t = targets.get(r.rowId); return { kind: 'ref', text: v, target: t ?? null }; }
-		const kind = c.field ? def.fields.find((x) => x.k === c.field)?.amount : undefined;
-		const bad = kind ? parseAmount(v, kind).kind === 'bad' : c.kind === 'value' && timesheetValue(r.values) === '';
-		return bad ? { kind: 'text', text: cellText(c.kind, r.values, c.field), flag: 'not a number; not counted' } : { kind: 'text', text: cellText(c.kind, r.values, c.field) };
-	});
-}
-
 function anchorOf(a: LocalCase, def: RegisterDef, caseId: string, rv: string, e: Entry, cur?: StoredRow): DocumentAnchor | null {
 	const k = def.fields.find((x) => x.docRef)?.k ?? '';
 	const ref = e[k];
@@ -66,25 +51,15 @@ export function registerLoad(view: RegisterView) {
 		const shown = view === 'deadlines_tab' ? byDate(stored) : stored;
 		const vc = view === 'deadlines_tab' ? viewContentOf(a.store, version.id) : null;
 		return {
-			register: { view, label: viewAt('registers', view)!.label, subtitle: def.subtitle, empty: def.empty, fields: def.fields, columns: def.columns, export: def.export, keepAfterAdd: def.keepAfterAdd ?? [], required: def.required ?? null },
-			rows: shown.map((r): ShownRow => ({ rowId: r.rowId, values: r.values, cells: cells(def, r, targets, at), version: r.version, intact: r.intact })),
+			register: registerHead(view, def),
+			rows: shownRows(def, shown, targets, at),
 			exportRows: stored.map((r) => ({ rowId: r.rowId, values: r.values })),
 			exportName: vc ? exportFileName(vc, 'deadlines_tab', def.export.name) : { name: def.export.name, note: null },
 			icsProductId: vc ? viewText(vc, 'deadlines_tab', 'icsProductId') : null,
+			fixedNow: fixedNowSetting() ? at.toISOString() : null,
 		};
 	};
 }
-
-const statusOf = (e: unknown): number => { const s = (e as { status?: unknown })?.status; return typeof s === 'number' && s >= 400 && s < 600 ? s : 500; };
-const failure = (e: unknown, what: string) => {
-	const status = statusOf(e);
-	const invalid = (e as { code?: string })?.code === 'invalid';
-	const why = status === 503 ? 'the store is busy or unavailable' : invalid ? 'the entry is larger than the 64 KiB a register entry can hold, or not valid' : 'the store refused the write';
-	const s = status === 500 && invalid ? 400 : status;
-	return { status: s, message: `${what} was not saved: ${why}. Nothing was changed; ${s >= 500 ? 'try again' : 'your input is kept'}.`, retry: s >= 500 };
-};
-const GONE = 'This entry was deleted elsewhere (in another tab or window), so your change was not saved. Your input is kept: copy it, then Discard and add it again.';
-const STALE = 'This entry was changed elsewhere (in another tab or window) since you opened it, so your change was not saved. Your input is kept and the list shows the entry as it is now: copy what you need, Discard, then edit the entry again.';
 
 function caseOf(params: Record<string, string>): { caseId: string; rv: string } | null {
 	const v = app().store.getVersion(params.vid ?? '');
@@ -95,48 +70,40 @@ export function registerActions(view: RegisterView) {
 	const def = registerOf(view);
 	return {
 		save: async ({ params, request }: RequestEvent) => {
-			const f = await request.formData();
-			const values = entryFrom(def, Object.fromEntries(def.fields.map((x) => [x.k, f.get(x.k)])));
-			const str = (k: string) => { const v = f.get(k); return typeof v === 'string' && v ? v : null; };
-			const rowId = str('rowId'), version = str('version');
-			const refuse = (status: number, message: string, retry = false) => fail(status, { op: 'save' as const, values, rowId, version, message, retry });
+			const s = readSave(def, await request.formData());
+			const { values, rowId, version } = s;
 			const c = caseOf(params);
-			if (!c) return refuse(404, 'Unknown results version.');
-			const skip = unsavable(def, values, rowId !== null);
-			if (skip === '') return { saved: false };
-			if (skip) return refuse(400, skip);
-			const bad = invalidReason(def, values);
-			if (bad) return refuse(400, bad);
-			if (rowId && !version) return refuse(409, STALE);
+			if (!c) return s.refuse(404, 'Unknown results version.');
+			const refused = checkSave(def, s);
+			if (refused) return refused;
 			const a = app();
 			try {
 				if (rowId) {
 					const r = await editEntry(a.userWork, c.caseId, def, rowId, values, (cur) => anchorOf(a, def, c.caseId, c.rv, values, cur), version);
-					return r === 'saved' ? { saved: true } : refuse(r === 'gone' ? 404 : 409, r === 'gone' ? GONE : STALE);
+					return r === 'saved' ? { saved: true } : s.refuse(r === 'gone' ? 404 : 409, r === 'gone' ? GONE : STALE);
 				}
 				return { saved: true, savedId: await addEntry(a.userWork, c.caseId, def, values, anchorOf(a, def, c.caseId, c.rv, values)) };
 			} catch (e) {
 				const x = failure(e, rowId ? 'The change' : 'The entry');
-				return refuse(x.status, x.message, x.retry);
+				return s.refuse(x.status, x.message, x.retry);
 			}
 		},
 		delete: async ({ params, request }: RequestEvent) => {
 			const f = await request.formData();
-			const rowId = f.get('delete') ?? f.get(CANCEL) ?? f.get('rowId');
-			const draft = def.fields.some((x) => f.has(x.k))
-				? { values: entryFrom(def, Object.fromEntries(def.fields.map((x) => [x.k, f.get(x.k)]))) }
-				: {};
+			const { rowId, draft, version } = readDelete(def, f);
 			const c = caseOf(params);
 			if (!c) return fail(404, { op: 'delete' as const, rowId: null, ...draft, message: 'Unknown results version.' });
-			if (typeof rowId !== 'string' || !rowId) return fail(400, { op: 'delete' as const, rowId: null, ...draft, message: 'No entry was named.' });
-			// a Delete that is not confirmed deletes nothing: the page asks for the confirmation (none after Cancel)
-			const step = deleteStep(f, rowId);
-			if (step !== 'confirm') return fail(400, { op: 'delete' as const, rowId, ...draft, confirm: step === 'ask' ? rowId : null });
+			const refused = checkDelete(f, rowId, draft);
+			if (refused) return refused;
 			try {
-				return { op: 'delete' as const, deleted: await deleteEntry(app().userWork, c.caseId, def, rowId), ...draft };
+				// A delete that names the version the page showed is refused when the row has changed since. One that names none
+				// (a scripted post) deletes the row as it is.
+				const cur = version === null ? undefined : listRegister(app().userWork, c.caseId, def).find((r) => r.rowId === rowId);
+				if (cur && cur.version !== version) return fail(409, { op: 'delete' as const, rowId, ...draft, message: STALE_DELETE });
+				return { op: 'delete' as const, deleted: await deleteEntry(app().userWork, c.caseId, def, rowId!), ...draft };
 			} catch (e) {
 				const x = failure(e, 'The deletion');
-				return fail(x.status, { op: 'delete' as const, rowId, ...draft, message: x.message.replace('was not saved', 'did not happen').replace('try again', 'the entry is still there; try again') });
+				return fail(x.status, { op: 'delete' as const, rowId, ...draft, message: deletionFailure(x.message) });
 			}
 		},
 	};

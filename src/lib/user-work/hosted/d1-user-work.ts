@@ -180,7 +180,8 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
     const eventId = `uw:${await sha256Hex(canonical([config.clientId, caseId, op]))}`;
     const atomicNote = kind === 'note-add' || kind === 'note-delete';
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      const prior = await read(() => ledger(db, caseId, op));
+      // Both reads come after the authorization above and decide nothing until both answer: one round trip, not two.
+      const [prior, revision] = await Promise.all([read(() => ledger(db, caseId, op)), revisionOf(db, caseId)]);
       if (prior) {
         // Historical context is irrelevant to replay, but today's session and case grant are not.
         await authorize(scope, 'write-user-work');
@@ -188,7 +189,6 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
         await authorize(scope, 'write-user-work');
         return result;
       }
-      const revision = await revisionOf(db, caseId);
       if (expectedRevision !== undefined && revision !== expectedRevision) return { kind: 'stale' };
       const version = token(), when = at();
       const event: C.AuditEvent = { eventId, actor: actor(), action: `user-work.${kind}`, object: { kind: 'case', id: caseId, caseId }, version, outcome: 'succeeded', at: when };
@@ -315,8 +315,9 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
 
   const work: D1UserWork = {
     async anchorFor(a) {
-      const { caseId } = await authorize(a, 'read');
-      const row = await store.documentRow({ caseId, resultsVersion: a.resultsVersion, ref: a.ref });
+      // The binding gate runs beside the row read, after the case grant; a failure of either refuses.
+      const { caseId } = await authorize(a, 'read', true);
+      const [row] = await Promise.all([store.documentRow({ caseId, resultsVersion: a.resultsVersion, ref: a.ref }), gate()]);
       if (!row) throw contractError('not-found');
       return { caseId, resultsVersion: a.resultsVersion, refAtCreation: a.ref, sha256: row.state.original ? sha256(row.state.original.sha256) : null };
     },

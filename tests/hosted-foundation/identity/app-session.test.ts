@@ -3,6 +3,7 @@ import { appCookieValue, appSetCookie, mintAppSession, readAppSession, revokeApp
 import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 import { appSessionRefresh, clerkBrowserNeeded } from '../../../src/lib/auth/app-browser.ts';
 import { craftedInstance } from './synthetic.ts';
+import { signOutClerkSession } from '../../../src/lib/auth/clerk/flow.ts';
 import { id } from '../../../src/lib/server/runtime/ids.ts';
 
 const client = craftedInstance('app-client.clerk.test'), staff = craftedInstance('app-staff.clerk.test');
@@ -86,4 +87,43 @@ describe('app session', () => {
 			expect(network).toHaveBeenCalledTimes(0);
 		} finally { network.mockRestore(); }
 	});
+	it('ends both independent devices, rejects old Clerk bootstrap, and permits a fresh sign-in', async () => {
+		vi.useFakeTimers();
+		try {
+			const f = fixture(), first = await f.session();
+			const second = await mintAppSession(f.config, { sid: 'sess_other', subject: first.subject, name: first.name });
+			const a = f.request(await signAppSession(f.config, first)), b = f.request(await signAppSession(f.config, second));
+			expect((await f.provider().authenticate({ request: b })).kind).toBe('verified');
+			await revokeAppSession(f.config, a);
+			f.sessions.get.mockClear();
+			expect((await f.provider().authenticate({ request: b })).kind).toBe('anonymous');
+			expect(f.sessions.get).toHaveBeenCalledTimes(1);
+			const bootstrap = (iat: number) => new Request(`${f.config.origin}/sign-in`, { headers: { cookie: `__session=${client.token({ sub: first.subject, sid: 'sess_new', azp: f.config.origin, claims: { iat } })}` } });
+			expect((await f.provider().authenticate({ request: bootstrap(first.iat) })).kind).toBe('anonymous');
+			vi.advanceTimersByTime(2000);
+			expect((await f.provider().authenticate({ request: bootstrap(Math.floor(Date.now() / 1000)) })).kind).toBe('verified');
+			const fresh = await mintAppSession(f.config, { sid: 'sess_new', subject: first.subject, name: first.name });
+			expect((await f.provider().authenticate({ request: f.request(await signAppSession(f.config, fresh)) })).kind).toBe('verified');
+		} finally { vi.useRealTimers(); }
+	});
+	it('revokes every active Clerk session at sign-out', async () => {
+		const f = fixture(), request = f.request(await signAppSession(f.config, await f.session()));
+		const identity = await f.provider().authenticate({ request });
+		const revoked: string[] = [];
+		const network = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+			const url = new URL(String(input));
+			if (url.pathname === '/v1/sessions') {
+				expect(url.searchParams.get('user_id')).toBe('user_app');
+				expect(url.searchParams.get('status')).toBe('active');
+				return Response.json([{ id: 'sess_app' }, { id: 'sess_other' }]);
+			}
+			revoked.push(url.pathname);
+			return Response.json({});
+		});
+		try {
+			await signOutClerkSession({ env: f.env, request, identity });
+			expect(revoked.sort()).toEqual(['/v1/sessions/sess_app/revoke', '/v1/sessions/sess_other/revoke']);
+		} finally { network.mockRestore(); }
+	});
+
 });

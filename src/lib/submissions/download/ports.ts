@@ -25,6 +25,7 @@ export type OperatorAssets = Pick<AssetsAccess, 'metadata' | 'get'>;
  * storage/audit work. It must read current grants on every call, not cache the first decision for the request.
  */
 export interface OperatorDownloadPorts {
+  readonly notifications?: Pick<import('../notifications.ts').IntakeNotifications, 'pending'>;
   readonly clientId: ClientId;
   readonly authorizeOperate: AuthorizeCapability | null;
   readonly repository: OperatorSubmissionReader | null;

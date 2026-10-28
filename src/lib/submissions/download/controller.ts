@@ -17,6 +17,7 @@ export interface OperatorRequest { request: Request; url: URL; params: Partial<R
  * anyone has started, claimed or finished the case.
  */
 export interface OperatorSubmissionView {
+  isNew?: boolean;
   kind: 'file' | 'set'; operationId: string; revisionId: string; sequence: number; caseId: string; clientId: string;
   fileCount: number;
   /** A set's file-list digest, fixed at its seal; null for one file. */
@@ -272,6 +273,13 @@ export function createOperatorDownloadController(ports: OperatorDownloadPorts | 
       const done = [...singles, ...await Promise.all(sealed.map(async (x) => consistentSet(a, x, await storage(a.repository.revision({ ...a.scope, operationId: x.setId })))))]
         .sort((x, y) => x.manifest.sequence - y.manifest.sequence);
       const submissions = await Promise.all(done.map((x) => viewOf(a, x)));
+      if (ports!.notifications) {
+        const pending = await ports!.notifications.pending(a.scope).catch(() => null);
+        if (pending) {
+          const undelivered = new Set(pending);
+          for (const submission of submissions) submission.isNew = undelivered.has(submission.operationId);
+        }
+      }
       return release(a, 'operator.submission.list', { kind: 'case', id: a.caseId, caseId: a.caseId },
         new TextEncoder().encode(JSON.stringify({ submissions, pendingCount: rows.length - singles.length + sets.length - sealed.length })));
     }),

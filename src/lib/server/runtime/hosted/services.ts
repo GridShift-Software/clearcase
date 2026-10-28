@@ -18,7 +18,9 @@ import { storageBudgets } from '../../../storage/cloud/budgets.ts';
 import { createCloudResults } from '../../../results/hosted/index.ts';
 import { createShardReader, defaultShardCache } from '../../../results/hosted/shards.ts';
 import { createD1UserWork, d1WorkRevision, userWorkConfig } from '../../../user-work/hosted/index.ts';
-import { createUploadAuthorizer, createUploadHolding, d1UploadGrantReader } from '../../../tenancy/upload-capability.ts';
+import { createUploadAuthorizer, d1UploadGrantReader } from '../../../tenancy/upload-capability.ts';
+import { intakeUploadHolding } from '../../../submissions/upload-holding.ts';
+import { intakeNotifications } from '../../../submissions/notifications.ts';
 import { createOriginalIntake } from '../../../storage/cloud/intake.ts';
 import { storageQuotas } from '../../../storage/cloud/quotas.ts';
 import { d1SubmissionRepository } from '../../../submissions/repository.ts';
@@ -155,7 +157,7 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 				const uploads = d1UploadGrantReader(context.db, context.deployment);
 				const upload = createUploadAuthorizer({ deployment: context.deployment, grants,
 					uploads, cases, session, audit: services.audit, now });
-				const mayUpload = createUploadHolding({ deployment: context.deployment, uploads, now });
+				const mayUpload = intakeUploadHolding({ deployment: context.deployment, db: context.db, now });
 				const authorizeUpload: NonNullable<typeof upload> = async (a) => {
 					const scoped = { ...a, principal: { ...a.principal } };
 					await session(scoped); await upload!(scoped);
@@ -170,6 +172,9 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 							await authorizeUpload({ principal: identity.principal, sessionId: identity.sessionId, clientId: mutation.clientId, caseId: mutation.caseId });
 						} });
 					const repository = d1SubmissionRepository(context.db);
+					const notifications = intakeNotifications({ clientId: clerk.config.clientId, db: context.db,
+						webhook: env.CLEARCASE_INTAKE_WEBHOOK, now,
+						...(scheduler ? { waitUntil: (work: Promise<void>) => scheduler.waitUntil(work) } : {}) });
 					const historical = committedAuditRecovery({ db: context.rawDb, config: context.audit, now });
 					const requestActor = structuredClone(stateOf(identity));
 					if (requestActor.kind === 'verified') Object.freeze(requestActor.principal);
@@ -238,8 +243,8 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 							validationLimits, pdf: pdfEvidence, now, ...EVIDENCE_REQUEST.build }),
 					} : null;
 					bindNativeRequestCompositions(request, {
-						intake: { clientId: clerk.config.clientId, budget, authorizeUpload, mayUpload, originals, repository, now },
-						downloads: { clientId: clerk.config.clientId, authorizeOperate, repository, assets: results.assets, audit: services.audit, now,
+						intake: { clientId: clerk.config.clientId, budget, authorizeUpload, mayUpload, originals, repository, notifications, now },
+						downloads: { clientId: clerk.config.clientId, authorizeOperate, repository, notifications, assets: results.assets, audit: services.audit, now,
 							...(scheduler ? { waitUntil: (work: Promise<void>) => scheduler.waitUntil(work) } : {}) },
 						imports, publication, preview, evidence,
 					});

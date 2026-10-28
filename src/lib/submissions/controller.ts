@@ -216,6 +216,7 @@ export function createIntakeController(ports: IntakePorts | null) {
       let manifest: SubmissionManifest;
       try { manifest = await a.repository.commitRevision({ ...a.scope, operationId, at: ports!.now().toISOString() }); }
       catch { return fail(503, 'manifest-unrecorded', 'The file is stored but its submission could not be marked final yet. Try again with the same upload id; the file need not be sent again.'); }
+      try { ports!.notifications?.sealed(manifest); } catch { /* The durable notification remains pending. */ }
       const repeated = u.state === 'finalized';
       return json(repeated ? 200 : 201, view({ ...u, state: 'finalized' }, manifest));
     }),
@@ -320,8 +321,10 @@ export function createIntakeController(ports: IntakePorts | null) {
       if (failure) throw failure;
       s = await setOrNotFound(a, setId);
       if (s.finalized < s.fileCount) return json(202, { set: setView(s) });
-      try { await a.repository.commitSet({ ...scope, at: ports!.now().toISOString() }); }
+      let manifest: SubmissionManifest;
+      try { manifest = await a.repository.commitSet({ ...scope, at: ports!.now().toISOString() }); }
       catch { return fail(503, 'manifest-unrecorded', 'The set could not be marked sealed yet. Try the seal again; no file needs to be sent again.'); }
+      try { ports!.notifications?.sealed(manifest); } catch { /* The durable notification remains pending. */ }
       return json(201, { set: setView(await setOrNotFound(a, setId)) });
     }),
 

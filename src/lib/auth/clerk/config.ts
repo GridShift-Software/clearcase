@@ -96,6 +96,18 @@ export function frontendApiHost(publishableKey: unknown): string | null {
 }
 
 /**
+ * The accounts-portal host Clerk serves an instance's sign-in page from, for a Frontend API host of Clerk's two shapes
+ * (development `<slug>.clerk.accounts.dev` -> `<slug>.accounts.dev`; production `clerk.<domain>` -> `accounts.<domain>`),
+ * or null for any other host, which this module cannot judge (GRS-267).
+ */
+export function accountsPortalHost(frontendApi: string): string | null {
+	const dev = /^(.+)\.clerk\.accounts\.dev$/.exec(frontendApi);
+	if (dev) return `${dev[1]}.accounts.dev`;
+	const prod = /^clerk\.(.+)$/.exec(frontendApi);
+	return prod ? `accounts.${prod[1]}` : null;
+}
+
+/**
  * The single-line PEM of an RSA-2048 (e=65537) public key, or null for anything else. Newlines and spaces inside the
  * body are removed, so the SDK sees one canonical form.
  */
@@ -173,6 +185,12 @@ export function readClerkIdentityConfig(env: Readonly<Record<string, unknown>>, 
 	if (staffSignInUrl === null && rawStaffSignIn !== undefined && rawStaffSignIn !== '') missing.push(CLERK_ENV.staffSignInUrl);
 	const rawAud = env[CLERK_ENV.audience], audience = rawAud === undefined || rawAud === '' ? null : typeof rawAud === 'string' && AUDIENCE.test(rawAud) ? rawAud : null;
 	if (audience === null && rawAud !== undefined && rawAud !== '') missing.push(CLERK_ENV.audience);
+	// A sign-in page of another instance than its publishable key names is a half-finished switch of Clerk instance
+	// (GRS-267), so it fails closed like a missing value.
+	for (const [kind, given, name] of [['client', signInUrl, CLERK_ENV.signInUrl], ['staff', staffSignInUrl, CLERK_ENV.staffSignInUrl]] as const) {
+		const host = frontendApiHost(env[CLERK_ENV[kind].publishableKey]), portal = host === null ? null : accountsPortalHost(host);
+		if (portal !== null && given !== null && new URL(given).hostname !== portal) missing.push(`${name} (host differs from ${CLERK_ENV[kind].publishableKey}'s instance)`);
+	}
 	const mfa = env[CLERK_ENV.mfaRequired];
 	if (mfa !== undefined && mfa !== 'true' && mfa !== 'false') missing.push(CLERK_ENV.mfaRequired);
 	if (clientInstance && staffInstance && (clientInstance.issuer === staffInstance.issuer || clientInstance.publishableKey === staffInstance.publishableKey || clientInstance.secretKey === staffInstance.secretKey))

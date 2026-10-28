@@ -176,6 +176,14 @@ export function createMemoryWork(ctx: MemoryContext, store: C.CaseReader): C.Asy
       return change(a, ['overlay', a], (next, version) => { const k = key(a.overlay.datasetKey, a.overlay.seedId), conflict = compare(a.expected, next.overlays.get(k)); if (conflict) return { kind: conflict }; next.overlays.set(k, { ...copy(a.overlay), fields: fields(a.overlay.fields), version }); return { kind: 'written', value: undefined }; });
     },
     async listRows(a) { await authorize(a); storeName(a.store); return copy([...ctx.work(a.caseId).rows.values()].filter((r) => r.store === a.store)); },
+    async readViewWork(a) {
+      storeName(a.store);
+      if (a.datasetKey !== undefined) storeName(a.datasetKey);
+      await authorize(a);
+      const current = ctx.work(a.caseId);
+      return copy({ rows: [...current.rows.values()].filter((r) => r.store === a.store),
+        overlays: a.datasetKey === undefined ? [] : [...current.overlays.values()].filter((o) => o.datasetKey === a.datasetKey) });
+    },
     async putRow(a) { storeName(a.store); if (a.anchor !== null && !AnchorCheck.Check(a.anchor)) invalid(); if (a.anchor && a.anchor.caseId !== a.caseId) throw contractError('forbidden'); return change<C.AddResult>(a, ['row-put', a], (next, version) => {
       const rowId = a.rowId ?? crypto.randomUUID(), k = key(a.store, rowId), old = next.rows.get(k), conflict = compare(a.expected, old);
       if (conflict) return { kind: conflict }; const at = ctx.now().toISOString();

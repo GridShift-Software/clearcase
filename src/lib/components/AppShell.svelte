@@ -27,10 +27,10 @@
 	};
 	// a followed link closes the drawer, and the page's own heading takes focus after the navigation
 	const side = (e: MouseEvent) => { if ((e.target as Element).closest('a')) close(false); };
-	// the page's own main is rendered by the children, so the covered regions are found rather than bound
+	// Children render either main directly or a hosted analysis-content wrapper; cover the whole page in both cases.
 	$effect(() => {
 		if (!open || !root) return;
-		const covered = [...root.querySelectorAll<HTMLElement>(':scope > .top-bar, :scope > .shell-notice, :scope > main')];
+		const covered = [...root.querySelectorAll<HTMLElement>(':scope > .top-bar, :scope > .shell-notice, :scope > main, :scope > [data-testid="analysis-content"]')];
 		for (const el of covered) el.inert = true;
 		return () => { for (const el of covered) el.inert = false; };
 	});

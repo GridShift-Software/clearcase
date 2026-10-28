@@ -11,8 +11,16 @@ export const REPO = path.resolve(ROOT, '../..');
 export const MODE = process.env.MODE || 'local';
 export const BASE_URL = (process.env.BASE_URL || 'http://127.0.0.1:41195').replace(/\/$/, '');
 export const OUT = path.resolve(process.env.RESULTS_DIR || path.join(REPO, '.local/journeys/results'));
-export const PAGE_MS = 2000, PDF_MS = 3000, SIGN_IN_MS = 5000;
 const env = name => (process.env[name] || '').trim();
+// The sign-in budget is a setting (GRS-267): 5000 on a production Clerk instance (the release-candidate gate); the shared
+// development instance is run with SIGN_IN_MS=8000, the accepted interim (docs/sprint/runbooks/09c-clerk-instance.md).
+const budgetMs = (name, fallback) => {
+  if (!env(name)) return fallback;
+  const value = Number(env(name));
+  if (!Number.isInteger(value) || value <= 0) throw new Error(`${name} must be a positive whole number of milliseconds`);
+  return value;
+};
+export const PAGE_MS = 2000, PDF_MS = 3000, SIGN_IN_MS = budgetMs('SIGN_IN_MS', 5000);
 const bytesOf = name => (env(name) ? Number(env(name)) : null);
 // No case value is committed: the three PDF samples (a small, a medium and the largest original of the case under test)
 // come from the environment. The byte sizes and the bundle (group) names are optional; a size is checked when given.

@@ -415,6 +415,38 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       const { db, caseId } = await authorize(a, 'read');
       return registerRowsOf(db, caseId, a.store);
     },
+    async readViewWork(a) {
+      const caseId = caseOf(a), name = a.store, datasetKey = a.datasetKey;
+      storeName(name);
+      if (datasetKey !== undefined) storeName(datasetKey);
+      await standing();
+      await identity.authorize({ caseId, operation: 'read' });
+      const db = options.db;
+      if (!db) throw contractError('storage-unavailable');
+      // Binding and both stores are one atomic read, including on a fresh request. Do not call gate() first:
+      // an absent or foreign binding yields no row, rather than an apparently empty register.
+      return read(async () => {
+        const snapshot = await db.prepare(`SELECT
+          (SELECT json_group_array(json(item)) FROM (
+            SELECT json_object('row_id',row_id,'store',store,'anchor_json',anchor_json,'fields_json',fields_json,
+              'fields_sha256',fields_sha256,'created_at',created_at,'updated_at',updated_at,'version',version) AS item
+            FROM uw_register_row WHERE case_id = ? AND store = ? ORDER BY rowid
+          )) AS rows_json,
+          (SELECT json_group_array(json(item)) FROM (
+            SELECT json_object('dataset_key',dataset_key,'seed_id',seed_id,'base_seed_sha256',base_seed_sha256,
+              'fields_json',fields_json,'version',version) AS item
+            FROM uw_seed_overlay WHERE case_id = ? AND dataset_key = ? ORDER BY rowid
+          )) AS overlays_json
+          FROM uw_binding WHERE singleton = 1 AND client_id = ? AND schema_version = ?`)
+          .bind(caseId, name, caseId, datasetKey ?? null, config.clientId, USER_WORK_SCHEMA_VERSION)
+          .first<{ rows_json: string; overlays_json: string }>();
+        if (!snapshot) throw contractError('storage-unavailable');
+        return {
+          rows: await Promise.all((JSON.parse(snapshot.rows_json) as RegisterDb[]).map(registerOf)),
+          overlays: (JSON.parse(snapshot.overlays_json) as OverlayDb[]).map((o) => overlayOf(caseId, o)),
+        };
+      });
+    },
     async putRow(a) {
       const caseId = caseOf(a);
       storeName(a.store);
@@ -696,6 +728,7 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
     seedViews: wrap(work.seedViews, caseScope, 'read'),
     putSeedOverlay: wrap(work.putSeedOverlay, caseScope, 'write'),
     listRows: wrap(work.listRows, caseScope, 'read'),
+    readViewWork: wrap(work.readViewWork, caseScope, 'read'),
     putRow: wrap(work.putRow, caseScope, 'write'),
     deleteRow: wrap(work.deleteRow, caseScope, 'write'),
     tables: wrap(work.tables, () => null, 'read'),

@@ -6,6 +6,12 @@ import { auditConfig } from '../../../src/lib/audit/config.ts';
 import { provisionAuditBinding } from '../../../src/lib/audit/d1-log.ts';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 vi.mock('cloudflare:workers', () => ({ env: { CLEARCASE_ASSET_TICKET_KEY: 'synthetic-test-key' } }));
+// Every registry view is ported now, so the generic placeholder route has no real `soon` view left. Report one ported
+// view as `soon` here, so the budget of that route (still served to any view a later registry adds) stays measured.
+vi.mock('../../../src/lib/views/hosted/availability.ts', async importOriginal => {
+ const actual = await importOriginal<typeof import('../../../src/lib/views/hosted/availability.ts')>();
+ return { ...actual, hostedStatus: (viewId: string) => (viewId === 'hoa_diff_tab' ? 'soon' : actual.hostedStatus(viewId)) };
+});
 import { builtCase, published, locals, CASE_ID, type BuiltCase, realAuthority, type Deployment } from '../../publication/shards/world.ts';
 import { counters, countedD1, countedR2, measure, assertWithinBudget } from './harness.ts';
 import { MIGRATION, MANIFEST } from '../provisioning/world.ts';

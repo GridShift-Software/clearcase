@@ -3,6 +3,8 @@ import { env } from 'cloudflare:workers';
 import { SESSION_COOKIE } from '$lib/server/runtime/hosted/session';
 import { refuse } from '$lib/server/runtime/hosted/http';
 import { signOutClerkSession, signOutScopes } from '$lib/auth/clerk/flow';
+import { appCookieValue, appSessionConfig, revokeAppSession } from '$lib/auth/app-session';
+import { readClerkIdentityConfig } from '$lib/auth/clerk/config';
 import { SESSION_COOKIE as CLERK_SESSION_COOKIE } from '$lib/auth/clerk/session';
 
 export function load() {
@@ -17,6 +19,13 @@ export const actions: Actions = {
 		// A Clerk session ends at Clerk first (GRS-113): the caller's own session is revoked at the instance that issued
 		// it, and only then are its cookies cleared. When Clerk cannot confirm the revocation this answers 503 and clears
 		// nothing, so a session that is still live is never reported as ended.
+		if (!double && appCookieValue(request ?? new Request(url)) !== null) {
+			const clerk = readClerkIdentityConfig(env);
+			const config = clerk.ok ? appSessionConfig(env, clerk.config.client.issuer) : null;
+			if (!config) error(503, 'Sign-out is unavailable.');
+			await revokeAppSession(config, request).catch((e) => refuse(e));
+			cookies.delete(SESSION_COOKIE, { path: '/', secure: true });
+		}
 		let clear: string[] = [];
 		if (!double) clear = await signOutClerkSession({ env, request: request ?? new Request(url), identity: locals.identity }).then((r) => r.clear, (e) => refuse(e));
 		const secure = url.protocol === 'https:';

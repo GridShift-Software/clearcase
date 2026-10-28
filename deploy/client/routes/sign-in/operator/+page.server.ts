@@ -4,6 +4,9 @@ import { refuse } from '$lib/server/runtime/hosted/http';
 import { clerkSignInTarget, type StaffDevBrowser } from '$lib/auth/clerk/config';
 import { applySignInReturnChange, prepareSignIn, signInReturn, signInReturnCookie, staffDevBrowserOf } from '$lib/auth/clerk/flow';
 
+import { appCookieValue, appSessionConfig, revokeAppSession, APP_COOKIE } from '$lib/auth/app-session';
+import { readClerkIdentityConfig } from '$lib/auth/clerk/config';
+
 // The per-client operator sign-in (GRS-113): ClearCase staff reach this client's origin through the internal staff Clerk
 // instance, on the client's own Worker. There is no staff host and no third Worker. A staff session still reaches a case
 // only when the case authorizer (GRS-114) grants it. The hosted-gate profile has no operator sign-in.
@@ -30,6 +33,13 @@ export const actions: Actions = {
 		if (locals.runtime.testIdentity) error(404, { message: 'Not found.' });
 		const target = staff(await staffDevBrowserOf(request, env));
 		if (!target) unconfigured();
+		if (appCookieValue(request) !== null) {
+			const clerk = readClerkIdentityConfig(env);
+			const config = clerk.ok ? appSessionConfig(env, clerk.config.client.issuer) : null;
+			if (!config) unconfigured();
+			await revokeAppSession(config!, request).catch((e) => refuse(e));
+			cookies.delete(APP_COOKIE, { path: '/', secure: true });
+		}
 		const prepared = await prepareSignIn({ env, request, identity: locals.identity, target: 'staff' }).catch((e) => refuse(e));
 		for (const name of prepared.clear) cookies.delete(name, { path: '/', secure: url.protocol === 'https:' });
 		if (prepared.action === 'refuse') return fail(409, { message: 'We could not tell which session is yours. It has been cleared; sign in again.' });

@@ -1,3 +1,4 @@
+import { legacyClerkProviderFromEnv as clerkIdentityProviderFromEnv } from './synthetic.ts';
 // One cookie parsing policy for the Clerk identity (GRS-113): the Cookie header is read the way @clerk/backend reads it
 // (split on ';', name and value trimmed of SP and HTAB only, a repeated name kept) and every decision that guards the SDK
 // or names a credential uses that one reading: nonce preflight, handshake and refresh stripping, the dev browser, the
@@ -8,7 +9,6 @@ import { createHash } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { clerkBrowserHandshakeFromEnv, clerkCookieClears, signOutClerkSession, type HandshakeOutcome } from '../../../src/lib/auth/clerk/browser.ts';
 import { clearableNames, cookiePairs, devBrowserOf, sdkCookieHeader } from '../../../src/lib/auth/clerk/flow.ts';
-import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 import { CLERK_COOKIE_NAME, REFRESH_COOKIE_NAME, SESSION_COOKIE_NAME, presentedToken, sessionCookieNames } from '../../../src/lib/auth/clerk/session.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
 

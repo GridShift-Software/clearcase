@@ -1,8 +1,9 @@
+import { legacyClerkProviderFromEnv as clerkIdentityProviderFromEnv } from './synthetic.ts';
 // The Clerk IdentityProvider and its configuration (GRS-113), through the pinned @clerk/backend with SYNTHETIC keys and a
 // loopback session lookup. Unit evidence for our adapter only; never evidence that a real Clerk instance behaves so.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CLERK_ENV, clerkSignInTarget, frontendApiHost, readClerkIdentityConfig } from '../../../src/lib/auth/clerk/config.ts';
-import { clerkIdentityProviderFromEnv, createClerkIdentityProvider, presentedToken, type CaseAuthorizer } from '../../../src/lib/auth/clerk/provider.ts';
+import { createClerkIdentityProvider, presentedToken, type CaseAuthorizer } from '../../../src/lib/auth/clerk/provider.ts';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
 import { id } from '../../../src/lib/server/runtime/ids.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';

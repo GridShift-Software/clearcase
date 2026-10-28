@@ -1,3 +1,5 @@
+import { appSessionConfig, mintAppSession, signAppSession } from '../../../src/lib/auth/app-session.ts';
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // The production entry's identity, as a signed-in user meets it (GRS-113). With a complete Clerk configuration for this
 // deployment, a request's session token decides who is asking: an expired token, a token naming another issuer, a token
 // from another client's instance or a revoked session is "sign in again" (401), never "unavailable" (503) and never
@@ -19,6 +21,7 @@ beforeAll(async () => {
 afterAll(() => status.close());
 
 const env = () => ({
+	CLEARCASE_SESSION_KEY: 'a'.repeat(64), SESSIONS: { get: async (key: string) => key === 'revoked:sess_revoked' ? '1' : null, put: async () => {} },
 	CLEARCASE_CLIENT_ID: 'client-a',
 	CLEARCASE_APP_ORIGIN: ORIGIN,
 	CLERK_CLIENT_PUBLISHABLE_KEY: clientA.publishableKey,
@@ -31,7 +34,17 @@ const env = () => ({
 });
 const request = (token: string) => new Request(`${ORIGIN}/cases`, { headers: { authorization: `Bearer ${token}` } });
 async function statusOf(token: string): Promise<{ kind: string; status: number | null }> {
-	const { services } = await hostedServices(request(token), env());
+	const environment = env(), initial = request(token);
+	const provider = clerkIdentityProviderFromEnv(environment, { authorizeCase: async () => {} });
+	if (!provider.ok) throw new Error(provider.reason);
+	const bootstrap = await provider.provider.authenticate({ request: new Request(`${ORIGIN}/sign-in`, initial) });
+	if (bootstrap.kind === 'verified') {
+		const config = appSessionConfig(environment, clientA.iss)!;
+		const session = await mintAppSession(config, { sid: bootstrap.sessionId, subject: bootstrap.principal.subject, name: 'Synthetic Lawyer' });
+		initial.headers.delete('authorization');
+		initial.headers.set('cookie', `clearcase_session=${await signAppSession(config, session)}`);
+	}
+	const { services } = await hostedServices(initial, environment);
 	try {
 		await services.identity.checkRevocation();
 		return { kind: services.identity.kind, status: null };

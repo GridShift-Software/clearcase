@@ -2,7 +2,7 @@
 // Save note answered 401 and "The note was not saved"; a reload recovered through the document handshake). Clerk session
 // tokens live 60 seconds and this app runs no clerk-js, so nothing refreshes `__session` in the browser: only a document
 // GET reaches the handshake, and every fetch, form post and `__data.json` request after the first minute is refused.
-// These drive the REAL hosted hook (hooks.server.ts, with the real provider and services) over an expired token, and
+// These retain the Clerk refresh protocol through legacy-hook.ts (the real SDK and provider) over an expired token, and
 // pin what must not change: the exact-Origin refusal, tenant isolation, sign-out clears and the document handshake.
 // SYNTHETIC keys, hosts and tokens; a loopback Backend API stands in for Clerk. Unit evidence for our adapter only: no
 // real Clerk, browser, cookie jar or workerd has run.
@@ -29,7 +29,7 @@ vi.mock('cloudflare:workers', () => workers);
 import { MAX_SESSION_LIFETIME_MS } from '../../../src/lib/auth/clerk/flow.ts';
 import { clerkBrowserHandshakeFromEnv } from '../../../src/lib/auth/clerk/browser.ts';
 import { presentedToken } from '../../../src/lib/auth/clerk/session.ts';
-import { handle } from '../../../src/lib/server/runtime/hosted/hooks.server.ts';
+import { handle } from './legacy-hook.ts';
 // @ts-expect-error jsdom ships no types and the root pins no @types/jsdom; BrowserJar below types the part used here.
 import { CookieJar } from 'jsdom';
 import { craftedInstance } from './synthetic.ts';
@@ -790,7 +790,7 @@ describe('a renewal Clerk refuses, and two isolates renewing one hold (session-r
 		const s = session();
 		refreshAnswer = rotatingRefreshAnswer(s);
 		vi.resetModules();
-		const second = (await import('../../../src/lib/server/runtime/hosted/hooks.server.ts')).handle;
+		const second = (await import('./legacy-hook.ts')).handle;
 		const b = carrying(s), request = clientData(b.cookie());
 		const out = await Promise.all([
 			invoke(clientData(b.cookie())),
@@ -1089,7 +1089,7 @@ describe('session renewal heavy review (round 5)', () => {
 		const s = session(), b = carrying(s);
 		refreshAnswer = neverRotating(s);
 		vi.resetModules();
-		const second = (await import('../../../src/lib/server/runtime/hosted/hooks.server.ts')).handle;
+		const second = (await import('./legacy-hook.ts')).handle;
 		const request = clientData(b.cookie());
 		const out = await Promise.all([invoke(clientData(b.cookie())), second({ event: { request, url: new URL(request.url), locals: {}, isSubRequest: false }, resolve: route } as never)]);
 		expect(refreshCalls()).toHaveLength(2);

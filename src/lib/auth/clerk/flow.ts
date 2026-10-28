@@ -435,7 +435,7 @@ async function sealMultiTabMarker(config: ClerkIdentityConfig, kind: InstanceKin
 	return { name: SIGN_IN_RETURN_MARKER[kind], value: `${expires}.${mac}`, options: { ...returnOptions, maxAge } };
 }
 /** A callback may consume return hints only on a real document GET, never on Kit's unmarked data preloads. */
-const documentNavigation = (request: Request, url: URL, isDataRequest: boolean) => request.method === 'GET'
+export const documentNavigation = (request: Request, url: URL, isDataRequest: boolean) => request.method === 'GET'
 	&& !isDataRequest && ![url.pathname, new URL(request.url).pathname].some((p) => /\/__data\.json\/?$/.test(p))
 	&& !['sec-purpose', 'purpose'].some((h) => /\b(prefetch|preload|prerender)\b/i.test(request.headers.get(h) ?? ''))
 	&& (!request.headers.has('sec-fetch-mode') || request.headers.get('sec-fetch-mode') === 'navigate');

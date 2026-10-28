@@ -9,6 +9,7 @@ export function clerkBrowserNeeded(env: Readonly<Record<string, unknown>>, reque
 	// Deployments without app-session bindings retain the Clerk protocol.
 	if (env.CLEARCASE_SESSION_KEY === undefined && env.SESSIONS === undefined) return true;
 	if (cookiePairs(request).some(({ name }) => name === '__Host-clearcase_staff_refresh') || ['__clerk_handshake', '__clerk_handshake_nonce', '__clearcase_staff_hs'].some((name) => url.searchParams.has(name))) return true;
+	if (path === '/sign-in' && request.method === 'GET' && !url.search && !cookiePairs(request).some(({ name }) => name === '__client_uat' || name === '__clerk_db_jwt' || name.startsWith('__session'))) return false;
 	if (path === '/sign-in' || path === '/sign-in/operator') return true;
 	const config = readClerkIdentityConfig(env), token = presentedToken(request);
 	if (!config.ok || !token || token === 'malformed') return false;

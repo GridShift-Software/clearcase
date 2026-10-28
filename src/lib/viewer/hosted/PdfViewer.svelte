@@ -6,7 +6,7 @@
 	// notes endpoint into user work; nothing is kept in the browser.
 	import { onMount, untrack } from 'svelte';
 	import type { PageNote } from './page-notes';
-	let { src, downloadHref, notesHref, notes: initial, notesAvailable, requestedPage = null }: { src: string; downloadHref: string; notesHref: string; notes: readonly PageNote[]; notesAvailable: boolean; requestedPage?: string | null } = $props();
+	let { src, size, downloadHref, notesHref, notes: initial, notesAvailable, requestedPage = null }: { src: string; size?: number; downloadHref: string; notesHref: string; notes: readonly PageNote[]; notesAvailable: boolean; requestedPage?: string | null } = $props();
 	const READER = '/pdfjs/pdf-reader.mjs';
 	let status = $state<'loading' | 'ready' | 'error'>('loading');
 	let pages = $state(0);
@@ -23,7 +23,7 @@
  let canUseNotes = $state(untrack(() => notesAvailable));
 	let draftRevision = 0;
 	type Reader = { pages: number; draw(page: number, scale: number, fitWidth?: number): Promise<void>; destroy(): void };
-	type Global = { clearcasePdfReader?: { open(a: { src: string; canvas: HTMLCanvasElement; signal: AbortSignal }): Promise<Reader> } };
+	type Global = { clearcasePdfReader?: { open(a: { src: string; size?: number; canvas: HTMLCanvasElement; signal: AbortSignal }): Promise<Reader> } };
 	let reader: Reader | null = null;
 	let active = false;
 	let drawGeneration = 0;
@@ -69,9 +69,9 @@
 		const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { if (reader) void draw(); });
 		if (viewport) observer?.observe(viewport);
 		// The route keys this component by its authorized load. Capture the source before any await.
-		const source = src, target = canvas!;
+		const source = src, bytes = size, target = canvas!;
 		adapter()
-			.then((a) => active ? a.open({ src: source, canvas: target, signal: lifetime.signal }) : null)
+			.then((a) => active ? a.open({ src: source, size: bytes, canvas: target, signal: lifetime.signal }) : null)
 			.then(async (r) => {
 				if (!r) return;
 				if (!active) return r.destroy();

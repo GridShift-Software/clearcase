@@ -229,7 +229,7 @@ SQLite, so they are not renderer acceptance.
    explicit account-allocated budgets, trusted origin/clock and immutable input.
 3. Supply the reviewed inventory from `scripts/hosted-pdf-assets.ts`: exact PDF.js
    6.4.299 package digest `sha256:ae9a1328f4de3e2cf14b24d711e34299963dc64c10eab7b1afe849b79846e577`
-   and reader digest `sha256:308102fbbc79e94d08645ac61b54f2c39550800eb9a163d3e10d31e340aa861d`.
+   and reader digest `sha256:78f5434b84b4078dd7120377345a57d6fe30877b717efb2cba4edd6fa7a0290e`.
    All 191 inventory entries must match. Copy pinned static bytes through normal
    build provenance; do not import the node:fs preparer into the Worker.
 4. Install the narrowly scoped [SDK policy hook](../../../scripts/native-render-sdk-policy.ts)

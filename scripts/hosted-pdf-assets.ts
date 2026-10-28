@@ -8,7 +8,7 @@ export const HOSTED_PDF_VERSION = '6.4.299';
 // Path+size+SHA-256 bindings of the 190 installed browser/resource/license files, in ordinal path order.
 // Captured from the frozen bun.lock install at c6f0d9536e381dc8eebbf2035f49834409434761.
 export const HOSTED_PDF_PACKAGE_DIGEST = 'sha256:ae9a1328f4de3e2cf14b24d711e34299963dc64c10eab7b1afe849b79846e577';
-export const HOSTED_PDF_READER_DIGEST = 'sha256:308102fbbc79e94d08645ac61b54f2c39550800eb9a163d3e10d31e340aa861d';
+export const HOSTED_PDF_READER_DIGEST = 'sha256:78f5434b84b4078dd7120377345a57d6fe30877b717efb2cba4edd6fa7a0290e';
 const READER = 'src/lib/viewer/hosted/static/pdf-reader.mjs';
 const hash = (bytes: Buffer | string) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 export type PdfAsset = { path: string; bytes: number; sha256: string };

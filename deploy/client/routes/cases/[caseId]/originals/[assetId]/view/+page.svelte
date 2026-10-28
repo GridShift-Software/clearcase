@@ -17,7 +17,7 @@
 	<!-- A fresh authorized load replaces all document-bound state, even for the same URL after an original changes.
 	     Key the load object rather than exposing a content hash or object-storage identity to the client. -->
 	{#key data}
-		<PdfViewer requestedPage={data.requestedPage ?? null} src={data.view.srcHref} downloadHref={data.view.downloadHref} notesHref={data.notesHref} notes={data.notes.items} notesAvailable={data.notes.state === 'available'} />
+		<PdfViewer requestedPage={data.requestedPage ?? null} src={data.view.srcHref} size={data.view.size} downloadHref={data.view.downloadHref} notesHref={data.notesHref} notes={data.notes.items} notesAvailable={data.notes.state === 'available'} />
 	{/key}
 {:else if data.view.mode === 'email'}
  <iframe title="Original email" sandbox="" src={data.view.srcHref} style="width:100%;height:70vh"></iframe>

@@ -1,3 +1,5 @@
+import { VIEWS } from '../../../src/lib/components/view-registry.ts';
+import { hostedStatus } from '../../../src/lib/views/hosted/availability.ts';
 import { readFileSync } from 'node:fs';
 import { requestReadAudit, requestAuditSink } from '../../../src/lib/audit/facades.ts';
 import { auditConfig } from '../../../src/lib/audit/config.ts';
@@ -60,7 +62,11 @@ function request(subject = 'reader', clientId = 'client-a', caseId = CASE_ID, ca
   } };
  l.identity = identity;
  bindPageReads(l, lookup);
- const event = { locals: l, params: { caseId, version: b.built.record.resultsVersion, category: 'analysis', view: 'matter' }, url: new URL('https://a.example.invalid/') } as never;
+ // Exercise the generic placeholder route even after a ticket ports its former example view.
+ const placeholder = VIEWS.find(v => hostedStatus(v.id) === 'soon' && /^\/[^/]+\/[^/]+$/.test(v.route));
+ if (!placeholder) throw new Error('The generic route budget fixture needs an unported registry view');
+ const [, category, viewId] = placeholder.route.split('/');
+ const event = { locals: l, params: { caseId, version: b.built.record.resultsVersion, category, view: viewId }, url: new URL('https://a.example.invalid/') } as never;
  return { c, l, event, lookup, pending, authorizations: () => authorizations, warmShell: () => l.shards.read({ caseId: id('case', CASE_ID), resultsVersion: rv(b.built.record.resultsVersion), name: 'shell.json', bytes: b.files.get('shell.json')!.byteLength }) };
 }
 

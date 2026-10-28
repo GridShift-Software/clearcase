@@ -30,7 +30,7 @@ describe('exclusive hosted Kit static input', () => {
     expect(input.assets).toMatch(/\/\.local\/hosted-static-input-[^/]+$/);
     expect(readdirSync(input.assets).sort()).toEqual(['favicon.svg', 'pdfjs']);
     expect(readFileSync(join(input.assets, 'favicon.svg'))).toEqual(readFileSync(join(root, 'static/favicon.svg')));
-    expect(input.inventory.files).toHaveLength(191);
+    expect(input.inventory.files).toHaveLength(192);
     for (const file of input.inventory.files) expect(readFileSync(join(input.assets, file.path)).length).toBe(file.bytes);
     input.dispose(); input.dispose();
     expect(existsSync(input.assets)).toBe(false);

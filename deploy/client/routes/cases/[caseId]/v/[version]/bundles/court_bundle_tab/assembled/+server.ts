@@ -11,6 +11,7 @@ import {
 	writeBundlePdf,
 } from '$lib/views/bundles/assembled';
 import { uploadBundle } from '$lib/views/bundles/upload';
+import { storedBundles } from '$lib/views/bundles/saved';
 import { customOf } from '$lib/bundles/builder';
 import {
 	bundleStore,
@@ -69,8 +70,9 @@ export async function POST({ locals, params, request }: RequestEvent) {
 	});
 	stored.catch(() => undefined); // observed by the commit, or below when the row is refused first
 	let no: string;
+	const work = bundleStore(locals, scope);
 	try {
-		no = await bundleStore(locals, scope).putCustom(
+		no = await work.putCustom(
 			id,
 			c,
 			[],
@@ -82,9 +84,15 @@ export async function POST({ locals, params, request }: RequestEvent) {
 		if (e === OBJECT_FAILED) error(503, 'The PDF could not be stored. Retry.');
 		refuse(e, 'write');
 	}
+	// The answer carries the stored list, read after this write, so the page replaces its custom bundles with it. The row
+	// is stored by now: a failed read is no failed save, and the page reloads when the answer has no list.
+	const bundles = await work.table(CUSTOM_TABLE).then(
+		(rows) => storedBundles(customRows(rows)),
+		() => null,
+	);
 	const end = performance.now();
 	return json(
-		{ saved: true, id, no },
+		{ saved: true, id, no, bundles },
 		{
 			headers: {
 				// userwork is the commit left after the object write; the rest of the row's work ran beside it.

@@ -1,0 +1,13 @@
+{
+  "name": "clearcase-journeys",
+  "private": true,
+  "type": "module",
+  "description": "Acceptance journeys J1 to J10. Self-contained: not a root workspace member, own lockfile; the root gate does not run it.",
+  "packageManager": "bun@1.4.2",
+  "scripts": {
+    "journeys": "bun run-all.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.64.1"
+  }
+}

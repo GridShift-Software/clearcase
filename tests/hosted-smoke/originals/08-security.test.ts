@@ -49,3 +49,14 @@ it('delivers stored families with one read and preserves sandbox headers', async
   if (filename.endsWith('.eml')) expect(r.headers.get('content-type')).toBe('text/plain; charset=utf-8');
  }
 });
+
+it('L5 signs attachment and octet-stream presentation and refuses missing account',async()=>{
+ const {presignOriginal}=await import('../../../src/lib/viewer/hosted/presign');
+ const options={accountId:'a'.repeat(32),bucket:'synthetic',sha256:claims.sha256,accessKeyId:'synthetic-key',secretAccessKey:'synthetic-secret'};
+ const url=new URL(await presignOriginal(options));
+ expect(url.searchParams.get('response-content-disposition')).toBe('attachment');
+ expect(url.searchParams.get('response-content-type')).toBe('application/octet-stream');
+ await expect(presignOriginal({...options,accountId:''})).rejects.toThrow('download-unavailable');
+ const {readFileSync}=await import('node:fs');
+ expect(readFileSync('src/lib/viewer/hosted/original-delivery.ts','utf8')).not.toContain('fb4c31b91c5d89b7a54afbdc34823170');
+});

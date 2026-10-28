@@ -37,7 +37,7 @@ async function status(run: () => unknown): Promise<number | string> {
 const list = async (q: string, l = locals(dep)) => (await listGet(event(l, listUrl(q)))) as Response;
 
 describe('11 hosted chronology routes', () => {
-  test('the page load returns the facets shard, the list endpoint, the CSV name and the route base, and reads no list page', async () => {
+  test('the page load returns the facets shard, the first list page, the list endpoint, the CSV name and the route base', async () => {
     const reads: string[] = [];
     const counted = { get: (k: string) => { reads.push(k.split('/').slice(2).join('/')); return dep.bucket.get(k); } };
     const data = await pageLoad(event(locals(dep, { bucket: counted, cache: null })));
@@ -47,7 +47,9 @@ describe('11 hosted chronology routes', () => {
     expect(data.exportName).toEqual({ name: 'chronology.csv', note: null });
     expect(data.facets.bundles.map(([v]) => v)).toEqual(expect.arrayContaining(['Bulk A', 'Bulk B']));
     expect(data.facets.years.map(([v]) => v)).toEqual(expect.arrayContaining(['2000', '2004']));
-    expect(reads).toEqual(['list/facets.json']);
+    expect(data.first.page).toBe(1);
+    expect(data.first.rows).toHaveLength(200);
+    expect(reads.sort()).toEqual(['list/facets.json', 'list/page-1.json']);
   });
 
   test('?page=n serves that page shard with immutable private caching; page 1 is the default; past the end is 404', async () => {

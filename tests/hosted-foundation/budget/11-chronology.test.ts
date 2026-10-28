@@ -1,8 +1,9 @@
 // Sprint ticket 11: what the hosted chronology costs over the published synthetic version (two list pages). One page view
 // (the version layout's load and the chronology's, as SvelteKit runs them for one request) makes one D1 query, the
-// publication row (authorized like a case read), and reads only the facets shard cold: the list pages are a request of
-// their own. `list.json?page=2` makes no D1 query beyond that request's memoised authorization, one R2 read cold and
-// none warm. The harness identity makes no grant query (harness.ts); production's adds one to each.
+// publication row (authorized like a case read); warm it reads nothing from R2, and one cold shard of its own (the facets
+// or the first list page) is one R2 read. Only the first view after publication finds both cold: two reads, side by side.
+// `list.json?page=2` makes no D1 query beyond that request's memoised authorization, one R2 read cold and none warm.
+// The harness identity makes no grant query (harness.ts); production's adds one to each.
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { load as layoutLoad } from '../../../deploy/client/routes/cases/[caseId]/v/[version]/+layout.server.ts';
 import { load as chronologyLoad } from '../../../deploy/client/routes/cases/[caseId]/v/[version]/chronology/+page.server.ts';
@@ -33,17 +34,21 @@ function client() {
 }
 
 describe('11 chronology budget', () => {
-  test('page view: 1 D1 query; warm 0 R2 reads, cold facets shard 1', async () => {
+  test('page view: 1 D1 query; warm 0 R2 reads; one cold shard of its own, 1', async () => {
     const w = client();
     const first = await measure(w.c, w.view);
     expect(first.thrown).toBeUndefined();
     const warm = await expectWithinBudget('11 chronology page (warm)', PAGE_WARM, w.c, w.view);
     expect(warm.thrown).toBeUndefined();
-    w.evict('/list/facets.json');
-    const cold = await expectWithinBudget('11 chronology page (cold facets shard)', PAGE_VIEW, w.c, w.view);
-    expect(cold.counts.r2).toBe(1);
-    expect(cold.counts.d1).toBe(1);
-    console.log(`11 chronology page budget: first visit ${JSON.stringify(first.counts)} (storage gate, shell and facets), warm ${JSON.stringify(warm.counts)}, cold facets ${JSON.stringify(cold.counts)}`);
+    const cold: Record<string, unknown> = {};
+    for (const shard of ['/list/facets.json', '/list/page-1.json']) {
+      w.evict(shard);
+      const r = await expectWithinBudget(`11 chronology page (cold ${shard})`, PAGE_VIEW, w.c, w.view);
+      expect(r.counts.r2).toBe(1);
+      expect(r.counts.d1).toBe(1);
+      cold[shard] = r.counts;
+    }
+    console.log(`11 chronology page budget: first visit ${JSON.stringify(first.counts)} (storage gate, shell, facets and page 1), warm ${JSON.stringify(warm.counts)}, cold ${JSON.stringify(cold)}`);
   });
 
   test('list.json?page=2: only the authorization in D1; 1 R2 read cold, 0 warm', async () => {

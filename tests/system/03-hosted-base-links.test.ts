@@ -68,3 +68,20 @@ describe('page links follow the route base', () => {
 		expect(hosted.filter((h) => h.startsWith('/v/')), `hosted ${route} links that leave the base`).toEqual([]);
 	});
 });
+
+// Ticket 10 review: the four primary KPI tiles are links to the view that holds their figures, under either base.
+describe('the overview KPI tiles are links', () => {
+	const TILES = [['kpi-docs', 'Documents indexed', '/evidence/documents'], ['kpi-due', 'Amount due (to date)', '/quantum/quantum_tab'], ['kpi-inv', 'Invoices', '/quantum/invoice_ledger_tab'], ['kpi-contra', 'Contradiction flags', '/analysis/contradictions_tab']] as const;
+	it.each([['/v'], [HOSTED]])('under %s each tile heading holds an anchor with a visible label and its destination', async (base) => {
+		const html = await page('overview', OverviewPage as never, base);
+		for (const [id, label, route] of TILES) {
+			const h2 = new RegExp(`<h2 id="${id}">([\\s\\S]*?)</h2>`).exec(html)?.[1] ?? '';
+			const a = /^<a class="kpi-link" href="([^"]*)">([^<]*)<\/a>$/.exec(h2);
+			expect(a, `${id} heading is one anchor`).not.toBeNull();
+			expect(a![2]).toBe(label);
+			expect(a![1]).toBe(`${base}/${encodeURIComponent(rv)}${route}`);
+		}
+		// the fifth tile is a plain card: it has no destination of its own
+		expect(/<h2 id="kpi-scan">([^<]*)<\/h2>/.exec(html)?.[1]).toBe('Without extracted text');
+	});
+});

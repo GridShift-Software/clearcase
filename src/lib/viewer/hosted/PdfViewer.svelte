@@ -10,6 +10,7 @@
 	const READER = '/pdfjs/pdf-reader.mjs';
 	let status = $state<'loading' | 'ready' | 'error'>('loading');
 	let pages = $state(0);
+ let renderedPage = $state<number | null>(null);
 	let current = $state(1);
 	let pageError = $state('');
 	let scale = $state(1.2);
@@ -19,6 +20,7 @@
 	let draft = $state('');
 	let noteError = $state('');
 	let pending = $state(false);
+ let canUseNotes = $state(untrack(() => notesAvailable));
 	let draftRevision = 0;
 	type Reader = { pages: number; draw(page: number, scale: number, fitWidth?: number): Promise<void>; destroy(): void };
 	type Global = { clearcasePdfReader?: { open(a: { src: string; canvas: HTMLCanvasElement; signal: AbortSignal }): Promise<Reader> } };
@@ -53,14 +55,17 @@
 		});
 	}
 	const draw = () => {
+		renderedPage = null;
+		const page = current;
 		const r = reader, generation = ++drawGeneration;
 		const width = viewport?.clientWidth;
-		return active && r && canvas ? (width ? r.draw(current, scale, width) : r.draw(current, scale)).catch(() => {
+		return active && r && canvas ? (width ? r.draw(current, scale, width) : r.draw(current, scale)).then(() => { if (active && generation === drawGeneration) renderedPage = page; }).catch(() => {
 			if (active && r === reader && generation === drawGeneration) status = 'error';
 		}) : Promise.resolve();
 	};
 	onMount(() => {
 		active = true;
+    if (!notesAvailable) void fetch(notesHref,{credentials:'same-origin',signal:lifetime.signal}).then(r=>r.ok ? r.json() : null).then(out=>{if (active && out && Array.isArray(out.notes)) {notes=out.notes; canUseNotes=true;}}).catch(()=>{});
 		const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { if (reader) void draw(); });
 		if (viewport) observer?.observe(viewport);
 		// The route keys this component by its authorized load. Capture the source before any await.
@@ -115,7 +120,7 @@
 		}
 	}
 	async function add() {
-		if (!active || pending || status !== 'ready' || !notesAvailable) return;
+		if (!active || pending || status !== 'ready' || !canUseNotes) return;
 		const revision = draftRevision, page = current, body = draft;
 		if (!retry || retry.revision !== revision || retry.page !== page || retry.body !== body) retry = { revision, page, body, operationId: operation() };
 		pending = true;
@@ -129,7 +134,7 @@
 		} finally { if (active) pending = false; }
 	}
 	async function remove(n: PageNote) {
-		if (!active || pending || !notesAvailable) return;
+		if (!active || pending || !canUseNotes) return;
 		const key = JSON.stringify([n.rowId, n.version]);
 		const operationId = deleteRetries.get(key) ?? operation();
 		deleteRetries.set(key, operationId);
@@ -156,13 +161,13 @@
 			<a data-action="download-original" href={downloadHref}>Download</a>
 		</p>
 		{#if pageError}<p role="alert">{pageError}</p>{/if}
-		<div class="pdf-viewport" bind:this={viewport}><canvas bind:this={canvas} aria-label={`Page ${current}`}></canvas></div>
+		<div class="pdf-viewport" bind:this={viewport}><canvas data-testid="pdf-page" data-page-number={renderedPage ?? undefined} data-rendered={renderedPage !== null ? "true" : undefined} bind:this={canvas} aria-label={`Page ${current}`}></canvas></div>
 	{/if}
 </div>
 
-<section aria-labelledby="page-notes" data-notes-state={notesAvailable ? 'available' : 'unavailable'}>
+<section aria-labelledby="page-notes" data-notes-state={canUseNotes ? 'available' : 'unavailable'}>
 	<h2 id="page-notes">Notes on this original</h2>
-	{#if !notesAvailable}
+	{#if !canUseNotes}
 		<p>Notes are unavailable right now. The document is still readable.</p>
 	{:else}
 		<ul>

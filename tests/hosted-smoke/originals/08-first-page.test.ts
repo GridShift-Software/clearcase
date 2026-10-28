@@ -8,9 +8,10 @@ import { DOMMatrix, ImageData, Path2D, createCanvas } from '@napi-rs/canvas';
 import { generatePdfAssets } from '../native-viewer/pdf-assets.ts';
 
 const SRC = 'https://app.test/cases/case-a/originals/asset-1?t=synthetic';
-/** A three-page PDF that is not linearized: pages first, `filler` bytes of content in the middle, the xref table last. */
-function pdf(filler: number) {
-  return build(['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>',
+/** A three-page PDF that is not linearized: pages first, `filler` bytes of content in the middle, the xref table last.
+ *  `count` is the page tree's /Count, which a malformed file gets wrong. */
+function pdf(filler: number, count = '3') {
+  return build(['<< /Type /Catalog /Pages 2 0 R >>', `<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count ${count} >>`,
     ...[6, 6, 7].map((c) => `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources <<>> /Contents ${c} 0 R >>`),
     '<< /Length 15 >>\nstream\n0 0 20 20 re f\nendstream', `<< /Length ${filler} >>\nstream\n${' '.repeat(filler)}\nendstream`]);
 }
@@ -74,8 +75,8 @@ beforeAll(async () => {
 });
 afterAll(() => assets?.dispose());
 beforeEach(() => { log = []; inFlightAtFirstAnswer = null; refuseRanges = false; slowMiddle = null; pace = 10; t0 = performance.now(); });
-const open = (size: number) => (globalThis as unknown as { window: { clearcasePdfReader: { open(a: object): Promise<{ pages: number; draw(n: number, s: number): Promise<void>; destroy(): void }> } } })
-  .window.clearcasePdfReader.open({ src: SRC, size, canvas: createCanvas(100, 100), signal: new AbortController().signal });
+const open = (size: number, onPages?: (pages: number) => void) => (globalThis as unknown as { window: { clearcasePdfReader: { open(a: object): Promise<{ pages: number; draw(n: number, s: number): Promise<void>; destroy(): void }> } } })
+  .window.clearcasePdfReader.open({ src: SRC, size, canvas: createCanvas(100, 100), signal: new AbortController().signal, onPages });
 
 it('opens a 300 KiB original with one plain GET and no range request', async () => {
   bytes = pdf(300 * 1024);
@@ -121,5 +122,27 @@ it('draws page 1 of a flat 40-page tree spread over 10 MiB without waiting for t
   expect(reader.pages).toBe(40);
   // The rest of the document is still there once its bytes arrive.
   await reader.draw(40, 1);
+  reader.destroy();
+});
+
+// A malformed page tree: upstream pdf.js recovers the real page count in checkLastPage, which the served worker defers.
+it('opens a 3-page original whose /Count is not a number, as upstream pdf.js does', async () => {
+  bytes = pdf(1024, '/Bogus');
+  const reader = await open(bytes.byteLength);
+  expect(reader.pages).toBe(3);
+  await reader.draw(3, 1);
+  reader.destroy();
+});
+
+it('tells the viewer the real page count once the deferred check finds /Count 10 over 3 pages', async () => {
+  bytes = pdf(1024, '10');
+  let told: (pages: number) => void;
+  const corrected = new Promise<number>((resolve) => { told = resolve; });
+  const reader = await open(bytes.byteLength, (pages) => told(pages));
+  await reader.draw(1, 1);
+  await expect(Promise.race([corrected, wait(2000).then(() => 'not told')])).resolves.toBe(3);
+  expect(reader.pages).toBe(3);
+  await expect(reader.draw(4, 1)).rejects.toThrow();
+  await reader.draw(3, 1);
   reader.destroy();
 });

@@ -3,7 +3,7 @@ import { CATEGORIES, VIEWS, VIEW_GROUPS, type ViewCategory, type ViewEntry } fro
 
 export { CATEGORIES, VIEWS, VIEW_GROUPS, type ViewCategory, type ViewEntry };
 
-export const viewHref = (resultsVersion: string, v: Pick<ViewEntry, 'route'>) => `${versionPath(resultsVersion)}${v.route}`;
+export const viewHref = (resultsVersion: string, v: Pick<ViewEntry, 'route'>, base?: string) => `${versionPath(resultsVersion, base)}${v.route}`;
 export const viewById = (id: string) => VIEWS.find((v) => v.id === id);
 export const viewAt = (category: string, id: string) => VIEWS.find((v) => v.category === category && v.id === id);
 export const isAvailable = (v: Pick<ViewEntry, 'status'>) => v.status === 'available';

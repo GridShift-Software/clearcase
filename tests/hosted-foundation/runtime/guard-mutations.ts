@@ -32,6 +32,10 @@ const variants = [
   { name: 'layout-reset-layout', expected: 'forbidden capability process', files: { 'deploy/client/routes/probe/+layout@.svelte': "<script lang=\"ts\">\n\tprocess.on('SIGTERM', () => {});\n</script>\n\n<slot />\n" } },
   { name: 'reserved-route-file', expected: 'reserved route file', files: { 'deploy/client/routes/probe/+hidden.ts': "import 'node:fs';\n" } },
   { name: 'package-outside-allowlist', expected: 'package outside the hosted allowlist fflate', files: { [hooks]: "import '$lib/server/runtime/probe-entry';\n", [prefix + 'probe-entry.ts']: "export { unzipSync } from 'fflate';\n" } },
+  // a stylesheet resolves when its file exists, and a local version page reached through $local is walked like any component
+  { name: 'stylesheet-import', expected: null, files: { 'deploy/client/routes/probe/+page.svelte': "<script lang=\"ts\">\n\timport '$lib/views/analysis/analysis.css';\n</script>\n\n<p>probe</p>\n" } },
+  { name: 'stylesheet-missing', expected: 'unresolved $lib/views/probe-missing.css', files: { 'deploy/client/routes/probe/+page.svelte': "<script lang=\"ts\">\n\timport '$lib/views/probe-missing.css';\n</script>\n\n<p>probe</p>\n" } },
+  { name: 'local-page-capability', expected: 'forbidden capability node:fs', files: { 'deploy/client/routes/probe/+page.svelte': "<script lang=\"ts\">\n\timport Page from '$local/probe/+page.svelte';\n</script>\n\n<Page />\n", 'src/routes/v/[vid]/probe/+page.svelte': "<script lang=\"ts\">\n\timport { readFileSync } from 'node:fs';\n\tconst text = readFileSync('/etc/hostname', 'utf8');\n</script>\n\n<p>{text}</p>\n" } },
   { name: 'local-browse-route', expected: 'forbidden local route module', files: { 'deploy/client/routes/api/browse/+server.ts': "export { GET } from '../../../../../src/routes/api/browse/+server.ts';\n" } },
   // the test doubles: the memory doubles never, and the hosted-gate doubles never in the production profile
   { name: 'memory-double-in-production', expected: 'forbidden test double in the production graph', files: { [hooks]: "import { createMemoryBackend } from '$lib/server/runtime/memory';\nexport const memory = createMemoryBackend;\n" } },

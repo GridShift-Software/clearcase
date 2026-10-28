@@ -25,7 +25,7 @@
 						<td class="ex"><Narrative text={e.must} resultsVersion={vid} known={data.known} /></td>
 						<td class="ex"><Narrative text={e.evidence} resultsVersion={vid} known={data.known} /></td>
 						<td data-witness>{e.witness}</td>
-						<td>{#if target}<a href={viewHref(vid, target)} data-target={target.id}>open →</a>{:else}<span class="unresolved" data-unknown-view>no such view{e.tab ? `: ${e.tab}` : ''}</span>{/if}</td>
+						<td>{#if target}<a href={viewHref(vid, target, data.base)} data-target={target.id}>open →</a>{:else}<span class="unresolved" data-unknown-view>no such view{e.tab ? `: ${e.tab}` : ''}</span>{/if}</td>
 					</tr>
 				{:else}
 					<tr><td colspan="5"><div class="empty">{data.present ? 'No elements in this results package.' : 'This results package has no cause-of-action analysis.'}</div></td></tr>

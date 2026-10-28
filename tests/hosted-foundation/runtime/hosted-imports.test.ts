@@ -256,6 +256,34 @@ describe('resolved hosted import boundary', () => {
     const root = await project('export {};', { 'src/hosted/routes/probe/helper.ts': "import 'node:fs';" });
     expect(checkHostedGraph({ root }).errors).toEqual([]);
   });
+  it('accepts a stylesheet that exists by $lib or relative path, and fails one that is missing or outside the checkout', async () => {
+    const page = (imports: string) => `<script lang="ts">${imports}</script><p>probe</p>`;
+    const files = { 'src/lib/views/analysis/analysis.css': '.card {}', 'src/app.css': 'body {}', 'src/hosted/routes/probe/probe.css': 'p {}' };
+    const ok = await project('export {};', { ...files, 'src/hosted/routes/probe/+page.svelte': page("import '$lib/views/analysis/analysis.css'; import '$lib/../app.css'; import './probe.css';") }, { packages: true });
+    expect(checkHostedGraph({ root: ok }).errors).toEqual([]);
+    const bad = await project('export {};', { ...files, 'src/hosted/routes/probe/+page.svelte': page("import '$lib/views/missing.css'; import '$lib/../../outside.css'; import 'some-package/styles.css';") }, { packages: true });
+    const errors = checkHostedGraph({ root: bad }).errors.join('\n');
+    for (const specifier of ['$lib/views/missing.css', '$lib/../../outside.css', 'some-package/styles.css']) expect(errors).toContain(`unresolved ${specifier}`);
+  });
+  it('walks a local version page re-exported through $local, and refuses every other local route module', async () => {
+    const tsconfig = JSON.stringify({ compilerOptions: { moduleResolution: 'bundler', module: 'preserve', paths: { '$lib/*': ['./src/lib/*'], '$local/*': ['./src/routes/v/[vid]/*'] } } });
+    const wrapper = (target: string) => `<script lang="ts">import Page from '$local/${target}';</script><Page />`;
+    const pages = {
+      'tsconfig.json': tsconfig,
+      'src/routes/v/[vid]/clean/+page.svelte': "<script lang=\"ts\">import Part from './Part.svelte';</script><Part />",
+      'src/routes/v/[vid]/clean/Part.svelte': '<p>part</p>',
+      'src/routes/v/[vid]/dirty/+page.svelte': "<script lang=\"ts\">import { readFileSync } from 'node:fs'; const t = readFileSync('x', 'utf8');</script><p>{t}</p>",
+      'src/routes/v/[vid]/clean/+page.server.ts': 'export const load = () => ({});',
+    };
+    const clean = await project('export {};', { ...pages, 'src/hosted/routes/clean/+page.svelte': wrapper('clean/+page.svelte') }, { packages: true });
+    const result = checkHostedGraph({ root: clean });
+    expect(result.errors).toEqual([]);
+    expect(result.files).toEqual(expect.arrayContaining(['src/routes/v/[vid]/clean/+page.svelte', 'src/routes/v/[vid]/clean/Part.svelte']));
+    const dirty = await project('export {};', { ...pages, 'src/hosted/routes/dirty/+page.svelte': wrapper('dirty/+page.svelte') }, { packages: true });
+    expect(checkHostedGraph({ root: dirty }).errors.join('\n')).toContain('src/routes/v/[vid]/dirty/+page.svelte: forbidden capability node:fs');
+    const server = await project('export {};', { ...pages, 'src/hosted/routes/clean/+page.server.ts': "export { load } from '$local/clean/+page.server';" });
+    expect(checkHostedGraph({ root: server }).errors.join('\n')).toContain('src/routes/v/[vid]/clean/+page.server.ts: forbidden local route module');
+  });
   it('allows safe crypto and fails unresolved imports rather than skipping them', async () => {
     const root = await project("import 'node:crypto'; import './not-there';");
     const result = checkHostedGraph({ root });

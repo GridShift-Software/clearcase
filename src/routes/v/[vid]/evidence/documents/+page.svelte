@@ -43,7 +43,7 @@
 					<tr data-ref={r.ref}>
 						<td class="mono">{r.ref}</td><td><span class="badge">{r.type}</span></td><td class="mono">{dateCell(r.date)}</td>
 						<td>{r.title}</td><td class="num">{r.amount}</td><td>{statusLabel(r.textStatus)}</td>
-						<td><a class="doc" href={docPath(vid, r.ref)}>{docLabel(r.file)}</a></td>
+						<td><a class="doc" href={docPath(vid, r.ref, null, data.base)}>{docLabel(r.file)}</a></td>
 					</tr>
 				{/each}
 			</tbody>

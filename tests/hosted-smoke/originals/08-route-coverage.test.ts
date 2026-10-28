@@ -1,4 +1,5 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
+vi.mock('cloudflare:workers',()=>({env:{CLEARCASE_ASSET_TICKET_KEY:'synthetic-test-key'}}));
 import { isHttpError } from '@sveltejs/kit';
 import { originalWorld } from './08-world';
 import { fastOriginals } from '../../../src/lib/viewer/hosted/fast-original';
@@ -27,5 +28,5 @@ it('M1 ticket for another asset is refused without R2',async()=>{
 it('M1 not-found maps to missing Original not supplied state',async()=>{
  const w=await originalWorld();
  expect((await w.view(w.identity,'missing')).view).toMatchObject({state:'unavailable',reason:'missing'});
- expect(await w.locals().assets.availability({asset:{kind:'original',caseId:w.identity.clientId as never,assetId:'missing'}}).catch(()=>null)).not.toBeUndefined();
+ expect(await w.locals().assets.availability({asset:{kind:'original',caseId:'case-a' as never,assetId:'missing'}})).toMatchObject({kind:'unavailable',reason:'missing'});
 });

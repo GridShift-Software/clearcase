@@ -27,3 +27,12 @@ describe('CitationLink title', () => {
 		expect(broken).not.toContain('Invented letter');
 	});
 });
+
+describe('CitationLink route base', () => {
+	it('links to the document route under the base the layout sets, and under /v without one', () => {
+		const enc = encodeURIComponent(RV);
+		expect(html({ page: 3 })).toContain(`href="/v/${enc}/doc/SX-001?page=3"`);
+		const hosted = render(CitationLink, { props: { resultsVersion: RV, ref: 'SX-001', page: 3 }, context: new Map([['clearcase:base', () => '/cases/c1/v']]) }).body;
+		expect(hosted).toContain(`href="/cases/c1/v/${enc}/doc/SX-001?page=3"`);
+	});
+});

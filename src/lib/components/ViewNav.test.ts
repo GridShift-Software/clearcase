@@ -1,5 +1,7 @@
+import { render } from 'svelte/server';
 import { describe, expect, test } from 'vitest';
 import { versionPath } from '../local-case/model.ts';
+import ViewNav from './ViewNav.svelte';
 
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 // the module script's exports (a .svelte import has only a default export to tsc; vitest compiles the component)
@@ -7,7 +9,7 @@ const { queryKey, savedQuery, saveQuery, rememberQueries } = (await import('./Vi
 	queryKey: (caseId: string, viewId: string) => string;
 	savedQuery: (store: Pick<Storage, 'getItem'> | null, caseId: string, viewId: string) => string;
 	saveQuery: (store: Pick<Storage, 'setItem' | 'removeItem'> | null, caseId: string, viewId: string, search: string) => void;
-	rememberQueries: (store: Store | null, caseId: string, resultsVersion: string, current: string | null, address: { pathname: string; search: string }) => Record<string, string>;
+	rememberQueries: (store: Store | null, caseId: string, resultsVersion: string, current: string | null, address: { pathname: string; search: string }, base?: string) => Record<string, string>;
 };
 
 function memory() {
@@ -78,5 +80,47 @@ describe('after a navigation', () => {
 		expect(rememberQueries(s, 'c', RV, 'chronology', at('/evidence/search')).chronology).toBe('?q=zebra');
 		expect(rememberQueries(s, 'c', RV, '[ref]', at('/doc/EX-001', '?page=2'))).not.toHaveProperty('[ref]');
 		expect([...s.map.keys()]).toEqual([queryKey('c', 'chronology')]);
+	});
+});
+
+describe('under a route base', () => {
+	const HOSTED = '/cases/c1/v';
+	const nav = (props: Record<string, unknown>, base?: string) =>
+		render(ViewNav, { props: { resultsVersion: RV, ...props }, ...(base ? { context: new Map([['clearcase:base', () => base]]) } : {}) }).body;
+	const links = (html: string) => [...html.matchAll(/<a ([^>]*)>/g)].map((m) => m[1]!);
+	const attr = (a: string, name: string) => new RegExp(`${name}="([^"]*)"`).exec(a)?.[1] ?? null;
+
+	test('every entry links under the base the layout sets, and under /v without one', () => {
+		const local = links(nav({}));
+		expect(local).toHaveLength(42);
+		expect(local.every((a) => attr(a, 'href')!.startsWith(`${versionPath(RV)}/`))).toBe(true);
+		const hosted = links(nav({}, HOSTED));
+		expect(hosted.every((a) => attr(a, 'href')!.startsWith(`${versionPath(RV, HOSTED)}/`))).toBe(true);
+	});
+
+	test('with hosted set, soon entries are disabled and marked, ported entries are plain, and no system entry is shown', () => {
+		const hosted = links(nav({ hosted: true }, HOSTED));
+		const byView = new Map(hosted.map((a) => [attr(a, 'data-view')!, a]));
+		expect([...byView.keys()].filter((id) => ['rescan_tab', 'backup_tab', 'manual'].includes(id))).toEqual([]);
+		expect(hosted).toHaveLength(39);
+		expect(attr(byView.get('overview')!, 'data-hosted-status')).toBe('ported');
+		expect(attr(byView.get('overview')!, 'aria-disabled')).toBeNull();
+		for (const id of ['chronology', 'documents', 'risk_matrix_tab']) {
+			expect(attr(byView.get(id)!, 'data-hosted-status')).toBe('soon');
+			expect(attr(byView.get(id)!, 'aria-disabled')).toBe('true');
+		}
+		expect(nav({ hosted: true }, HOSTED)).not.toMatch(/>System</);
+	});
+
+	test('without hosted, nothing carries a hosted status', () => {
+		expect(nav({})).not.toContain('data-hosted-status');
+		expect(nav({})).not.toContain('aria-disabled');
+	});
+
+	test("the current view's query is remembered under the base", () => {
+		const s = memory();
+		const q = rememberQueries(s, 'c', RV, 'chronology', { pathname: `${versionPath(RV, HOSTED)}/chronology`, search: '?q=zebra' }, HOSTED);
+		expect(q.chronology).toBe('?q=zebra');
+		expect(rememberQueries(memory(), 'c', RV, 'chronology', { pathname: `${versionPath(RV)}/chronology`, search: '?q=zebra' }, HOSTED).chronology).toBe('');
 	});
 });

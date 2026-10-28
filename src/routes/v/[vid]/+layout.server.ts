@@ -25,5 +25,7 @@ export const load: LayoutServerLoad = ({ params }) => {
 			brand: viewText(vc, '_shell', 'brandName', shell) ?? name,
 		},
 		isActive: a.effectiveActive(v.case_id) === v.id,
+		base: '/v',
+		documents: o.counts.documents,
 	};
 };

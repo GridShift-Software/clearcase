@@ -30,6 +30,7 @@ const provisioningOnly = /^src\/lib\/(?:(?:tenancy|audit)\/provisioning|tenancy\
 export type HostedProfile = 'production' | 'hosted-gate';
 const packageOf = (specifier: string) => /^(?:@[^/]+\/)?[^/.$][^/]*/.exec(specifier)?.[0] ?? null;
 const extensions = ['.ts', '.js', '.mjs', '.svelte'];
+const localPages = 'src/routes/v/[vid]';
 function record(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 /** The routes and server hooks one hosted profile builds; a profile entry may replace the hooks and nothing else. */
 export function selected(root: string, profile: HostedProfile = 'production') {
@@ -80,6 +81,12 @@ export function checkHostedGraph(a: { root: string; profile?: HostedProfile }): 
     if (parsed.errors.some((e) => e.code !== 18003)) throw new Error(ts.flattenDiagnosticMessageText(parsed.errors[0]!.messageText, ' '));
     options = parsed.options;
   } catch (e) { fail(['configuration'], e instanceof Error ? e.message : 'unreadable configuration'); return { errors, files: [] }; }
+  function sourcePath(specifier: string, importer: string) {
+    if (specifier.startsWith('./') || specifier.startsWith('../')) return path.resolve(path.dirname(importer), specifier);
+    if (specifier.startsWith('$lib/')) return path.join(root, 'src/lib', specifier.slice(5));
+    if (specifier.startsWith('$local/')) return path.join(root, localPages, specifier.slice(7));
+    return null;
+  }
   function resolve(specifier: string, importer: string, chain: string[]) {
     const bare = specifier.replace(/^node:/, '');
     if (virtualModules.test(specifier)) return;
@@ -87,9 +94,15 @@ export function checkHostedGraph(a: { root: string; profile?: HostedProfile }): 
       if (!safeBuiltins.has(bare)) fail(chain, `forbidden capability ${specifier}`);
       return;
     }
-    // TypeScript does not resolve Svelte components; a component is named by a relative or $lib path, nothing else.
+    // A stylesheet names no module: it resolves when the file exists inside the boundary, and there is nothing to walk.
+    if (specifier.endsWith('.css')) {
+      const file = sourcePath(specifier, importer);
+      try { if (file === null || !existsSync(file)) throw new Error(); inside(file); } catch { fail(chain, `unresolved ${specifier}`); }
+      return;
+    }
+    // TypeScript does not resolve Svelte components; a component is named by a relative, $lib or $local path, nothing else.
     if (specifier.endsWith('.svelte')) {
-      const file = specifier.startsWith('./') || specifier.startsWith('../') ? path.resolve(path.dirname(importer), specifier) : specifier.startsWith('$lib/') ? path.join(root, 'src/lib', specifier.slice(5)) : null;
+      const file = sourcePath(specifier, importer);
       if (file === null || !existsSync(file)) fail(chain, `unresolved ${specifier}`); else visit(file, chain);
       return;
     }
@@ -145,8 +158,10 @@ export function checkHostedGraph(a: { root: string; profile?: HostedProfile }): 
     const name = relative(file), chain = [...prior, name];
     if (local.test(name)) { visited.add(file); fail(chain, 'forbidden local implementation'); return; }
     if (memoryDouble.test(name) || gateDouble.test(name) && profile !== 'hosted-gate') { visited.add(file); fail(chain, `forbidden test double in the ${profile} graph`); return; }
-    // The local route tree (src/routes, the folder browser at src/routes/api/browse among it) never joins the hosted one.
-    if (name.startsWith('src/routes/')) { visited.add(file); fail(chain, 'forbidden local route module'); return; }
+    // The local route tree (src/routes, the folder browser at src/routes/api/browse among it) never joins the hosted one,
+    // except the local version pages' components, which hosted wrapper pages re-export through $local and which are
+    // walked like any other component.
+    if (name.startsWith('src/routes/') && !(name.startsWith(`${localPages}/`) && name.endsWith('.svelte'))) { visited.add(file); fail(chain, 'forbidden local route module'); return; }
     if (provisioningOnly.test(name)) { visited.add(file); fail(chain, 'provisioning-only module is unreachable from the hosted request graph'); return; }
     if (auditImplementation.test(name)) {
       const importer = prior.at(-1) ?? '';

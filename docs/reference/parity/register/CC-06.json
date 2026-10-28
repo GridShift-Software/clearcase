@@ -667,7 +667,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-quantum_tab-1",
-      "reason": "S-quantum_tab-1: v5's headline source link bypasses the viewer, unlike every other document link; ClearCase renders it through the shared citation link, which opens the document page. S-quantum_tab-2: v5's charging shortcut sets only the type filter and keeps earlier filters; ClearCase links to the chronology with the default query and only the type set. Evidence: src/routes/v/[vid]/quantum/quantum_tab/+page.svelte:29, 17.",
+      "reason": "S-quantum_tab-1: v5's headline source link bypasses the viewer, unlike every other document link; ClearCase renders it through the shared citation link, which opens the document page. S-quantum_tab-2: v5's charging shortcut sets only the type filter and keeps earlier filters; ClearCase links to the chronology with the default query and only the type set. Evidence: src/routes/v/[vid]/quantum/quantum_tab/+page.svelte:30, 18.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": "Vaperizer2",

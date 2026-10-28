@@ -45,7 +45,7 @@ export async function publicationRow(db: CloudD1, caseId: CaseId): Promise<Publi
 }
 
 /** `admitted_json` as name → bytes; anything that is not that shape admits nothing. */
-function admittedShards(json: string | null): Readonly<Record<string, number>> | null {
+export function admittedShards(json: string | null): Readonly<Record<string, number>> | null {
   if (json === null) return null;
   let v: unknown;
   try { v = JSON.parse(json); } catch { return null; }

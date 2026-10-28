@@ -10,10 +10,12 @@ import { documentRow } from '../../list-pages.server';
 // app's pages refuse to be framed, so the pane cannot embed the viewer page itself. The ref must name a document of the
 // case's published version (the URL's version, authorized by 06's publishedVersion) whose own original is present; its
 // asset is the one keyed by that ref, never an attachment or a package file. Anything else is 404 before any asset is
-// looked up or a ticket minted. The answer holds a short-lived asset ticket for this reader: never cached.
+// looked up or a ticket minted. The answer holds a short-lived asset ticket for this reader: never cached. It answers POST
+// (the hosted handle refuses one from another origin): a GET under /v/ is a page read, which hosted/services.ts serves
+// from 09b's per-request snapshot, and that snapshot carries an original only for the viewer page's own route.
 const notFound = (): never => error(404, { message: 'Not found.', code: 'not-found' });
 
-export async function GET({ locals, params }: RequestEvent) {
+export async function POST({ locals, params }: RequestEvent) {
 	const p = params as Record<string, string | undefined>;
 	const asset = assetRefOf('original', { caseId: p.caseId, assetId: p.ref });
 	const v = await publishedVersion(locals, p);

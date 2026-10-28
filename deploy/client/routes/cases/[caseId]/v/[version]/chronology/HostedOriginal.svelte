@@ -1,6 +1,7 @@
 <script lang="ts">
 	// One document's original in the chronology's split pane: the hosted viewer's own model and component, loaded when the
-	// pane opens a document. A missing, changed or embedded original and a download-only file each show their state.
+	// pane opens a document (a POST: it mints the original's ticket). A missing, changed or embedded original and a
+	// download-only file each show their state.
 	import PdfViewer from '$lib/viewer/hosted/PdfViewer.svelte';
 	import type { OriginalView } from '$lib/viewer/hosted/view-model';
 	let { href }: { href: string } = $props();
@@ -10,7 +11,7 @@
 	$effect(() => {
 		const ctl = new AbortController();
 		state = { kind: 'loading' };
-		fetch(href, { credentials: 'same-origin', signal: ctl.signal })
+		fetch(href, { method: 'POST', credentials: 'same-origin', signal: ctl.signal })
 			.then((r) => (r.ok ? (r.json() as Promise<Loaded>) : Promise.reject(new Error(String(r.status)))))
 			.then((b) => { state = { kind: 'ready', ...b }; })
 			.catch(() => { if (!ctl.signal.aborted) state = { kind: 'error' }; });

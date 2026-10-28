@@ -2,6 +2,8 @@ import { fmtR } from '../../components/format.ts';
 import { dateProblem, daysBetween, isIsoDate } from '../../calculations/dates.ts';
 import { computeInterest, METHODS, type Method } from '../../calculations/interest.ts';
 import { centsText, centsToUnits, parseAmount, parseBounded, TOO_LARGE, unitsToCents, withinCap } from '../../calculations/money.ts';
+import type { interestPure } from './data.server.ts';
+import type { PaymentsWork } from './payments.ts';
 
 export const MAX_RATE = 100;
 
@@ -102,3 +104,15 @@ export function shownOutcome(i: InterestInputs, due: Due): ShownOutcome {
 	const alone = due.units === null ? { value: '—', sub: 'not in this package' } : { value: line.value, sub: `${asAt}: not comparable with your total` };
 	return { ...o, kpis: [capital, interest, total, { label: line.label, ...alone }], comparison, basisNote: null };
 }
+
+/** The Interest Recalculator shard (ticket 04): the view without the payment dates. */
+export type InterestShard = ReturnType<typeof interestPure>;
+
+export const interestMerge = (shard: InterestShard, work: PaymentsWork) => ({
+	defaults: shard.defaults,
+	headlineDue: shard.headlineDue,
+	headlineDate: shard.headlineDate,
+	paymentDates: work.payments.map((p) => p.date),
+	note: shard.note,
+	known: shard.known,
+});

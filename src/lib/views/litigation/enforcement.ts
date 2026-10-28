@@ -1,3 +1,6 @@
+import type { VersionedRow } from '../../local-case/registers.server.ts';
+import type { enforcementPure } from './enforcement.server.ts';
+
 
 export const ENF_OPTS = Object.freeze(['To do', 'In progress', 'Done', 'Contingent', 'Monitor']);
 
@@ -48,4 +51,23 @@ export function mapV5EnfStatus(rows: readonly Pick<EnfRow, 'key'>[], stored: Rea
 		if (key) out.push({ stepKey: key, status });
 	}
 	return out;
+}
+
+const text = (v: unknown) => (v === null || v === undefined ? '' : String(v));
+
+/** The saved status rows of one step; `saveStatus` (writes.server.ts) keeps the last and removes the others. */
+export const stepRows = (rows: readonly VersionedRow[], stepKey: string) => rows.filter((r) => text(r.fields.stepKey) === stepKey);
+
+/** The version of a step's saved status, as `saveStatus` checks it: 'none' when nothing is saved. */
+export const stepVersion = (rows: readonly VersionedRow[]) => (rows.length ? rows.map((r) => `${r.rowId}.${r.version}`).join(' ') : 'none');
+
+/** The Enforcement Roadmap shard (ticket 04): the view without the saved statuses. */
+export type EnforcementShard = ReturnType<typeof enforcementPure>;
+
+/** The Enforcement Roadmap page data from its shard and the saved status rows in register order. */
+export function enforcementMerge(shard: EnforcementShard, work: { rows: readonly VersionedRow[] }) {
+	const keys = new Set(work.rows.map((r) => text(r.fields.stepKey)).filter(Boolean));
+	const saved = new Map([...keys].map((k) => { const mine = stepRows(work.rows, k); return [k, { status: text(mine.at(-1)!.fields.status), version: stepVersion(mine) }]; }));
+	const rows = shard.rows.map((r) => ({ ...r, override: r.key ? saved.get(r.key)?.status ?? null : null, version: (r.key && saved.get(r.key)?.version) || 'none' }));
+	return { present: shard.present, rows, phases: shard.phases, content: shard.content, known: shard.known };
 }

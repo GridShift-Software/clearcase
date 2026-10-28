@@ -22,7 +22,7 @@ function world() {
   const batch = raw.batch;
   raw.batch = async (statements) => { batches++; return batch(statements); };
   const work = createD1UserWork({ db: countedD1(raw, c), config: { clientId: CLIENT, limits: LIMITS }, identity: auth.identity(), audit: auditLog().sink, store: reader.reader, now: () => new Date('2026-11-01T10:00:00Z') });
-  return { db, c, locals: localsOf(work), params: { caseId: CASE, version: RV1 }, batches: () => batches, reset: () => { batches = 0; } };
+  return { db, c, locals: localsOf(work, auth.identity()), params: { caseId: CASE, version: RV1 }, batches: () => batches, reset: () => { batches = 0; } };
 }
 type W = ReturnType<typeof world>;
 const at = (w: W) => w as never;

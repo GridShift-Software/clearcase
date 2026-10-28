@@ -47,7 +47,7 @@ describe('17b authorities', () => {
 	it('a viewer\'s add is refused by the store and nothing is written', async () => {
 		const w = world('viewer');
 		try {
-			await expect(post(w, authorities, 'add', { topic: '', authority: 'Synthetic v Refused', proposition: '' })).rejects.toMatchObject({ status: expect.any(Number) });
+			await expect(post(w, authorities, 'add', { topic: '', authority: 'Synthetic v Refused', proposition: '' })).rejects.toMatchObject({ status: 403 });
 			expect(rowsIn(w, 'authorities')).toEqual([]);
 		} finally { w.db.close(); }
 	});

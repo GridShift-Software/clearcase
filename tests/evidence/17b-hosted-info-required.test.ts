@@ -51,7 +51,7 @@ describe('17b information required', () => {
 	it('a viewer cannot tick', async () => {
 		const w = world('viewer');
 		try {
-			await expect(post(w, info, 'toggle', { key: 'info:one', done: 'true' })).rejects.toMatchObject({ status: expect.any(Number) });
+			await expect(post(w, info, 'toggle', { key: 'info:one', done: 'true' })).rejects.toMatchObject({ status: 403 });
 			expect(w.db.prepare('SELECT count(*) AS n FROM uw_register_row').get()).toEqual({ n: 0 });
 		} finally { w.db.close(); }
 	});

@@ -1,6 +1,7 @@
 // Shared by the 17b entry tests (litigation, quantum, evidence, budget): the hosted routes' real actions and loads over the
 // synthetic D1 user-work double. Every case, ref and value is invented. Not evidence of Cloudflare D1 or of a deployed save time.
 import type * as C from '../../src/lib/server/runtime/contracts.ts';
+import { resultsVersion } from '../../src/lib/server/runtime/ids.ts';
 import { fixture, CASE, RV1 } from '../hosted-foundation/user-work/helpers.ts';
 export { CASE, RV1 };
 
@@ -27,22 +28,28 @@ export const SHARDS: Record<string, unknown> = {
 };
 
 /** Request services over a user-work store, with the publication and the view shards of the synthetic version. */
-export function localsOf(userWork: C.AsyncUserWork) {
+export function localsOf(userWork: C.AsyncUserWork, identity?: C.Identity, publication: 'current' | 'withdrawn' = 'current') {
 	const admitted = Object.fromEntries(Object.entries(SHARDS).map(([name, v]) => [name, encode(v).byteLength]));
 	return {
-		userWork, runtime: { now: () => new Date('2026-11-01T10:00:00Z') },
-		store: { publication: async () => ({ versionId: RV1, publishedAt: null, previousVersionId: null, shardManifestSha256: 'a'.repeat(64), shards: admitted }) },
+		userWork, identity, runtime: { now: () => new Date('2026-11-01T10:00:00Z') },
+		store: { publication: async () => (publication === 'withdrawn' ? null : { versionId: RV1, publishedAt: null, previousVersionId: null, shardManifestSha256: 'a'.repeat(64), shards: admitted }) },
 		shards: { read: async (a: { name: string }) => new Response(encode(SHARDS[a.name])) },
 	} as unknown as C.RequestServices;
 }
 
-export function world(subject = 'editor') {
+export const RV_OTHER = resultsVersion(`sha256:${'3'.repeat(64)}`);
+
+export function world(subject = 'editor', publication: 'current' | 'withdrawn' = 'current') {
 	const f = fixture();
 	if (subject !== 'editor') f.auth.grant(subject, CASE, 'viewer');
-	const locals = localsOf(f.make(subject));
+	const locals = localsOf(f.make(subject), f.auth.identity(subject), publication);
 	const params = { caseId: CASE, version: RV1 };
 	return { ...f, locals, params };
 }
+/** The same world, with its URL naming a version that is not the published one. */
+export const stale = (w: ReturnType<typeof world>) => ({ ...w, params: { ...w.params, version: RV_OTHER } }) as ReturnType<typeof world>;
+/** What a refused write must leave alone: the register rows, the seed overlays and the operation ledger. */
+export const stored = (w: ReturnType<typeof world>) => JSON.stringify(['uw_register_row', 'uw_seed_overlay', 'uw_operation'].map((t) => w.db.prepare(`SELECT * FROM ${t} ORDER BY 1, 2`).all()));
 export type World = ReturnType<typeof world>;
 
 type Route = { actions?: Record<string, unknown>; load?: unknown };

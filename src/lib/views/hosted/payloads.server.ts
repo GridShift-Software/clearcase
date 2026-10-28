@@ -1,7 +1,8 @@
 // The hosted version pages' one read path (sprint ticket 06): authorize the case, check that the URL names its current
-// published version and that the version is served from shards, then read a shard. Authorization and the version check
-// are one publication read (the reader authorizes it as it does getCase); no read model is loaded or hashed per request
-// (the shard manifest's hash was bound by the sign-off at publication). It runs once per request, however many loads ask.
+// published version and that the version is served from shards, then read a shard its publication admits. Authorization,
+// the version check and the admitted names are one publication read (the reader authorizes it as it does getCase); no
+// read model is loaded or hashed per request (the sign-off bound the manifests at publication, and upload checked the
+// bytes). It runs once per request, however many loads ask.
 import { error, type RequestEvent } from '@sveltejs/kit';
 import type { CaseId, PublicationRecord, RequestServices, ResultsVersion } from '../../server/runtime/contracts.ts';
 import { refuse } from '../../server/runtime/hosted/http.ts';
@@ -38,14 +39,19 @@ async function resolve(locals: RequestServices, params: Params): Promise<Publish
   if (!raw || !PART.test(raw) || !rv || !RV.test(rv)) notFound();
   const caseId = id('case', raw!);
   const publication = await locals.store.publication({ caseId }).catch((e: unknown) => refuse(e));
-  if (!publication || publication.versionId !== rv || !publication.shardManifestSha256) notFound();
+  if (!publication || publication.versionId !== rv || !publication.shardManifestSha256 || !publication.shards) notFound();
   return { caseId, resultsVersion: rv as ResultsVersion, publication: publication!, base: versionBase(caseId) };
 }
 
-/** One shard of the current published version, parsed. A shard the manifest promised but storage lacks is a 503. */
+/**
+ * One shard of the current published version, parsed. A name the publication does not admit is 404 before any cache or
+ * R2 read; an admitted shard storage lacks, or holds with other bytes, is a 503.
+ */
 export async function shard<T>(locals: RequestServices, params: Params, name: string): Promise<T> {
   const v = await publishedVersion(locals, params);
-  const response = await locals.shards.read({ caseId: v.caseId, resultsVersion: v.resultsVersion, name }).catch((e: unknown) => refuse(e));
+  const admitted = v.publication.shards!;
+  if (!Object.hasOwn(admitted, name)) notFound();
+  const response = await locals.shards.read({ caseId: v.caseId, resultsVersion: v.resultsVersion, name, bytes: admitted[name]! }).catch((e: unknown) => refuse(e));
   if (!response) error(503, { message: 'The published results cannot be shown right now. Try again shortly.', code: 'storage-unavailable' });
   try { return JSON.parse(await response!.text()) as T; }
   catch { error(503, { message: 'The published results cannot be shown right now. Try again shortly.', code: 'invalid-package' }); }

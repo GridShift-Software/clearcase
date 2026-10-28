@@ -12,13 +12,14 @@ describe('runtime boundary contracts', () => {
     expect(() => sha256('a'.repeat(63))).toThrow();
     expect(() => resultsVersion('not-a-digest')).toThrow();
   });
-  it('constructs all six handles without a memory fallback', async () => {
+  it('constructs all seven handles without a memory fallback', async () => {
     const locals = createUnavailableServices({ clientId: id('client', 'client-a'), now: () => new Date('2026-10-17T00:00:00Z') });
-    expect(Object.keys(locals).sort()).toEqual(['assets', 'audit', 'identity', 'runtime', 'store', 'userWork']);
+    expect(Object.keys(locals).sort()).toEqual(['assets', 'audit', 'identity', 'runtime', 'shards', 'store', 'userWork']);
     expect(locals.identity.kind).toBe('anonymous');
     await expect(locals.identity.checkRevocation()).rejects.toMatchObject({ code: 'identity-unavailable', retryable: true });
     await expect(locals.store.listCases()).rejects.toMatchObject({ code: 'storage-unavailable' });
     await expect(locals.userWork.notesFor({ caseId: id('case', 'empty'), target: null })).rejects.toMatchObject({ code: 'storage-unavailable' });
+    await expect(locals.shards.read({ caseId: id('case', 'empty'), resultsVersion: resultsVersion('sha256:' + 'b'.repeat(64)), name: 'shell.json' })).rejects.toMatchObject({ code: 'storage-unavailable' });
     await expect(locals.runtime.probe()).rejects.toMatchObject({ code: 'missing-binding' });
     expect(() => locals.runtime.build).toThrow('invalid-build');
     expect(locals.runtime.now().toISOString()).toBe('2026-10-17T00:00:00.000Z');

@@ -5,6 +5,7 @@ import { contractError, isDenial } from './errors.ts';
 import { createMemoryReader } from './memory-reader.ts';
 import { createMemoryAssets } from './memory-assets.ts';
 import { createMemoryWork, newWork } from './memory-work.ts';
+import { createMemoryShards } from './memory-shards.ts';
 import type { WorkState } from './memory-work.ts';
 
 export interface MemoryVersion { info: C.VersionInfo; files: { path: string; bytes: Uint8Array }[]; rows: C.DocumentRow[]; seeds: C.SeedRow[] }
@@ -106,7 +107,7 @@ export function createMemoryBackend(a: { fixture: MemoryFixture; now: () => Date
     };
     const store = createMemoryReader(ctx);
     const assets = createMemoryAssets(ctx, (asset) => assetFaults.get(JSON.stringify([clientId, asset])) ?? null);
-    return { identity, store: detached(store), assets: detached(assets), userWork: detached(createMemoryWork(ctx, store)),
+    return { identity, store: detached(store), assets: detached(assets), userWork: detached(createMemoryWork(ctx, store)), shards: createMemoryShards({ clientId }),
       audit: { async append(event) { event = structuredClone(event); await before('audit'); await identity.checkRevocation(); ctx.audit(event); return { eventId: event.eventId }; } },
       runtime: { build: Object.freeze({ revision: fixture.revision, dirty: true, exported: false, builtAt: a.now().toISOString(), bun: '1.4.2', buildId: 'memory-contract-diagnostic', target: 'cloudflare', profile: 'hosted-gate' }), gate: { runId: 'memory-contract-diagnostic', fixtureSha256: fixture.sha256 }, testIdentity: null, now: ctx.now, async probe() { await before('probe'); throw contractError('missing-binding'); } },
     };

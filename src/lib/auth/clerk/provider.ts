@@ -14,6 +14,8 @@ export { inspectToken, presentedToken };
 
 /** The case decision GRS-114 owns. Resolves to allow; throws a contract error (forbidden, ...) to refuse. */
 export type CaseAuthorizer = (a: { principal: Principal; sessionId: SessionId; caseId: CaseId; operation: CaseOperation }) => Promise<void>;
+/** The same decision over a list of cases (GRS-114's authorizeCases). */
+export type CasesAuthorizer = (a: { principal: Principal; sessionId: SessionId; operation: CaseOperation; caseIds: readonly CaseId[] | Promise<readonly CaseId[]> }) => Promise<ReadonlySet<CaseId>>;
 
 // verifyToken reasons that mean the key or configuration is at fault, not the token: a 503. Every other reason is the
 // token's own (expired, wrong issuer, bad signature, ...): a 401.
@@ -31,8 +33,8 @@ export interface ClerkIdentityProvider extends IdentityProvider {
 const backendsOf = (config: ClerkIdentityConfig) =>
 	new Map([config.client, config.staff].map((i) => [i, createClerkClient({ secretKey: i.secretKey, publishableKey: i.publishableKey, apiUrl: config.apiUrl ?? undefined, telemetry: { disabled: true } })]));
 
-export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; authorizeCase: CaseAuthorizer; app?: AppSessionConfig | null }): ClerkIdentityProvider {
-	const { config, authorizeCase, app = null } = a;
+export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; authorizeCase: CaseAuthorizer; authorizeCases?: CasesAuthorizer; app?: AppSessionConfig | null }): ClerkIdentityProvider {
+	const { config, authorizeCase, authorizeCases, app = null } = a;
 	if (typeof authorizeCase !== 'function') throw new TypeError('createClerkIdentityProvider needs the case authorizer');
 	const backends = backendsOf(config);
 
@@ -88,6 +90,13 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 		return session?.userId === v.subject && session.status === 'active' ? null : 'invalid-session';
 	}
 
+	/** authorizeCases for a verified principal: the session rechecked first, and a fault that is not the authorizer's own refusal is unavailable. */
+	const listAuthority = (principal: Principal, sessionId: SessionId, checkRevocation: () => Promise<void>): Pick<Identity, 'authorizeCases'> => authorizeCases ? {
+		async authorizeCases(scope) {
+			await checkRevocation();
+			try { return await authorizeCases({ principal, sessionId, operation: scope.operation, caseIds: scope.caseIds }); } catch (e) { throw codeOf(e) !== null ? e : unavailable(); }
+		} } : {};
+
 	function refusedIdentity(code: Refusal): Identity {
 		const refuse = async (): Promise<never> => { throw contractError(code); };
 		return { kind: 'anonymous', principal: null, sessionId: null, clientId: config.clientId, checkRevocation: refuse, authorize: refuse };
@@ -108,7 +117,7 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 					try { sessionId = id('session', session.sid); } catch { return refusedIdentity('invalid-session'); }
 					const principal: Principal = { issuer: session.issuer, subject: session.subject, kind: session.principalKind };
 					const checkRevocation = async () => { if (Date.now() >= session.exp * 1000) throw contractError('invalid-session'); };
-					return { kind: 'verified', name: session.name, principal, sessionId, clientId: config.clientId, checkRevocation,
+					return { kind: 'verified', name: session.name, principal, sessionId, clientId: config.clientId, checkRevocation, ...listAuthority(principal, sessionId, checkRevocation),
 						async authorize(scope) {
 							await checkRevocation();
 							try { await authorizeCase({ principal, sessionId, ...scope }); } catch (e) { throw codeOf(e) !== null ? e : unavailable(); }
@@ -138,7 +147,7 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 				if (r) throw contractError(r);
 			}
 			return {
-				kind: 'verified', name: verified.name, principal, sessionId, clientId: config.clientId, checkRevocation,
+				kind: 'verified', name: verified.name, principal, sessionId, clientId: config.clientId, checkRevocation, ...listAuthority(principal, sessionId, checkRevocation),
 				async authorize(scope) {
 					await checkRevocation();
 					try {
@@ -157,10 +166,10 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
  * The factory the hosted composer calls once per request (or once per isolate) with the Worker env and GRS-114's
  * authorizer. Unconfigured, it is unavailable with a reason naming variables only; it never falls back to a double.
  */
-export function clerkIdentityProviderFromEnv(env: Readonly<Record<string, unknown>>, a: { authorizeCase: CaseAuthorizer }): { ok: true; provider: ClerkIdentityProvider; config: ClerkIdentityConfig } | { ok: false; reason: string } {
+export function clerkIdentityProviderFromEnv(env: Readonly<Record<string, unknown>>, a: { authorizeCase: CaseAuthorizer; authorizeCases?: CasesAuthorizer }): { ok: true; provider: ClerkIdentityProvider; config: ClerkIdentityConfig } | { ok: false; reason: string } {
 	const read = readClerkIdentityConfig(env);
 	if (!read.ok) return read;
 	const app = appSessionConfig(env, read.config.client.issuer);
 	if (!app && (env.CLEARCASE_SESSION_KEY !== undefined || env.SESSIONS !== undefined)) return { ok: false, reason: 'CLEARCASE_SESSION_KEY and SESSIONS are required' };
-	return { ok: true, provider: createClerkIdentityProvider({ config: read.config, authorizeCase: a.authorizeCase, app }), config: read.config };
+	return { ok: true, provider: createClerkIdentityProvider({ config: read.config, authorizeCase: a.authorizeCase, ...(a.authorizeCases ? { authorizeCases: a.authorizeCases } : {}), app }), config: read.config };
 }

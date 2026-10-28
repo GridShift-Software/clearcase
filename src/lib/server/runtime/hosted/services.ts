@@ -1,5 +1,5 @@
 import { requestReadAudit } from '../../../audit/facades.ts';
-import { requestCaseLookup } from '../../../tenancy/request-case.ts';
+import { principalCaseGrants, requestCaseLookup } from '../../../tenancy/request-case.ts';
 import { bindPageReads } from '../../../tenancy/page-reads.ts';
 import type { Readiness } from './handle.ts';
 import type { Identity, IdentityState, RequestServices } from '../contracts.ts';
@@ -122,6 +122,23 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 				audit: pageLookup && a.operation !== 'write-user-work' ? { append: async event => { readAudit(event); return { eventId: event.eventId }; } } : services.audit, now,
 			});
 			await authorizer.authorizeCase(a);
+		},
+		// The case list: one grant read for every case, and every listed case's event in one fail-closed append.
+		authorizeCases: async (a) => {
+			if (!native) throw contractError('identity-unavailable', true);
+			const { db } = native, sink = services.audit;
+			// The sink's own atomic inserts, alone in one batch (one transaction): each refuses an unbound log, spent capacity
+			// or a reused id by failing the batch, so every event is stored or none is and the list is refused.
+			const appendAll = async (events: readonly import('../contracts.ts').AuditEvent[]) => {
+				if (!sink.atomic) throw contractError('audit-unavailable', true);
+				const statements = (await Promise.all(events.map(event => sink.atomic!({ db, event })))).flat();
+				await db.batch(statements).catch(() => { throw contractError('audit-unavailable', true); });
+			};
+			return createCaseAuthorizer({
+				caseGrants: principalCaseGrants(db, native.deployment),
+				deployment: native.deployment, grants: d1GrantRepository(db),
+				cases: d1CaseDirectory({ db, deployment: native.deployment }), audit: { append: event => sink.append(event), appendAll }, now,
+			}).authorizeCases(a);
 		},
 	});
 	if (!clerk.ok) return { ready: false, reason: clerk.reason, services };

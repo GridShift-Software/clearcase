@@ -30,7 +30,8 @@ export const SHARDS = {
   'view/discovery_tab.json': { pathShard: { paths: {} }, present: true, schedules: { discovery: [], supplementary: [] }, files: {}, downloads: {}, caption: {}, meta: {}, mode: 'discovery', selected: [], marks: [] },
 } as const;
 
-export async function rcWorld() {
+/** `slowReads` also holds every KV get and R2 get or head for one D1 delay, so `sequential` counts those round trips too. */
+export async function rcWorld(o: { slowReads?: boolean } = {}) {
   const w = await hostedWorld();
   w.db.sqlite.exec(MIGRATION);
   w.db.sqlite.exec(readFileSync('src/lib/audit/migrations/0001_native_audit.sql', 'utf8'));
@@ -73,10 +74,11 @@ export async function rcWorld() {
       if (delay) await new Promise(r => setTimeout(r, delay * R2_PUT_DELAYS));
       return Reflect.apply(v, t, a);
     };
+    if (o.slowReads && (p === 'get' || p === 'head')) return async (...a: unknown[]) => { await wait(); return Reflect.apply(v, t, a); };
     return typeof v === 'function' ? v.bind(t) : v;
   } }), w.counters);
   const env = runtimeEnv(file, { DB: Object.assign(db, { withSession: () => db }), BUCKET: bucket,
-    CLEARCASE_SESSION_KEY: 'a'.repeat(64), SESSIONS: { get: async () => null, put: async () => {} } });
+    CLEARCASE_SESSION_KEY: 'a'.repeat(64), SESSIONS: { get: async () => { if (o.slowReads) await wait(); return null; }, put: async () => {} } });
   workers.env = env;
   const issuer = instances['client-a'].iss, origin = 'https://client-a.clearcase.test';
   const config = { key: 'a'.repeat(64), clientId: 'client-a', issuer, origin, sessions: { get: async () => null, put: async () => {} } };
@@ -86,9 +88,9 @@ export async function rcWorld() {
   const native = JSON.parse(String(env.CLEARCASE_NATIVE_CONFIG));
   await provisionAuditBinding({ db: db as unknown as Parameters<typeof provisionAuditBinding>[0]['db'], config: auditConfig({ clientId: id('client', 'client-a'), trustedIssuers: [issuer, instances.staff.iss], limits: native.auditLimits }), now: () => new Date() });
   const base = `${origin}/cases/case-a`;
-  /** The request's services, as hooks build them for `path`, then `route` over them; counted from the services on. */
+  /** The request's services, as hooks build them for `path` (under the case, or an absolute URL), then `route` over them; counted from the services on. */
   async function request<T>(path: string, init: RequestInit, route: (locals: RequestServices, request: Request, url: URL) => Promise<T>) {
-    const url = new URL(base + path), req = new Request(url, { ...init, headers: { cookie, origin, ...(init.headers as Record<string, string> | undefined) } });
+    const url = new URL(path.startsWith('/') ? base + path : path), req = new Request(url, { ...init, headers: { cookie, origin, ...(init.headers as Record<string, string> | undefined) } });
     return measure(w.counters, async () => {
       const ready = await hostedServices(req, env, { waitUntil: p => pending.push(p) });
       if (!ready.ready) throw new Error(`services not ready: ${ready.reason}`);

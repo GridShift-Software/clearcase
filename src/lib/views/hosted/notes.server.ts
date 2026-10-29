@@ -8,7 +8,7 @@ import type { CaseId, CaseInfo, HostedNote, NoteTarget, RequestServices, Results
 import { refuse } from '../../server/runtime/hosted/http.ts';
 import { codeOf, isDenial } from '../../server/runtime/errors.ts';
 import { id } from '../../server/runtime/ids.ts';
-import { currentVersion, part, readCase } from './case.server.ts';
+import { canWriteWork, currentVersion, part, readCase } from './case.server.ts';
 import { caseHref, chronologyHref, notesHref } from './paths.ts';
 import type { NoteItem, NoteRefusal } from './model.ts';
 
@@ -26,7 +26,7 @@ const newest = (a: NoteItem, b: NoteItem) => (a.createdAt < b.createdAt ? 1 : a.
 
 export async function loadNotes(services: RequestServices, raw: string | undefined) {
   const { caseId, info } = await readCase(services, raw);
-  const [notes, current] = await Promise.all([part(services.userWork.notesFor({ caseId, target: null })), currentVersion(services, info)]);
+  const [notes, current, canWrite] = await Promise.all([part(services.userWork.notesFor({ caseId, target: null })), currentVersion(services, info), canWriteWork(services, caseId)]);
   const resultsVersion = current.kind === 'current' ? current.resultsVersion : null;
   return {
     caseId, label: info.caseLabel ?? info.caseId, caseHref: caseHref(caseId), notesHref: notesHref(caseId),
@@ -36,6 +36,8 @@ export async function loadNotes(services: RequestServices, raw: string | undefin
     notes: notes.state === 'available' ? { state: 'available' as const, items: notes.value.map(item).sort(newest) } : { state: 'unavailable' as const, items: [] as NoteItem[] },
     /** a fresh operation id per rendered form; a resubmission of the same form repeats, never duplicates, the write */
     operationId: crypto.randomUUID(),
+    /** false for a viewer: the page shows the notes without the add and delete forms */
+    canWrite,
   };
 }
 

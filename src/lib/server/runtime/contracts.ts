@@ -158,5 +158,9 @@ export interface ShardReader {
 export interface RequestServices {
   /** The authorized request snapshot; absent on local and legacy adapters. */
   caseRead?: (a: Scope) => Promise<{ caseId: CaseId; info: CaseInfo | null; published: PublicationRecord | null }>;
+  /** Whether the signed-in person's own grant on the case writes user work, from the request snapshot; absent where caseRead
+   * is. It authorizes nothing and tells only the caller's role, so a page asks it after its own authorized read, and a
+   * write is still authorized on its own: it only spares a viewer controls the server would refuse. */
+  canWriteWork?: (a: Scope) => Promise<boolean>;
   identity: Identity; store: CaseReader; assets: AssetsAccess; userWork: AsyncUserWork; audit: AuditSink; runtime: Runtime; shards: ShardReader }
 

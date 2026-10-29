@@ -38,4 +38,6 @@ export interface HostedLayoutData {
   base: string;
   documents: number;
   shell: ShellData;
+  /** The signed-in person may write this case's user work; false hides the pages' Add, Edit, Delete, Save and Build controls. */
+  canWrite: boolean;
 }

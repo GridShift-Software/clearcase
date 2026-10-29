@@ -1,6 +1,7 @@
 import { error, type RequestEvent } from '@sveltejs/kit';
 import { viewById, viewHref } from '$lib/components/views';
 import { caseActionsFor } from '$lib/views/hosted/case-actions';
+import { canWriteWork } from '$lib/views/hosted/case.server';
 import type { HostedLayoutData } from '$lib/views/hosted/model';
 import { publishedVersion, shard } from '$lib/views/hosted/payloads.server';
 import type { ShellShard } from '$lib/views/payloads/shell';
@@ -11,6 +12,7 @@ export async function load(event: RequestEvent): Promise<HostedLayoutData> {
 	const { locals, params } = event;
 	const [v, s] = await Promise.all([publishedVersion(locals, params), shard<ShellShard>(locals, params, 'shell.json')]);
 	if (s.version.id !== v.resultsVersion || s.version.caseId !== v.caseId) error(503, { message: 'The published results cannot be shown right now. Try again shortly.', code: 'invalid-package' });
+	const [actions, canWrite] = await Promise.all([caseActionsFor(v.caseId, event), canWriteWork(locals, v.caseId)]);
 	const rv = v.resultsVersion;
 	return {
 		version: s.version,
@@ -26,7 +28,8 @@ export async function load(event: RequestEvent): Promise<HostedLayoutData> {
 			published: { label: `Version ${rv.slice('sha256:'.length, 'sha256:'.length + 8)}`, at: v.publication.publishedAt, documents: s.documents },
 			searchHref: viewHref(rv, viewById('search')!, v.base),
 			account: null,
-			actions: await caseActionsFor(v.caseId, event),
+			actions,
 		},
+		canWrite,
 	};
 }

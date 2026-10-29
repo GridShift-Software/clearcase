@@ -9,9 +9,11 @@
 	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
 	import { CX_FIELDS, canAddCx, type CxValues } from '$lib/views/litigation/crossexam';
 	import { EntryForm, type Answer } from '$lib/views/litigation/entry.svelte';
-	import { ANALYSIS_NOTE, OWN_ROWS_NOTE } from '$lib/views/litigation/notes';
+	import { ANALYSIS_NOTE, HOSTED_ROWS_NOTE, OWN_ROWS_NOTE } from '$lib/views/litigation/notes';
 	import TableScroll from '$lib/components/TableScroll.svelte';
+	import { writeAccess } from '$lib/components/write-access';
 	let { data, form } = $props();
+	const access = writeAccess();
 	const vid = $derived(data.version.id);
 	const entry = new EntryForm(CX_FIELDS, (v) => canAddCx(v as CxValues), untrack(() => form as Answer));
 	let ready = $state(false);
@@ -21,8 +23,9 @@
 <main id="main" tabindex="-1" data-ready="crossexam_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Cross-Exam Prep" section="Cross-Exam Prep" caseName={data.version.titleName} subtitle="Per-witness topics, what to put, and the documents to confront them with">
 		<!-- S-crossexam_tab-3 (copied): v5 has a second Add in the page header; it submits the same form -->
-		{#snippet actions()}<button type="submit" form="cx-add" class="primary" id="cx-add-header" disabled={entry.adding}>Add</button>{/snippet}
+		{#snippet actions()}{#if access.canWrite}<button type="submit" form="cx-add" class="primary" id="cx-add-header" disabled={entry.adding}>Add</button>{/if}{/snippet}
 	</PageHeader>
+	{#if access.canWrite}
 	<div class="card">
 		<form method="POST" action="?/add" id="cx-add" class="fields" aria-busy={entry.adding ? 'true' : null} use:enhance={entry.submit}>
 			<input type="hidden" name="addId" value={data.addId} />
@@ -34,6 +37,7 @@
 		</form>
 		<EntryState {entry} form="cx-add" errorId="cx-error" />
 	</div>
+	{/if}
 	<div class="card pad0">
 		<TableScroll label="Cross-examination topics"><table id="cx-table">
 			<thead><tr><th>Witness</th><th>Topic</th><th>What to put</th><th>Documents</th><th></th></tr></thead>
@@ -55,7 +59,7 @@
 		</table></TableScroll>
 	</div>
 	{#if data.tip}<p class="tag">{data.tip}</p>{/if}
-	<SourceNote text={ANALYSIS_NOTE} more={OWN_ROWS_NOTE} />
+	<SourceNote text={ANALYSIS_NOTE} more={access.hosted ? HOSTED_ROWS_NOTE : OWN_ROWS_NOTE} />
 	<LeaveGuard unsaved={entry.unsaved} what="Your Cross-Exam entry is not saved." />
 </main>
 

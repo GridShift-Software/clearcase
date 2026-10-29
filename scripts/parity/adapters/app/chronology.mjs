@@ -99,7 +99,8 @@ export default {
 					await p.settled();
 				}
 				if (refused) { out[c.key] = refused; continue; }
-				if (!(await appSort(p, SORTS[c.k], c.d))) { out[c.key] = 'no-sort-control'; continue; }
+				// GRS-255: a filter that matches nothing shows "No documents match" with no sort header, where v5 sorts its empty table; sorting nothing is a no-op
+				if (!(await appSort(p, SORTS[c.k], c.d)) && (await p.evaluate(`document.getElementById('row-count')?.dataset.count`)) !== '0') { out[c.key] = 'no-sort-control'; continue; }
 				await sleep(5);
 				await p.settled();
 				const g = await p.evaluate(`({ refs: [...document.querySelectorAll('#main [role=row][data-ref]')].map((r) => r.dataset.ref), count: document.getElementById('row-count')?.dataset.count })`);

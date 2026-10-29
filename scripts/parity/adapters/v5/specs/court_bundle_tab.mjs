@@ -154,7 +154,17 @@ const docxKeys = (out, k, got) => {
 	docxText(got.buf).split('\n').forEach((l, i) => { out[`${k}.p${i}`] = l; });
 	out[`${k}.links`] = [...(unzip(got.buf).get('word/_rels/document.xml.rels')?.toString('utf8') ?? '').matchAll(/Target="([^"]*)" TargetMode="External"/g)].map((m) => m[1]).join(' | ');
 };
-const LIST_CUSTOM = (rows) => `[...document.querySelectorAll(${JSON.stringify(rows)})].filter((r) => [...r.querySelectorAll('.badge')].some((b) => b.textContent.trim() === 'custom')).map((r) => { const a = r.querySelector('a[href^="blob:"]'); return [r.cells[0].textContent.trim(), a ? (window.__b.revoked.includes(a.href) ? 'revoked' : 'live') : 'none']; })`;
+/** Each custom row as [no, link state, href]; a stored link is only a candidate until `storedState` has fetched it. */
+const LIST_CUSTOM = (rows) => `[...document.querySelectorAll(${JSON.stringify(rows)})].filter((r) => [...r.querySelectorAll('.badge')].some((b) => b.textContent.trim() === 'custom')).map((r) => { const a = r.querySelector('a[href^="blob:"], a[href*="/assembled?id="]'); return [r.cells[0].textContent.trim(), a ? (a.href.startsWith('blob:') ? (window.__b.revoked.includes(a.href) ? 'revoked' : 'live') : 'stored') : 'none', a?.href ?? null]; })`;
+/**
+ * 'stored' only when the saved bundle's link answers 200 application/pdf within 15 s with exactly the bytes of the
+ * output it was saved from; any other answer, or no output to compare, is 'stored-broken', which no register entry covers.
+ */
+export async function storedState(p, href, expected) {
+	const got = await p.evaluate(`fetch(${JSON.stringify(href)}, { signal: AbortSignal.timeout(15000) }).then(async (r) => { const u = new Uint8Array(await r.arrayBuffer()); let bin = ''; for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode(...u.subarray(i, i + 0x8000)); return { status: r.status, type: r.headers.get('content-type') ?? '', b64: btoa(bin) }; }).catch(() => null)`);
+	if (!got || got.status !== 200 || !/^application\/pdf/.test(got.type) || !expected?.length) return 'stored-broken';
+	return Buffer.from(got.b64, 'base64').equals(expected) ? 'stored' : 'stored-broken';
+}
 
 /**
  * The builder end to end on both sides: pick (one locked), reorder, a range from page 2, a non-ASCII description,
@@ -219,7 +229,8 @@ async function builder(side, p, ctx) {
 		await clickText(p, '', 'button', 'Create Bundle');
 		await until(p, `(${OUT_HREF}) && (${OUT_HREF}) !== ${JSON.stringify(before)}`);
 		await side.bld.toList(p);
-		const custom = await p.evaluate(LIST_CUSTOM(side.bld.listRows));
+		const custom = [];
+		for (const [no, link, href] of await p.evaluate(LIST_CUSTOM(side.bld.listRows))) custom.push([no, link === 'stored' ? await storedState(p, href, full?.buf) : link]);
 		out['list.custom'] = custom.map((c) => c[0]).join(' | ');
 		for (const [no, link] of custom) out[`list.custom.${no}.link`] = link;
 		// Create, then leave for another view before it finishes (S-5)

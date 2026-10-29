@@ -452,6 +452,103 @@
       "approvedOn": "2026-10-21"
     },
     {
+      "id": "IDR-092",
+      "view": "chronology",
+      "field": [
+        "table.table_1.row.*.preview",
+        "table.table_1.col.preview",
+        "control.row:button:Preview"
+      ],
+      "when": {
+        "v5": "<absent>"
+      },
+      "type": "improvement",
+      "source": "GRS-255",
+      "reason": "The Chronology list has a Preview column of per-row Preview buttons that open the document in the split viewer beside the list (GRS-255, kept by GRS-271); v5 has no such column or button.",
+      "productVisible": true,
+      "author": "GRS-275 round 2 worker",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-093",
+      "view": "chronology",
+      "field": "table.table_1.columns",
+      "when": {
+        "v5": {
+          "re": "^date \\| ref \\| title_subject \\| sender \\| excerpt \\| also_in \\| type \\| bundle \\| amount \\| status \\| doc$"
+        },
+        "app": {
+          "re": "^preview \\| date \\| ref \\| title_subject \\| sender \\| excerpt \\| also_in \\| type \\| bundle \\| amount \\| status \\| doc$"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-255",
+      "reason": "The same Preview column is the first column of the list (GRS-255, GRS-271), so the column order starts with it; v5's list starts at the date. Both complete sequences are pinned: any other column added, dropped or moved still fails parity.",
+      "productVisible": true,
+      "author": "GRS-275 round 2 worker",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-094",
+      "view": "chronology",
+      "field": [
+        "list.select.all_years.count",
+        "list.select.all_years.item.*",
+        "control.select:All years"
+      ],
+      "when": {
+        "v5": "<absent>"
+      },
+      "type": "improvement",
+      "source": "GRS-255",
+      "reason": "The Chronology filter bar has an All years select, one option per year of the register, that narrows the list by year (GRS-255); v5 has no year filter.",
+      "productVisible": true,
+      "author": "GRS-275 round 2 worker",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-095",
+      "view": "chronology",
+      "field": "text.document.*",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Select a document in the list, or use its Preview button"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-255",
+      "reason": "The split viewer's pane shows a prompt to select a document, or use its Preview button, while none is selected (GRS-255); v5 has no pane.",
+      "productVisible": true,
+      "author": "GRS-275 round 2 worker",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-096",
+      "view": "overview",
+      "field": [
+        "control.link:Documents indexed",
+        "control.link:Amount due (to date)",
+        "control.link:Invoices",
+        "control.link:Contradiction flags"
+      ],
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      },
+      "type": "improvement",
+      "source": "GRS-254",
+      "reason": "The four primary overview tiles (documents, amount due, invoices, contradiction flags) are links to the view that holds their detail (GRS-254); in v5 they are plain tiles.",
+      "productVisible": true,
+      "author": "GRS-275 round 2 worker",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
       "id": "IDR-074",
       "view": "overview",
       "field": [],

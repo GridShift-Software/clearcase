@@ -3,11 +3,13 @@
 //   measure: boots the local pilot (a synthetic case, imported through its own forms) and the hosted-gate server of --root, drives
 //            Chromium over both, writes --out and prints a table. --require-green exits 1 unless every phone control is at least
 //            44 px high and wide and the Documents list's first Open action is in view without scrolling sideways.
+//            GRS-273: on the phone it also swipes the Documents table and the DOC-column analysis tables towards the row end and back,
+//            and measures Open and the leading cell as seen: clipped by every ancestor and the viewport, and painted in a screenshot.
 //   compare: two measure outputs (base, head): the phone table, and whether every 1440 box is identical.
 // The probe reads the fixtures and server helpers of the checkout it is run from; --root is the build under test, so one probe
 // measures the base and the head. Build first (--build) and run under the browser lock and the offline namespace:
 //   browser-lock unshare -rn env OUTER_UID=$(id -u) OUTER_GID=$(id -g) tests/e2e/pilot/offline.sh \
-//     bun tests/journeys/probes/phone-targets.mjs measure --root <worktree> --build --out <file> [--require-green] [--only local|hosted]
+//     bun tests/journeys/probes/phone-targets.mjs measure --root <worktree> --build --out <file> [--require-green] [--only local|hosted] [--shots DIR]
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
@@ -33,6 +35,8 @@ const GROUPS = {
   pdf_viewer: { page_zoom_controls: '[data-viewer="pdf"] button, [data-viewer="pdf"] input[type="number"]', download: '[data-viewer="pdf"] a[data-action="download-original"]' },
 };
 
+// GRS-273: the analysis views whose tables end in a DOC column of Open links.
+const DOC_TABLES = ['evidence/contracts_tab', 'evidence/filings_tab', 'litigation/legality_tab', 'quantum/invoice_ledger_tab', 'quantum/quantum_tab', 'quantum/prescription_tab'];
 const log = (...a) => console.error('[phone-targets]', ...a);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const arg = (name, fallback = null) => { const i = process.argv.indexOf(name); return i < 0 ? fallback : process.argv[i + 1]; };
@@ -54,6 +58,66 @@ async function measure(page, groups) {
   return out;
 }
 const ready = (page, id) => page.waitForSelector(`main[data-ready="${id}"]`, { timeout: 20000 });
+
+/** In the page: the part of `e` on screen, clipped by every ancestor that clips its overflow and by the viewport (GRS-273: the
+ *  DOM box of Open was whole while its card cut it off), and whether a tap at that part's centre reaches `e`. */
+function seen(e) {
+  const r = e.getBoundingClientRect(), round = n => Math.round(n * 10) / 10;
+  let [l, t, right, b] = [r.left, r.top, r.right, r.bottom];
+  for (let a = e.parentElement; a; a = a.parentElement) {
+    const s = getComputedStyle(a), ar = a.getBoundingClientRect(), x = ar.left + a.clientLeft, y = ar.top + a.clientTop;
+    if (s.overflowX !== 'visible') { l = Math.max(l, x); right = Math.min(right, x + a.clientWidth); }
+    if (s.overflowY !== 'visible') { t = Math.max(t, y); b = Math.min(b, y + a.clientHeight); }
+  }
+  l = Math.max(l, 0); t = Math.max(t, 0); right = Math.min(right, innerWidth); b = Math.min(b, innerHeight);
+  const w = Math.max(0, right - l), h = Math.max(0, b - t), at = w > 0 && h > 0 ? document.elementFromPoint(l + w / 2, t + h / 2) : null, hit = !!at && e.contains(at);
+  return { x: round(l), y: round(t), w: round(w), h: round(h), boxX: round(r.x), boxW: round(r.width), boxH: round(r.height), hit, ...(hit || !at ? {} : { at: `${at.tagName.toLowerCase()}.${[...at.classList].join('.')}` }) };
+}
+/** Pixels in the screenshot of `box` (CSS px) darker than light grey: whether something is painted there, not only laid out. */
+async function inkIn(page, box) {
+  if (!(box.w >= 1 && box.h >= 1)) return 0;
+  const { createCanvas, loadImage } = await import('@napi-rs/canvas');
+  const image = await loadImage(await page.screenshot({ clip: { x: box.x, y: box.y, width: box.w, height: box.h } }));
+  const c = createCanvas(image.width, image.height), x = c.getContext('2d');
+  x.drawImage(image, 0, 0);
+  const d = x.getImageData(0, 0, image.width, image.height).data;
+  let ink = 0;
+  for (let i = 0; i < d.length; i += 4) if (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2] < 160) ink++;
+  return ink;
+}
+/** The first Open link and the first row's leading cell of `table`, as seen now, with the scroller's offset. */
+async function openSeen(page, table) {
+  // An expression rather than a function argument, so `seen` goes with it (the app's CSP refuses eval in the page).
+  const out = await page.evaluate(`(() => { const seen = ${seen};
+    const t = document.querySelector(${JSON.stringify(table)}), a = t?.querySelector('td a.doc'), lead = a?.closest('tr')?.querySelector('td');
+    return a ? { scrollLeft: Math.round(t.closest('.table-scroll')?.scrollLeft ?? 0), open: seen(a), lead: seen(lead) } : null; })()`);
+  if (out) out.open.ink = await inkIn(page, out.open);
+  return out;
+}
+/** A finger swipe across `table`'s first row by `dx` CSS px (negative: towards the end of the row), then the scroll settles. */
+async function swipe(page, table, dx) {
+  const y = await page.evaluate(t => { const r = document.querySelector(t).querySelector('tbody tr').getBoundingClientRect(); return r.top + Math.min(r.height, 60) / 2; }, table);
+  const session = await page.context().newCDPSession(page);
+  const from = dx < 0 ? 300 : 90;
+  await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: from, y }] });
+  for (let i = 1; i <= 10; i++) { await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: from + (dx * i) / 10, y }] }); await sleep(30); }
+  await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await session.detach();
+  await sleep(800);
+}
+/** `table`'s Open link and leading cell at rest, after a swipe towards the row's end and after a swipe back (phone only). With
+ *  --shots DIR, each state's screenshot is saved there as `<name>-<state>.png`. */
+async function swipeCheck(page, table, name) {
+  await page.evaluate(t => { const e = document.querySelector(t); window.scrollTo(0, e.getBoundingClientRect().top + scrollY - 180); }, table);
+  await sleep(300);
+  const shots = arg('--shots'), shot = async state => { if (shots) await page.screenshot({ path: path.join(shots, `${name}-${state}.png`) }); };
+  const states = { rest: await openSeen(page, table) };
+  if (!states.rest) return null;
+  await shot('rest');
+  await swipe(page, table, -210); states.swiped = await openSeen(page, table); await shot('swiped');
+  await swipe(page, table, 280); states.back = await openSeen(page, table); await shot('back');
+  return states;
+}
 
 async function exec(cmd, args, { cwd, env = {}, label }) {
   log(label ?? `${cmd} ${args.join(' ')}`);
@@ -99,6 +163,7 @@ async function viewsLocal(browser, root, tmp) {
       await page.waitForSelector('#documents-table td a.doc');
       r.documents = await measure(page, GROUPS.documents);
       // The first Open action: is it inside the table's visible area now, with no sideways scroll?
+      if (width === 'phone') r.documents.swipe = await swipeCheck(page, '#documents-table', 'documents');
       r.documents.firstOpen = await page.evaluate(() => {
         const a = document.querySelector('#documents-table td a.doc'), box = document.querySelector('.table-scroll');
         const l = a.getBoundingClientRect(), s = box.getBoundingClientRect();
@@ -111,6 +176,14 @@ async function viewsLocal(browser, root, tmp) {
         if (await page.locator('#open-original').count()) { r.document = await measure(page, GROUPS.document); r.document.ref = ref; break; }
       }
       if (!r.document) throw new Error('no synthetic document offers an original to open');
+      if (width === 'phone') {
+        result.docTables = {};
+        for (const view of DOC_TABLES) {
+          await page.goto(`${base}/${view}`); await ready(page, view.split('/')[1]);
+          const tables = await page.locator('main table:has(td a.doc)').evaluateAll(ts => ts.map((t, i) => (t.dataset.probe = String(i), `table[data-probe="${i}"]`)));
+          if (tables.length) result.docTables[view] = { scroll: await page.evaluate(t => { const s = document.querySelector(t).closest('.table-scroll'); return s ? { client: s.clientWidth, scroll: s.scrollWidth } : null; }, tables[0]), ...await swipeCheck(page, tables[0], view.split('/')[1]) };
+        }
+      }
       await context.close();
     }
     return result;
@@ -158,11 +231,36 @@ const phoneTargets = out => {
   for (const side of Object.values(out.legs)) for (const [view, m] of Object.entries(side.phone ?? {})) for (const [name, g] of Object.entries(m.groups)) rows.push({ view, name, ...g });
   return rows;
 };
+const STATES = ['rest', 'swiped', 'back'];
+const box = b => `${b.x}+${b.w}x${b.h} of ${b.boxX}+${b.boxW}x${b.boxH}`;
+/** What the swipe check finds wrong with `states` of `name`. Documents (`pinned`): Open is seen whole, 44 x 44, painted and tappable in
+ *  every state. Every table: the swipe moves it and the swipe back returns it, its leading cell is whole at rest and back, and its
+ *  Open is seen whole and painted once the row is swiped to its end. */
+const swipeFaults = (name, states, pinned) => {
+  if (!states) return [`${name}: no Open link to measure`];
+  const bad = [];
+  const whole = b => b.w >= b.boxW - 0.5 && b.h >= b.boxH - 0.5;
+  if (!(states.swiped.scrollLeft > 0)) bad.push(`${name}: the swipe did not scroll the table`);
+  if (states.back.scrollLeft !== 0) bad.push(`${name}: the swipe back left the table at ${states.back.scrollLeft}`);
+  for (const k of ['rest', 'back']) if (!whole(states[k].lead)) bad.push(`${name} ${k}: leading cell cut off, seen ${box(states[k].lead)}`);
+  for (const k of pinned ? STATES : ['swiped']) {
+    const o = states[k].open;
+    if (!whole(o) || (pinned && (o.w < MIN || o.h < MIN))) bad.push(`${name} ${k}: Open seen ${box(o)}`);
+    if (o.ink < 20) bad.push(`${name} ${k}: Open not painted (${o.ink} ink pixels)`);
+    if (pinned && !o.hit) bad.push(`${name} ${k}: a tap on Open does not reach it`);
+  }
+  return bad;
+};
 const verdict = out => {
   const bad = phoneTargets(out).filter(g => g.count === 0 || g.minH < MIN || g.minW < MIN).map(g => `${g.view}.${g.name} ${g.count ? `${g.minW}x${g.minH}` : 'not found'}`);
   const open = out.legs.local?.phone?.documents?.firstOpen;
   if (open && !open.inView) bad.push(`documents.firstOpen x=${open.x} right=${open.right} (table edge ${open.scrollerRight}): not in view`);
   for (const [leg, side] of Object.entries(out.legs)) for (const [view, m] of Object.entries(side.phone ?? {})) if (m.scrollWidth > 390) bad.push(`${view} phone scrollWidth ${m.scrollWidth}`);
+  const local = out.legs.local;
+  if (local) {
+    bad.push(...swipeFaults('documents', local.phone.documents.swipe, true));
+    for (const [view, states] of Object.entries(local.docTables ?? {})) bad.push(...swipeFaults(view, states, false));
+  }
   return bad;
 };
 const table = out => {
@@ -171,6 +269,11 @@ const table = out => {
   const open = out.legs.local?.phone?.documents?.firstOpen;
   if (open) lines.push(`documents first Open: x=${open.x}, right=${open.right}, table edge ${open.scrollerRight}, in view without scrolling: ${open.inView}`);
   for (const [leg, side] of Object.entries(out.legs)) for (const [view, m] of Object.entries(side.phone ?? {})) lines.push(`scrollWidth ${view} (phone): ${m.scrollWidth}`);
+  const swiped = { documents: out.legs.local?.phone?.documents?.swipe, ...out.legs.local?.docTables };
+  for (const [name, states] of Object.entries(swiped)) if (states) for (const k of STATES) {
+    const { scrollLeft, open: o, lead } = states[k];
+    lines.push(`${name.padEnd(26)} ${k.padEnd(6)} scroll ${String(scrollLeft).padStart(3)}  Open seen ${box(o)} ink ${o.ink} tap ${o.hit ? 'reaches it' : `lands on ${o.at ?? 'nothing'}`}  lead seen ${box(lead)}`);
+  }
   return lines.join('\n');
 };
 
@@ -194,7 +297,7 @@ async function runMeasure() {
   if (outFile) await fs.writeFile(outFile, JSON.stringify(out, null, 1));
   console.log(`revision ${out.revision}\n${table(out)}`);
   const bad = verdict(out);
-  console.log(bad.length ? `RED: ${bad.length} below target\n  ${bad.join('\n  ')}` : 'GREEN: every listed control is at least 44 x 44 and the first Open action is in view');
+  console.log(bad.length ? `RED: ${bad.length} below target\n  ${bad.join('\n  ')}` : 'GREEN: every listed control is at least 44 x 44, the first Open action is in view, and Open stays whole and painted through a swipe and back');
   process.exitCode = flag('--require-green') && bad.length ? 1 : 0;
 }
 

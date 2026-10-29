@@ -11,7 +11,7 @@ const CSS = `
   body { font: 14px sans-serif; margin: 8px; }
   .split { display: flex; gap: 16px; } .split > [data-testid="chronology-list"] { width: 60%; } .split > section { width: 38%; }
   .grid-head, .grid-row { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); column-gap: 2px; overflow-wrap: anywhere; }
-  .pane-back { display: none; }
+  .pane-back { display: none; } [data-slot] > h2 { text-transform: uppercase; }
   @media (max-width: 600px) { .split { display: block; } .split > * { width: auto !important; } .grid-head { font-size: 8px; } .pane-back { display: block; } }`;
 const NAV = [['overview', 'overview'], ['matter', 'analysis/matter'], ['heads_tab', 'litigation/heads_tab'], ['people', 'evidence/people'], ['contracts_tab', 'evidence/contracts_tab']];
 const page = (id, body, { wrap = m => m, style = '', script = '' } = {}) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"><title>${id}</title><style>${CSS}${style}</style></head><body>

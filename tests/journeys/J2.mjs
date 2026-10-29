@@ -14,7 +14,8 @@ export const journey = () => run('J2', async j => {
     check(count === Number(process.env.EXPECTED_DOCUMENTS), 'Unexpected document count');
     const slots = await j.page.locator('[data-slot]').evaluateAll((es, expected) => es.map(e => {
       const shown = x => !!x && x.getClientRects().length > 0 && getComputedStyle(x).visibility !== 'hidden';
-      const text = x => (shown(x) ? x.innerText.trim() : '');
+      // textContent: the tiles' titles are styled uppercase, which innerText would report
+      const text = x => (shown(x) ? x.textContent.replace(/\s+/g, ' ').trim() : '');
       return {
         id: e.dataset.slot, filled: e.dataset.slotStatus === 'filled', shown: shown(e), heading: text(e.querySelector('h2')),
         value: text(e.querySelector(expected[e.dataset.slot]?.value || ':not(*)')),

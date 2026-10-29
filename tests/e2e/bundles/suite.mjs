@@ -950,7 +950,7 @@ try {
 		const dialogs = b.since(mk).dialogs.length;
 		return { pass: posted === 200 && /^Not removed: .*busy/.test(mid.c1) && !mid.c2 && mid.alerts === 1 && J(rowsMid) === J(['C1', 'C2']) && J(after.rows) === J(['C2']) && !after.error && customRows().length === 0 && dialogs === 0, evidence: { posted, mid, rowsMid, after, dialogs } };
 	});
-	await S('CB-BUILD-RACE', 'court_bundle_tab', 'builder: Create Bundle pressed while Save is pending does not revoke the PDF being saved; the saved bundle\'s Bundle PDF link still loads a PDF (IDR-366)', async () => {
+	await S('CB-BUILD-RACE', 'court_bundle_tab', 'builder: Create Bundle pressed while Save is pending (with a changed name) does not change what is saved; the saved bundle\'s stored PDF link still loads a PDF, the first output\'s own bytes (IDR-366, GRS-264)', async () => {
 		await p.go(B, 'court_bundle_tab');
 		await p.click('#cb-build');
 		await p.waitFor(`document.getElementById('cbbfile')`, 30000);
@@ -960,26 +960,36 @@ try {
 		await p.click('#cbbrun');
 		await p.waitFor(`document.getElementById('cbbdownload')`, 60000);
 		const first = await p.evaluate(`document.getElementById('cbbdownload').getAttribute('href')`);
+		await p.downloads();
+		await p.evaluate(`document.getElementById('cbbdownload').click()`);
+		await sleep(300);
+		const firstPdf = Buffer.from((await p.downloads())[0].base64, 'base64');
 		await withBusyStore(A.dataDir, 2500, async () => {
 			await p.click('#cbbsave');
 			await p.waitFor(`document.querySelector('#cbbout .saving')`, 5000);
+			// a different name makes the second output differ from the one being saved
+			await p.type('#cbbname', 'Other Title');
 			await p.click('#cbbrun');
 			await p.waitFor(`document.getElementById('cbbdownload')?.getAttribute('href') !== ${J(first)}`, 60000);
 		});
 		await p.waitFor(`!document.querySelector('#cbbout .saving')`, 30000);
 		await p.click('#cb-builder-back');
-		await p.waitFor(`document.querySelector('#cb-list tr:has(.badge.b-info) a[href^="blob:"]')`, 30000);
-		// the CSP forbids fetch of a blob: URL (connect-src 'self'), so load it as the preview does: in a frame (frame-src blob:)
-		const link = await p.evaluate(`new Promise((ok) => {
-			const href = document.querySelector('#cb-list tr:has(.badge.b-info) a[href^="blob:"]').getAttribute('href');
-			const f = document.createElement('iframe');
-			const done = () => { let d = null; try { d = f.contentDocument; } catch { /* an error page */ }
-				ok({ href, same: href === ${J(first)}, type: d?.contentType ?? null, url: d?.URL ?? null }); f.remove(); };
-			f.addEventListener('load', () => setTimeout(done, 300), { once: true });
-			setTimeout(done, 10000);
-			f.src = href; f.style.width = '300px'; f.style.height = '300px'; document.body.append(f);
-		})`);
-		return { pass: link.same && link.type === 'application/pdf' && /^blob:/.test(link.url ?? ''), evidence: { first, link } };
+		// GRS-264: a saved bundle links to its stored PDF on the server, not to the session blob URL
+		const ROW = '#cb-list tr:has(.badge.b-info)';
+		await p.waitFor(`document.querySelector(${J(ROW + ' a[href*="/assembled?id="]')})`, 30000);
+		const link = await p.evaluate(`(async () => {
+			const rows = [...document.querySelectorAll(${J(ROW)})];
+			const a = rows[0].querySelector('a[href*="/assembled?id="]');
+			const r = await fetch(a.href);
+			const bytes = new Uint8Array(await r.arrayBuffer());
+			let bin = '';
+			for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+			return { rows: rows.length, name: rows[0].cells[1].querySelector('b')?.textContent ?? null, blobLinks: rows.flatMap((x) => [...x.querySelectorAll('a[href^="blob:"]')]).length, href: a.getAttribute('href'), status: r.status, type: r.headers.get('content-type'), magic: bin.slice(0, 5), bytes: bytes.length, base64: btoa(bin) };
+		})()`);
+		const stored = Buffer.from(link.base64, 'base64');
+		const { base64: _, ...shown } = link;
+		const own = { sameBytes: stored.equals(firstPdf), firstBytes: firstPdf.length, text: (await pdfText(stored)).includes('SYNTHETIC RACE'), second: (await pdfText(stored)).includes('OTHER TITLE') };
+		return { pass: link.rows === 1 && link.name === 'SYNTHETIC RACE' && link.blobLinks === 0 && link.status === 200 && /^application\/pdf/.test(link.type ?? '') && link.magic === '%PDF-' && link.bytes > 1000 && own.sameBytes && own.text && !own.second, evidence: { first, link: shown, own } };
 	});
 	await S('CB-BUILD-SAVE', 'court_bundle_tab', 'GRS-264: a builder Save shows the stored bundle list from the save\'s answer, with no reload of the page data: a refused save (busy store) and a lost one (server killed) leave the list and the unsaved header as they were, leave Saving… and keep Retry enabled; Retry after the restart saves; another tab\'s new bundle appears in stored order, saving the same output again lists it once, and a bundle the other tab deleted stays gone (it replaces CB-BUILD-RELOAD, whose reload no longer happens)', async () => {
 		const q = await page(b, A.origin), o = await page(b, A.origin);

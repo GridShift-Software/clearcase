@@ -9,6 +9,7 @@
 	import { deleteStep } from '$lib/components/confirm-delete';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import TableScroll from '$lib/components/TableScroll.svelte';
+	import { writeAccess } from '$lib/components/write-access';
 	import { download } from '$lib/components/csv';
 	import { RELOAD_UNAVAILABLE, reloader } from '$lib/components/reload.svelte';
 	import type { FieldDef } from './defs';
@@ -29,6 +30,7 @@
 	};
 	type Form = { op?: 'save' | 'delete'; values?: Entry; rowId?: string | null; version?: string | null; message?: string; retry?: boolean; confirm?: string | null } | null;
 	let { data, form }: { data: Data; form: Form } = $props();
+	const access = writeAccess();
 	const reg = $derived(data.register);
 	const vid = $derived(data.version.id);
 	const deadlines = $derived(reg.view === 'deadlines_tab');
@@ -219,12 +221,15 @@
 	<PageHeader heading={reg.label} section={reg.label} caseName={data.version.titleName} subtitle={reg.subtitle}>
 		{#snippet actions()}
 			<button type="button" id="register-export" data-testid={deadlines ? 'deadline-export' : undefined} onclick={exportNow}>{reg.export.label}</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}
-			<button type="submit" form="register-form" id="register-save" data-testid={deadlines ? 'deadline-save' : undefined} class="primary" disabled={locked}>{editing ? 'Save' : 'Add'}</button>
-			{#if editing}<button type="button" id="register-cancel" onclick={cancelEdit} disabled={locked}>Cancel</button>{/if}
+			{#if access.canWrite}
+				<button type="submit" form="register-form" id="register-save" data-testid={deadlines ? 'deadline-save' : undefined} class="primary" disabled={locked}>{editing ? 'Save' : 'Add'}</button>
+				{#if editing}<button type="button" id="register-cancel" onclick={cancelEdit} disabled={locked}>Cancel</button>{/if}
+			{/if}
 		{/snippet}
 	</PageHeader>
 	{#if rl.lost}<p class="error" role="alert" id="reload-error">{RELOAD_UNAVAILABLE}</p>{/if}
 
+	{#if access.canWrite}
 	<form id="register-form" class="entry" method="POST" action="?/save" enctype="multipart/form-data" use:enhance={submit} data-editing={editing ?? undefined} aria-busy={locked}>
 		{#if editing}<input type="hidden" name="rowId" value={editing} /><input type="hidden" name="version" value={version ?? ''} />{/if}
 		{#if data.operationId}<input type="hidden" name="operationId" value={data.operationId} />{/if}
@@ -247,6 +252,7 @@
 			{/each}
 		</fieldset>
 	</form>
+	{/if}
 	{#if busy || deleting}<p class="status" role="status" id="register-status">{busy ? (editing ? 'Saving the change…' : 'Saving the entry…') : 'Deleting the entry…'}</p>{/if}
 	{#if saveError}
 		<div class="error" role="alert" id="register-error">
@@ -289,10 +295,12 @@
 						{/each}
 						<td class="row-actions">
 							{#if !r.intact}<span class="altered">this entry was altered on disk since it was saved</span>{/if}
-							<button type="button" data-edit onclick={() => edit(r)} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)}>Edit</button>
-							<!-- the version of this row as this page shows it, so a confirmation without JavaScript deletes that row or nothing -->
-							{#if confirming === r.rowId}<input type="hidden" form="register-form" name="deleteVersion" value={r.version} />{/if}
-							<ConfirmDelete bind:pending={confirming} target={r.rowId} question="Delete this entry?" form="register-form" formaction="?/delete" name="delete" data-delete aria-describedby={deleteError?.rowId === r.rowId ? 'register-delete-message' : undefined} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)} />
+							{#if access.canWrite}
+								<button type="button" data-edit onclick={() => edit(r)} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)}>Edit</button>
+								<!-- the version of this row as this page shows it, so a confirmation without JavaScript deletes that row or nothing -->
+								{#if confirming === r.rowId}<input type="hidden" form="register-form" name="deleteVersion" value={r.version} />{/if}
+								<ConfirmDelete bind:pending={confirming} target={r.rowId} question="Delete this entry?" form="register-form" formaction="?/delete" name="delete" data-delete aria-describedby={deleteError?.rowId === r.rowId ? 'register-delete-message' : undefined} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)} />
+							{/if}
 						</td>
 					</tr>
 				{/each}

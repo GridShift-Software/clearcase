@@ -6,7 +6,11 @@
 	// notes endpoint into user work; nothing is kept in the browser.
 	import { onMount, untrack } from 'svelte';
 	import type { PageNote } from './page-notes';
-	let { src, size, downloadHref, notesHref, notes: initial, notesAvailable, requestedPage = null }: { src: string; size?: number; downloadHref: string; notesHref: string; notes: readonly PageNote[]; notesAvailable: boolean; requestedPage?: string | null } = $props();
+	import { writeAccess } from '../../components/write-access';
+	let { src, size, downloadHref, notesHref, notes: initial, notesAvailable, requestedPage = null, canWrite }: { src: string; size?: number; downloadHref: string; notesHref: string; notes: readonly PageNote[]; notesAvailable: boolean; requestedPage?: string | null; canWrite?: boolean } = $props();
+	// a viewer reads the page notes; adding and deleting them is an editor's (the full viewer page passes its grant, the pane inherits the case layout's)
+	const access = writeAccess();
+	const writable = $derived(canWrite ?? access.canWrite);
 	const READER = '/pdfjs/pdf-reader.mjs';
 	let status = $state<'loading' | 'ready' | 'error'>('loading');
 	let pages = $state(0);
@@ -178,15 +182,17 @@
 	{:else}
 		<ul>
 			{#each notes as n (n.rowId)}
-				<li data-page={n.page}>Page {n.page}: {n.body}{n.current ? '' : ' (the original has changed since this note)'} <button type="button" onclick={() => remove(n)} disabled={pending}>Delete</button></li>
+				<li data-page={n.page}>Page {n.page}: {n.body}{n.current ? '' : ' (the original has changed since this note)'}{#if writable} <button type="button" onclick={() => remove(n)} disabled={pending}>Delete</button>{/if}</li>
 			{:else}
 				<li>No notes yet.</li>
 			{/each}
 		</ul>
-		<form onsubmit={(e) => { e.preventDefault(); void add(); }}>
-			<label>Note on page {current} <textarea bind:value={draft} oninput={() => { draftRevision++; }} maxlength="2000" required></textarea></label>
-			<button type="submit" disabled={pending || status !== 'ready'}>Save note</button>
-		</form>
+		{#if writable}
+			<form onsubmit={(e) => { e.preventDefault(); void add(); }}>
+				<label>Note on page {current} <textarea bind:value={draft} oninput={() => { draftRevision++; }} maxlength="2000" required></textarea></label>
+				<button type="submit" disabled={pending || status !== 'ready'}>Save note</button>
+			</form>
+		{/if}
 		{#if noteError}<p role="alert">{noteError}</p>{/if}
 	{/if}
 </section>

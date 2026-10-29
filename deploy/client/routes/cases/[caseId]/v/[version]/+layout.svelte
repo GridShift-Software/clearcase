@@ -6,7 +6,9 @@
 	import ViewNav from '$lib/components/ViewNav.svelte';
 	import type { ShellData } from '$lib/components/shell';
 	import type { HostedLayoutData } from '$lib/views/hosted/model';
+	import { setHostedWriteAccess } from '$lib/components/write-access';
 	let { data, children }: { data: HostedLayoutData; children: Snippet } = $props();
+	setHostedWriteAccess(() => data.canWrite);
 	const routeId = $derived(page.route.id ?? '');
 	const current = $derived(routeId.endsWith('/[category]/[view]') ? page.params.view ?? null : routeId.endsWith('/[category]') ? page.params.category ?? null : routeId.split('/').at(-1) ?? null);
 	const shell = $derived<ShellData>({ ...data.shell, current, hosted: true });

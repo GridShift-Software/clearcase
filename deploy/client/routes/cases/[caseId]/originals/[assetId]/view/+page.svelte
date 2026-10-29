@@ -2,7 +2,7 @@
 	import PdfViewer from '$lib/viewer/hosted/PdfViewer.svelte';
 	import type { OriginalView } from '$lib/viewer/hosted/view-model';
 	import type { PageNote } from '$lib/viewer/hosted/page-notes';
-	let { data }: { data: { caseId: string; assetId: string; view: OriginalView; notes: { state: 'available' | 'unavailable'; items: readonly PageNote[] }; notesHref: string; requestedPage?: string | null } } = $props();
+	let { data }: { data: { caseId: string; assetId: string; view: OriginalView; notes: { state: 'available' | 'unavailable'; items: readonly PageNote[] }; notesHref: string; requestedPage?: string | null; canWrite?: boolean } } = $props();
 	const REASON = { missing: 'This original is no longer available.', changed: 'This original failed its integrity check, so it is not shown.', embedded: 'This original is part of another file.' } as const;
 </script>
 
@@ -17,7 +17,7 @@
 	<!-- A fresh authorized load replaces all document-bound state, even for the same URL after an original changes.
 	     Key the load object rather than exposing a content hash or object-storage identity to the client. -->
 	{#key data}
-		<PdfViewer requestedPage={data.requestedPage ?? null} src={data.view.srcHref} size={data.view.size} downloadHref={data.view.downloadHref} notesHref={data.notesHref} notes={data.notes.items} notesAvailable={data.notes.state === 'available'} />
+		<PdfViewer requestedPage={data.requestedPage ?? null} src={data.view.srcHref} size={data.view.size} downloadHref={data.view.downloadHref} notesHref={data.notesHref} notes={data.notes.items} notesAvailable={data.notes.state === 'available'} canWrite={data.canWrite} />
 	{/key}
 {:else if data.view.mode === 'email'}
  <iframe title="Original email" sandbox="" src={data.view.srcHref} style="width:100%;height:70vh"></iframe>

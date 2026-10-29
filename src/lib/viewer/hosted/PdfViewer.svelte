@@ -195,4 +195,8 @@
 	.pdf-viewport { max-width: 100%; overflow-x: auto; }
 	section { overflow-wrap: anywhere; }
 	textarea { max-width: 100%; }
+	/* Phone: the toolbar's buttons and page box take the 44 px control height from app.css; Download is a link, so it gets the same hit area. */
+	@media (max-width: 40rem) {
+		a[data-action='download-original'] { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; }
+	}
 </style>

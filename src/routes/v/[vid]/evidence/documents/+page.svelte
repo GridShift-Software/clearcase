@@ -60,4 +60,10 @@
 <style>
 	.toolbar { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: .5rem; }
 	.toolbar .in { margin-left: auto; max-width: 240px; }
+	/* On a phone the table scrolls sideways and Open is its last column: pin that column to the right edge so it is in reach, and make it a 44 px target. */
+	@media (max-width: 40rem) {
+		#documents-table th:last-child, #documents-table td:last-child { position: sticky; right: 0; z-index: 1; padding: 0 8px; box-shadow: -1px 0 0 var(--border); }
+		#documents-table td:last-child, #documents-table tbody tr:hover > td:last-child { background: var(--surface); box-shadow: -1px 0 0 var(--border), inset 0 -1px 0 var(--border); }
+		#documents-table td a.doc { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; }
+	}
 </style>

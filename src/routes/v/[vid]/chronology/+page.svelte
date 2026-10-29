@@ -162,6 +162,10 @@
 	@container (max-width: 959.98px) {
 		/* Narrow, the title column sits at its minimum: a heading wraps rather than running into the next one. */
 		.chrono-split :global(.chrono-grid .grid-head > [role='columnheader']) { white-space: normal; min-width: 0; }
+		/* Touch targets (GRS-272): Preview, a citation and a sort button are 44 px each way, like Back to list. */
+		.chrono-split :global(.chrono-grid .preview-cell button), .chrono-split :global(.chrono-grid .grid-head button), .chrono-split :global(.chrono-pane .pane-back button) { min-height: 44px; min-width: 44px; }
+		.chrono-split :global(.chrono-grid .grid-head button) { display: inline-flex; align-items: center; }
+		.chrono-split :global(.chrono-grid [role='cell'] a.cite) { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; }
 		.chrono-split :global(.chrono-pane .pane-back) { display: block; }
 		.chrono-split :global(.chrono-pane:not([data-ref])) { display: none; }
 	}

@@ -349,6 +349,11 @@ span.error, small.error { display: inline-block; padding: 4px 10px; }
 }
 
 @media (max-width: 40rem) {
+	/* Touch targets: every control the 36 px token sizes (buttons, inputs, the drawer toggle, top-bar and page-action links) is 44 px. */
+	:root { --control-h: 44px; }
+	nav.views a { min-height: 44px; }
+	.quick a { display: inline-flex; align-items: center; min-height: 44px; }
+	.pager button { min-height: 44px; min-width: 44px; }
 	header.top { padding: 8px 16px; }
 	header.top .top-meta { flex-basis: 100%; margin-left: 0; }
 	.banner { padding-left: 16px; padding-right: 16px; }

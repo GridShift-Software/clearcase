@@ -75,23 +75,79 @@ export function hook(page, name, fallback) {
   return hookAll(page, name, fallback).first();
 }
 export const paint = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-export async function ready(page, id) {
-  const main = page.locator(`main[data-ready="${id}"]`);
-  await main.waitFor({ state: 'visible' });
-  await main.getByRole('heading', { level: 1 }).first().waitFor();
-  check(!await main.getByText(/^(Coming soon|Internal Error|Not Found|Hosted runtime is unavailable)$/i).count(), 'Error or placeholder instead of view');
+// What each view must show, visible, before it counts as ready: populated data rows, its narrative, its timeline events, an
+// entry form whose controls work, or (a document page) its original's metadata. Views missing here (local-only) take any.
+const ROWS = ['rows'], FORM = ['form'];
+export const VIEW_CONTENT = Object.freeze({
+  overview: ROWS, chronology: ROWS, documents: ROWS, people: ROWS, entity_ledger_tab: ROWS, contracts_tab: ROWS, filings_tab: ROWS,
+  quantum_tab: ROWS, invoice_ledger_tab: ROWS, prescription_tab: ROWS, payments_tab: ROWS, discovery_tab: ROWS, court_bundle_tab: ROWS,
+  contradictions_tab: ROWS, risk_matrix_tab: ROWS, vdm_matrix_tab: ROWS, info_required_tab: ROWS, witness_tab: ROWS,
+  enforcement_tab: ROWS, legality_tab: ROWS, elements_tab: ROWS, authorities_tab: ROWS, crossexam_tab: ROWS,
+  matter: ['narrative'], timeline: ['events'],
+  search: FORM, hoa_diff_tab: FORM, caselines_tab: FORM, conflict_tab: FORM, heads_tab: FORM, interest_calc_tab: FORM, settlement_tab: FORM,
+  deadlines_tab: FORM, disbursements_tab: FORM, timesheet_tab: FORM, privilege_tab: FORM, popia_tab: FORM, annotations_tab: FORM, transcriptions_tab: FORM,
+});
+const contentOf = id => (id.startsWith('doc:') ? ['document'] : VIEW_CONTENT[id] ?? ['rows', 'narrative', 'events', 'form']);
+const PLACEHOLDER = '^(Coming soon|Internal Error|Not Found|Hosted runtime is unavailable)$';
+/** In the page: null while the view is not there yet, loading or without its content; otherwise 'ready' or why it failed. */
+function viewState({ id, kinds, placeholder }) {
+  const main = document.querySelector(`main[data-ready="${CSS.escape(id)}"]`);
+  const shown = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  if (!main || !shown(main)) return null;
+  const text = e => (e.innerText || '').trim();
+  const any = (selector, ok = () => true) => [...main.querySelectorAll(selector)].some(e => shown(e) && ok(e));
+  const phrase = new RegExp(placeholder, 'i');
+  for (const walk = document.createTreeWalker(main, NodeFilter.SHOW_TEXT); walk.nextNode();) {
+    const owner = walk.currentNode.parentElement;
+    if (walk.currentNode.textContent.trim() && owner.textContent.length <= 64 && phrase.test(owner.textContent.replace(/\s+/g, ' ').trim())) return 'Error or placeholder instead of view';
+  }
+  if (any('[data-unavailable]')) return 'Unavailable placeholder instead of view';
+  if (any('[role="alert"], .error, [data-pane-state="error"], [data-viewer-state="error"]', text)) return 'Error state instead of view';
+  if (!any('h1', text) || any('[aria-busy="true"], [data-pane-state="loading"], [data-viewer-state="loading"]')) return null;
+  const has = {
+    rows: () => any('tbody tr', r => r.querySelectorAll('td').length >= 2 && !r.querySelector('.empty, .error, [role="alert"]') && text(r))
+      || any('[role="row"]', r => r.querySelector('[role="cell"], [role="gridcell"]') && text(r)),
+    narrative: () => any('.narrative', text),
+    events: () => any('[data-phase] [role="listitem"]', e => e.querySelector('a[href]') && text(e)),
+    form: () => any('input:not([type="hidden"]), select, textarea', c => !c.disabled && !c.readOnly && !c.closest('fieldset[disabled]')),
+    document: () => any('[data-testid="original-metadata"], #original-state', text),
+  };
+  return kinds.some(k => has[k]()) ? 'ready' : null;
 }
+/** Waits until view `id` is usable: its content visible, no loading state left; an error, unavailable or placeholder state fails at once. */
+export async function ready(page, id) {
+  const state = await (await page.waitForFunction(viewState, { id, kinds: contentOf(id), placeholder: PLACEHOLDER }, { polling: 'raf' })).jsonValue();
+  check(state === 'ready', state);
+}
+// The hosted PDF viewer (J3's pane and J4's opened original): a page counts once its viewer is ready and page 1 is drawn.
+export const PDF = '[data-viewer="pdf"]';
+export const PDF_RENDERED = `${PDF}[data-viewer-state="ready"] canvas[data-testid="pdf-page"][data-rendered="true"]`;
+export const PDF_FAILED = `${PDF}[data-viewer-state="error"]`;
+/**
+ * Waits for the opened original's first page: the hosted viewer's page-1 canvas in `page` itself, visible and drawn; or the local
+ * isolated viewer (window.__viewer, in a visible frame) once it has drawn page 1 without an error. Either viewer's error state fails at once.
+ */
 export async function firstPDF(page, timeout = 30000) {
   const until = Date.now() + timeout;
   while (Date.now() < until) {
+    const hosted = await page.mainFrame().evaluate(([rendered, failed]) => {
+      const shown = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+      if (document.querySelector(failed) || document.body?.dataset.ready === 'error') return 'failed';
+      return [...document.querySelectorAll(`${rendered}[data-page-number="1"]`)].some(c => c instanceof HTMLCanvasElement && shown(c) && c.width > 0 && c.height > 0) ? 'rendered' : null;
+    }, [PDF_RENDERED, PDF_FAILED]).catch(() => null);
+    check(hosted !== 'failed', 'The PDF viewer shows its error state');
+    if (hosted === 'rendered') return;
     for (const frame of page.frames()) {
-      const rendered = await frame.evaluate(() => {
-        const marked = document.querySelector('[data-testid="pdf-page"][data-page-number="1"][data-rendered="true"]');
-        const canvas = document.querySelector('canvas');
-        const legacy = window.__viewer?.rendered >= 1;
-        return !!(marked || (legacy && canvas?.width > 0 && canvas?.height > 0));
-      }).catch(() => false);
-      if (rendered) return;
+      const legacy = await frame.evaluate(() => {
+        const v = window.__viewer;
+        if (!v) return null;
+        if (v.error || document.body.dataset.ready === 'error') return 'failed';
+        const canvas = document.querySelector('[data-page="1"][data-rendered="1"] canvas');
+        const drawn = canvas && canvas.getClientRects().length > 0 && getComputedStyle(canvas).visibility !== 'hidden' && canvas.width > 0 && canvas.height > 0;
+        return document.body.dataset.ready === '1' && v.rendered >= 1 && drawn ? 'rendered' : null;
+      }).catch(() => null);
+      check(legacy !== 'failed', 'The PDF viewer shows its error state');
+      if (legacy === 'rendered' && (frame === page.mainFrame() || await (await frame.frameElement()).isVisible())) return;
     }
     await new Promise(resolve => setTimeout(resolve, 25));
   }
@@ -242,20 +298,24 @@ export async function createJourney(id) {
     });
     const network = capture(context);
     const page = await context.newPage(); page.setDefaultTimeout(10000); page.setDefaultNavigationTimeout(30000);
-    const j = { id, browser, context, page, rv: process.env.RESULTS_VERSION, network, results: [], startedAt: new Date().toISOString(), metadata: { mode: MODE, baseURL: BASE_URL, chromium: browser.version(), sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim(), signIn: MODE === 'hosted' && process.env.CREDENTIALS_JSON ? 'requested' : 'not-tested', runId: process.env.RUN_ID || `${Date.now()}`, signInDevice: SIGN_IN_DEVICE } };
+    const j = { id, browser, context, page, rv: process.env.RESULTS_VERSION, network, networks: [network], results: [], startedAt: new Date().toISOString(), metadata: { mode: MODE, baseURL: BASE_URL, chromium: browser.version(), sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim(), signIn: MODE === 'hosted' && process.env.CREDENTIALS_JSON ? 'requested' : 'not-tested', runId: process.env.RUN_ID || `${Date.now()}`, signInDevice: SIGN_IN_DEVICE } };
+    // Records step `name`, timed from `start` (a performance.now()) to now: a failure when `error` is given or the budget is spent.
+    j.timed = (name, start, budgetMs, error = null) => {
+      const ms = Math.round(performance.now() - start);
+      if (error) j.results.push({ name, status: 'FAIL', ms, budgetMs, reason: error.name === 'TimeoutError' ? 'Target not ready before timeout' : error.message.split('\n')[0] });
+      else j.results.push({ name, status: budgetMs !== null && ms >= budgetMs ? 'FAIL' : 'PASS', ms, budgetMs, ...(budgetMs !== null && ms >= budgetMs ? { reason: 'Latency budget exceeded' } : {}) });
+    };
     j.measure = async (name, action, target = async () => {}, budgetMs = PAGE_MS, targetPage = page) => {
       const start = performance.now();
       try {
         const value = await action(); await target(value); await paint(typeof targetPage === 'function' ? targetPage() : targetPage);
-        const ms = Math.round(performance.now() - start);
-        j.results.push({ name, status: budgetMs !== null && ms >= budgetMs ? 'FAIL' : 'PASS', ms, budgetMs, ...(budgetMs !== null && ms >= budgetMs ? { reason: 'Latency budget exceeded' } : {}) });
+        j.timed(name, start, budgetMs);
         return value;
-      } catch (error) {
-        j.results.push({ name, status: 'FAIL', ms: Math.round(performance.now() - start), budgetMs, reason: error.name === 'TimeoutError' ? 'Target not ready before timeout' : error.message.split('\n')[0] });
-        throw error;
-      }
+      } catch (error) { j.timed(name, start, budgetMs, error); throw error; }
     };
     j.attempt = async (name, fn) => { try { await fn(); } catch (e) { if (!j.results.some(x => x.name === name && x.status === 'FAIL')) j.results.push({ name, status: 'FAIL', reason: e.name === 'TimeoutError' ? 'Required control/content missing' : e.message.split('\n')[0] }); } };
+    // Every further context a journey opens (J3's phone) is captured before its first page, and its failures count in the verdict.
+    j.newContext = async options => { const extra = await browser.newContext(options); j.networks.push(capture(extra)); return extra; };
     j.url = suffix => route(j.rv, suffix);
     j.go = async (suffix, view, label = view) => j.measure(label, () => page.goto(j.url(suffix), { waitUntil: 'domcontentloaded' }), () => ready(page, view));
     j.nav = async id => j.measure(id, () => page.locator(`nav [data-view="${id}"]`).click(), () => ready(page, id));
@@ -336,9 +396,9 @@ export async function run(id, work, { needs = [], writes = null } = {}) {
         j.metadata.buildVerifiedAtEnd = true;
       } catch { j.results.push({ name: 'build-identity', status: 'FAIL', reason: 'Build identity changed or became unavailable' }); }
       await j.context.close();
-      if (j.network.http4xx || j.network.http5xx || j.network.pageErrors || j.network.failedRequests) j.results.push({ name: 'network/runtime', status: 'FAIL', reason: 'HTTP errors, failed requests or uncaught page errors' });
+      if (j.networks.some(n => n.http4xx || n.http5xx || n.pageErrors || n.failedRequests)) j.results.push({ name: 'network/runtime', status: 'FAIL', reason: 'HTTP errors, failed requests or uncaught page errors' });
       const status = j.results.some(x => x.status === 'FAIL') ? 'FAIL' : j.results.some(x => x.status === 'SKIPPED') ? 'PARTIAL' : 'PASS';
-      result = { id, status, startedAt: j.startedAt, metadata: j.metadata, network: j.network, steps: j.results };
+      result = { id, status, startedAt: j.startedAt, metadata: j.metadata, network: j.network, ...(j.networks.length > 1 ? { otherContexts: j.networks.slice(1) } : {}), steps: j.results };
       await j.browser.close();
     }
     await record(id, result);

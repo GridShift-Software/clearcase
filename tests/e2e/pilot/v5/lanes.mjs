@@ -37,7 +37,8 @@ async function docPage(C, rv, ref, query = '') {
 	const section = /<section class="original(?: [^"]*)?"[^>]*data-original-state="([a-z]+)" data-presentation="([a-z]+)"/.exec(t);
 	return {
 		status: r.status, html: t, state: section?.[1] ?? null, presentation: section?.[2] ?? null,
-		route: /<p[^>]*id="original-state"[^>]*><span class="route" data-route="([a-z]+)">([^<]*)</.exec(t)?.slice(1) ?? null,
+		// Svelte SSR puts block markers (<!--[-->) before a span inside an {#if}, as the hosted/local branch in OriginalOpen does
+		route: /<p[^>]*id="original-state"[^>]*>\s*(?:<!--[^>]*-->\s*)*<span class="route" data-route="([a-z]+)">([^<]*)</.exec(t)?.slice(1) ?? null,
 		path: (() => { const m = /id="original-state"[\s\S]*?<code class="wrap" title="([^"]*)"/.exec(t); return m ? decode(m[1]) : null; })(),
 		shaPrefix: /sha256 ([0-9a-f]{12})…\)/.exec(t)?.[1] ?? null,
 		open: attrById(t, 'open-original', 'href'), openText: /id="open-original">([^<]*)</.exec(t)?.[1] ?? null, download: attrById(t, 'download-original', 'href'),

@@ -55,7 +55,7 @@ export function requestCaseLookup(db: D1, deployment: ClientResourceIdentity, as
   async function lookup(a: { principal: NonNullable<Identity['principal']>; caseId: CaseId }): Promise<RequestCase> {
     const { results } = await db.prepare(`SELECT ${GRANT_COLUMNS.split(', ').map(c => `g.${c}`).join(', ')},
       EXISTS (SELECT 1 FROM uw_binding WHERE singleton = 1 AND client_id = g.client_id AND schema_version = ?) AS work_bound,
-      c.case_label, p.state AS pub_state, p.version_id AS pub_version, p.published_at, p.previous_version_id,
+      COALESCE(c.case_label, v.case_label) AS case_label, p.state AS pub_state, p.version_id AS pub_version, p.published_at, p.previous_version_id,
       v.state AS stored, w.version_id AS withdrawn, m.manifest_sha256, m.admitted_json,
       (SELECT json_group_array(json_object('id', note_id, 'body', body, 'bodySha256', body_sha256, 'target', json(target_json), 'createdAt', created_at, 'version', version)) FROM (SELECT * FROM uw_note WHERE case_id = c.case_id ORDER BY rowid)) AS notes_json,
       (SELECT json_group_array(json_object('ref', ref, 'sha256', json_extract(state_json, '$.original.sha256'))) FROM rs_document WHERE version_id = p.version_id AND EXISTS (SELECT 1 FROM uw_note WHERE case_id = c.case_id AND json_extract(target_json, '$.kind') = 'document' AND json_extract(target_json, '$.anchor.resultsVersion') <> p.version_id)) AS fingerprints_json,

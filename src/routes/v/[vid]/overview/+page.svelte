@@ -6,8 +6,8 @@
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import DegradedRows from '$lib/components/DegradedRows.svelte';
 	import { money, plural } from '$lib/components/format';
-	import { grouped, viewHref, viewById, blockedBy } from '$lib/components/views';
-	let { data, form } = $props();
+	import { grouped, viewHref, viewById, blockedBy } from '$lib/components/views'; import { isHosted } from '$lib/components/shell'; import { hostedStatus } from '$lib/views/hosted/availability';
+	let { data, form } = $props(); const onHosted = isHosted(); // hosted shell only: no pipeline internals, no view hosted never serves
 	const o = $derived(data.overview);
 	const c = $derived(o.counts);
 	const vid = $derived(data.version.id);
@@ -26,7 +26,7 @@
 <main id="main" tabindex="-1" data-ready={ready ? 'overview' : null}>
 	<PageHeader heading="Overview" section="Overview" caseName={data.version.titleName} subtitle={content.subtitle ?? (o.matter?.title || data.version.caseName)} />
 	<DegradedRows failed={data.documents.failed} />
-	<p>Results version <code title={vid}>{vid.slice(0, 19)}…</code> · produced {o.created} by {o.producer} from {o.inputKind} input.</p>
+	{#if !onHosted()}<p>Results version <code title={vid}>{vid.slice(0, 19)}…</code> · produced {o.created} by {o.producer} from {o.inputKind} input.</p>{/if}
 	{#if data.previous}
 		<form method="POST" action="?/rollback" id="rollback-form">
 			<input type="hidden" name="expect" value={vid} />
@@ -78,9 +78,9 @@
 	</div>
 
 	<section class="card" aria-labelledby="go-heading"><h2 id="go-heading">Go to</h2>
-		<ul class="quick">{#each grouped() as g (g.group)}{#each g.views.filter((v) => ['chronology', 'matter', 'quantum_tab', 'documents', 'people', 'search', 'court_bundle_tab', 'rescan_tab'].includes(v.id)) as v (v.id)}<li><a href={viewHref(vid, v, data.base)}>{v.label}</a>{blockedBy(v) ? ` (not yet available, ${blockedBy(v)})` : ''}</li>{/each}{/each}</ul></section>
+		<ul class="quick">{#each grouped() as g (g.group)}{#each g.views.filter((v) => (!onHosted() || hostedStatus(v.id) !== 'never') && ['chronology', 'matter', 'quantum_tab', 'documents', 'people', 'search', 'court_bundle_tab', 'rescan_tab'].includes(v.id)) as v (v.id)}<li><a href={viewHref(vid, v, data.base)}>{v.label}</a>{blockedBy(v) ? ` (not yet available, ${blockedBy(v)})` : ''}</li>{/each}{/each}</ul></section>
 
-	{#if Object.keys(o.diagnostics).length}
+	{#if !onHosted() && Object.keys(o.diagnostics).length}
 		<details><summary>Validation totals for this version</summary><table><tbody>{#each Object.entries(o.diagnostics) as [k, n] (k)}<tr><td>{k}</td><td class="num">{n}</td></tr>{/each}</tbody></table></details>
 	{/if}
 </main>

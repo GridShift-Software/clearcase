@@ -27,7 +27,7 @@ For each: a custom domain you control, so its Frontend API is `clerk.<domain>` a
 
 Per instance, in the dashboard (the redirect URLs and allowed origins for staging are also added by step 4 of the switch):
 
-- **Allowed redirect URLs** for staging and every preview: the same two paths on `https://clearcase-staging.shiny-sunset-211d.workers.dev` and on `https://<name>-clearcase-staging.shiny-sunset-211d.workers.dev` (`scripts/preview.sh` adds each preview's own, to the active instance).
+- **Allowed redirect URLs** for staging and every preview: the same two paths on the staging origin (`bun deploy/staging/origin.ts get`, now `https://clearcase-staging.gridshift.co.za`) and on `https://<name>-clearcase-staging.shiny-sunset-211d.workers.dev` (`scripts/preview.sh` adds each preview's own, to the active instance).
 - **Allowed origins**: the staging origin and the preview origins.
 - Test users: the `+clerk_test` address and code 424242 shortcut belongs to development instances; do not rely on it in production. Create real users with a mailbox you read (one client user, one staff user) and sign in with the email code.
 - Session lifetime and MFA: leave the defaults; `AUTH_MFA_REQUIRED` stays `false` in the config.
@@ -58,7 +58,7 @@ The dry run exits 1 and lists the fields while a `PLACEHOLDER` remains. The appl
 ## Check after the switch
 
 1. `scripts/clerk-instance.sh --active` prints `production`.
-2. `GET https://clearcase-staging.shiny-sunset-211d.workers.dev/sign-in` is 200 and its Sign in button goes to `accounts.<client domain>`, not `accounts.dev`.
+2. `GET <staging origin>/sign-in` is 200 and its Sign in button goes to `accounts.<client domain>`, not `accounts.dev`.
 3. Sign in as the client test user in a clean browser profile, then as the staff user at `/sign-in/operator`: both land on the app.
 4. Time it: `SIGN_IN_MS=5000` is the default of the journeys; run J1 with `MODE=hosted BASE_URL=... CREDENTIALS_JSON=...` (`tests/journeys/README.md`). Sign-in under 5 s is the RC gate on the production instance; the sign-in step is strict below `SIGN_IN_MS`.
 5. A development-instance session no longer works (expected): sign out and in.
@@ -70,6 +70,17 @@ scripts/clerk-instance.sh --use development
 ```
 
 This restores the development vars and secrets and deploys. Merge its commit too (it undoes the production commit, merged or not). Run the journeys on the development instance with `SIGN_IN_MS=8000`: about 6.6 s is the accepted interim, not a fault.
+
+## Names and branding (owner, dashboard)
+
+The application name, logo and favicon are not in the Backend API, which the instance secret keys reach (`PATCH /v1/instance` has no name or branding field). Clerk's Platform API has `PATCH /platform/applications/{id}` (`name`) and `POST .../logo` and `.../favicon`, but it is in private beta and takes a Platform API access token, which no script here holds. So the owner renames each app in the dashboard (GRS-278):
+
+1. dashboard.clerk.com > the client app (`outgoing-walrus-1020`, now "Clear-Case-Dev-C") > Settings > the application name: `ClearCase`. Save.
+2. The staff app (`renewed-moth-1294`) the same way: `ClearCase staff`.
+3. Optional, same Settings page > Branding: upload the logo and favicon. The accounts portal and the emails use them.
+4. Check: open `<staging origin>/sign-in` in a private window. The Clerk page names the new app. The "Development mode" badge stays while the instances are development ones.
+
+The colours of the accounts portal are set in the dashboard too, if at all. The app sends users to the hosted accounts portal and renders no Clerk component, so the SDK's `appearance` prop does not reach them.
 
 ## Notes
 

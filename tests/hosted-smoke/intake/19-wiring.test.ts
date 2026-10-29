@@ -35,7 +35,7 @@ it('19 wires the request-bound action and asynchronous notification through real
   const issuer = instances['client-a'].iss, origin = 'https://client-a.clearcase.test';
   const config = { key: 'a'.repeat(64), clientId: 'client-a', issuer, origin, sessions: { get: async () => null, put: async () => {} } };
   const session = await mintAppSession(config, { sid: 'synthetic-intake-session', subject: 'intake-reader', name: 'Synthetic Reader' });
-  const cookie = `clearcase_session=${await signAppSession(config, session)}`;
+  const cookie = `__Host-clearcase_session=${await signAppSession(config, session)}`;
   w.db.exec(`INSERT INTO tenant_case_grants (grant_id,client_id,scope,case_id,issuer,subject,principal_kind,role,slot,state,version,created_operation_id,request,created_by_issuer,created_by_subject,created_at)
     VALUES ('intake-read','client-a','case','case-a',?,'intake-reader','client','viewer','content','active',1,'seed','[]','seed','seed','2001-01-01T00:00:00.000Z')`, issuer);
   const granted = await provisionIntakeGrant({ db, nativeConfig: String(env.CLEARCASE_NATIVE_CONFIG), caseId: 'case-a', subject: 'intake-reader' });

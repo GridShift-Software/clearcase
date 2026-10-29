@@ -16,7 +16,7 @@ cd "$root"
 CONFIG=deploy/staging/wrangler.jsonc
 DB=clearcase-staging-db
 BUCKET=clearcase-staging-files
-URL=https://clearcase-staging.shiny-sunset-211d.workers.dev
+URL=$(bun deploy/staging/origin.ts get)
 LOG=.local/staging/deploys.jsonl
 
 say() { printf 'deploy-staging: %s\n' "$*" >&2; }
@@ -85,10 +85,14 @@ case ${1:-} in
 	[[ -n $target ]] || die "no earlier version with a different SHA than $current_sha to roll back to"
 	target_sha=$(tag_of "$target")
 	say "rollback: $current ($current_sha) -> $target ($target_sha)"
+	# The origin is a var of each version, so a rollback across an origin move serves the target's origin, not the config's.
+	target_url=$(wrangler versions view "$target" --json -c "$CONFIG" | json "j.resources.bindings.find(b => b.name === 'CLEARCASE_APP_ORIGIN')?.text ?? ''")
+	[[ -n $target_url ]] || die "version $target has no CLEARCASE_APP_ORIGIN"
+	[[ $target_url == "$URL" ]] || say "rollback: $target serves $target_url, not the config's $URL"
 	wrangler rollback "$target" -y -m "deploy-staging.sh --rollback from $current_sha" -c "$CONFIG" >&2
-	smoke "$URL" "$target_sha" || die "rolled back to $target but could not verify it (smoke exit $?; message above)"
+	smoke "$target_url" "$target_sha" || die "rolled back to $target but could not verify it (smoke exit $?; message above)"
 	say "rollback: done in $(($(date +%s) - started)) s; a D1 restore is separate: see .local/staging/deploys.jsonl and the runbook"
-	echo "$target_sha $URL $target"
+	echo "$target_sha $target_url $target"
 	exit 0
 	;;
 '') ;;

@@ -154,7 +154,7 @@ describe('the browser that started the handshake still signs in', () => {
 	it('signs a client in and lands on /cases, consuming the binding', async () => {
 		const out = await signIn('client', null);
 		expect(out).toMatchObject({ status: 303, location: '/cases' });
-		expect(out.sets).toContain('clearcase_session');
+		expect(out.sets).toContain('__Host-clearcase_session');
 		expect([...out.jar.keys()].filter((n) => /clearcase_hs/.test(n))).toEqual([]);
 	});
 	it('signs staff in on the operator page', async () => {
@@ -165,7 +165,7 @@ describe('the browser that started the handshake still signs in', () => {
 	});
 	it('signs in again after sign-out in the same browser', async () => {
 		const first = await signIn('client', null);
-		for (const n of [...first.jar.keys()].filter((k) => /^(__session|__client_uat|clearcase_session|__Host-clearcase_refresh)/.test(k))) first.jar.delete(n);
+		for (const n of [...first.jar.keys()].filter((k) => /^(__session|__client_uat|__Host-clearcase_session|__Host-clearcase_refresh)/.test(k))) first.jar.delete(n);
 		expect(await signIn('client', '/cases/case-2', first.jar)).toMatchObject({ status: 303, location: '/cases/case-2' });
 	});
 	it('still lets two tabs of one browser finish their own handshakes in either order', async () => {

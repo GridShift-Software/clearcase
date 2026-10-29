@@ -23,7 +23,7 @@ it('09a: a valid app cookie renders the case list with zero Clerk fetches and on
 	const provider = clerkIdentityProviderFromEnv(env, { authorizeCase: async () => {} });
 	if (!provider.ok) throw new Error(provider.reason);
 	const session = await mintAppSession(config, { sid: 'sess_budget', subject: 'user_budget', name: 'Synthetic Lawyer' });
-	const request = new Request(`${config.origin}/cases`, { headers: { cookie: `clearcase_session=${await signAppSession(config, session)}` } });
+	const request = new Request(`${config.origin}/cases`, { headers: { cookie: `__Host-clearcase_session=${await signAppSession(config, session)}` } });
 	const w = await hostedWorld();
 	// Storage ceilings belong to 06; this test constrains auth over the existing case-list route.
 	const result = await expectWithinBudget('09a /cases app session', { clerk: 0, d1: 3, r2: 2 }, w.counters, async () => {

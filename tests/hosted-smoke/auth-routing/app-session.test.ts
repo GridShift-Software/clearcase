@@ -26,7 +26,7 @@ afterAll(() => clerk.close());
 afterEach(() => { vi.useRealTimers(); });
 const config = () => appSessionConfig(workers.env, client.iss)!;
 async function cookie(sid: string) {
-	return `clearcase_session=${await signAppSession(config(), await mintAppSession(config(), { sid, subject: 'user_smoke', name: 'Smoke Lawyer' }))}`;
+	return `__Host-clearcase_session=${await signAppSession(config(), await mintAppSession(config(), { sid, subject: 'user_smoke', name: 'Smoke Lawyer' }))}`;
 }
 async function invoke(request: Request, signOut = false) {
 	const cleared: string[] = [];
@@ -50,7 +50,7 @@ describe('client app-session hook and actions', () => {
 		const identity = await provider.provider.authenticate({ request });
 		const installed: Promise<boolean>[] = [];
 		const cookies = { set: (name: string, value: string, options: { httpOnly: boolean; secure: boolean; sameSite: string; path: string }) => {
-			installed.push((async () => name === 'clearcase_session' && (await readAppSession(config(), value))?.name === 'user_smoke' && options.httpOnly && options.secure && options.sameSite === 'lax' && options.path === '/')());
+			installed.push((async () => name === '__Host-clearcase_session' && (await readAppSession(config(), value))?.name === 'user_smoke' && options.httpOnly && options.secure && options.sameSite === 'lax' && options.path === '/')());
 		}, delete: () => {} };
 		let location = '';
 		try { await load({ request, url: new URL(request.url), locals: { identity, runtime: { testIdentity: null } }, cookies, isDataRequest: false } as never); }
@@ -69,7 +69,7 @@ describe('client app-session hook and actions', () => {
 		expect(kv.get.mock.calls.length - reads).toBe(1);
 		expect(response.headers.has('x-clearcase-reauth')).toBe(false);
 		const header = response.headers.get('set-cookie') ?? '';
-		const renewed = header.split(';')[0]?.slice('clearcase_session='.length) ?? '';
+		const renewed = header.split(';')[0]?.slice('__Host-clearcase_session='.length) ?? '';
 		expect((await readAppSession(config(), renewed))?.refreshed === Math.floor(Date.now() / 1000)).toBe(true);
 	});
 	it('revokes in KV before Clerk sign-out, clears the cookie, and refuses the same cookie on another request', async () => {
@@ -78,6 +78,7 @@ describe('client app-session hook and actions', () => {
 		const result = await invoke(new Request(`${ORIGIN}/sign-out`, { method: 'POST', headers: { cookie: credential, origin: ORIGIN } }), true);
 		expect(result.response.status).toBe(303);
 		expect(revoked.has('revoked:sess_logout')).toBe(true);
+		expect(result.cleared.includes('__Host-clearcase_session')).toBe(true);
 		expect(result.cleared.includes('clearcase_session')).toBe(true);
 		expect(clerk.statusOf('sess_logout')).toBe('revoked');
 		expect((await invoke(new Request(`${ORIGIN}/cases`, { headers: { cookie: credential } }))).response.status).toBe(401);

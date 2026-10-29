@@ -6,8 +6,9 @@ The hosted demo's staging Worker and its per-branch Previews. No secret value ap
 
 | What | Value |
 | --- | --- |
-| Staging | `https://clearcase-staging.shiny-sunset-211d.workers.dev` |
+| Staging | `https://clearcase-staging.gridshift.co.za`, a Workers custom domain on the `gridshift.co.za` zone (GRS-278) |
 | Previews | `https://<name>-clearcase-staging.shiny-sunset-211d.workers.dev`, `<name>` from `scripts/preview.sh` |
+| workers.dev | `https://clearcase-staging.shiny-sunset-211d.workers.dev` answers 403 while staging serves the custom domain: the way back is below |
 | Account | `fb4c31b91c5d89b7a54afbdc34823170` (workers.dev subdomain `shiny-sunset-211d`) |
 | Worker | `clearcase-staging`, London placement (`aws:eu-west-2`, answers `cf-placement: remote-LHR`) |
 | D1 (EU) | `clearcase-staging-db`, `126f680e-4c4b-4b48-98bf-5a5e82c7b1ba`, bound as `DB` |
@@ -18,6 +19,20 @@ The hosted demo's staging Worker and its per-branch Previews. No secret value ap
 | Access team | `super-limit-6f87.cloudflareaccess.com` |
 | Config | `deploy/staging/wrangler.jsonc`; migrations in `deploy/staging/migrations/` |
 
+## The origin
+
+Staging serves one origin, `CLEARCASE_APP_ORIGIN` in `deploy/staging/wrangler.jsonc`. Every other origin of the Worker answers 403 before any identity work (`src/lib/server/runtime/hosted/origin-guard.ts`), so a session minted at one origin never works at another. The two `CLEARCASE_NATIVE_CONFIG` hostnames and the custom-domain route follow the origin. `bun deploy/staging/origin.ts set <origin>` rewrites all three, and `get` refuses a file where they disagree. The scripts read the origin from there: the deploy smoke, the Clerk allow-list in `scripts/clerk-instance.sh`, and the workers.dev host previews sit under.
+
+To move staging, for example to `clearcase.co.za` once its zone is active:
+
+```sh
+bun deploy/staging/origin.ts set https://staging.clearcase.co.za   # commit the wrangler.jsonc change through a PR
+bun deploy/staging/clerk.ts allow https://staging.clearcase.co.za  # both Clerk apps; keep the old origin until it is retired
+scripts/deploy-staging.sh                                           # attaches the custom domain, smokes the new origin
+```
+
+A custom domain needs its zone active on this account and no DNS record at that host: Cloudflare creates the record and the certificate (Free plan). Sessions do not move across origins, so everyone signs in again after a move.
+
 `CLEARCASE_CLIENT_ID` is `staging`. Grants live in staging's own D1, so sharing the Clerk apps with B gives no access across Workers. Test users sign in with a `+clerk_test` address and code 424242 (the Clerk page asks for a password first: choose "Use another method", then "Email code").
 
 ## Deploy
@@ -26,7 +41,7 @@ The hosted demo's staging Worker and its per-branch Previews. No secret value ap
 scripts/deploy-staging.sh
 ```
 
-From a clean worktree at the commit to ship. It builds once (`build:hosted`), records a D1 Time Travel bookmark, applies migrations, uploads a version tagged with the full SHA, deploys it at 100%, applies the workers.dev settings, then smokes `/health` (200 at that SHA), `/sign-in` (200), `/cases` (401) and `cf-placement: remote-LHR`. Its last line is `sha url version`. Each run appends `{at, sha, version, bookmark}` to `.local/staging/deploys.jsonl` (ignored). About 40 s.
+From a clean worktree at the commit to ship. It builds once (`build:hosted`), records a D1 Time Travel bookmark, applies migrations, uploads a version tagged with the full SHA, deploys it at 100%, applies the workers.dev settings, then smokes the origin from the config: `/health` (200 at that SHA), `/sign-in` (200), `/cases` (401) and `cf-placement: remote-LHR`. Its last line is `sha url version`. Each run appends `{at, sha, version, bookmark}` to `.local/staging/deploys.jsonl` (ignored). About 40 s.
 
 The first run on an empty account also creates the Worker and provisions the two runtime records: the `/health` sentinel (a `runtime_sentinel` row naming the SHA-256 of `runtime/sentinel` in R2) and the storage identity (`rs_storage_identity` plus `identity/client.json`, both naming `staging`). Every case route answers 503 `storage-unavailable` without the storage identity.
 
@@ -54,7 +69,9 @@ scripts/deploy-staging.sh --rollback              # to the newest earlier versio
 scripts/deploy-staging.sh --rollback <version-id> # to that version
 ```
 
-`wrangler rollback` keeps bindings and secrets and takes seconds; the script then smokes `/health` at the restored SHA. A rollback does not undo a migration. If a migration broke data, restore D1 to the bookmark that deploy recorded before migrating (30-day window):
+`wrangler rollback` keeps bindings and secrets and takes seconds; the script then smokes `/health` at the restored SHA, on the restored version's own `CLEARCASE_APP_ORIGIN` (vars belong to a version).
+
+**Back to workers.dev.** Rolling back to a version deployed before the move to the custom domain serves workers.dev again at once, and the custom domain answers 403 until the next deploy. To stay there, commit `bun deploy/staging/origin.ts set https://clearcase-staging.shiny-sunset-211d.workers.dev` (it empties `routes`) and deploy. The workers.dev origin stays on both Clerk allow-lists for this; remove it with `bun deploy/staging/clerk.ts remove <origin>` only when the owner retires workers.dev. A rollback does not undo a migration. If a migration broke data, restore D1 to the bookmark that deploy recorded before migrating (30-day window):
 
 ```sh
 node node_modules/wrangler/bin/wrangler.js d1 time-travel restore clearcase-staging-db --bookmark <bookmark> -c deploy/staging/wrangler.jsonc
@@ -91,6 +108,6 @@ The Clerk instance (development or production) is one setting: `scripts/clerk-in
 Staging and every preview are reachable without Access until this is done. The Wrangler login cannot manage Access: creating the one-time-PIN login method (`POST /accounts/{account}/access/identity_providers`) and the Access application (`POST /accounts/{account}/access/apps`) both answer 403 `{"code":1010,"error":"auth.forbidden"}`. With the dashboard or a token that has Access: Apps and Policies Edit:
 
 1. Zero Trust > Settings > Authentication > Login methods: add One-time PIN.
-2. Workers & Pages > `clearcase-staging` > Access > "Protect this Worker behind Access" > All traffic (staging and previews); or Zero Trust > Access > Applications > self-hosted with the domains `clearcase-staging.shiny-sunset-211d.workers.dev` and `*-clearcase-staging.shiny-sunset-211d.workers.dev`.
+2. Workers & Pages > `clearcase-staging` > Access > "Protect this Worker behind Access" > All traffic (staging and previews); or Zero Trust > Access > Applications > self-hosted with the domains `clearcase-staging.gridshift.co.za`, `clearcase-staging.shiny-sunset-211d.workers.dev` and `*-clearcase-staging.shiny-sunset-211d.workers.dev`.
 3. Policy: allow email domain `gridshift.co.za`, the owner's personal address and any colleague outside that domain; session 24 h.
 4. Check: an unauthenticated `GET /` redirects to `super-limit-6f87.cloudflareaccess.com`; after the PIN, `/health` is 200 and Clerk sign-in completes. For the deploy smoke, create an Access service token and add it to the policy as a Service Auth rule.

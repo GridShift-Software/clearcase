@@ -2,7 +2,11 @@ import type { Principal } from '../server/runtime/contracts.ts';
 import { cookiePairs } from './clerk/session.ts';
 import { contractError } from '../server/runtime/errors.ts';
 
-export const APP_COOKIE = 'clearcase_session';
+// `__Host-`, so no other host can set it: a sibling on the parent domain could plant a Domain= copy of an unprefixed name
+// holding a session of its own (GRS-278 review M1). The unprefixed name it had before is never read, only cleared.
+export const APP_COOKIE = '__Host-clearcase_session';
+export const LEGACY_APP_COOKIE = 'clearcase_session';
+const JOINED_APP_COOKIE = new RegExp(`,\\s*${APP_COOKIE}\\s*=`);
 export const SESSION_WINDOW = 8 * 60 * 60;
 export const SESSION_MAX = 24 * 60 * 60;
 export interface SessionKV {
@@ -26,7 +30,7 @@ const keyOf = (config: AppSessionConfig) => crypto.subtle.importKey('raw', new T
 const message = (config: AppSessionConfig, body: string) => new TextEncoder().encode(JSON.stringify(['clearcase-session-v1', config.clientId, config.origin, config.issuer, body]));
 export function appCookieValue(request: Request): string | null {
 	const header = request.headers.get('cookie') ?? '';
-	if (/,\s*clearcase_session\s*=/.test(header)) return 'malformed';
+	if (JOINED_APP_COOKIE.test(header)) return 'malformed';
 	const values = cookiePairs(request).filter((p) => p.name === APP_COOKIE);
 	if (!values.length) return null;
 	return values.length === 1 ? values[0]!.value : 'malformed';

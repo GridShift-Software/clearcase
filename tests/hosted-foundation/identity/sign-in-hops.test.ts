@@ -7,11 +7,13 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { clerkBrowserHandshakeFromEnv, handshakeAnswer, handshakeResponse, type HandshakeOutcome } from '../../../src/lib/auth/clerk/browser.ts';
 import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
+import { readClerkIdentityConfig } from '../../../src/lib/auth/clerk/config.ts';
+import { bootstrapProof } from '../../../src/lib/auth/clerk/flow.ts';
 import { createHandle } from '../../../src/lib/server/runtime/hosted/handle.ts';
 import { createUnavailableServices } from '../../../src/lib/server/runtime/unavailable.ts';
 import { id } from '../../../src/lib/server/runtime/ids.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
-import { bindingStarted } from './started-here.ts';
+import { bindingStarted, clientTie } from './started-here.ts';
 
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
 vi.mock('cloudflare:workers', () => workers);
@@ -57,13 +59,18 @@ const redirectOf = (o: HandshakeOutcome) => {
 };
 
 describe('a signed-in handshake return on its own sign-in page hands the route a verified credential', () => {
-	it('keeps the redirect it answered before, and adds a credential carrying only the new session token', async () => {
+	it('keeps the redirect it answered before, and adds a credential carrying only the new session token and its proof', async () => {
 		const token = clientToken(), o = redirectOf(await handshake().handle(returning('/sign-in', signedIn(A, token))));
 		expect(o.location).toMatch(new RegExp(`^${ORIGIN}/sign-in\\?__clearcase_reauth=\\d{10}$`));
 		expect(o.setCookies.some((c) => c.startsWith(`__session=${token};`))).toBe(true);
 		expect(o.credential).toBeDefined();
 		expect(new URL(o.credential!.url).pathname).toBe('/sign-in');
-		expect(o.credential!.headers.get('cookie')).toBe(`__session=${token}`);
+		// the proof that this browser's own handshake set the token, without which it mints nothing (GRS-279)
+		const read = readClerkIdentityConfig(env());
+		if (!read.ok) throw new Error(read.reason);
+		const proof = await bootstrapProof(read.config, token);
+		expect(o.credential!.headers.get('cookie')).toBe(`__session=${token}; ${proof.pair}`);
+		expect(o.setCookies).toContain(proof.setCookie);
 		expect(await identityOf(o.credential!)).toMatchObject({ kind: 'verified', principal: { kind: 'client', subject: 'user_a1' }, sessionId: 'sess_a1' });
 	});
 	it('does the same for a staff return on the operator page, whose session the provider still checks at Clerk', async () => {
@@ -101,7 +108,8 @@ describe('a signed-in handshake return on its own sign-in page hands the route a
 
 describe('a sign-in page the handshake has just returned to renders where it lands', () => {
 	it('answers /sign-in carrying the return mark without another redirect, while a case page still drops the mark', async () => {
-		const now = Math.floor(Date.now() / 1000), jar = `__clerk_db_jwt=${DEV_BROWSER}; __client_uat=0`;
+		// the jar a signed-out client return leaves, its dev browser tied to the client instance (GRS-279)
+		const now = Math.floor(Date.now() / 1000), jar = `__clerk_db_jwt=${DEV_BROWSER}; ${await clientTie(env(), DEV_BROWSER)}; __client_uat=0`;
 		expect(await handshake().handle(page(`/sign-in?__clearcase_reauth=${now}`, jar))).toEqual({ kind: 'continue' });
 		expect(await handshake().handle(page(`/sign-in?returnTo=%2Fcases%2Fcase-7&__clearcase_reauth=${now}`, jar))).toEqual({ kind: 'continue' });
 		expect(redirectOf(await handshake().handle(page(`/cases?__clearcase_reauth=${now}`, jar))).location).toBe(`${ORIGIN}/cases`);
@@ -141,6 +149,20 @@ describe('the hosted handle answers a signed-in return with the route\'s own red
 		expect(out.response.headers.getSetCookie().map((c) => c.split('=')[0])).toEqual(['__Host-clearcase_session', '__session', '__client_uat']);
 		expect(out.response.headers.get('cache-control')).toBe('no-store');
 		expect(out.response.headers.get('x-content-type-options')).toBe('nosniff');
+	});
+	it('keeps the route\'s own directive for a cookie the handshake also sets: the bootstrap proof it spent minting (GRS-279)', async () => {
+		const handshakeSets = fallback();
+		handshakeSets.headers.append('set-cookie', '__Host-clearcase_boot=synthetic; Path=/; Max-Age=120; SameSite=Lax; HttpOnly; Secure');
+		const handle = createHandle(async () => ({ ready: true, services: services() }) as never, async () => ({ response: handshakeSets, credential }), undefined, async () => null);
+		const request = returning('/sign-in', 'synthetic.handshake.token');
+		const response = await handle({ event: { request, url: new URL(request.url), locals: {} }, resolve: async () => {
+			const headers = new Headers({ location: '/cases' });
+			headers.append('set-cookie', '__Host-clearcase_session=synthetic; Path=/; HttpOnly; Secure; SameSite=Lax');
+			headers.append('set-cookie', '__Host-clearcase_boot=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax');
+			return new Response(null, { status: 303, headers });
+		} } as unknown as Parameters<typeof handle>[0]);
+		expect(response.headers.getSetCookie().filter((c) => c.startsWith('__Host-clearcase_boot='))).toEqual(['__Host-clearcase_boot=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax']);
+		expect(response.headers.getSetCookie().map((c) => c.split('=')[0])).toEqual(['__Host-clearcase_session', '__Host-clearcase_boot', '__session', '__client_uat']);
 	});
 	it('never renders a page at the URL that carries the handshake token: a route that answers a page gets the redirect of before', async () => {
 		const out = await invoke(() => new Response('<h1>Sign in</h1>', { status: 200, headers: { 'set-cookie': '__Host-clearcase_session=synthetic; Path=/' } }));

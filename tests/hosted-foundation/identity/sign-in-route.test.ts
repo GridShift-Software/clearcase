@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRedirect } from '@clerk/backend/internal';
 import { clerkSignInTarget } from '../../../src/lib/auth/clerk/config.ts';
 import { craftedInstance } from './synthetic.ts';
+import { clientTie } from './started-here.ts';
 
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
 vi.mock('cloudflare:workers', () => workers);
@@ -48,7 +49,9 @@ describe('/sign-in hands a development portal this browser\'s own Clerk client',
 	it('sends the dev browser to the portal exactly as @clerk/backend redirectToSignIn does, and never into page data', async () => {
 		workers.env = configured;
 		const sdk = createRedirect({ publishableKey: A.publishableKey, baseUrl: ORIGIN, signInUrl: SIGN_IN, devBrowserToken: DEV_BROWSER, redirectAdapter: (u: string) => u }).redirectToSignIn({ returnBackUrl: `${ORIGIN}/sign-in` });
-		expect((await post(`__clerk_db_jwt=${DEV_BROWSER}; __client_uat=0`)).thrown).toMatchObject({ status: 303, location: sdk });
+		// only the dev browser this browser's own client handshake tied here (GRS-279, client-signin-tie.test.ts)
+		expect((await post(`__clerk_db_jwt=${DEV_BROWSER}; ${await clientTie(configured, DEV_BROWSER)}; __client_uat=0`)).thrown).toMatchObject({ status: 303, location: sdk });
+		expect((await post(`__clerk_db_jwt=${DEV_BROWSER}; __client_uat=0`)).thrown).toMatchObject({ status: 303, location: `${SIGN_IN}?redirect_url=${encodeURIComponent(`${ORIGIN}/sign-in`)}` });
 		expect(new URL(sdk).searchParams.get('__clerk_db_jwt')).toBe(DEV_BROWSER);
 		const page = await outcome(() => load({ locals: production, request: new Request(`${ORIGIN}/sign-in`, { headers: { cookie: `__clerk_db_jwt=${DEV_BROWSER}` } }) } as never));
 		expect(JSON.stringify(page)).not.toContain(DEV_BROWSER);
@@ -76,6 +79,6 @@ describe('/sign-out', () => {
 		const deleted: string[] = [];
 		const r = await outcome(() => signOut.actions.default!({ locals: production, url: new URL(ORIGIN), cookies: { delete: (name: string) => deleted.push(name) } } as never));
 		expect(r.thrown).toMatchObject({ status: 303, location: '/sign-in' });
-		expect(deleted.sort()).toEqual(['__session', 'clearcase_session']);
+		expect(deleted.sort()).toEqual(['__Host-clearcase_boot', '__session', 'clearcase_session']);
 	});
 });

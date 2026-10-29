@@ -19,12 +19,16 @@
 //     without it the SDK hands a document to the handshake (its no-refresh-cookie path), as before;
 //   - a returning handshake belongs to the instance whose configured key verifies its signature, so a first staff sign-in
 //     back on /cases is not resolved with the client key;
-//   - a development staff handshake on an https origin lets the SDK read no dev browser but the one tied here (staffView):
-//     not the client instance's, which shares the plain name, nor one planted in the URL, a suffixed cookie or a
-//     parent-Domain cookie. One it starts carries a correlation (flow.ts startStaffHandshake): a `__Host-` cookie and the
-//     same random id in the redirect_url. Only a return that proves it, from a start no untied URL value came with, ties
-//     the dev browser to the staff instance, again in a `__Host-` cookie. A signature shows which instance signed a
-//     handshake, not which browser asked for it. An http origin starts no correlation and ties nothing.
+//   - a development handshake on an https origin lets the SDK read no dev browser but the one tied here to its instance
+//     (devBrowserView): not the other instance's, which shares the plain name, nor one planted in the URL, a suffixed
+//     cookie or a parent-Domain cookie (GRS-279 for the client). One it starts carries a correlation (flow.ts
+//     startCorrelatedHandshake): a `__Host-` cookie and the same random id in the redirect_url. Only a return that proves
+//     it, from a start no untied URL value came with, ties the dev browser to that instance, again in a `__Host-` cookie.
+//     A signature shows which instance signed a handshake, not which browser asked for it. An http origin starts no
+//     correlation and ties nothing;
+//   - a client session token mints the app session at /sign-in only with the proof the return of this browser's own
+//     handshake set beside it (flow.ts bootstrapProof); one without is not shown to the SDK there, so the SDK starts the
+//     handshake that sets the browser's own session and its proof (GRS-279).
 // A request that is not a document (a fetch, a form post, a `__data.json` load) never reaches the handshake, and this app
 // runs no clerk-js, so nothing renews the 60-second session token between page loads. `refresh` renews it on the Worker
 // instead (Clerk's `POST /v1/sessions/{sid}/refresh`, the call the SDK makes for a GET) for a request that passed the
@@ -43,8 +47,8 @@
 import { createClerkClient } from '@clerk/backend';
 import { isSignInFlowPage, readClerkIdentityConfig, rsaJwkOf, SIGN_IN_PAGE, type ClerkIdentityConfig, type InstanceKind } from './config.ts';
 import {
-	MAX_SESSION_LIFETIME_MS, OPERATOR_PATH, nextHoldName, REFRESH_TOKEN_VALUE, cookieDomains, cookieSuffix, ownedCookieNames, sessionClears, SESSION_HOLD_COOKIE, STAFF_DEV_BROWSER_TIE, STAFF_HANDSHAKE_CLEAR, STAFF_HANDSHAKE_COOKIE, STAFF_HANDSHAKE_PARAM, HANDSHAKE_BINDING_PARAM, cookiePairs, handshakeBindingOf, sdkCookieHeader, sessionHoldClear, startHandshakeBinding,
-	sessionHoldCookie, sessionHoldNames, sessionHoldOf, staffDevBrowserTie, staffHandshakeOf, startStaffHandshake, tiedDevBrowser,
+	MAX_SESSION_LIFETIME_MS, OPERATOR_PATH, nextHoldName, REFRESH_TOKEN_VALUE, bootstrapProof, bootstrapProven, cookieDomains, cookieSuffix, ownedCookieNames, sessionClears, SESSION_HOLD_COOKIE, DEV_BROWSER_TIE, HANDSHAKE_CORRELATION, HANDSHAKE_BINDING_PARAM, cookiePairs, handshakeBindingOf, sdkCookieHeader, sessionHoldClear, startHandshakeBinding,
+	sessionHoldCookie, sessionHoldNames, sessionHoldOf, devBrowserTie, handshakeCorrelationClear, handshakeCorrelationOf, startCorrelatedHandshake, tiedDevBrowser,
 	type ClerkBrowserHandshake, type HandshakeOutcome, type SessionHold, type SessionRefresh,
 } from './flow.ts';
 import { revocationEvidenceOf } from './revocation.ts';
@@ -59,7 +63,7 @@ const REAUTH_PARAM = '__clearcase_reauth', REAUTH_COOKIE = '__Host-clearcase_rea
 // was not signed in by it (the browser kept none of its cookies, so no cookie can count), and gets the session-ended
 // page instead (heavy review M2). A page that needs no handshake drops the parameter with one same-origin redirect.
 const returnedJustNow = (url: URL) => { const at = url.searchParams.get(REAUTH_PARAM); return at !== null && /^\d{10}$/.test(at) && Math.abs(Date.now() / 1000 - Number(at)) <= REAUTH_MAX_AGE; };
-const HANDSHAKE_PARAMS = ['__clerk_handshake', '__clerk_handshake_nonce', '__clerk_help', '__clerk_db_jwt', STAFF_HANDSHAKE_PARAM, HANDSHAKE_BINDING_PARAM, REAUTH_PARAM];
+const HANDSHAKE_PARAMS = ['__clerk_handshake', '__clerk_handshake_nonce', '__clerk_help', '__clerk_db_jwt', HANDSHAKE_CORRELATION.client.param, HANDSHAKE_CORRELATION.staff.param, HANDSHAKE_BINDING_PARAM, REAUTH_PARAM];
 /** The page a handshake return lands on once its parameters are gone; a return mark becomes the time it returned. */
 const cleanReturn = (url: URL) => {
 	const clean = new URL(url);
@@ -187,7 +191,7 @@ const renewed = new Set<string>();
  * that could end the attribute. A Domain on a hosting public suffix (`workers.dev`) is one browsers refuse, so it is not
  * emitted: the preview URL on a sandbox `*.workers.dev` host takes 3 Domains x 10 paths = 30 directives. A sibling origin
  * under the same parent domain can plant one with Domain=<parent> or a narrower Path beside this origin's host-only cookie, and
- * a repeated cookie never ties (flow.ts tiedDevBrowser), so a clear at Path=/ alone would leave the staff handshake
+ * a repeated cookie never ties (flow.ts tiedDevBrowser), so a clear at Path=/ alone would leave the handshake
  * starting again on every return (carryover review, finding 3).
  */
 function devBrowserClears(url: URL): string[] {
@@ -198,7 +202,7 @@ function devBrowserClears(url: URL): string[] {
 }
 export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }): ClerkBrowserHandshake {
 	const { config } = a;
-	const secure = config.appOrigin.startsWith('https://'), staffDevelopment = config.staff.publishableKey.startsWith('pk_test_');
+	const secure = config.appOrigin.startsWith('https://'), development = (kind: InstanceKind) => config[kind].publishableKey.startsWith('pk_test_');
 	const clients = new Map<InstanceKind, ReturnType<typeof createClerkClient>>();
 	const clientFor = (kind: InstanceKind) => {
 		let c = clients.get(kind);
@@ -235,18 +239,22 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 		return signers.length === 1 ? signers[0]! : null;
 	};
 	/**
-	 * The URL and Cookie header a development staff handshake on an https origin hands the SDK: every dev browser the SDK
-	 * reads (the `__clerk_db_jwt` query value, else the plain or suffixed `__clerk_db_jwt` cookie it picks) is the one tied
-	 * here (flow.ts tiedDevBrowser), or there is none and the SDK asks the staff Frontend API for a fresh one. Anything else
-	 * may be the client instance's, which shares the plain name, or planted, in a link or by a sibling origin's
-	 * parent-Domain cookie, and the Frontend API answers for whichever dev browser it is handed. The staff portal's own
+	 * The URL and Cookie header a development handshake of `kind` on an https origin hands the SDK: every dev browser the
+	 * SDK reads (the `__clerk_db_jwt` query value, else the plain or suffixed `__clerk_db_jwt` cookie it picks) is the one
+	 * tied here to that instance (flow.ts tiedDevBrowser), or there is none and the SDK asks its Frontend API for a fresh
+	 * one. Anything else may be the other instance's, which shares the plain name, or planted, in a link or by a sibling
+	 * origin's parent-Domain cookie, and the Frontend API answers for whichever dev browser it is handed. Each portal's own
 	 * return carries the tied value in its URL and keeps it. `vouched`: no untied URL value came with this request, so the
 	 * dev browser a correlated return of a handshake it starts sets may be tied; a crafted link's attempt ties nothing,
 	 * and the next clean GET starts one that does. `clears`: an untied plain cookie is expired wherever this request could
 	 * have it from (devBrowserClears) by the handshake it starts, whose return sets the one host-only cookie the tie needs.
+	 * A client handshake anywhere but the client sign-in page takes the staff instance's tied dev browser too, as it did
+	 * before GRS-279: a staff browser whose 60-second session cookie lapsed picks the client instance (handshakeKind), and
+	 * its staff dev browser is no planted value. Only the client sign-in starts a client dev browser of its own.
 	 */
-	const staffView = async (request: Request, url: URL) => {
-		const tied = (await tiedDevBrowser(request, config))?.value ?? null;
+	const devBrowserView = async (kind: InstanceKind, request: Request, url: URL) => {
+		const own = await tiedDevBrowser(request, config, kind);
+		const tied = (own ?? (kind === 'client' && url.pathname !== SIGN_IN_PAGE.client ? await tiedDevBrowser(request, config, 'staff') : null))?.value ?? null;
 		const clears = tied === null && cookiePairs(request).some((c) => c.name === '__clerk_db_jwt') ? devBrowserClears(url) : [];
 		const sdkUrl = new URL(url), vouched = sdkUrl.searchParams.getAll('__clerk_db_jwt').every((v) => v === tied);
 		if (!vouched) sdkUrl.searchParams.delete('__clerk_db_jwt');
@@ -257,6 +265,14 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			else if (tied !== null && !named.has(name)) pairs.push(`${name}=${tied}`), named.add(name);
 		}
 		return { url: sdkUrl, cookie: pairs.filter((p) => p !== '').join('; '), vouched, clears };
+	};
+	/**
+	 * Whether the client session token a request presents, if any, comes with the proof of the handshake that set it
+	 * (flow.ts bootstrapProven). An ambiguous one is left to the provider, which refuses it.
+	 */
+	const presentedProven = async (request: Request) => {
+		const token = presentedToken(request);
+		return token === null || token === 'malformed' || bootstrapProven(request, config, token);
 	};
 
 	const suffixes = new Map<InstanceKind, Promise<string>>();
@@ -430,14 +446,17 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 			// only the browser's own hints reach the SDK: no Authorization header, no forwarded host or proto
 			const headers = new Headers();
 			for (const h of ['accept', 'sec-fetch-dest']) if (request.headers.has(h)) headers.set(h, request.headers.get(h)!);
-			// A development staff handshake on an https origin sees no dev browser it cannot tie (staffView). With the client
-			// instance's the SDK answered signed out and started no handshake, the operator POST handed the staff portal no dev
-			// browser, and the portal fell back to its own, signed in for another origin (Astra auth matrix, 27 Oct, finding 2).
-			const view = kind === 'staff' && staffDevelopment && secure ? await staffView(request, url) : { url, cookie: sdkCookieHeader(request), vouched: false, clears: [] };
+			// A development handshake on an https origin sees no dev browser it cannot tie to its instance (devBrowserView). With
+			// the client instance's the staff SDK answered signed out and started no handshake, the operator POST handed the staff
+			// portal no dev browser, and the portal fell back to its own, signed in for another origin (Astra auth matrix, 27 Oct,
+			// finding 2); with a planted or linked one the client SDK synced Clerk's session for it (GRS-279).
+			const view = development(kind) && secure ? await devBrowserView(kind, request, url) : { url, cookie: sdkCookieHeader(request), vouched: false, clears: [] };
 			// Clerk's SDK takes a session token up to 5 s past its expiry as signed in; the identity provider refuses it at expiry.
 			// So the SDK is never shown a token already expired here: a page load (the reload a marked 401 asks for) or a handoff
-			// with one starts the handshake, instead of passing a session every route then refuses (rx27, review M1).
-			const sdkCookie = !hasToken && presentedExpired(request) ? view.cookie.split('; ').filter((p) => !SESSION_COOKIE_NAME.test(p.slice(0, p.indexOf('=')))).join('; ') : view.cookie;
+			// with one starts the handshake, instead of passing a session every route then refuses (rx27, review M1). Nor a client
+			// token at /sign-in without its proof (presentedProven), which mints nothing there: the handshake sets the browser's own.
+			const unproven = !hasToken && kind === 'client' && path === SIGN_IN_PAGE.client && !(await presentedProven(request));
+			const sdkCookie = !hasToken && (presentedExpired(request) || unproven) ? view.cookie.split('; ').filter((p) => !SESSION_COOKIE_NAME.test(p.slice(0, p.indexOf('=')))).join('; ') : view.cookie;
 			if (sdkCookie) headers.set('cookie', sdkCookie);
 			let state: Awaited<ReturnType<ReturnType<typeof createClerkClient>['authenticateRequest']>>;
 			try {
@@ -473,11 +492,11 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				back.searchParams.set(HANDSHAKE_BINDING_PARAM, bound.id);
 				setCookies.push(...bound.setCookies);
 				to.searchParams.set('redirect_url', back.href);
-				if (kind === 'staff' && staffDevelopment) {
+				if (development(kind)) {
 					setCookies.unshift(...view.clears);
-					const started = await startStaffHandshake(config, view.vouched);
+					const started = await startCorrelatedHandshake(config, kind, view.vouched);
 					if (started !== null) {
-						back.searchParams.set(STAFF_HANDSHAKE_PARAM, started.id);
+						back.searchParams.set(HANDSHAKE_CORRELATION[kind].param, started.id);
 						to.searchParams.set('redirect_url', back.href);
 						setCookies.push(started.setCookie);
 					}
@@ -498,16 +517,19 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 					const owned = await ownedNames('__session');
 					setCookies.unshift(...sessionCookieNames(request).filter((n) => owned.has(n)).flatMap((n) => sessionClears(n, url, secure)));
 				}
-				// a dev browser that a token only the staff key verifies set, on the return of a staff handshake this browser
-				// started with no untied URL value (staffView), is tied to the staff instance (flow.ts tiedDevBrowser)
+				// a dev browser that a token only this instance's key verifies set, on the return of a handshake of this instance
+				// this browser started with no untied URL value (devBrowserView), is tied to that instance (flow.ts tiedDevBrowser)
 				const devBrowser = setCookies.findLast((c) => c.startsWith('__clerk_db_jwt='));
 				const value = devBrowser === undefined ? '' : devBrowser.slice('__clerk_db_jwt='.length).split(';')[0]!;
-				const correlated = kind === 'staff' ? await staffHandshakeOf(request, config) : null;
-				if (pairs.some((c) => c.name === STAFF_HANDSHAKE_COOKIE)) setCookies.push(STAFF_HANDSHAKE_CLEAR);
-				if (correlated?.vouched && DEV_BROWSER.test(value) && (await signerOf(url.searchParams.get('__clerk_handshake')!)) === 'staff')
-					setCookies.push(devBrowser!.replace(/^__clerk_db_jwt=[^;]*/, `${STAFF_DEV_BROWSER_TIE}=${await staffDevBrowserTie(config, value)}`));
+				const correlated = await handshakeCorrelationOf(request, config, kind);
+				for (const k of ['client', 'staff'] as const) if (pairs.some((c) => c.name === HANDSHAKE_CORRELATION[k].cookie)) setCookies.push(handshakeCorrelationClear(k));
+				if (correlated?.vouched && DEV_BROWSER.test(value) && (await signerOf(url.searchParams.get('__clerk_handshake')!)) === kind)
+					setCookies.push(devBrowser!.replace(/^__clerk_db_jwt=[^;]*/, `${DEV_BROWSER_TIE[kind]}=${await devBrowserTie(config, kind, value)}`));
 				// what a later refresh needs is held only from a verified handshake that signs this browser in, for its instance
 				const signedIn = state.status === 'signed-in' ? sessionTokenOf(setCookies) : null;
+				// and only a client token this handshake set on /sign-in may mint the app session there (flow.ts bootstrapProof)
+				const proof = signedIn !== null && kind === 'client' && path === SIGN_IN_PAGE.client ? await bootstrapProof(config, signedIn) : null;
+				if (proof) setCookies.push(proof.setCookie);
 				setCookies.push(...(await holdDirectives(request, signedIn === null ? null : { kind, token: signedIn, refreshToken: clerkRefreshOf(state.headers.getSetCookie(), await refreshNameOf(kind)) })));
 				// the return of a handoff's handshake marks the browser, so it is not handed off again for a while (REAUTH_COOKIE)
 				if (secure && url.searchParams.has(REAUTH_PARAM)) setCookies.push(`${REAUTH_COOKIE}=1; Path=/; Max-Age=${REAUTH_MAX_AGE}; SameSite=Lax; HttpOnly; Secure`);
@@ -515,7 +537,8 @@ export function createClerkBrowserHandshake(a: { config: ClerkIdentityConfig }):
 				// may have that page's route answer in place of the redirect (flow.ts handshakeAnswer): the route sees only the
 				// token this verified handshake set, as the next request would, and the browser saves two round trips (GRS-266).
 				const fresh = signedIn !== null && document && path === SIGN_IN_PAGE[kind] && sessionCookieNames(request).length === 0 && sessionHoldNames(request).length === 0;
-				return { kind: 'redirect', location: clean.href, setCookies, ...(fresh ? { credential: new Request(url, { headers: { cookie: `__session=${signedIn}` } }) } : {}) };
+				const credential = [`__session=${signedIn}`, ...(proof ? [proof.pair] : [])].join('; ');
+				return { kind: 'redirect', location: clean.href, setCookies, ...(fresh ? { credential: new Request(url, { headers: { cookie: credential } }) } : {}) };
 			}
 			// a signed-in page load whose hold a renewal spent goes through the handshake for a fresh refresh token (handoff)
 			if (state.status === 'signed-in' && document && sessionHoldOf(request)?.spent) {

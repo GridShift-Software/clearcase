@@ -8,7 +8,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { clerkBrowserHandshakeFromEnv, clerkCookieClears, handshakeResponse, planSignIn, safeReturnTo, signOutClerkSession, type HandshakeOutcome } from '../../../src/lib/auth/clerk/browser.ts';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
-import { bindingStarted, consumed, startedBound } from './started-here.ts';
+import { bindingStarted, clientTie, consumed, startedBound } from './started-here.ts';
 
 const ORIGIN = 'https://client-a.clearcase.test';
 const A = craftedInstance('client-a.clerk.test'), B = craftedInstance('staff-b.clerk.test'), C = craftedInstance('client-c.clerk.test');
@@ -101,7 +101,8 @@ describe('the handshake that returns a session cookie to this origin', () => {
 		expect(new URL(o.location).searchParams.get('redirect_url')).toBe(`${ORIGIN}/cases?__clearcase_reauth=1`);
 	});
 	it('continues without a redirect for a browser that holds a live session', async () => {
-		expect(await handshake().handle(page('/cases', `__clerk_db_jwt=abc; __client_uat=1700000000; __session=${tokenA()}`))).toEqual({ kind: 'continue' });
+		// with the dev browser its own client handshake tied here (GRS-279, client-signin-tie.test.ts)
+		expect(await handshake().handle(page('/cases', `__clerk_db_jwt=abc; ${await clientTie(env(), 'abc')}; __client_uat=1700000000; __session=${tokenA()}`))).toEqual({ kind: 'continue' });
 	});
 	it('picks the staff instance for the operator route and for a stale staff session, the client instance otherwise', async () => {
 		const host = async (r: Request) => new URL(redirectOf(await handshake().handle(r)).location).host;
@@ -211,9 +212,10 @@ describe('the cookies a real development handshake returns', () => {
 		const o = consumed(redirectOf(await handshake().handle(page(`/cases?__clerk_handshake=${A.sign({ handshake: real(session) })}`))));
 		expect(o.location).toBe(`${ORIGIN}/cases`);
 		const names = o.setCookies.map((c) => c.split('=')[0]);
-		expect(names).toEqual(['__client_uat', '__client_uat', '__session', '__clerk_db_jwt', '__Host-clearcase_refresh']);
-		expect(o.setCookies.slice(0, 4).join('\n')).not.toContain(REFRESH);
-		expect(o.setCookies[4]).toMatch(new RegExp(`^__Host-clearcase_refresh=${session}~${REFRESH.replace(/[+/=]/g, '\\$&')}; Path=/; Max-Age=\\d+; SameSite=Lax; HttpOnly; Secure$`));
+		// the dev browser of a client handshake this browser started is tied to the client instance (GRS-279)
+		expect(names).toEqual(['__client_uat', '__client_uat', '__session', '__clerk_db_jwt', '__Host-clearcase_dvb', '__Host-clearcase_refresh']);
+		expect(o.setCookies.slice(0, 5).join('\n')).not.toContain(REFRESH);
+		expect(o.setCookies[5]).toMatch(new RegExp(`^__Host-clearcase_refresh=${session}~${REFRESH.replace(/[+/=]/g, '\\$&')}; Path=/; Max-Age=\\d+; SameSite=Lax; HttpOnly; Secure$`));
 		for (const c of o.setCookies) expect(c).not.toMatch(/Domain=/i);
 		expect(o.setCookies[2]).toMatch(/^__session=[^;]+; Path=\/; Max-Age=60; SameSite=Lax; HttpOnly; Secure$/);
 		const jar = o.setCookies.slice(1).map((c) => c.split(';')[0]).join('; ');
@@ -224,7 +226,7 @@ describe('the cookies a real development handshake returns', () => {
 		const o = redirectOf(await handshake().handle(page(`/cases?__clerk_handshake=${A.sign({ handshake: real(session) }, SESSION_CATEGORY)}`)));
 		expect(o.setCookies.some((c) => c.startsWith(`__session=${session};`))).toBe(true);
 		expect(await identityOf(`__session=${session}`)).toMatchObject({ kind: 'verified', principal: { kind: 'client', subject: 'user_a1' } });
-		expect(await handshake().handle(page('/cases', `__clerk_db_jwt=dvb_synthetic0123456789abcdef; __client_uat=1761400000; __session=${session}`))).toEqual({ kind: 'continue' });
+		expect(await handshake().handle(page('/cases', `__clerk_db_jwt=dvb_synthetic0123456789abcdef; ${await clientTie(env(), 'dvb_synthetic0123456789abcdef')}; __client_uat=1761400000; __session=${session}`))).toEqual({ kind: 'continue' });
 	});
 	it.each([
 		['an M2M token', 'cl_B7d4PD333AAA'], ['a JWT template token', 'cl_B7d4PD222AAA'], ['the ignore category', 'cl_I7d4PD111III'],

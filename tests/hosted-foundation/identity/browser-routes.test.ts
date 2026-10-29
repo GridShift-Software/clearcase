@@ -50,7 +50,7 @@ describe('/sign-out with a Clerk session', () => {
 		const r = await outcome(() => signOut.actions.default!({ locals: l, request: post('__session=x; __client_uat=1; theme=dark'), url: new URL(ORIGIN), cookies: c.cookies } as never));
 		expect(r.thrown).toMatchObject({ status: 303, location: '/sign-in' });
 		expect(status.calls.filter((x) => x.includes('POST /v1/sessions/sess_so1/revoke auth'))).toHaveLength(1);
-		expect(c.deleted.sort()).toEqual(['__client_uat', '__session', 'clearcase_session']);
+		expect(c.deleted.sort()).toEqual(['__Host-clearcase_boot', '__client_uat', '__session', 'clearcase_session']);
 	});
 	it('revokes a staff session at the staff instance', async () => {
 		status.set('sess_so2', 'user_b1');

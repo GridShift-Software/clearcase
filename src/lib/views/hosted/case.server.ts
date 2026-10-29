@@ -32,6 +32,15 @@ export async function readCase(services: RequestServices, raw: string | undefine
   return { caseId, info: info! };
 }
 
+/**
+ * Whether the page shows its write controls, asked after the page's authorized read: the request's case snapshot says the
+ * signed-in person's grant writes user work, at no further query. A runtime without that snapshot keeps the controls; every
+ * write is authorized on its own either way, so this only spares a viewer controls that would be refused.
+ */
+export async function canWriteWork(services: RequestServices, caseId: CaseId): Promise<boolean> {
+  return services.canWriteWork ? services.canWriteWork({ caseId }) : true;
+}
+
 export type Current = { kind: 'current'; resultsVersion: ResultsVersion } | { kind: 'status'; status: ResultsStatus };
 const UNAVAILABLE = 'The published results cannot be shown right now. Try again shortly.';
 

@@ -7,10 +7,12 @@
 	import DateValue from '$lib/components/DateValue.svelte';
 	import OriginalOpen from '$lib/components/OriginalOpen.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import { writeAccess } from '$lib/components/write-access';
 	import { money } from '$lib/components/format';
 	import { displayFilename } from '$lib/case-package/browser';
 	import { docPath } from '$lib/local-case/model';
 	let { data, form } = $props();
+	const access = writeAccess();
 	const f = $derived(data.fields);
 	const vid = $derived(data.version.id);
 	const title = $derived(f.subject || f.filename);
@@ -110,11 +112,13 @@
 				<li data-note={n.id} data-anchor={n.status}><span class="wrap">{n.body}</span> <small>({n.createdAt}{n.status === 'exact' ? `, written on ${n.refAtCreation} in an earlier version and re-attached by its original's fingerprint` : ''})</small>
 					{#if n.status === 'ambiguous'}<strong class="warning-inline">This note was written on {n.refAtCreation} in another version; its original's bytes are shared by {n.candidates.join(', ')} here, so it is shown on each.</strong>{/if}
 					{#if !n.intact}<strong class="unresolved" data-note-integrity="mismatch">this note was altered on disk since it was saved</strong>{/if}
-					{#if n.status === 'here'}<form method="POST" action="?/delnote" use:enhance><input type="hidden" name="id" value={n.id} /><input type="hidden" name="version" value={n.version ?? ''} /><input type="hidden" name="operationId" value={`${data.operationId}.d.${n.id}`} /><button aria-label="Delete note" disabled={noteRefused}>Delete</button></form>{/if}
+					{#if n.status === 'here' && access.canWrite}<form method="POST" action="?/delnote" use:enhance><input type="hidden" name="id" value={n.id} /><input type="hidden" name="version" value={n.version ?? ''} /><input type="hidden" name="operationId" value={`${data.operationId}.d.${n.id}`} /><button aria-label="Delete note" disabled={noteRefused}>Delete</button></form>{/if}
 				</li>
 			{:else}<li>No notes.</li>{/each}
 		</ul>
-		{#if data.source === 'results'}
+		{#if !access.canWrite}
+			<!-- a viewer reads the notes; adding and deleting them is an editor's -->
+		{:else if data.source === 'results'}
 			<form method="POST" action="?/note" use:enhance={submitNote} id="note-form">
 				<input type="hidden" name="operationId" value={form && 'operationId' in form ? String(form.operationId) : data.operationId} />
 				<label for="note-body">Add a note</label><br /><textarea name="body" rows="3" cols="80" id="note-body" data-testid="note-body" maxlength="20000" required readonly={noteBusy} value={form && 'body' in form ? String(form.body) : ''}></textarea><br /><button id="note-add" data-testid="note-add" class="primary" disabled={noteBusy}>Add note</button>

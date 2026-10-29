@@ -7,7 +7,9 @@
 	import { infoTone } from '$lib/views/analysis/tone';
 	import '$lib/views/analysis/analysis.css';
 	import TableScroll from '$lib/components/TableScroll.svelte';
+	import { writeAccess } from '$lib/components/write-access';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+	const access = writeAccess();
 	// The hosted route names the version each tick rests on (`none` for an item never ticked), so a stale page cannot overwrite
 	// newer work, and each tick carries an operation id that a retry of the same tick keeps. The local route sends neither.
 	const versions = $derived((data as { versions?: Record<string, string> }).versions);
@@ -111,6 +113,9 @@
 					{#each data.rows as r (r.key)}
 						<tr data-key={r.key} aria-busy={busy(r.key) ? 'true' : null} class:saving={busy(r.key)}>
 							<td>
+								{#if !access.canWrite}
+								<input type="checkbox" aria-label="Done: {r.item}" checked={shown(r)} disabled />
+								{:else}
 								<form method="POST" action="?/toggle" use:enhance={submit} use:own={r.key}>
 									<input type="hidden" name="key" value={r.key} />
 									{#if versions}<input type="hidden" name="version" value={versions[r.key] ?? 'none'} />{/if}
@@ -119,6 +124,7 @@
 										onchange={(e) => e.currentTarget.form?.requestSubmit()} />
 									<noscript><button>Save</button></noscript>
 								</form>
+								{/if}
 							</td>
 							<td data-label="Item" class:struck={shown(r)}>{r.item}{#if busy(r.key)}<span class="row-state" data-state="saving">Saving…</span>{:else if unsaved(r.key)}<span class="row-state an-danger" data-state="unsaved">Not saved</span>{/if}</td>
 							<td data-label="Status"><span class="badge {infoTone(r.status)}">{r.status}</span></td>

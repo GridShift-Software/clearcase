@@ -3,10 +3,12 @@
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import { writeAccess } from '$lib/components/write-access';
 	import { NOT_SERVED as LOCAL_NOT_SERVED, hrefOf } from '$lib/views/bundles/links';
 	import { postAction } from '$lib/views/bundles/post';
 	import { sizeLabel, uploadUrl } from '$lib/views/bundles/caselines';
 	let { data } = $props();
+	const access = writeAccess();
  const NOT_SERVED = $derived('hosted' in data && data.hosted ? 'not available on hosted' : LOCAL_NOT_SERVED);
 	const vid = $derived(data.version.id);
 	const c = $derived(data.content);
@@ -99,14 +101,16 @@
 			ondragenter={(e) => { e.preventDefault(); dragging = true; }} ondragover={(e) => { e.preventDefault(); dragging = true; }}
 			ondragleave={(e) => { e.preventDefault(); dragging = false; }} ondrop={(e) => { e.preventDefault(); dragging = false; addUploads(e.dataTransfer?.files); }}>
 			Drag &amp; drop files here, or <label class="browse">browse<input type="file" id="cl-file" disabled={off} multiple onchange={(e) => { addUploads(e.currentTarget.files); e.currentTarget.value = ''; }} /></label> to add them for this session (download only).</div>
+		{#if access.canWrite}
 		<div class="cl-row">
 			<input class="ds-in" id="cl-path" disabled={off} placeholder="…or link a file already in the case folder, e.g. PLEADINGS &amp; NOTICES/Extra.pdf" bind:value={path} />
 			<button type="button" class="ds-btn" id="cl-link" onclick={link} disabled={off || busy}>Link file (permanent)</button>{#if busy}<span class="saving" id="cl-saving" role="status">Saving…</span>{/if}
 		</div>
 		{#if linkError}<p class="error" role="alert" id="cl-error">{linkError} <button type="button" class="ds-btn" id="cl-retry" disabled={off || linking} onclick={link}>Retry</button></p>{/if}
+		{/if}
 		<div class="cl-hint">Linked files are remembered for this case and open through the document page when they are in the verified index. Files added for this session can only be downloaded while this page stays open; to keep one, save it into the case folder and link it by path.</div>
 		<ul class="cl-doclist" id="cl-docs">
-			{#each data.links as l (l.rowId)}<li data-row={l.rowId}><span class="nm" title={l.name}>📄 {l.name} <span class="dim">(linked)</span></span>{#if l.ref}<a href={hrefOf(vid, data.files, { ref: l.ref, page: null })}>Open</a>{#if data.downloads[l.ref]}<a href={data.downloads[l.ref]} rel="noopener noreferrer" download>Download</a>{/if}{:else}<span class="not-served">{NOT_SERVED}</span>{/if}<button type="button" class="rm" disabled={off} onclick={() => unlink(l.rowId)}>Remove</button>{#if removeErrors[l.rowId]}<span class="error" role="alert" data-remove-error={l.rowId}>{removeErrors[l.rowId]} <button type="button" class="ds-btn" onclick={() => unlink(l.rowId)}>Retry</button></span>{/if}</li>{/each}
+			{#each data.links as l (l.rowId)}<li data-row={l.rowId}><span class="nm" title={l.name}>📄 {l.name} <span class="dim">(linked)</span></span>{#if l.ref}<a href={hrefOf(vid, data.files, { ref: l.ref, page: null })}>Open</a>{#if data.downloads[l.ref]}<a href={data.downloads[l.ref]} rel="noopener noreferrer" download>Download</a>{/if}{:else}<span class="not-served">{NOT_SERVED}</span>{/if}{#if access.canWrite}<button type="button" class="rm" disabled={off} onclick={() => unlink(l.rowId)}>Remove</button>{/if}{#if removeErrors[l.rowId]}<span class="error" role="alert" data-remove-error={l.rowId}>{removeErrors[l.rowId]} <button type="button" class="ds-btn" onclick={() => unlink(l.rowId)}>Retry</button></span>{/if}</li>{/each}
 			{#each uploads as u (u.id)}<li><span class="nm" title={u.name}>⬆️ {u.name} <span class="dim">(this session · {sizeLabel(u.size)})</span></span><a href={u.url} download={u.name}>Download</a><button type="button" class="rm" disabled={off} onclick={() => removeUpload(u)}>Remove</button></li>{/each}
 			{#if !data.links.length && !uploads.length}<li class="dim">No additional documents yet.</li>{/if}
 		</ul>

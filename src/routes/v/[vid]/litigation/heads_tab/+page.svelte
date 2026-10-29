@@ -10,9 +10,11 @@
 	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
 	import { EntryForm, type Answer } from '$lib/views/litigation/entry.svelte';
 	import { HEADS_FIELDS, canAddHead, headsText, type HeadsValues } from '$lib/views/litigation/heads';
-	import { ANALYSIS_NOTE, OWN_ROWS_NOTE } from '$lib/views/litigation/notes';
+	import { ANALYSIS_NOTE, HOSTED_ROWS_NOTE, OWN_ROWS_NOTE } from '$lib/views/litigation/notes';
 	import TableScroll from '$lib/components/TableScroll.svelte';
+	import { writeAccess } from '$lib/components/write-access';
 	let { data, form } = $props();
+	const access = writeAccess();
 	const vid = $derived(data.version.id);
 	const entry = new EntryForm(HEADS_FIELDS, (v) => canAddHead(v as HeadsValues), untrack(() => form as Answer));
 	const exportText = () => download(data.exportName.name, headsText(data.rows, data.caption), 'text/plain;charset=utf-8');
@@ -24,6 +26,7 @@
 	<PageHeader heading="Heads of Argument" section="Heads of Argument" caseName={data.version.titleName} subtitle="Build the skeleton — each submission tied to authority and evidence">
 		{#snippet actions()}<button type="button" id="heads-export" onclick={exportText}>Export</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}{/snippet}
 	</PageHeader>
+	{#if access.canWrite}
 	<div class="card">
 		<form method="POST" action="?/add" id="hd-add" class="fields" aria-busy={entry.adding ? 'true' : null} use:enhance={entry.submit}>
 			<input type="hidden" name="addId" value={data.addId} />
@@ -35,6 +38,7 @@
 		</form>
 		<EntryState {entry} form="hd-add" errorId="hd-error" />
 	</div>
+	{/if}
 	<div class="card pad0">
 		<TableScroll label="Heads of argument"><table id="heads-table">
 			<thead><tr><th>#</th><th>Heading</th><th>Submission</th><th>Authority</th><th>Evidence</th><th></th></tr></thead>
@@ -51,12 +55,12 @@
 						</td>
 					</tr>
 				{:else}
-					<tr><td colspan="6"><div class="empty">No submissions yet — build your skeleton argument here.</div></td></tr>
+					<tr><td colspan="6"><div class="empty">No submissions yet{access.canWrite ? ' — build your skeleton argument here' : ''}.</div></td></tr>
 				{/each}
 			</tbody>
 		</table></TableScroll>
 	</div>
-	<SourceNote text={ANALYSIS_NOTE} more={OWN_ROWS_NOTE} />
+	<SourceNote text={ANALYSIS_NOTE} more={access.hosted ? HOSTED_ROWS_NOTE : OWN_ROWS_NOTE} />
 	<LeaveGuard unsaved={entry.unsaved} what="Your Heads of Argument entry is not saved." />
 </main>
 

@@ -2,7 +2,7 @@
 	import { displayFilename } from '$lib/views/hosted/display';
 	import NoteText from '$lib/views/hosted/NoteText.svelte';
 	import type { NoteItem, NoteRefusal } from '$lib/views/hosted/model';
-	type Data = { caseId: string; label: string; caseHref: string; chronologyHref: string | null; resultsVersion: string | null; notes: { state: 'available' | 'unavailable'; items: NoteItem[] }; operationId: string; saved: boolean; deleted: boolean };
+	type Data = { caseId: string; label: string; caseHref: string; chronologyHref: string | null; resultsVersion: string | null; notes: { state: 'available' | 'unavailable'; items: NoteItem[] }; operationId: string; saved: boolean; deleted: boolean; canWrite: boolean };
 	let { data, form }: { data: Data; form: NoteRefusal | null } = $props();
 	// After a refused save the server's current notes replace the loaded list, and the user's text stays in the form.
 	const items = $derived(form?.notes ?? data.notes.items);
@@ -25,6 +25,7 @@
 	{#if form?.message}<p class="error" role="alert" id="note-error" data-op={form.op}>{form.message}</p>{/if}
 	{#if form?.op === 'delete' && form.current}<div data-server-version={form.current.version}><p>The note as it is now on the server:</p><NoteText note={form.current} /></div>{/if}
 
+	{#if data.canWrite}
 	<form method="POST" action="?/add" id="note-form">
 		<input type="hidden" name="operationId" value={operationId} />
 		<label for="note-body">New note</label><br />
@@ -37,6 +38,7 @@
 		{/if}
 		<button type="submit" id="note-save">Save note</button>
 	</form>
+	{/if}
 
 	{#if data.notes.state === 'unavailable' && !form?.notes}
 		<p data-notes-unavailable>Your notes list is unavailable right now. Any unsaved text is kept in the form above; retry saving shortly. Nothing is saved in this browser instead.</p>
@@ -47,12 +49,14 @@
 				{#each items as n, i (n.id)}
 					<li data-note-id={n.id} data-note-version={n.version}>
 						<NoteText note={n} />
-						<form method="POST" action="?/delete">
-							<input type="hidden" name="id" value={n.id} />
-							<input type="hidden" name="version" value={n.version} />
-							<input type="hidden" name="operationId" value={`${data.operationId}.d${i}`} />
-							<button type="submit" data-action="delete-note">Delete</button>
-						</form>
+						{#if data.canWrite}
+							<form method="POST" action="?/delete">
+								<input type="hidden" name="id" value={n.id} />
+								<input type="hidden" name="version" value={n.version} />
+								<input type="hidden" name="operationId" value={`${data.operationId}.d${i}`} />
+								<button type="submit" data-action="delete-note">Delete</button>
+							</form>
+						{/if}
 					</li>
 				{/each}
 			</ul>

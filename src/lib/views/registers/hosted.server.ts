@@ -63,7 +63,8 @@ export function hostedRegisterLoad(view: RegisterView) {
 		const targets = await refTargets(locals, v, def, stored);
 		const at = locals.runtime.now();
 		return {
-			register: registerHead(view, def),
+			// the local subtitle's "saved in this browser" is not where hosted keeps the register
+			register: { ...registerHead(view, def), subtitle: def.subtitle.replace('saved in this browser', 'saved on the server') },
 			rows: shownRows(def, view === 'deadlines_tab' ? byDate(stored) : stored, targets, at),
 			exportRows: stored.map((r) => ({ rowId: r.rowId, values: r.values })),
 			// The results package's export file name and calendar product id are not published as a shard: the neutral ones.

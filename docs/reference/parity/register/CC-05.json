@@ -306,7 +306,7 @@
       "type": "known-gap",
       "source": "S-info_required_tab-2",
       "owner": "GRS-15",
-      "reason": "v5 has no export and the Status column ignores the done flag. ClearCase has no export on this view either, and its Status badge still shows only the imported status (a done item is struck through in the Item cell). An app change is needed to export or reflect done in Status. Evidence: src/routes/v/[vid]/analysis/info_required_tab/InfoChecklist.svelte:124.",
+      "reason": "v5 has no export and the Status column ignores the done flag. ClearCase has no export on this view either, and its Status badge still shows only the imported status (a done item is struck through in the Item cell). An app change is needed to export or reflect done in Status. Evidence: src/routes/v/[vid]/analysis/info_required_tab/InfoChecklist.svelte:130.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": "Vaperizer2",

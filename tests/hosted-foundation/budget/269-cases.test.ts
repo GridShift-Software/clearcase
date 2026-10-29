@@ -74,6 +74,23 @@ it.each([1, 5, 50])('269 /cases with %i listed cases and 3 refused makes 5 D1 ca
   } finally { await w.cleanup(); }
 });
 
+// GRS-276: a case row without a label takes the label its published version carries, out of the join the list already reads.
+it('269 /cases labels a case from its published version when its row has none, in the same round trips', async () => {
+  const w = await rcWorld({ slowReads: true });
+  try {
+    firm(w);
+    for (const t of w.db.rows<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'rs_results_version'")) w.db.exec(`DROP TRIGGER ${t.name}`);
+    w.db.exec("UPDATE rs_case SET case_label = NULL WHERE case_id = 'case-a'");
+    w.db.exec("UPDATE rs_results_version SET case_label = 'Version label' WHERE case_id = 'case-a'");
+    const r = await list(w);
+    expect(r.thrown).toBeUndefined();
+    expect(r.value?.cases.map(c => [c.caseId, c.label])).toEqual([['case-a', 'Version label'], ['case-b', 'Case case-b']]);
+    expect(r.counts).toMatchObject({ d1: 5, r2: 1, clerk: 0, otherFetch: 0 });
+    w.db.exec("UPDATE rs_case SET case_label = 'Row label' WHERE case_id = 'case-a'");
+    expect((await list(w)).value?.cases[0]?.label).toBe('Row label');
+  } finally { await w.cleanup(); }
+});
+
 it('269 /cases renders nothing when the audit of any listed case fails to append', async () => {
   const w = await rcWorld();
   try {

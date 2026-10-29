@@ -85,3 +85,25 @@ describe('the overview KPI tiles are links', () => {
 		expect(/<h2 id="kpi-scan">([^<]*)<\/h2>/.exec(html)?.[1]).toBe('Without extracted text');
 	});
 });
+
+// GRS-276: a client's overview shows no pipeline internals and no link to a view hosted never serves; the local one keeps them.
+describe('the overview inside the hosted shell', () => {
+	const render276 = async (hosted: boolean) => {
+		const mod = (await loaders.overview!()) as Loader;
+		const data = (await mod.load({ params: { vid: rv }, url: new URL(`http://127.0.0.1/v/${rv}/overview`), parent: async () => ({ version: version(), base: HOSTED }) })) as J;
+		const overview = { ...data.overview, diagnostics: { ASSET_DUPLICATE_CONTENT: 67 } };
+		const context = new Map<string, unknown>([['clearcase:base', () => HOSTED], ...(hosted ? [['clearcase:hosted', () => true] as const] : [])]);
+		return render(OverviewPage as never, { props: { data: { ...data, overview, version: version(), base: HOSTED }, form: null } as never, context }).body;
+	};
+	it('hides the producing adapter line, the validation totals and the Rescan & Update link', async () => {
+		const local = await render276(false);
+		expect(local).toMatch(/produced .* by .* from .* input/);
+		expect(local).toContain('Validation totals for this version');
+		expect(local).toContain('Rescan');
+		const onHosted = await render276(true);
+		expect(onHosted).not.toMatch(/produced .* by .* from .* input|Results version|Validation totals|ASSET_DUPLICATE_CONTENT|Rescan|rescan_tab/);
+		// the other quick links stay
+		expect(onHosted).toContain('class="quick"');
+		expect(onHosted).toContain(`${HOSTED}/${encodeURIComponent(rv)}/chronology`);
+	});
+});

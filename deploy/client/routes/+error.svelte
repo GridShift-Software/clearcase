@@ -7,5 +7,6 @@
 <section class="denial" data-denial-code={page.error?.code ?? 'error'} data-status={page.status}>
 	<h1>{title}</h1>
 	<p>{page.error?.message ?? 'Something went wrong.'}</p>
+	{#if page.status !== 401}<p><a id="cases-link" href="/cases">Back to your cases</a></p>{/if}
 	{#if page.status === 401}<p><a id="sign-in-link" href={signInHref(page.url.pathname + page.url.search)} data-sveltekit-reload data-sveltekit-preload-data="off">Sign in</a></p>{/if}
 </section>

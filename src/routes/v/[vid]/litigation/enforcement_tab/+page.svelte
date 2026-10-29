@@ -10,8 +10,10 @@
 	import { ANALYSIS_NOTE } from '$lib/views/litigation/notes';
 	import { lostMessage, refused, type Failure } from '$lib/views/litigation/submit';
 	import TableScroll from '$lib/components/TableScroll.svelte';
+	import { writeAccess } from '$lib/components/write-access';
 	import { RELOAD_UNAVAILABLE, reloader } from '$lib/components/reload.svelte';
 	let { data, form } = $props();
+	const access = writeAccess();
 	const vid = $derived(data.version.id);
 	type Row = (typeof data.rows)[number];
 	type Step = { value: string | null; sent: string | null; busy: boolean; pending: boolean; error: Failure | null; saved: boolean };
@@ -95,7 +97,10 @@
 								<td><b>{r.step}</b></td>
 								<td class="ex"><Narrative text={r.basis} resultsVersion={vid} known={data.known} /></td>
 								<td>
-									{#if r.key}
+									{#if r.key && !access.canWrite}
+										<span data-status-shown>{shownStatus(r)}</span>
+										{#if r.override !== null && r.override !== r.status}<small data-imported>Imported status: {r.status}</small>{/if}
+									{:else if r.key}
 										{@const key = r.key}
 										<input type="hidden" name={`was:${key}`} value={shownStatus(r)} />
 										<input type="hidden" name={`ver:${key}`} value={r.version} />

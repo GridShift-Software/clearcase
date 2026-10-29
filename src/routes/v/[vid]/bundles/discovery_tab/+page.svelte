@@ -3,6 +3,7 @@
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { beforeNavigate } from '$app/navigation';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import { writeAccess } from '$lib/components/write-access';
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import { NOT_SERVED } from '$lib/views/bundles/links';
 	import { download } from '$lib/components/download';
@@ -12,6 +13,8 @@
 	import { NO_DOCUMENT, bundleHTML, coverDoc, fileCo, filterItems, incompleteNotes, isUnmatched, scheduleCounts, schedLabel, selectedFiles, type CO, type Mode, type ScheduleItem } from '$lib/views/bundles/discovery';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
+	// a viewer reads the schedules and switches between them without saving; ticks and Copy/Original marks are an editor's
+	const access = writeAccess();
 	const vid = $derived(data.version.id);
 	let mode = $state<Mode>(untrack(() => data.mode));
 	const sel = new SvelteSet<string>(untrack(() => data.selected));
@@ -93,7 +96,7 @@
 		send({ action: 'co', value: v, keys: [...sel] });
 	};
 	const clearSel = () => { const keys = [...sel]; sel.clear(); if (keys.length) send({ action: 'select', value: '0', keys }); };
-	const switchMode = (m: Mode) => { mode = m; ds.q = ''; ds.onlyMissing = false; send({ action: 'mode', value: m, keys: [] }); };
+	const switchMode = (m: Mode) => { mode = m; ds.q = ''; ds.onlyMissing = false; if (access.canWrite) send({ action: 'mode', value: m, keys: [] }); };
 	const removeKey = (key: string) => toggleFile(key, false);
 
 	// leaving with a failed or unsent change asks first; reload and close get the browser's own warning
@@ -130,6 +133,7 @@
 
 	let ready = $state(false);
 	const off = $derived(!ready);
+	const locked = $derived(off || !access.canWrite);
 	onMount(() => { ready = true; });
 </script>
 
@@ -146,14 +150,14 @@
 		<section aria-labelledby="ds-bundle-h" id="ds-bundle">
 			<h2 id="ds-bundle-h">Court Bundle</h2>
 			<p class="sub">{files.length} document{files.length === 1 ? '' : 's'} selected · assembled in schedule &amp; item order <button type="button" class="ds-btn" id="ds-back" disabled={off} onclick={() => { ds.view = 'schedule'; }}>◂ Back to schedule</button></p>
-			<div class="ds-bar"><span class="cnt"><b id="ds-bundle-count">{files.length}</b> documents in this bundle</span><span class="sp"></span><button type="button" class="ds-btn pri" id="ds-print" disabled={off} onclick={printIndex}>Print / Save as PDF (index)</button><button type="button" class="ds-btn" id="ds-dlindex" disabled={off} onclick={indexDownload}>Download index (HTML)</button><button type="button" class="ds-btn" id="ds-empty" disabled={off} onclick={clearSel}>Empty bundle</button></div>
+			<div class="ds-bar"><span class="cnt"><b id="ds-bundle-count">{files.length}</b> documents in this bundle</span><span class="sp"></span><button type="button" class="ds-btn pri" id="ds-print" disabled={off} onclick={printIndex}>Print / Save as PDF (index)</button><button type="button" class="ds-btn" id="ds-dlindex" disabled={off} onclick={indexDownload}>Download index (HTML)</button>{#if access.canWrite}<button type="button" class="ds-btn" id="ds-empty" disabled={off} onclick={clearSel}>Empty bundle</button>{/if}</div>
 			{#if notes.length}<p class="warning" id="ds-incomplete"><b>Incomplete selection</b>: {notes.join('; ')}.</p>{/if}
 			{#if !files.length}
 				<div class="card"><div class="empty">No documents selected. Go back and tick documents, then Build court bundle.</div></div>
 			{:else}
 				<TableScroll label="Court bundle"><table class="ds-tbl" id="ds-bundle-table"><thead><tr><th>#</th><th>Schedule</th><th>Item</th><th>Document</th><th>Date</th><th>C/O</th><th>Action</th></tr></thead><tbody>
 					{#each files as f, idx (idx)}
-						<tr data-key={f.key} class:unsaved={unsaved.has(f.key)}><td class="ds-no">{idx + 1}</td><td>{schedLabel(f.schedule)}</td><td class="ds-no">{f.no}.</td><td><div class="b">{f.desc}</div><div class="fn">{f.fn}</div></td><td class="ds-date">{f.date || ''}</td><td class={f.co === 'O' ? 'co-o' : 'co-c'}>{f.co}</td><td>{#if f.ref}{@render open(f.ref)}{#if data.downloads[f.ref]}<a class="cite dl" href={data.downloads[f.ref]} rel="noopener noreferrer" download>Download</a>{/if}{:else}<span class="not-served">{NOT_SERVED}</span>{/if}<button type="button" class="rm" disabled={off} onclick={() => removeKey(f.key)}>Remove</button></td></tr>
+						<tr data-key={f.key} class:unsaved={unsaved.has(f.key)}><td class="ds-no">{idx + 1}</td><td>{schedLabel(f.schedule)}</td><td class="ds-no">{f.no}.</td><td><div class="b">{f.desc}</div><div class="fn">{f.fn}</div></td><td class="ds-date">{f.date || ''}</td><td class={f.co === 'O' ? 'co-o' : 'co-c'}>{f.co}</td><td>{#if f.ref}{@render open(f.ref)}{#if data.downloads[f.ref]}<a class="cite dl" href={data.downloads[f.ref]} rel="noopener noreferrer" download>Download</a>{/if}{:else}<span class="not-served">{NOT_SERVED}</span>{/if}{#if access.canWrite}<button type="button" class="rm" disabled={off} onclick={() => removeKey(f.key)}>Remove</button>{/if}</td></tr>
 					{/each}
 				</tbody></table></TableScroll>
 			{/if}
@@ -178,10 +182,12 @@
 			<label class="ds-btn"><input type="checkbox" id="ds-missing" disabled={off} checked={ds.onlyMissing} onchange={(e) => { ds.onlyMissing = e.currentTarget.checked; }} />Only unmatched ({counts.unmatched})</label>
 			<span class="sp"></span>
 			<span class="cnt"><b id="ds-count">{sel.size}</b> selected</span>
+			{#if access.canWrite}
 			<button type="button" class="ds-btn" id="ds-mark-c" disabled={off} onclick={() => markSel('C')}>Mark Copy</button>
 			<button type="button" class="ds-btn" id="ds-mark-o" disabled={off} onclick={() => markSel('O')}>Mark Original</button>
 			<button type="button" class="ds-btn" id="ds-clear" disabled={off} onclick={clearSel}>Clear</button>
 			<button type="button" class="ds-btn pri" id="ds-build" disabled={off} onclick={() => { ds.view = 'bundle'; }}>Build court bundle ▸</button>
+			{/if}
 		</div>
 		<div class="ds-bar">
 			<span class="cnt" id="ds-info">{#if meta.deed}<b>{meta.deed}</b>{' · '}{/if}{#if meta.schedule}{`${meta.schedule} · `}{/if}{counts.items} items · {counts.files} files linked{counts.declared !== counts.files ? ` (the schedule declares ${counts.declared})` : ''}{counts.notServed ? ` · ${counts.notServed} not in the verified index` : ''} · uncertified</span>
@@ -195,7 +201,7 @@
 				{#each shown as i, n (n)}
 					{@const anySel = i.files.some((f) => sel.has(f.key))}
 					{@const allSel = i.files.length > 0 && i.files.every((f) => sel.has(f.key))}
-					<tr class:sel={anySel} data-item="{mode}-{i.no}"><td>{#if i.files.length}<input type="checkbox" checked={allSel} disabled={off} title="Select all files in this item" aria-label="Select all files in item {i.no}" onchange={(e) => toggleItem(i, e.currentTarget.checked)} />{/if}</td><td class="ds-no">{i.no}.{#if repeated.has(i.no)}<span class="dup" title="Another item of this schedule has the same number">repeated number</span>{/if}</td><td class="ds-desc"><div class="tx">{i.desc || '—'}</div>{#if i.files.length}<div class="ds-files">{#each i.files as f, j (j)}{@const c = fileCo(f, marks)}<div class="ds-chip" class:xref={!!f.x} class:unsaved={unsaved.has(f.key)} data-key={f.key}><input type="checkbox" checked={sel.has(f.key)} disabled={off} aria-label="Select {f.fn}" onchange={(e) => toggleFile(f.key, e.currentTarget.checked)} /><span class="fn" title={f.fn}>{f.fn}</span>{#if f.x}<span class="ds-x" title={f.x}>↪ {f.x}</span>{/if}<span class="ds-co"><button type="button" class:on-c={c === 'C'} aria-pressed={c === 'C'} aria-label="Copy" disabled={off} onclick={() => setCo(f.key, 'C')}>C</button><button type="button" class:on-o={c === 'O'} aria-pressed={c === 'O'} aria-label="Original" disabled={off} onclick={() => setCo(f.key, 'O')}>O</button></span>{#if f.ref}{@render open(f.ref)}{#if data.downloads[f.ref]}<a class="cite dl" href={data.downloads[f.ref]} rel="noopener noreferrer" download>Download</a>{/if}{:else}<span class="not-served">{NOT_SERVED}</span>{/if}</div>{/each}</div>{:else if isUnmatched(i)}<div class="ds-none">{NO_DOCUMENT}</div>{/if}</td><td class="ds-date">{i.date || ''}</td></tr>
+					<tr class:sel={anySel} data-item="{mode}-{i.no}"><td>{#if i.files.length}<input type="checkbox" checked={allSel} disabled={locked} title="Select all files in this item" aria-label="Select all files in item {i.no}" onchange={(e) => toggleItem(i, e.currentTarget.checked)} />{/if}</td><td class="ds-no">{i.no}.{#if repeated.has(i.no)}<span class="dup" title="Another item of this schedule has the same number">repeated number</span>{/if}</td><td class="ds-desc"><div class="tx">{i.desc || '—'}</div>{#if i.files.length}<div class="ds-files">{#each i.files as f, j (j)}{@const c = fileCo(f, marks)}<div class="ds-chip" class:xref={!!f.x} class:unsaved={unsaved.has(f.key)} data-key={f.key}><input type="checkbox" checked={sel.has(f.key)} disabled={locked} aria-label="Select {f.fn}" onchange={(e) => toggleFile(f.key, e.currentTarget.checked)} /><span class="fn" title={f.fn}>{f.fn}</span>{#if f.x}<span class="ds-x" title={f.x}>↪ {f.x}</span>{/if}<span class="ds-co"><button type="button" class:on-c={c === 'C'} aria-pressed={c === 'C'} aria-label="Copy" disabled={locked} onclick={() => setCo(f.key, 'C')}>C</button><button type="button" class:on-o={c === 'O'} aria-pressed={c === 'O'} aria-label="Original" disabled={locked} onclick={() => setCo(f.key, 'O')}>O</button></span>{#if f.ref}{@render open(f.ref)}{#if data.downloads[f.ref]}<a class="cite dl" href={data.downloads[f.ref]} rel="noopener noreferrer" download>Download</a>{/if}{:else}<span class="not-served">{NOT_SERVED}</span>{/if}</div>{/each}</div>{:else if isUnmatched(i)}<div class="ds-none">{NO_DOCUMENT}</div>{/if}</td><td class="ds-date">{i.date || ''}</td></tr>
 				{/each}
 			</tbody></table></TableScroll>
 		</div>

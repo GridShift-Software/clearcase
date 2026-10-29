@@ -476,15 +476,15 @@
       "field": "table.table_1.columns",
       "when": {
         "v5": {
-          "re": "^date \\| ref \\|"
+          "re": "^date \\| ref \\| title_subject \\| sender \\| excerpt \\| also_in \\| type \\| bundle \\| amount \\| status \\| doc$"
         },
         "app": {
-          "re": "^preview \\| date \\| ref \\|"
+          "re": "^preview \\| date \\| ref \\| title_subject \\| sender \\| excerpt \\| also_in \\| type \\| bundle \\| amount \\| status \\| doc$"
         }
       },
       "type": "improvement",
       "source": "GRS-255",
-      "reason": "The same Preview column is the first column of the list (GRS-255, GRS-271), so the column order starts with it; v5's list starts at the date.",
+      "reason": "The same Preview column is the first column of the list (GRS-255, GRS-271), so the column order starts with it; v5's list starts at the date. Both complete sequences are pinned: any other column added, dropped or moved still fails parity.",
       "productVisible": true,
       "author": "GRS-275 round 2 worker",
       "approvedBy": null,

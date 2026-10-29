@@ -47,7 +47,16 @@ export function patchPdfWorker(upstream: Buffer): Buffer {
 	}
 	return Buffer.from(text, 'utf8');
 }
-export const HOSTED_PDF_READER_DIGEST = 'sha256:8a7d21be12efd49c75795471a06e6f27450e3b2815871fc7e2cb8a3b465f68c5';
+/**
+ * The in-app viewer's image decoders (GRS-273): pdf.js decodes CCITT fax and JBIG2 through its JBIG2 module and JPX
+ * through its OpenJPEG module. The reader runs without wasm (the app's CSP has no 'wasm-unsafe-eval'), so the worker
+ * imports these plain-JS builds from pdfjs/wasm/; without them every scanned page draws blank. Their licenses go with
+ * them. Bound by their own digest, like the viewer's worker, so the package digest (and the render check's renderer
+ * fingerprint, which does not load them) stays where it was. No .wasm file is copied.
+ */
+const DECODERS = ['jbig2_nowasm_fallback.js', 'openjpeg_nowasm_fallback.js', 'LICENSE_JBIG2', 'LICENSE_OPENJPEG', 'LICENSE_PDFJS_JBIG2', 'LICENSE_PDFJS_OPENJPEG'].map((name) => `wasm/${name}`);
+export const HOSTED_PDF_DECODERS_DIGEST = 'sha256:64e5725ef447ad6f8d4b22db596eab1cb45682fbf1f8c631a926c4b7bc7eef41';
+export const HOSTED_PDF_READER_DIGEST = 'sha256:0842c0a3873d6f7672501b57643607c55824973ae40d0cf1bdaee1f3516940aa';
 const READER = 'src/lib/viewer/hosted/static/pdf-reader.mjs';
 const hash = (bytes: Buffer | string) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 export type PdfAsset = { path: string; bytes: number; sha256: string };
@@ -104,14 +113,18 @@ export function prepareHostedPdfAssets(a: { root: string; publicRoot: string }):
 		directory(source);
 		for (const name of readdirSync(source).sort(ordinal)) inputs.set(`pdfjs/${dir}/${name}`, regular(join(source, name)));
 	}
-	const describe = (): PdfAsset[] => [...inputs].sort(([a], [b]) => ordinal(a, b)).map(([path, b]) => ({ path, bytes: b.length, sha256: hash(b) }));
+	const list = (files: Map<string, Buffer>): PdfAsset[] => [...files].sort(([a], [b]) => ordinal(a, b)).map(([path, b]) => ({ path, bytes: b.length, sha256: hash(b) }));
+	const describe = () => list(inputs);
 	if (hash(JSON.stringify(describe())) !== HOSTED_PDF_PACKAGE_DIGEST) throw new Error('installed PDF.js browser/resource/license path+bytes mismatch');
+	const decoders = new Map(DECODERS.map((path) => [`pdfjs/${path}`, regular(join(pkg, path))]));
+	if (hash(JSON.stringify(list(decoders))) !== HOSTED_PDF_DECODERS_DIGEST) throw new Error('installed PDF.js image decoder path+bytes mismatch');
 	const viewerWorker = patchPdfWorker(inputs.get('pdfjs/pdf.worker.min.mjs')!);
 	if (hash(viewerWorker) !== HOSTED_PDF_VIEWER_WORKER_DIGEST) throw new Error('patched PDF.js viewer worker bytes mismatch');
 	const reader = regular(join(root, READER));
 	if (hash(reader) !== HOSTED_PDF_READER_DIGEST) throw new Error('reviewed PDF reader bytes mismatch');
 	inputs.set('pdfjs/pdf-reader.mjs', reader);
 	inputs.set('pdfjs/pdf-viewer-worker.mjs', viewerWorker);
+	for (const [path, bytes] of decoders) inputs.set(path, bytes);
 	const inventory: PdfAssetInventory = {
 		schema: 'clearcase.hosted-pdf-assets/1', pdfjsVersion: HOSTED_PDF_VERSION,
 		packageDigest: HOSTED_PDF_PACKAGE_DIGEST, readerDigest: HOSTED_PDF_READER_DIGEST, files: describe(),
@@ -120,7 +133,7 @@ export function prepareHostedPdfAssets(a: { root: string; publicRoot: string }):
 	// Exclusive ownership: never replace a stale tree, follow a link or delete a caller's pre-existing output.
 	mkdirSync(out);
 	try {
-		for (const dir of ['standard_fonts', 'cmaps', 'iccs']) mkdirSync(join(out, dir));
+		for (const dir of ['standard_fonts', 'cmaps', 'iccs', 'wasm']) mkdirSync(join(out, dir));
 		for (const [path, bytes] of inputs) writeFileSync(join(publicRoot, path), bytes, { flag: 'wx', mode: 0o644 });
 	} catch (error) {
 		rmSync(out, { recursive: true, force: true });

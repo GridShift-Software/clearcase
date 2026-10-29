@@ -14,7 +14,9 @@ import { checkedPageSet, decide, lookupReceiptRows, MAX_CHECKED_PAGES, MAX_DOCUM
 const PDF_VERSION = '6.4.299';
 const PACKAGE_DIGEST = 'sha256:ae9a1328f4de3e2cf14b24d711e34299963dc64c10eab7b1afe849b79846e577';
 const VIEWER_WORKER_DIGEST = 'sha256:79bdd72351096425f4efd42b4c238e7513f321c1a38951a825a148119530b511';
-const READER_DIGEST = 'sha256:8a7d21be12efd49c75795471a06e6f27450e3b2815871fc7e2cb8a3b465f68c5';
+const READER_DIGEST = 'sha256:0842c0a3873d6f7672501b57643607c55824973ae40d0cf1bdaee1f3516940aa';
+// The viewer's image decoders under pdfjs/wasm/ (scripts/hosted-pdf-assets.ts, DECODERS). This check never loads them.
+const DECODERS_DIGEST = 'sha256:64e5725ef447ad6f8d4b22db596eab1cb45682fbf1f8c631a926c4b7bc7eef41';
 export const NATIVE_PDF_RENDERER_ALGORITHM = 'clearcase.native-pdf/2';
 const SDK_INTEGRITY = 'sha512-39lo96Y7ErOJFmu/KIJU1VLaOibhynx/BauKCZOW5+RVH/mG0jZrAEGJlqCdx5ZxLHyWppm78YX3jLNPCBB+fA==';
 export const NATIVE_PDF_RENDER_CEILINGS: Readonly<NativePreviewRenderBudget> = Object.freeze({
@@ -225,16 +227,19 @@ async function prepareRenderer(o: RendererBindings): Promise<PreparedRenderer | 
  // Captured before the first await: the options object is not an immutable authority.
  const pins = o.pins, bound = { db: o.db, browserBinding: o.browser, assets: o.assets, clientId: o.clientId, now: o.now };
  if (pins.schema !== 'clearcase.hosted-pdf-assets/1' || pins.pdfjsVersion !== PDF_VERSION ||
-     pins.packageDigest !== PACKAGE_DIGEST || pins.readerDigest !== READER_DIGEST || !Array.isArray(pins.files) || pins.files.length !== 192) return null;
+     pins.packageDigest !== PACKAGE_DIGEST || pins.readerDigest !== READER_DIGEST || !Array.isArray(pins.files) || pins.files.length !== 198) return null;
  const files: PinnedFiles = new Map();
  for (const f of pins.files) {
-  if (!f || typeof f.path !== 'string' || !/^pdfjs\/(?:pdf(?:\.worker)?\.min\.mjs|pdf-reader\.mjs|pdf-viewer-worker\.mjs|LICENSE|(?:cmaps|iccs|standard_fonts)\/[A-Za-z0-9_.-]+)$/.test(f.path) ||
+  if (!f || typeof f.path !== 'string' || !/^pdfjs\/(?:pdf(?:\.worker)?\.min\.mjs|pdf-reader\.mjs|pdf-viewer-worker\.mjs|LICENSE|(?:cmaps|iccs|standard_fonts|wasm)\/[A-Za-z0-9_.-]+)$/.test(f.path) ||
       files.has('/' + f.path) || !integer(f.bytes, MAX_STATIC_BYTES) || !/^sha256:[a-f0-9]{64}$/.test(f.sha256)) return null;
   files.set('/' + f.path, { path: f.path, bytes: f.bytes, sha256: f.sha256 });
  }
- // The reader and the viewer's patched worker (scripts/hosted-pdf-assets.ts, WORKER_PATCH) are the in-app viewer's, not the package's.
- const packageFiles = [...files.values()].filter(f => f.path !== 'pdfjs/pdf-reader.mjs' && f.path !== 'pdfjs/pdf-viewer-worker.mjs').sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
- if ('sha256:' + await sha(encode(packageFiles)) !== PACKAGE_DIGEST || files.get('/pdfjs/pdf-reader.mjs')?.sha256 !== READER_DIGEST ||
+ // The reader, the viewer's patched worker (scripts/hosted-pdf-assets.ts, WORKER_PATCH) and its decoders are the in-app viewer's, not the package's.
+ const sorted = (l: PinnedFile[]) => l.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+ const decoder = (f: PinnedFile) => f.path.startsWith('pdfjs/wasm/');
+ const packageFiles = sorted([...files.values()].filter(f => f.path !== 'pdfjs/pdf-reader.mjs' && f.path !== 'pdfjs/pdf-viewer-worker.mjs' && !decoder(f)));
+ if ('sha256:' + await sha(encode(packageFiles)) !== PACKAGE_DIGEST || 'sha256:' + await sha(encode(sorted([...files.values()].filter(decoder)))) !== DECODERS_DIGEST ||
+     files.get('/pdfjs/pdf-reader.mjs')?.sha256 !== READER_DIGEST ||
      files.get('/pdfjs/pdf-viewer-worker.mjs')?.sha256 !== VIEWER_WORKER_DIGEST) return null;
  if (sdkVersion !== '1.4.0') return null;
  // NATIVE_SDK_HOST_SYMBOLS: the transformed SDK keys disposal on the host's own symbols and never defines them.
@@ -307,7 +312,8 @@ export async function createNativePreviewRenderChecker(o: NativePreviewRenderOpt
  } };
 }
 
-type PinnedFiles = Map<string, { path: string; bytes: number; sha256: string }>;
+type PinnedFile = { path: string; bytes: number; sha256: string };
+type PinnedFiles = Map<string, PinnedFile>;
 type AssetsFetcher = NonNullable<NativePreviewRenderOptions['assets']>;
 /** The SDK's fetches only reach the BROWSER binding, never global fetch. Launch/upgrade HTTP is aborted on the deadline. */
 function boundBinding(binding: BrowserWorker, o: { signal: AbortSignal; check(): void; late(): boolean; opened(ws: { close(): void }): void }): BrowserWorker {

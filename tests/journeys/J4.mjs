@@ -1,6 +1,8 @@
-import { run, direct, samples, NEEDS, ready, hook, firstPDF, PDF_MS, check } from './lib.mjs';
+import { run, direct, samples, scanSample, NEEDS, ready, hook, firstPDF, PDF_MS, check } from './lib.mjs';
 export const journey = () => run('J4', async j => {
-  for (const sample of samples) await j.attempt(sample.band, async () => {
+  // The three samples' page 1 may be legitimately blank (recorded, not failed); the pinned scan, when given, must draw ink.
+  j.metadata.firstPages = {};
+  for (const sample of scanSample ? [...samples, scanSample] : samples) await j.attempt(sample.band, async () => {
     await j.go('evidence/documents', 'documents', `${sample.band}:documents-list`);
     const group = j.page.getByRole('button', { name: new RegExp(`^${sample.bundle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(`) });
     if (sample.bundle && await group.count()) {
@@ -24,7 +26,7 @@ export const journey = () => run('J4', async j => {
         if (await open.getAttribute('target') === '_blank') {
           const popup = j.context.waitForEvent('page'); await open.click(); pdf = await popup;
         } else { await open.click(); pdf = j.page; }
-      }, () => firstPDF(pdf), PDF_MS, () => pdf);
+      }, async () => { j.metadata.firstPages[sample.band] = await firstPDF(pdf, undefined, { ink: !!sample.ink }); }, PDF_MS, () => pdf);
     } finally { if (pdf && pdf !== j.page) await pdf.close(); }
   });
 }, { needs: NEEDS.samples });

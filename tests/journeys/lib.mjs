@@ -33,6 +33,9 @@ export const samples = [
   { band: 'medium', ref: env('MEDIUM_REF'), bytes: bytesOf('MEDIUM_BYTES'), bundle: env('MEDIUM_BUNDLE') },
   { band: 'largest', ref: env('LARGE_REF'), bytes: bytesOf('LARGE_BYTES'), bundle: env('LARGE_BUNDLE') },
 ];
+// GRS-273: a known scanned original (CCITT, JBIG2 or JPX) of the case under test, opened by J4 whose page 1 must draw ink. A viewer
+// whose image decoders fail draws a scan blank, while any other original's page 1 may be legitimately blank. Optional.
+export const scanSample = env('SCAN_DOCUMENT_REF') ? { band: 'scan', ref: env('SCAN_DOCUMENT_REF'), bytes: null, bundle: env('SCAN_DOCUMENT_BUNDLE'), ink: true } : null;
 export const NEEDS = { samples: ['SMALL_REF', 'MEDIUM_REF', 'LARGE_REF'], small: ['SMALL_REF'], documents: ['EXPECTED_DOCUMENTS'] };
 const NEED_WHAT = { EXPECTED_DOCUMENTS: 'the Overview document count of the case under test, a positive integer' };
 /** What stops a run before any browser starts, as messages; empty when the environment can run `needs`. */
@@ -140,33 +143,41 @@ export const PDF = '[data-viewer="pdf"]';
 export const PDF_RENDERED = `${PDF}[data-viewer-state="ready"] canvas[data-testid="pdf-page"][data-rendered="true"]`;
 export const PDF_FAILED = `${PDF}[data-viewer-state="error"]`;
 /**
- * In the page: whether any of the canvases (one element or a list) holds ink, at least 16 pixels darker than light grey. A
- * viewer once marked a scan's page 1 rendered over a blank canvas (GRS-273), so the flags alone are not a drawn page.
+ * In the page: whether any of the canvases (one element or a list) holds ink, at least 16 opaque pixels that are clearly not page
+ * white (luminance under 250), so light grey counts. A viewer once marked a scan's page 1 rendered over a blank canvas (GRS-273), so
+ * the flags alone are not a drawn page; a legitimately blank page has no ink either, so callers decide what a blank page means.
  */
 export function inked(target) {
   return [target].flat().some(c => {
     if (!(c instanceof HTMLCanvasElement) || !c.width || !c.height) return false;
     const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
     let ink = 0;
-    for (let i = 0; i < data.length && ink < 16; i += 4) if (data[i + 3] > 127 && 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] < 200) ink++;
+    for (let i = 0; i < data.length && ink < 16; i += 4) if (data[i + 3] > 127 && 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] < 250) ink++;
     return ink >= 16;
   });
 }
 const BLANK_GRACE_MS = 1000;
-/** Whether the canvases `canvases` (a locator) hold ink within a second; a page drawn a moment after its flag is set still counts. */
-export async function drawn(canvases) {
-  for (const until = Date.now() + BLANK_GRACE_MS; ; await new Promise(resolve => setTimeout(resolve, 50))) {
+/** Whether the canvases `canvases` (a locator) hold ink within `grace` ms (a second by default); a page drawn a moment after its flag
+ *  is set still counts. */
+export async function drawn(canvases, grace = BLANK_GRACE_MS) {
+  for (const until = Date.now() + grace; ; await new Promise(resolve => setTimeout(resolve, 50))) {
     if (await canvases.evaluateAll(inked).catch(() => false)) return true;
     if (Date.now() >= until) return false;
   }
 }
-const BLANK = 'The PDF viewer marks page 1 rendered, but its canvas is blank';
+const BLANK = 'The PDF viewer marks the scan\'s page 1 rendered, but its canvas is blank';
 /**
- * Waits for the opened original's first page: the hosted viewer's page-1 canvas in `page` itself, visible and drawn with ink; or the
- * local isolated viewer (window.__viewer, in a visible frame) once it has drawn page 1, with ink, without an error. Either viewer's
- * error state fails at once, and so does a page marked rendered whose canvas stays blank.
+ * Waits for the opened original's first page: the hosted viewer's page-1 canvas in `page` itself, visible and drawn; or the local
+ * isolated viewer (window.__viewer, in a visible frame) once it has drawn page 1 without an error. Either viewer's error state fails
+ * at once. Resolves to `ink`, or `blank-page` when page 1 holds no ink, which a legitimately blank page does too; with `ink: true`
+ * (a known scan) a page that stays blank for a second fails instead.
  */
-export async function firstPDF(page, timeout = 30000) {
+export async function firstPDF(page, timeout = 30000, { ink = false } = {}) {
+  const inked = async canvases => {
+    const has = await drawn(canvases, ink ? BLANK_GRACE_MS : 0);
+    check(has || !ink, BLANK);
+    return has ? 'ink' : 'blank-page';
+  };
   const until = Date.now() + timeout;
   while (Date.now() < until) {
     const hosted = await page.mainFrame().evaluate(([rendered, failed]) => {
@@ -175,10 +186,7 @@ export async function firstPDF(page, timeout = 30000) {
       return [...document.querySelectorAll(`${rendered}[data-page-number="1"]`)].some(c => c instanceof HTMLCanvasElement && shown(c) && c.width > 0 && c.height > 0) ? 'rendered' : null;
     }, [PDF_RENDERED, PDF_FAILED]).catch(() => null);
     check(hosted !== 'failed', 'The PDF viewer shows its error state');
-    if (hosted === 'rendered') {
-      check(await drawn(page.mainFrame().locator(`${PDF_RENDERED}[data-page-number="1"]`)), BLANK);
-      return;
-    }
+    if (hosted === 'rendered') return inked(page.mainFrame().locator(`${PDF_RENDERED}[data-page-number="1"]`));
     for (const frame of page.frames()) {
       const legacy = await frame.evaluate(() => {
         const v = window.__viewer;
@@ -189,10 +197,7 @@ export async function firstPDF(page, timeout = 30000) {
         return document.body.dataset.ready === '1' && v.rendered >= 1 && drawn ? 'rendered' : null;
       }).catch(() => null);
       check(legacy !== 'failed', 'The PDF viewer shows its error state');
-      if (legacy === 'rendered' && (frame === page.mainFrame() || await (await frame.frameElement()).isVisible())) {
-        check(await drawn(frame.locator('[data-page="1"][data-rendered="1"] canvas')), BLANK);
-        return;
-      }
+      if (legacy === 'rendered' && (frame === page.mainFrame() || await (await frame.frameElement()).isVisible())) return inked(frame.locator('[data-page="1"][data-rendered="1"] canvas'));
     }
     await new Promise(resolve => setTimeout(resolve, 25));
   }

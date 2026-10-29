@@ -133,3 +133,38 @@ describe('app session', () => {
 	});
 
 });
+
+// The app cookie is `__Host-` (GRS-278 review M1): a sibling of the staging host on gridshift.co.za can set a
+// Domain=gridshift.co.za cookie, never a `__Host-` one. A planted unprefixed copy, even one that carries a genuinely signed
+// session of its own, authenticates nobody and does not make the browser's own cookie ambiguous.
+describe('app session cookie name', () => {
+	const at = (f: ReturnType<typeof fixture>, cookie: string) => new Request(`${f.config.origin}/cases`, { headers: { cookie } });
+	const planted = async (f: ReturnType<typeof fixture>) => signAppSession(f.config, await mintAppSession(f.config, { sid: 'sess_sibling', subject: 'user_sibling', name: 'Sibling Planted' }));
+	it('ignores an unprefixed clearcase_session that carries a validly signed session', async () => {
+		const f = fixture(), request = at(f, `clearcase_session=${await planted(f)}`);
+		expect(appCookieValue(request)).toBe(null);
+		expect((await f.provider().authenticate({ request })).kind).toBe('anonymous');
+		expect(await appSessionRefresh(f.env, request)).toBe(null);
+	});
+	it('authenticates the __Host- cookie, and only its identity beside a planted unprefixed one', async () => {
+		const f = fixture(), own = await signAppSession(f.config, await f.session()), sibling = await planted(f);
+		for (const cookie of [`__Host-clearcase_session=${own}`, `clearcase_session=${sibling}; __Host-clearcase_session=${own}`, `__Host-clearcase_session=${own}; clearcase_session=${sibling}`]) {
+			const identity = await f.provider().authenticate({ request: at(f, cookie) });
+			expect(identity.kind).toBe('verified');
+			expect(identity.principal?.subject).toBe('user_app');
+		}
+	});
+	it('still refuses two __Host- cookies or a comma-joined one', async () => {
+		const f = fixture(), own = await signAppSession(f.config, await f.session()), sibling = await planted(f);
+		for (const cookie of [`__Host-clearcase_session=${own}; __Host-clearcase_session=${sibling}`, `x=1, __Host-clearcase_session=${own}`]) {
+			expect(appCookieValue(at(f, cookie))).toBe('malformed');
+			expect((await f.provider().authenticate({ request: at(f, cookie) })).kind).toBe('anonymous');
+		}
+	});
+	it('sets the __Host- name host-only on Path=/ with Secure', async () => {
+		const f = fixture(), s = await f.session(), header = appSetCookie('synthetic-placeholder', s);
+		expect(header.startsWith('__Host-clearcase_session=synthetic-placeholder;')).toBe(true);
+		expect(/;\s*Domain=/i.test(header)).toBe(false);
+		for (const attribute of ['Secure', 'Path=/']) expect(header.includes(attribute)).toBe(true);
+	});
+});

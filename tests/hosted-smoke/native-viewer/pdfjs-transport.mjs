@@ -9,7 +9,8 @@ export function withSyntheticTransport(core) {
       async getPage(n) {
         if (controls.holdPage) await controls.holdPage(n);
         const page = await doc.getPage(n);
-        return { getViewport: (o) => page.getViewport(o), render: (o) => {
+        // The real page's objects and operator list: the reader checks after a draw that no image went undecoded (GRS-273).
+        return { objs: page.objs, commonObjs: page.commonObjs, getOperatorList: (o) => page.getOperatorList(o), getViewport: (o) => page.getViewport(o), render: (o) => {
           const render = page.render(o); controls.tasks.push(render);
           if (controls.pauseNext) { controls.pauseNext = false; render.onContinue = (next) => { controls.paused = next; }; }
           return render;

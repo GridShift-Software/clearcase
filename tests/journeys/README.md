@@ -8,19 +8,33 @@ variable, with no values).
 
 | Journey | Checks |
 |---|---|
-| J1 | the shell and every visible navigation entry opens its view without an error or placeholder |
-| J2 | Overview shows the document count, filled slots and the Dates heading |
-| J3 | one citation click opens its document; the list and the document are side by side |
-| J4 | list, document page and first PDF page for a small, a medium and the largest original |
-| J5 | the 24 analysis views hold populated data or narrative |
+| J1 | the shell and every visible navigation entry opens its view, and the step's timer stops only once that view is ready (below) |
+| J2 | Overview shows the document count, exactly the three slots (Open deadlines, Unbilled time, Freshness), each filled, visible, with its title and value in rendered, visible text and no error or failure text, and the Dates heading with its date span |
+| J3 | one click on a row shows its original in the pane beside the list, timed to the pane (`one-click-row`) and on to the original drawn in it (`one-click-row-original`); one citation click opens its document; at 390 px the eight column headings are visible and do not overlap, and three rows each show their original, each tap timed through the drawn original against the same budgets (the timings are in the `phone-pane-original` step's `taps`). A PDF must draw a visible page 1; an email or download-only state must show visible links to the same original's viewer and download, and a local-original state a link to its document page. The phone context's network and page errors count like the desktop's |
+| J4 | list, document page and first PDF page for a small, a medium and the largest original: the opened page's own viewer must show a visible, drawn page-1 canvas, and its error state fails at once (the local isolated viewer likewise, in a visible frame) |
+| J5 | the 24 analysis views: the hosted `analysis-content` wrapper around the view's `main` is visible and says `data-empty="false"`, and the view shows visible domain rows, events, narrative or calculator output, never just any text (Heads: see "Heads entries") |
 | J6 | a known-reference search updates `?q=` and shows the matching document link |
 | J7 | a document note saves, survives a reload and appears in the case notes list (writes) |
 | J8 | a deadline saves, survives a reload and downloads as an ICS event (writes) |
 | J9 | a bundle of two synthetic PDFs builds, downloads, saves and still downloads after a reload (writes; needs `pdfinfo` and `pdftotext`) |
 | J10 | after an idle (`IDLE_MINUTES`, default 20) the session still navigates and saves, with no 401 or 503 (writes) |
 
+A view is ready (`ready()` in `lib.mjs`, used by every journey that opens one) when its `main[data-ready]` and heading are visible,
+nothing in it is loading (`aria-busy="true"`, a loading pane or viewer state), and it shows the content `VIEW_CONTENT` names for
+it: domain rows (shown, not an empty, error, placeholder or loading row nor inside a busy region, with at least two shown cells whose text is not a loading phrase or only dashes), its narrative, its timeline events with links, an entry form with working controls, or (a
+document page) its original's metadata. A visible error (`role="alert"`, `.error`, an error pane or viewer state), an
+unavailable placeholder (`data-unavailable`) or a placeholder phrase fails the step at once.
+
+**Heads entries.** Heads of argument are the lawyer's own entries, and an import supplies none, so a fresh case legitimately
+shows the empty state. J5 always requires the add form's fields and its submit button to be usable. `HEADS_EXPECTED=<n>` says
+how many entries the case under test holds: with `n` > 0 exactly `n` visible entries and `data-empty="false"`, with 0 the
+documented empty state (one empty-state row, no entries, `data-empty="true"`). Unset, either is accepted (no rows with exactly one
+empty-state row and `data-empty="true"`, or rows with `data-empty="false"`), so a case whose saved submissions were lost passes
+unless `HEADS_EXPECTED` is set; the release-candidate gate sets it.
+
 Budgets, strict `<`: page or action 2,000 ms, first PDF page 3,000 ms, sign-in 5,000 ms (`SIGN_IN_MS`), saves and downloads 2,000 ms, bundle
-assembly 5,000 ms (`BUNDLE_MS`). One sequential pass is not a p95 estimate.
+assembly 5,000 ms (`BUNDLE_MS`). J3's `one-click-row-original` takes the first PDF page budget when the pane shows a PDF and the
+action budget otherwise. One sequential pass is not a p95 estimate.
 
 ## Run it
 
@@ -46,6 +60,14 @@ MODE=hosted BASE_URL=https://<host> CASE_ID=<case> EXPECTED_SHA=<deployed sha> \
 
 `bun run journeys` replaces `bun tests/journeys/run-all.mjs` once ticket 01 adds the alias. One journey: `bun tests/journeys/J4.mjs`
 with the same environment. Results go to `RESULTS_DIR` (default `.local/journeys/results`): `J<n>.json`, `summary.json`, `summary.md`.
+
+### Probes
+
+`probes/` holds offline checks of the journeys themselves: `probes/app.mjs` serves a synthetic hosted app on loopback, and
+`bun tests/journeys/probes/run.mjs` runs J1 to J5 through their own entry points against it. On the healthy app each must pass;
+on each broken scenario (an audit finding, GRS-266) it must fail at exactly the steps named, and a journey that passes broken
+markup prints `FALSE PASS`. `--journeys <dir>` runs another revision's journeys against the same probes, which is how a fix
+shows RED before it and GREEN after. Run it under the browser lock like the journeys.
 
 Browsers run under the host's lock: start the command through `orch-bin/browser-lock` on the owner's machine (it exports
 `CLEARCASE_BROWSER_SLOT`, which the journeys require), and set `CLEARCASE_BROWSER_LOCK=none` where no workspace lock exists
@@ -93,6 +115,7 @@ Space runs at least 45 s apart on a development Clerk instance, which rate-limit
 | `SMALL_BUNDLE`, `MEDIUM_BUNDLE`, `LARGE_BUNDLE` | optional bundle (group) button name to open before filtering, where the documents list groups by bundle |
 | `SEARCH_REF` | J6's known result; defaults to `SMALL_REF` |
 | `EXPECTED_DOCUMENTS` | Required by J2 and `run-all`: the Overview document count of the case under test, so a partial import fails |
+| `HEADS_EXPECTED` | optional, J5: the number of Heads entries the case under test holds (0: the empty state); see "Heads entries" |
 | `CREDENTIALS_JSON` | private `{email,password,otp?}`; never logged. Without it (or `STORAGE_STATE`) sign-in speed is untested |
 | `STORAGE_STATE` | private Playwright storage state carrying an existing Access or app session |
 | `SIGN_IN_PATH` | default `/sign-in` |
@@ -114,10 +137,10 @@ accessible headings, buttons and tabs.
 
 | Slice | Hooks (fallback in brackets) |
 |---|---|
-| Overview | `overview-document-count` [`#count-documents`]; `[data-slot][data-slot-status="filled"]`; the Dates heading |
-| Chronology | `chronology-list`, `chronology-document-pane` with a matching `data-ref`, side by side after one citation click |
-| Documents / PDF | `document-filter` [`#doc-filter`], `open-original` [`#open-original`], `original-metadata` [`#original-state`]; `pdf-page[data-page-number="1"][data-rendered="true"]` only after a successful draw [`window.__viewer.rendered` and a non-empty canvas] |
-| Analysis | `analysis-content[data-empty="false"]` around visible data or narrative, never a shell or placeholder [per-view table, narrative or calculator checks] |
+| Overview | `overview-document-count` [`#count-documents`]; `[data-slot="deadlines"]`, `[data-slot="unbilled-time"]` (value `.num`) and `[data-slot="rescan-freshness"]` (value `#freshness-stamp`), each `[data-slot-status="filled"]` with its `h2` title; the Dates heading and `#date-span` |
+| Chronology | `chronology-list` with `.grid-head [role="columnheader"]` headings, `chronology-document-pane` with a matching `data-ref`; in the pane `[data-viewer="pdf"][data-viewer-state="ready"] canvas[data-testid="pdf-page"][data-rendered="true"]` (error `[data-viewer-state="error"]`), `img.pane-image` or a `data-pane-state`, with `a[data-action="open-viewer"]` and `a[data-action="download-original"]` (hosted) or `a[data-action="open-document"]` (local) |
+| Documents / PDF | `document-filter` [`#doc-filter`], `open-original` [`#open-original`], `original-metadata` [`#original-state`]; the opened page's `[data-viewer="pdf"][data-viewer-state="ready"] canvas[data-testid="pdf-page"][data-page-number="1"][data-rendered="true"]`, visible, only after a successful draw, error `[data-viewer-state="error"]` [a visible frame's `window.__viewer` with `rendered >= 1`, no `error`, `body[data-ready="1"]` and a visible, non-empty `[data-page="1"][data-rendered="1"] canvas`] |
+| Analysis | `analysis-content[data-empty="false"]` around (hosted) or inside (local) the view's `main`, required when hosted; the per-view visible table rows, events, narrative or calculator checks apply in both cases |
 | Search | `search-input` [`#sq`], `search-submit` [`#search-run`]; the finished query keeps `?q=<ref>` and shows a document link |
 | Notes | `note-body` [`#note-body`], `note-add` [`#note-add`]; `case-notes-list` on `/cases/<caseId>/notes` holds document-note bodies [Overview's notes section] |
 | Deadlines | `deadline-title` [`#in-title`], `deadline-date` [`#in-date`], `deadline-note` [`#in-note`], `deadline-save` [`#register-save`], `deadline-export` [`#register-export`]; the saved title in a visible row |

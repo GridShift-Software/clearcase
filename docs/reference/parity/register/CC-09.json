@@ -160,15 +160,15 @@
       "field": "sweep.builder.list.custom.C1.link",
       "when": {
         "v5": "revoked",
-        "app": "live"
+        "app": "stored"
       },
       "type": "defect-fix",
       "source": "S-court_bundle_tab-2",
-      "reason": "After Save to the bundle list, pressing Create Bundle again revokes the saved bundle's session PDF in v5, so its Bundle PDF link in the list is dead; the app keeps a saved bundle's PDF for the session.",
+      "reason": "After Save to the bundle list, pressing Create Bundle again revokes the saved bundle's session PDF in v5, so its Bundle PDF link in the list is dead. The app (GRS-264) saves the PDF on the server and the list links to that stored copy, so the link stays valid however many times Create Bundle is pressed.",
       "productVisible": true,
-      "author": "CC-09 worker (GRS-19)",
-      "approvedBy": "Vaperizer2",
-      "approvedOn": "2026-10-21"
+      "author": "GRS-275 round 2 worker",
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
       "id": "IDR-367",

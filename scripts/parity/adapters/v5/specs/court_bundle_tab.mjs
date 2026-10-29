@@ -154,7 +154,7 @@ const docxKeys = (out, k, got) => {
 	docxText(got.buf).split('\n').forEach((l, i) => { out[`${k}.p${i}`] = l; });
 	out[`${k}.links`] = [...(unzip(got.buf).get('word/_rels/document.xml.rels')?.toString('utf8') ?? '').matchAll(/Target="([^"]*)" TargetMode="External"/g)].map((m) => m[1]).join(' | ');
 };
-const LIST_CUSTOM = (rows) => `[...document.querySelectorAll(${JSON.stringify(rows)})].filter((r) => [...r.querySelectorAll('.badge')].some((b) => b.textContent.trim() === 'custom')).map((r) => { const a = r.querySelector('a[href^="blob:"]'); return [r.cells[0].textContent.trim(), a ? (window.__b.revoked.includes(a.href) ? 'revoked' : 'live') : 'none']; })`;
+const LIST_CUSTOM = (rows) => `[...document.querySelectorAll(${JSON.stringify(rows)})].filter((r) => [...r.querySelectorAll('.badge')].some((b) => b.textContent.trim() === 'custom')).map((r) => { const a = r.querySelector('a[href^="blob:"], a[href*="/assembled?id="]'); return [r.cells[0].textContent.trim(), a ? (a.href.startsWith('blob:') ? (window.__b.revoked.includes(a.href) ? 'revoked' : 'live') : 'stored') : 'none']; })`;
 
 /**
  * The builder end to end on both sides: pick (one locked), reorder, a range from page 2, a non-ASCII description,

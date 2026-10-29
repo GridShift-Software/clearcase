@@ -49,6 +49,18 @@ export class Ranges extends pdfjs.PDFDataRangeTransport {
 	}
 }
 
+/** Whether the drawn page skipped an image pdf.js could not decode. pdf.js only warns and draws the page without it, so a
+ *  scan comes out blank; its failed image object resolves to null. A page's own images are in `objs`; an image shared
+ *  across pages is in `commonObjs` and counts only when this page paints it. */
+async function undecoded(page) {
+	for (const [, data] of page.objs) if (data === null) return true;
+	const shared = new Set();
+	for (const [id, data] of page.commonObjs) if (data === null) shared.add(id);
+	if (!shared.size) return false;
+	const { argsArray } = await page.getOperatorList();
+	return argsArray.some((args) => Array.isArray(args) && shared.has(args[0]));
+}
+
 window.clearcasePdfReader = {
 	/** Opens `src` (`size`, its byte length, when known); resolves { pages, draw(page, scale), destroy() } or rejects when the file cannot be read as a PDF.
 	 *  `pages` is /Count until the worker's deferred last-page check corrects it; `onPages` then receives the real count. */
@@ -64,6 +76,9 @@ window.clearcasePdfReader = {
 			...(ranges ? { range: ranges } : { url: src, withCredentials: false }), rangeChunkSize: CHUNK,
 			isEvalSupported: false, enableXfa: false, enableScripting: false, useWasm: false,
 			standardFontDataUrl: `${base}standard_fonts/`, cMapUrl: `${base}cmaps/`, cMapPacked: true, iccUrl: `${base}iccs/`,
+			// pdf.js decodes CCITT fax and JBIG2 (most scans) and JPX through its JBIG2 and OpenJPEG modules; without wasm it
+			// imports their JS builds from here (scripts/hosted-pdf-assets.ts, DECODERS). Unset, every such image fails.
+			wasmUrl: `${base}wasm/`,
 		});
 		void ranges?.stream();
 		let ticket = 0, destroyed = false, rendering = null;
@@ -115,6 +130,8 @@ window.clearcasePdfReader = {
 					const render = rendering = page.render({ canvas, viewport });
 					try { await Promise.race([render.promise, failure]); }
 					finally { if (rendering === render) rendering = null; }
+					if (destroyed || mine !== ticket) return;
+					if (await undecoded(page)) throw new Error('image not decoded');
 					recount();
 				}).catch((error) => {
 					// A superseded/destroyed draw has no UI to report to. Current PDF failures still reject.

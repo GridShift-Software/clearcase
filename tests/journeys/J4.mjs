@@ -1,6 +1,10 @@
-import { run, direct, samples, NEEDS, ready, hook, firstPDF, PDF_MS, check } from './lib.mjs';
+import { run, direct, samples, scanSample, NEEDS, MODE, ready, hook, firstPDF, PDF_MS, check } from './lib.mjs';
 export const journey = () => run('J4', async j => {
-  for (const sample of samples) await j.attempt(sample.band, async () => {
+  // The three samples' page 1 may be legitimately blank (recorded, not failed); the pinned scan, when given, must draw ink. A hosted
+  // run must pin one, since only a scan shows failed image decoders (GRS-273), and some opened page must draw ink in any run.
+  j.metadata.firstPages = {};
+  if (MODE === 'hosted') await j.attempt('scan-pinned', async () => check(scanSample, 'SCAN_DOCUMENT_REF is required for a hosted run: a scanned original (CCITT, JBIG2 or JPX) of the case under test'));
+  for (const sample of scanSample ? [...samples, scanSample] : samples) await j.attempt(sample.band, async () => {
     await j.go('evidence/documents', 'documents', `${sample.band}:documents-list`);
     const group = j.page.getByRole('button', { name: new RegExp(`^${sample.bundle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(`) });
     if (sample.bundle && await group.count()) {
@@ -24,8 +28,9 @@ export const journey = () => run('J4', async j => {
         if (await open.getAttribute('target') === '_blank') {
           const popup = j.context.waitForEvent('page'); await open.click(); pdf = await popup;
         } else { await open.click(); pdf = j.page; }
-      }, () => firstPDF(pdf), PDF_MS, () => pdf);
+      }, async () => { j.metadata.firstPages[sample.band] = await firstPDF(pdf, undefined, { ink: !!sample.ink }); }, PDF_MS, () => pdf);
     } finally { if (pdf && pdf !== j.page) await pdf.close(); }
   });
+  await j.attempt('samples-ink', async () => check(Object.values(j.metadata.firstPages).includes('ink'), 'No opened original drew ink on page 1'));
 }, { needs: NEEDS.samples });
 if (direct(import.meta.url)) await journey();

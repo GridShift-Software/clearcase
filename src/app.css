@@ -376,6 +376,9 @@ span.error, small.error { display: inline-block; padding: 4px 10px; }
 	.export-note { text-align: left; }
 	.card, .q-card, .an-card, .cl-card, .tl-card { padding: 16px; }
 	.card > .table-scroll, .q-card > .table-scroll, .an-card > .table-scroll { margin: 0 -16px; width: calc(100% + 32px); }
+	/* A pad0 card has no padding to bleed into and clips its overflow: its table fills it, as on a wider screen. Without this the
+	   bleed above made the scroller 32 px wider than the card, which cut off both its edges (GRS-273). */
+	.pad0 > .table-scroll { margin: 0; width: 100%; }
 	.card > .table-scroll:last-child { margin-bottom: -16px; }
 	.filters label, .row > div, .q-row > div, .fields > div, .field { flex: 1 1 100%; }
 	.unavailable-view { margin: 16px 0; padding: 32px 16px; }

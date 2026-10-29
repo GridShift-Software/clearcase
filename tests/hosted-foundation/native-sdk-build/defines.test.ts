@@ -26,7 +26,7 @@ async function config(target: 'local' | 'hosted', profile?: string, command: 'se
  return result;
 }
 describe('trusted PDF inventory define; config only, not an app build', () => {
- it('defines the actual 192 copied inputs for production, with no env claim/public manifest; preserves cleanup', async () => {
+ it('defines the actual 198 copied inputs for production, with no env claim/public manifest; preserves cleanup', async () => {
   const c = await config('hosted');
   const encoded = c.define?.__CLEARCASE_PDF_ASSETS__;
   expect(typeof encoded).toBe('string');
@@ -35,7 +35,7 @@ describe('trusted PDF inventory define; config only, not an app build', () => {
   const assets = kit.files?.assets;
   expect(typeof assets).toBe('string');
   expect(pins).toMatchObject({ schema: 'clearcase.hosted-pdf-assets/1', pdfjsVersion: '6.4.299' });
-  expect(pins.files).toHaveLength(192);
+  expect(pins.files).toHaveLength(198);
   for (const file of pins.files) {
    const bytes = readFileSync(path.join(assets!, file.path));
    expect(bytes.length).toBe(file.bytes);

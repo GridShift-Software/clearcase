@@ -1,4 +1,4 @@
-import { run, direct, check, paint, MODE, PAGE_MS, PDF_MS, PDF, PDF_RENDERED, PDF_FAILED } from './lib.mjs';
+import { run, direct, check, paint, drawn, MODE, PAGE_MS, PDF_MS, PDF, PDF_RENDERED, PDF_FAILED } from './lib.mjs';
 // Ticket 11's acceptance: one click on a row shows its original in the pane beside the list; one click on a citation opens the
 // matching document page. The row step and the citation step are separate, so neither stands in for the other.
 // GRS-271: the pane must show the row's original, not a failure state (every hosted pane once said the original was gone),
@@ -11,6 +11,11 @@ const FAILED = '[data-pane-state="missing"], [data-pane-state="error"], [data-pa
 // The chronology's column headings (src/routes/v/[vid]/chronology/+page.svelte); Date basis is shown only where the source has it.
 const HEADINGS = ['Date', 'Ref', 'Title / subject', 'Type', 'Bundle', 'Amount', 'Status', 'Original'];
 const PHONE_ROWS = 3;
+// GRS-273: a viewer whose image decoders fail draws a scan's page 1 blank under its rendered flags, but an original's page 1 may be
+// legitimately blank too. A pane whose page 1 holds no ink is a `blank-page`; while every PDF sampled is one, up to BLANK_TRIES more
+// candidate rows are opened, and the step fails only when none of the sampled PDFs draws ink.
+const BLANK_TRIES = 4;
+const PAGE_1 = `${PDF_RENDERED}[data-page-number="1"]`;
 const rowWithOriginal = (page, list) => list.locator('[data-ref]').filter({ has: page.locator('button.preview') }).filter({ has: page.locator('[data-file="present"]') });
 /** The pane's visible links, each with its role and its href resolved against the page. */
 const paneLinks = pane => pane.locator('a[href]').evaluateAll(as => as.filter(a => a.getClientRects().length > 0 && getComputedStyle(a).visibility !== 'hidden')
@@ -42,7 +47,7 @@ async function paneShowsOriginal(pane, ref) {
   if (await pane.locator(PDF).count()) {
     await pane.locator(`${PDF_RENDERED}, ${PDF_FAILED}`).first().waitFor();
     check(!(await pane.locator(PDF_FAILED).count()), "The pane's PDF viewer could not render the original");
-    check(await pane.locator(`${PDF_RENDERED}[data-page-number="1"]`).evaluate(c => c.getClientRects().length > 0 && c.width > 0 && c.height > 0), "The pane's first PDF page is not visible");
+    check(await pane.locator(PAGE_1).evaluate(c => c.getClientRects().length > 0 && c.width > 0 && c.height > 0), "The pane's first PDF page is not visible");
     return 'pdf';
   }
   const image = pane.locator('img.pane-image');
@@ -53,6 +58,18 @@ async function paneShowsOriginal(pane, ref) {
   const state = await pane.locator(OTHER).first().getAttribute('data-pane-state');
   await checkOriginalLinks(pane, state, ref);
   return state;
+}
+/** What a pane that `shows` an original shows once its ink is counted: `blank-page` for a PDF whose page 1 holds none. */
+const inkOf = async (pane, shows) => shows === 'pdf' && !(await drawn(pane.locator(PAGE_1))) ? 'blank-page' : shows;
+/**
+ * While every PDF in `shown` is a blank page, opens the next candidate rows (`open(i)` shows row i of `rows` and resolves to what its
+ * pane shows, ink counted), up to BLANK_TRIES more. Fails when the sampled PDFs still draw no ink; resolves to the extra samples.
+ */
+async function sampleForInk(shown, rows, open) {
+  const all = [...shown], last = Math.min(await rows.count(), shown.length + BLANK_TRIES);
+  while (all.includes('blank-page') && !all.includes('pdf') && all.length < last) all.push(await open(all.length));
+  check(!all.includes('blank-page') || all.includes('pdf'), `No sampled chronology PDF drew ink on page 1 (${all.join(', ')}): a blank page, or a viewer that drew nothing`);
+  return all.slice(shown.length);
 }
 const HEAD = '[data-testid="chronology-list"] .grid-head [role="columnheader"]';
 /** Each column heading whose text is on screen, without its sort mark. */
@@ -69,7 +86,7 @@ const headingOverlaps = page => page.locator(HEAD).evaluateAll(hs => {
 export const journey = () => run('J3', async j => {
   await j.go('chronology', 'chronology');
   const list = j.page.locator('[data-testid="chronology-list"]'); await list.waitFor();
-  const row = rowWithOriginal(j.page, list).first(); await row.waitFor();
+  const candidates = rowWithOriginal(j.page, list), row = candidates.first(); await row.waitFor();
   const ref = await row.getAttribute('data-ref');
   const pane = j.page.locator(`[data-testid="chronology-document-pane"][data-ref="${ref}"]`);
   // One click, timed twice: to the pane beside the list (an action), and on to the original drawn in it (a first PDF page,
@@ -77,8 +94,9 @@ export const journey = () => run('J3', async j => {
   let clicked, paneError;
   await j.measure('one-click-row', () => { clicked = performance.now(); return row.locator('button.preview').click(); }, () => pane.waitFor());
   try {
-    j.metadata.paneShows = await paneShowsOriginal(pane, ref); await paint(j.page);
-    j.timed('one-click-row-original', clicked, j.metadata.paneShows === 'pdf' ? PDF_MS : PAGE_MS);
+    const shows = await paneShowsOriginal(pane, ref); await paint(j.page);
+    j.timed('one-click-row-original', clicked, shows === 'pdf' ? PDF_MS : PAGE_MS);
+    j.metadata.paneShows = await inkOf(pane, shows);
   } catch (error) { paneError = error; j.timed('one-click-row-original', clicked, PDF_MS, error); }
   await j.attempt('split-pane', async () => {
     check(await list.isVisible() && await pane.isVisible(), 'Chronology list and backing document are not simultaneously visible; split pane missing');
@@ -89,6 +107,13 @@ export const journey = () => run('J3', async j => {
   });
   await j.attempt('pane-original', async () => {
     if (paneError) throw paneError;
+    const extra = await sampleForInk([j.metadata.paneShows], candidates, async i => {
+      const r = candidates.nth(i), rref = await r.getAttribute('data-ref');
+      await r.locator('button.preview').click();
+      const p = j.page.locator(`[data-testid="chronology-document-pane"][data-ref="${rref}"]`);
+      return inkOf(p, await paneShowsOriginal(p, rref));
+    });
+    if (extra.length) j.metadata.paneSamples = [j.metadata.paneShows, ...extra];
     j.results.push({ name: 'pane-original', status: 'PASS' });
   });
   const cite = list.locator('a[href*="/doc/"]').first(); await cite.waitFor();
@@ -121,10 +146,20 @@ export const journey = () => run('J3', async j => {
         const r = rows.nth(i), rref = await r.getAttribute('data-ref');
         const button = r.locator('button.preview'); await button.scrollIntoViewIfNeeded();
         const start = performance.now(); await button.tap();
-        const shows = await paneShowsOriginal(p.locator(`[data-testid="chronology-document-pane"][data-ref="${rref}"]`), rref); await paint(p);
-        taps.push({ shows, ms: Math.round(performance.now() - start), budgetMs: shows === 'pdf' ? PDF_MS : PAGE_MS });
+        const ppane = p.locator(`[data-testid="chronology-document-pane"][data-ref="${rref}"]`);
+        const shows = await paneShowsOriginal(ppane, rref); await paint(p);
+        const ms = Math.round(performance.now() - start);
+        taps.push({ shows: await inkOf(ppane, shows), ms, budgetMs: shows === 'pdf' ? PDF_MS : PAGE_MS });
       }
       j.metadata.phonePaneShows = taps.map(t => t.shows);
+      const extra = await sampleForInk(j.metadata.phonePaneShows, rows, async i => {
+        await p.locator('[data-testid="chronology-document-pane"] .pane-back').tap();
+        const r = rows.nth(i), rref = await r.getAttribute('data-ref'), button = r.locator('button.preview');
+        await button.scrollIntoViewIfNeeded(); await button.tap();
+        const ppane = p.locator(`[data-testid="chronology-document-pane"][data-ref="${rref}"]`);
+        return inkOf(ppane, await paneShowsOriginal(ppane, rref));
+      });
+      if (extra.length) j.metadata.phonePaneSamples = [...j.metadata.phonePaneShows, ...extra];
       const over = taps.filter(t => t.ms >= t.budgetMs);
       j.results.push({ name: 'phone-pane-original', status: over.length ? 'FAIL' : 'PASS', taps, ...(over.length ? { reason: 'Latency budget exceeded' } : {}) });
     });

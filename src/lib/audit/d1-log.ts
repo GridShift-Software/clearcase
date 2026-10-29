@@ -171,7 +171,10 @@ function build(a: Omit<CoreArgs, 'requester'> & { requester: IdentityState | nul
     const spent = !!count && exhausted(cls, count);
     // A spent protected or read budget refuses every such action until the deployment raises it, and the views can only
     // call that "busy": name it in the Worker log (GRS-270). A denial past its bound is the designed outcome, not a fault.
-    if (spent && cls !== 'denial') console.error('audit-capacity-exhausted', { class: cls, limit: cls === 'protected' ? config.limits.maxRows : config.limits.maxReadRows });
+    // The log is a diagnostic: if it throws, the refusal below still stands unchanged.
+    if (spent && cls !== 'denial') {
+      try { console.error('audit-capacity-exhausted', { class: cls, limit: cls === 'protected' ? config.limits.maxRows : config.limits.maxReadRows }); } catch { /* the refusal is what matters */ }
+    }
     throw error('audit-unavailable', !spent);
   }
 

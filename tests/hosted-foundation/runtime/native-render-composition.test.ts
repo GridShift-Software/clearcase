@@ -232,7 +232,7 @@ describe('hostedServices native renderer wiring (unit-only composition: real con
   expect(options.appOrigin).toBe(CONFIGURED_ORIGIN);   // not the hostile request's URL, Host, Origin or body
   expect(options.clientId).toBe(ids.clientA);
   expect(options.pins).toBe(inventory);
-  expect(options.pins?.files).toHaveLength(192);
+  expect(options.pins?.files).toHaveLength(198);
   expect(options.budget).toEqual(RENDER);
   expect(Object.keys(options.budget!).sort()).toEqual(['maxCanvasPixels', 'maxFileBytes', 'maxPages', 'maxRunMs', 'maxRunsPerCasePerDay', 'maxRunsPerClientPerDay']);
   expect(typeof options.now).toBe('function');

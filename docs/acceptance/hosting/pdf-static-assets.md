@@ -21,17 +21,19 @@ bun scripts/hosted-pdf-assets.ts --root "$CHECKOUT" --public-root "$GENERATED_ST
 
 The returned object / stdout JSON has schema `clearcase.hosted-pdf-assets/1`, `pdfjsVersion`, `packageDigest`, `readerDigest`, and `files: { path, bytes, sha256 }[]`. Paths are relative to `publicRoot` with `/` separators; SHA-256 values have the `sha256:` prefix. Entries are sorted by ordinal path. No timestamp, absolute input path, runtime data or public manifest is emitted.
 
-The exact 191-file tree is:
+The exact 198-file tree is:
 
 - `/pdfjs/pdf.min.mjs` and `/pdfjs/pdf.worker.min.mjs` from installed `pdfjs-dist/build/`;
 - `/pdfjs/LICENSE`, plus the exact flat `standard_fonts/`, `cmaps/`, `iccs/` resources and their licenses (190 installed package files total);
-- `/pdfjs/pdf-reader.mjs` from `src/lib/viewer/hosted/static/pdf-reader.mjs`.
+- `/pdfjs/pdf-reader.mjs` from `src/lib/viewer/hosted/static/pdf-reader.mjs`;
+- the viewer's patched worker `/pdfjs/pdf-viewer-worker.mjs`;
+- the viewer's image decoders under `/pdfjs/wasm/` (GRS-273): `jbig2_nowasm_fallback.js` and `openjpeg_nowasm_fallback.js`, the plain-JS builds pdf.js uses for CCITT fax, JBIG2 and JPX images when wasm is off, with their four licenses. Without them every scanned page draws blank.
 
-The reviewed reader imports `./pdf.min.mjs`, constructs the worker URL `./pdf.worker.min.mjs`, and loads those three resource directories relative to itself. It disables wasm, scripting, XFA and eval. No web viewer, sandbox, wasm, maps, server/private module or arbitrary package file is copied. Unexpected resource entries cause refusal. Selected inputs and every ancestor must be real files/directories, never symlinks. Selected files must be regular files.
+The reviewed reader imports `./pdf.min.mjs`, constructs the worker URL `./pdf.worker.min.mjs`, and loads those resource directories (and `wasm/` for the decoders) relative to itself. It disables wasm, scripting, XFA and eval. No web viewer, sandbox, `.wasm` file, maps, server/private module or arbitrary package file is copied. Unexpected resource entries cause refusal. Selected inputs and every ancestor must be real files/directories, never symlinks. Selected files must be regular files.
 
 ## Trust binding
 
-The declared exact devDependency and installed package name/version must be `pdfjs-dist@6.4.299`. An embedded digest binds **every selected package path, size and byte hash**, not merely the version string or a self-authored manifest. A separate embedded SHA-256 binds the reviewed reader. These constants were captured from the frozen install at `c6f0d9536e381dc8eebbf2035f49834409434761`. Missing, renamed, added or byte-mismatched selected inputs fail before copying. Package/reader upgrades require review of new inputs and constants; never derive trusted constants from the candidate input at runtime.
+The declared exact devDependency and installed package name/version must be `pdfjs-dist@6.4.299`. An embedded digest binds **every selected package path, size and byte hash**, not merely the version string or a self-authored manifest. A separate embedded SHA-256 binds the reviewed reader, and `HOSTED_PDF_DECODERS_DIGEST` binds the six decoder files, so the package digest stays unchanged. These constants were captured from the frozen install at `c6f0d9536e381dc8eebbf2035f49834409434761`. Missing, renamed, added or byte-mismatched selected inputs fail before copying. Package/reader upgrades require review of new inputs and constants; never derive trusted constants from the candidate input at runtime.
 
 ## Required parent hooks (not implemented here)
 

@@ -423,5 +423,16 @@ span.error, small.error { display: inline-block; padding: 4px 10px; }
   .hosted a::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 10px; border-radius: 2px; background: var(--teal); }
   .hosted a:focus-visible { outline-color: var(--surface); }
   > main { padding: 24px; max-width: calc(var(--content-max) + 48px); margin: 0 auto; }
+  .cases-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px; margin-bottom: 20px; }
+  .cases-head h1 { margin: 0; }
+  .cases-who { margin: 4px 0 0; font-size: 13px; color: var(--ink-2); }
+  .cases-who [data-testid='account-name'] { font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+  .cases-head form { margin: 0; }
+  .case-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+  .case-list > li { padding: 0; }
+  .case-link { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; color: var(--ink); font-size: 16px; font-weight: 600; }
+  .case-link:hover { text-decoration: none; background: var(--subtle); border-radius: var(--radius-card); }
+  .case-link .case-name { overflow-wrap: anywhere; }
+  .case-link .case-open { flex: none; font-size: 13px; font-weight: 600; color: var(--teal-ink); }
   > main.narrow { width: calc(100% - 32px); max-width: 28rem; margin: 48px auto 0; padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); box-shadow: var(--shadow-sm); }
 }

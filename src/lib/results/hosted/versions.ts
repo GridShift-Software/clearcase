@@ -7,7 +7,8 @@ export const unavailable = (): never => { throw contractError('storage-unavailab
 export const forbidden = () => contractError('forbidden');
 
 type CaseRow = { case_id: string; case_label: string | null; pub_state: 'published' | 'withdrawn' | null; pub_version: string | null; withdrawn: string | null; stored: string | null };
-const CASE_SQL = `SELECT c.case_id, c.case_label, p.state AS pub_state, p.version_id AS pub_version, w.version_id AS withdrawn, v.state AS stored
+// The display label is the case row's own; a case provisioned without one shows the label its published version carries (the join is already there).
+const CASE_SQL = `SELECT c.case_id, COALESCE(c.case_label, v.case_label) AS case_label, p.state AS pub_state, p.version_id AS pub_version, w.version_id AS withdrawn, v.state AS stored
   FROM rs_case c LEFT JOIN rs_publication p ON p.case_id = c.case_id LEFT JOIN rs_version_withdrawal w ON w.version_id = p.version_id
   LEFT JOIN rs_results_version v ON v.version_id = p.version_id AND v.case_id = c.case_id`;
 

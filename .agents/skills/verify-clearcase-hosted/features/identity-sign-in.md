@@ -20,7 +20,7 @@ Preconditions:
 
 - A fresh browser context with no cookie for the app origin.
 
-- **Sign in.** Navigate to `/`, wait for `/sign-in` with `[data-auth-provider=double]`, choose `client-a/a-viewer` in `#test-identity`, click `#sign-in`. Step `sign-in`. `/cases` shows `[data-auth-state=signed-in]` with "Signed in as a-viewer.", CDP's cookie jar holds `clearcase_session` with `httpOnly` and `SameSite=Lax`, and `document.cookie` does not show it.
+- **Sign in.** Navigate to `/`, wait for `/sign-in` with `[data-auth-provider=double]`, choose `client-a/a-viewer` in `#test-identity`, click `#sign-in`. Step `sign-in`. `/cases` shows `[data-auth-state=signed-in]` with no "Signed in as" line and no subject (the double carries no name; a real session shows its name claim, never the Clerk ID), CDP's cookie jar holds `clearcase_session` with `httpOnly` and `SameSite=Lax`, and `document.cookie` does not show it.
 - **Proof.** The screenshots `sign-in-form-a-viewer` and `signed-in-cases`.
 
 ## Gotchas

@@ -253,7 +253,7 @@ const DISPOSITIONS = [
 		"v5 hard-codes the bundle name, path, fallback page count and reference and ignores the index file field. ClearCase takes the name, address and fallback page count from the package's view content, and the page count from the index first."],
 	["S-caselines_tab-3", "caselines_tab", FIX, true, "tests/system/stores-21.test.ts", "key: 'ess_dcs_caselines_docs_v1',", "IDR-413",
 		"v5 does not back up the linked documents. ClearCase stores them as a registered table, and a test round-trips them through backup and restore."],
-	["S-caselines_tab-4", "caselines_tab", GAP, true, "src/routes/v/[vid]/bundles/caselines_tab/+page.svelte", "{NOT_SERVED}</span>{/if}<button type=\"button\" class=\"rm\"", null,
+	["S-caselines_tab-4", "caselines_tab", GAP, true, "src/routes/v/[vid]/bundles/caselines_tab/+page.svelte", "<span class=\"not-served\">{NOT_SERVED}</span>{/if}", null,
 		"v5 re-encodes typed link paths into broken links with no check. ClearCase stores the typed path, links it only when it names an indexed document, and otherwise marks it not served; it does not remove duplicate links, which the defect also names; that would need an app change."],
 	["S-caselines_tab-5", "caselines_tab", GAP, true, "src/lib/views/bundles/caselines.ts", "if (count) res.push({ p, count, ...snippet(t, first, q.length) });", null,
 		"v5 applies match offsets from lower-cased text to the original, shifting the highlight for characters whose case change alters length. ClearCase keeps this: the same offsets are applied to the original text. Fixing it would need an app change."],

@@ -24,6 +24,7 @@ export const NO_FORM = {
 	'/v/[vid]/bundles/caselines_tab': 'saves through postAction (fetch) without a <form>; the bundles suite drives its in-flight and two-tab input (GRS-19)',
 	'/v/[vid]/bundles/court_bundle_tab': 'saves through postAction (fetch) without a <form>; the bundles suite drives its in-flight and two-tab input (GRS-19)',
 	'/v/[vid]/bundles/discovery_tab': 'saves through postAction (fetch) without a <form>; the bundles suite drives its in-flight and two-tab input (GRS-19)',
+	'/v/[vid]/chronology': 'the original action is posted by the preview pane\'s fetch (LocalOriginal.svelte, `?/original`) when a row is selected, not by a <form>; the page itself renders no POST form (GRS-271)',
 };
 
 /** Per route and action (`?/add`): classes that do not apply, with why. */

@@ -28,8 +28,12 @@ const PROBES = [
   { finding: 'M1-phone', journey: 'J3', scenario: 'm1-phone', fails: ['phone-pane-original'] },
   { finding: 'M2-expected', journey: 'J5', scenario: 'healthy', env: { HEADS_EXPECTED: '2' }, fails: ['heads_tab'] },
   // GRS-273: a scan's page 1 marked rendered over a blank canvas, in the chronology pane (desktop and phone) and the opened original.
-  { finding: 'B1', journey: 'J3', scenario: 'blank-canvas', fails: ['one-click-row-original', 'pane-original', 'phone-pane-original'] },
-  { finding: 'B1-J4', journey: 'J4', scenario: 'blank-canvas', fails: ['small:first-pdf-page', 'small', 'medium:first-pdf-page', 'medium'] },
+  // A blank page 1 is not a failure in itself (fix round 1): J3 fails when no sampled PDF draws ink, J4 when its pinned scan does not.
+  { finding: 'B1', journey: 'J3', scenario: 'blank-canvas', fails: ['pane-original', 'phone-pane-original'] },
+  { finding: 'B1-J4', journey: 'J4', scenario: 'blank-canvas', env: { SCAN_DOCUMENT_REF: 'PRB-1' }, fails: ['scan:first-pdf-page', 'scan'] },
+  // PR #208 review: a legitimately blank or light page 1 is a drawn page; both journeys must pass on it.
+  { finding: 'control:J3-light', journey: 'J3', scenario: 'light-first-page', fails: [] },
+  { finding: 'control:J4-light', journey: 'J4', scenario: 'light-first-page', env: { SCAN_DOCUMENT_REF: 'PRB-3' }, fails: [] },
   { finding: 'control:J5-heads0', journey: 'J5', scenario: 'healthy', env: { HEADS_EXPECTED: '0' }, fails: [] },
   { finding: 'control:J5-heads2', journey: 'J5', scenario: 'heads-seeded', env: { HEADS_EXPECTED: '2' }, fails: [] },
 ];

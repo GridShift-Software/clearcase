@@ -52,13 +52,17 @@ const overview = (freshness = FRESHNESS) => page('overview', `<p class="num" id=
   ${slot('deadlines', 'Open deadlines', '<p class="num">2</p><p><small>in the deadline tracker</small></p>')}${slot('unbilled-time', 'Unbilled time', '<p class="num">1.5 h</p>')}${slot('rescan-freshness', 'Freshness', freshness)}
   <section><h2>Dates</h2><p id="date-span">Date span: first → last</p></section>${TABLE}`);
 
-// What a viewer's draw puts on its canvases: ink, which the journeys look for on a page marked rendered (GRS-273).
-const draw = "document.querySelectorAll('canvas').forEach(c => { const x = c.getContext('2d'); x.fillStyle = '#345'; x.fillRect(10, 10, 50, 50); });";
+// What a viewer's draw puts on its canvases, as pdf.js does: the white page, then its content. A canvas's data-paint picks the
+// content: dark ink (default), light grey only ("light"), or none, a legitimately blank page ("white"). GRS-273, fix round 1.
+const draw = "document.querySelectorAll('canvas').forEach(c => { const x = c.getContext('2d'), p = c.dataset.paint; x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); if (p === 'white') return; x.fillStyle = p === 'light' ? 'rgb(230,230,230)' : '#345'; x.fillRect(10, 10, 50, 50); });";
 // What the chronology pane shows for a row, as the hosted HostedOriginal.svelte renders it.
 const viewerLink = ref => `<p class="pane-original"><span>${ref}.pdf</span> <a data-action="open-viewer" href="${original(ref)}/view">Open full viewer</a></p>`;
 const download = (ref, label = 'Download the original') => `<a data-action="download-original" href="${original(ref)}?download=1">${label}</a>`;
+const pdfPane = paint => ref => `${viewerLink(ref)}<div data-viewer="pdf" data-viewer-state="ready"><p>${download(ref, 'Download')}</p><canvas data-testid="pdf-page" data-page-number="1" data-rendered="true"${paint ? ` data-paint="${paint}"` : ''} width="200" height="280"></canvas></div>`;
 const PANE = {
-  pdf: ref => `${viewerLink(ref)}<div data-viewer="pdf" data-viewer-state="ready"><p>${download(ref, 'Download')}</p><canvas data-testid="pdf-page" data-page-number="1" data-rendered="true" width="200" height="280"></canvas></div>`,
+  pdf: pdfPane(),
+  'pdf-white': pdfPane('white'),
+  'pdf-light': pdfPane('light'),
   'download-only': ref => `${viewerLink(ref)}<p class="pane-state" data-pane-state="download-only">This file type is not shown in the app. ${download(ref)}.</p>`,
   email: ref => `${viewerLink(ref)}<p class="pane-state" data-pane-state="email">This email opens in the full viewer. <a href="${original(ref)}/view">Open it</a> or ${download(ref, 'download the original')}.</p>`,
   'download-only-unlinked': ref => `${viewerLink(ref)}<p class="pane-state" data-pane-state="download-only">This file type is not shown in the app.</p>`,
@@ -91,6 +95,9 @@ const VIEWER = {
   hosted: () => bare(`<div data-viewer="pdf" data-viewer-state="ready"><canvas data-testid="pdf-page" data-page-number="1" data-rendered="true" width="300" height="400"></canvas></div><script>${draw}</script>`),
   legacy: () => bare(`<div data-page="1" data-rendered="1"><canvas width="300" height="400"></canvas></div><script>window.__viewer = { rendered: 1, error: null }; ${draw}</script>`, ' data-ready="1"'),
   'hosted-error': () => bare('<div data-viewer="pdf" data-viewer-state="error"><p role="alert">This file cannot be displayed here.</p></div><canvas data-testid="pdf-page" data-page-number="1" data-rendered="true" width="300" height="400" style="display:none"></canvas>'),
+  // A drawn page 1 that is legitimately blank, and one whose only content is light grey (GRS-273, fix round 1).
+  'hosted-white': () => bare(`<div data-viewer="pdf" data-viewer-state="ready"><canvas data-testid="pdf-page" data-page-number="1" data-rendered="true" data-paint="white" width="300" height="400"></canvas></div><script>${draw}</script>`),
+  'legacy-light': () => bare(`<div data-page="1" data-rendered="1"><canvas data-paint="light" width="300" height="400"></canvas></div><script>window.__viewer = { rendered: 1, error: null }; ${draw}</script>`, ' data-ready="1"'),
   // GRS-273: the flags of a drawn page 1 over a canvas that holds nothing.
   'hosted-blank': () => bare('<div data-viewer="pdf" data-viewer-state="ready"><canvas data-testid="pdf-page" data-page-number="1" data-rendered="true" width="300" height="400"></canvas></div>'),
   'legacy-blank': () => bare('<div data-page="1" data-rendered="1"><canvas width="300" height="400"></canvas></div><script>window.__viewer = { rendered: 1, error: null };</script>', ' data-ready="1"'),
@@ -117,6 +124,9 @@ export const SCENARIOS = {
   'h2-hidden-text': { overview: () => hideSlotText(overview()) },
   'h3-placeholder': { 'evidence/contracts_tab': () => analysis('contracts_tab', PLACEHOLDER_ROWS, false) },
   'm1-phone': { chronology: () => chronology({ phoneDelay: 3200 }) },
+  // A healthy case whose first chronology original and small sample have a blank page 1 and whose medium sample is light grey;
+  // PRB-3 is the scan that draws ink.
+  'light-first-page': { chronology: () => chronology({ states: ['pdf-white', 'pdf-light', 'email'] }), viewer: { 'PRB-1': 'hosted-white', 'PRB-2': 'legacy-light' } },
   'blank-canvas': { chronology: () => chronology({ blank: true }), viewer: { 'PRB-1': 'hosted-blank', 'PRB-2': 'legacy-blank' } },
   'heads-seeded': { 'litigation/heads_tab': () => analysis('heads_tab', heads({ entries: 2 }), false) },
 };

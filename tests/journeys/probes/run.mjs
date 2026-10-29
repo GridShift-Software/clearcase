@@ -31,6 +31,8 @@ const PROBES = [
   // A blank page 1 is not a failure in itself (fix round 1): J3 fails when no sampled PDF draws ink, J4 when its pinned scan does not.
   { finding: 'B1', journey: 'J3', scenario: 'blank-canvas', fails: ['pane-original', 'phone-pane-original'] },
   { finding: 'B1-J4', journey: 'J4', scenario: 'blank-canvas', env: { SCAN_DOCUMENT_REF: 'PRB-1' }, fails: ['scan:first-pdf-page', 'scan'] },
+  // PR #208 re-check: with no pinned scan, a viewer that draws nothing at all still fails J4, and a hosted run must pin one.
+  { finding: 'B1-J4-noscan', journey: 'J4', scenario: 'blank-canvas-all', env: { SCAN_DOCUMENT_REF: '' }, fails: ['scan-pinned', 'samples-ink'] },
   // PR #208 review: a legitimately blank or light page 1 is a drawn page; both journeys must pass on it.
   { finding: 'control:J3-light', journey: 'J3', scenario: 'light-first-page', fails: [] },
   { finding: 'control:J4-light', journey: 'J4', scenario: 'light-first-page', env: { SCAN_DOCUMENT_REF: 'PRB-3' }, fails: [] },
@@ -51,7 +53,7 @@ for (const probe of PROBES.filter(p => !only.size || only.has(p.finding) || only
   const env = {
     ...Object.fromEntries(PASS_THROUGH.filter(n => process.env[n]).map(n => [n, process.env[n]])),
     MODE: 'hosted', BASE_URL: app.origin, CASE_ID: CASE, RESULTS_VERSION: RV, EXPECTED_SHA: SHA, EXPECTED_DOCUMENTS: '3',
-    SMALL_REF: REFS[0], MEDIUM_REF: REFS[1], LARGE_REF: REFS[2], RESULTS_DIR: path.join(out, probe.finding.replace(':', '-')),
+    SMALL_REF: REFS[0], MEDIUM_REF: REFS[1], LARGE_REF: REFS[2], SCAN_DOCUMENT_REF: REFS[2], RESULTS_DIR: path.join(out, probe.finding.replace(':', '-')),
     ...probe.env,
   };
   try {

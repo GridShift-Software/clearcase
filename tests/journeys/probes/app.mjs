@@ -128,6 +128,7 @@ export const SCENARIOS = {
   // PRB-3 is the scan that draws ink.
   'light-first-page': { chronology: () => chronology({ states: ['pdf-white', 'pdf-light', 'email'] }), viewer: { 'PRB-1': 'hosted-white', 'PRB-2': 'legacy-light' } },
   'blank-canvas': { chronology: () => chronology({ blank: true }), viewer: { 'PRB-1': 'hosted-blank', 'PRB-2': 'legacy-blank' } },
+  'blank-canvas-all': { chronology: () => chronology({ blank: true }), viewer: { 'PRB-1': 'hosted-blank', 'PRB-2': 'legacy-blank', 'PRB-3': 'hosted-blank' } },
   'heads-seeded': { 'litigation/heads_tab': () => analysis('heads_tab', heads({ entries: 2 }), false) },
 };
 const HEALTHY_VIEWER = { 'PRB-1': 'hosted', 'PRB-2': 'legacy', 'PRB-3': 'hosted' };

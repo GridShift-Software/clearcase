@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { auditConfig } from '../../../src/lib/audit/index.ts';
-import { event, world } from './world.ts';
+import { admin, event, gate, viewer, world } from './world.ts';
 
 const REHEARSAL_DAY_EVENTS = 10_000; // measured on staging D1, 28 Oct, one rehearsal of the ten journeys
 const ROW_BYTES = 1024; // a stored event averaged about 650 bytes of row data; 1 KiB allows for its indexes
@@ -39,6 +39,40 @@ describe('a spent protected budget', () => {
     const w = world({ over: { maxRows: 2 } }); await w.ready;
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     await w.log().append(event()); await w.log().append(event());
+    expect(logged).not.toHaveBeenCalled();
+  });
+  it('keeps the same refusal when the Worker log itself throws', async () => {
+    const w = world({ over: { maxRows: 1 } }); await w.ready;
+    await w.log().append(event());
+    vi.spyOn(console, 'error').mockImplementation(() => { throw new Error('log sink down'); });
+    await expect(w.log().append(event())).rejects.toMatchObject({ code: 'audit-unavailable', retryable: false });
+  });
+  it('does not log a failed insert while the budget has room: that refusal stays retryable', async () => {
+    const w = world({ over: { maxRows: 2 } }); await w.ready;
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    w.fault.failInsert = true;
+    await expect(w.log().append(event())).rejects.toMatchObject({ code: 'audit-unavailable', retryable: true });
+    expect(logged).not.toHaveBeenCalled();
+  });
+});
+
+describe('the other audit classes', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const ask = { scope: { kind: 'case' as const, caseId: 'case-a1' as never }, cursor: null, limit: 10 };
+  it('a spent read budget names itself with the read limit', async () => {
+    const w = world({ over: { maxReadRows: 1 } }); await w.ready;
+    const g = gate({ cases: { user_a1: ['case-a1'] } });
+    await w.log(viewer, g).query(ask);
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(w.log(viewer, g).query(ask)).rejects.toMatchObject({ code: 'audit-unavailable', retryable: false });
+    expect(logged.mock.calls).toEqual([['audit-capacity-exhausted', { class: 'read', limit: 1 }]]);
+  });
+  it('a denial past its bound is the designed outcome and logs nothing', async () => {
+    const w = world({ over: { maxDenialRows: 1, maxDenialsPerActor: 1 } }); await w.ready;
+    const g = gate({ cases: { user_a1: ['case-a1'] } });
+    await expect(w.log(admin, g).query(ask)).rejects.toMatchObject({ code: 'forbidden' });
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(w.log(admin, g).query(ask)).rejects.toMatchObject({ code: 'forbidden' });
     expect(logged).not.toHaveBeenCalled();
   });
 });

@@ -7,7 +7,7 @@ import { parseStrictJson, decodeUtf8Strict } from '../../case-package/strict-jso
 import { KNOWN_SCHEMAS } from '../../case-package/registry.ts';
 import { readViewContent } from '../../case-package/view-content.ts';
 import { verifyCandidateBytes } from '../../case-package/verify-bytes.ts';
-import type { OpenStorage } from '../../storage/cloud/access.ts';
+import type { OpenStorage, StorageOpener } from '../../storage/cloud/access.ts';
 import { verifiedRead } from '../../storage/cloud/objects.ts';
 import { caseFolder, checkClaims, originalClaims } from '../../storage/cloud/original-facts.ts';
 import { admitVerification } from '../../storage/cloud/verification.ts';
@@ -26,7 +26,7 @@ type FileRow = { path: string; sha256: string; size: number; object_key: string 
  * requires the exact published version (a candidate, a staging version and a withdrawn one, Keep-marked or not, are
  * refused alike), and authorizes and rechecks publication again before it hands back what an awaited read produced.
  */
-export function createCloudReader(a: { open: () => Promise<OpenStorage>; identity: C.Identity; record(e: StorageEvent): Promise<void>; stateRevision(s: C.Scope): Promise<C.CaseRevision>; now(): Date }): PublishedCaseReader {
+export function createCloudReader(a: { open: StorageOpener; identity: C.Identity; record(e: StorageEvent): Promise<void>; stateRevision(s: C.Scope): Promise<C.CaseRevision>; now(): Date }): PublishedCaseReader {
   const { identity, open } = a;
   const providers = new Map<string, C.DocumentProvider>();
   // A version's read model, loaded and checked against its stored digest once per reader. The rows are immutable once a
@@ -119,11 +119,13 @@ export function createCloudReader(a: { open: () => Promise<OpenStorage>; identit
       return release(s, scope, freeze(links));
     },
     async listCases() {
-      const s = await open();
+      // The case rows are read beside the storage gate, so they resolve only once it passes: the grant read runs beside
+      // both, and nothing is recorded or returned before the gate's answer.
+      const rows = open.beside((s) => caseRows(s.db));
+      rows.catch(() => undefined);
       await identity.checkRevocation();
-      const rows = caseRows(s.db);
       if (identity.authorizeCases) {
-        // The grant read runs beside the case rows; a case is returned only once it is allowed and recorded.
+        // A case is returned only once it is allowed and recorded.
         const allowed = await identity.authorizeCases({ operation: 'read', caseIds: rows.then((r) => r.map((c) => c.caseId)) });
         return freeze((await rows).filter((c) => allowed.has(c.caseId)));
       }

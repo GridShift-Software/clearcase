@@ -36,7 +36,7 @@ const broken = scan('/Width 400 /Height 200 /BitsPerComponent 8 /ColorSpace /Dev
 let bytes: Uint8Array = new Uint8Array();
 async function original(input: RequestInfo | URL): Promise<Response> {
   if (String(input) !== SRC) throw new Error(`unexpected fetch ${String(input)}`);
-  return new Response(bytes, { status: 200, headers: { 'content-type': 'application/pdf', 'content-length': String(bytes.byteLength) } });
+  return new Response(new Uint8Array(bytes), { status: 200, headers: { 'content-type': 'application/pdf', 'content-length': String(bytes.byteLength) } });
 }
 /** Pixels darker than light grey: what a reader sees as ink. */
 function ink(canvas: Canvas) {

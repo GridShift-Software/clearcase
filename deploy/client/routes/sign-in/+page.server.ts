@@ -7,7 +7,7 @@ import { id } from '$lib/server/runtime/ids';
 import { clerkSignInTarget } from '$lib/auth/clerk/config';
 import { applySignInReturnChange, devBrowserOf, documentNavigation, prepareSignIn, signInReturn, signInReturnCookie } from '$lib/auth/clerk/flow';
 
-import { appSessionConfig, appCookieOptions, mintAppSession, signAppSession, appCookieValue } from '$lib/auth/app-session';
+import { appSessionConfig, appCookieOptions, mintAppSession, signAppSession, appCookieValue, APP_COOKIE } from '$lib/auth/app-session';
 
 const IDENTITY = /^([a-z0-9][a-z0-9-]{0,62})\/([A-Za-z0-9._-]{1,64})$/;
 const unconfigured = () => error(503, { message: 'No sign-in provider is configured for this deployment.', code: 'identity-unavailable' });
@@ -30,7 +30,7 @@ export async function load({ locals, url, request, cookies, isDataRequest }: Req
 			const name = 'name' in locals.identity && typeof locals.identity.name === 'string' ? locals.identity.name : locals.identity.principal.subject;
 			if (config) {
 			const session = await mintAppSession(config, { sid: locals.identity.sessionId, subject: locals.identity.principal.subject, name });
-			cookies.set(SESSION_COOKIE, await signAppSession(config!, session), appCookieOptions(session));
+			cookies.set(APP_COOKIE, await signAppSession(config!, session), appCookieOptions(session));
 			}
 		}
 		const back = await signInReturn(env, request, url, 'client', isDataRequest);
@@ -47,7 +47,7 @@ export const actions: Actions = {
 		const double = locals.runtime.testIdentity;
 		const form = await request.formData().catch(() => null);
 		if (!double) {
-			if (appCookieValue(request) !== null && locals.identity.kind !== 'verified') cookies.delete(SESSION_COOKIE, { path: '/', secure: true });
+			if (appCookieValue(request) !== null && locals.identity.kind !== 'verified') cookies.delete(APP_COOKIE, { path: '/', secure: true });
 			const target = clerk(request);
 			if (!target) unconfigured();
 			// One browser session per origin: a session of the other identity is signed out first, an ambiguous one refused.

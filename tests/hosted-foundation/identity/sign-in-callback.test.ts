@@ -229,7 +229,7 @@ describe('two tabs signing in through the same flow land home without guessing (
 describe('a callback that cleared other tabs\' attempts leaves no false singleton behind (M5)', () => {
 	const HOME = '/cases?signIn=multiple-tabs', target = (tab: string) => `/cases/tab-${tab}`;
 	/** The jar's cookies that belong to neither flow's attempts: the multi-tab marker a home landing leaves. */
-	const markersOf = (jar: Jar) => [...jar].filter(([n]) => n !== 'clearcase_session' && !KINDS.some((k) => n.startsWith(SIGN_IN_RETURN_PREFIX[k])));
+	const markersOf = (jar: Jar) => [...jar].filter(([n]) => n !== '__Host-clearcase_session' && !KINDS.some((k) => n.startsWith(SIGN_IN_RETURN_PREFIX[k])));
 	/** Tabs A then C post one second apart; A's callback clears both and lands home. C's attempt was issued at 09:00:01. */
 	async function clearedTwo(kind: InstanceKind) {
 		const jar: Jar = new Map(), tick = ticking();

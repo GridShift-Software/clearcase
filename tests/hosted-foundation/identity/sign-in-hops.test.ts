@@ -131,19 +131,19 @@ describe('the hosted handle answers a signed-in return with the route\'s own red
 	it('reads the identity from the credential and answers one 303 to the target, with the route\'s cookies and the handshake\'s', async () => {
 		const out = await invoke(() => {
 			const headers = new Headers({ location: '/cases/case-7' });
-			headers.append('set-cookie', 'clearcase_session=synthetic; Path=/; HttpOnly; Secure; SameSite=Lax');
+			headers.append('set-cookie', '__Host-clearcase_session=synthetic; Path=/; HttpOnly; Secure; SameSite=Lax');
 			return new Response(null, { status: 303, headers });
 		});
 		expect(out.build.mock.calls[0]![1]).toBe(credential);
 		expect(out.refresh).not.toHaveBeenCalled();
 		expect(out.response.status).toBe(303);
 		expect(out.response.headers.get('location')).toBe('/cases/case-7');
-		expect(out.response.headers.getSetCookie().map((c) => c.split('=')[0])).toEqual(['clearcase_session', '__session', '__client_uat']);
+		expect(out.response.headers.getSetCookie().map((c) => c.split('=')[0])).toEqual(['__Host-clearcase_session', '__session', '__client_uat']);
 		expect(out.response.headers.get('cache-control')).toBe('no-store');
 		expect(out.response.headers.get('x-content-type-options')).toBe('nosniff');
 	});
 	it('never renders a page at the URL that carries the handshake token: a route that answers a page gets the redirect of before', async () => {
-		const out = await invoke(() => new Response('<h1>Sign in</h1>', { status: 200, headers: { 'set-cookie': 'clearcase_session=synthetic; Path=/' } }));
+		const out = await invoke(() => new Response('<h1>Sign in</h1>', { status: 200, headers: { 'set-cookie': '__Host-clearcase_session=synthetic; Path=/' } }));
 		expect(out.resolve).toHaveBeenCalledOnce();
 		expect(out.response.status).toBe(303);
 		expect(out.response.headers.get('location')).toBe(`${ORIGIN}/sign-in?__clearcase_reauth=1761400000`);
@@ -189,7 +189,7 @@ describe('the sign-in route takes the credential straight to the target the POST
 		const sets: string[] = [];
 		const r = await thrown(() => client.load({ locals: locals(identity), url, request, cookies: cookiesOf(jar, sets), isDataRequest: false } as never));
 		expect(r).toMatchObject({ status: 303, location: target });
-		expect(sets).toContain('clearcase_session');
+		expect(sets).toContain('__Host-clearcase_session');
 		expect(sets.filter((n) => n.startsWith('-__Host-clearcase_return-'))).toHaveLength(1);
 	});
 });

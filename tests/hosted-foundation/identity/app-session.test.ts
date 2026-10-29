@@ -15,7 +15,7 @@ function fixture() {
 		CLERK_CLIENT_PUBLISHABLE_KEY: client.publishableKey, CLERK_CLIENT_SECRET_KEY: client.secretKey, CLERK_CLIENT_JWT_KEY: client.jwtKey,
 		CLERK_STAFF_PUBLISHABLE_KEY: staff.publishableKey, CLERK_STAFF_SECRET_KEY: staff.secretKey, CLERK_STAFF_JWT_KEY: staff.jwtKey };
 	const session = () => mintAppSession(config, { sid: 'sess_app', subject: 'user_app', name: 'Synthetic Lawyer' });
-	const request = (value: string) => new Request(`${config.origin}/cases`, { headers: { cookie: `clearcase_session=${value}` } });
+	const request = (value: string) => new Request(`${config.origin}/cases`, { headers: { cookie: `__Host-clearcase_session=${value}` } });
 	const provider = () => {
 		const result = clerkIdentityProviderFromEnv(env, { authorizeCase: async () => {} });
 		if (!result.ok) throw new Error(result.reason);
@@ -44,7 +44,7 @@ describe('app session', () => {
 		for (const change of [{ clientId: 'client-b' }, { issuer: staff.iss }, { origin: 'https://elsewhere.test' }])
 			expect(await readAppSession({ ...f.config, ...change }, value) === null).toBe(true);
 		expect(await readAppSession(f.config, `${value}x`) === null).toBe(true);
-		expect(appCookieValue(new Request(f.config.origin, { headers: { cookie: 'clearcase_session=a; clearcase_session=b' } })) === 'malformed').toBe(true);
+		expect(appCookieValue(new Request(f.config.origin, { headers: { cookie: '__Host-clearcase_session=a; __Host-clearcase_session=b' } })) === 'malformed').toBe(true);
 	});
 	it('sets the required browser cookie attributes', async () => {
 		const f = fixture(), s = await f.session();

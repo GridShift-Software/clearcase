@@ -37,7 +37,7 @@ beforeAll(() => {
 	mkdirSync(path.join(dir, 'scripts'));
 	mkdirSync(path.join(dir, 'deploy/staging/clerk-instances'), { recursive: true });
 	copyFileSync(path.join(repo, 'scripts/clerk-instance.sh'), path.join(dir, 'scripts/clerk-instance.sh'));
-	for (const f of ['instance.ts', 'wrangler.jsonc', 'clerk-instances/development.json']) copyFileSync(path.join(repo, 'deploy/staging', f), path.join(dir, 'deploy/staging', f));
+	for (const f of ['instance.ts', 'origin.ts', 'wrangler.jsonc', 'clerk-instances/development.json']) copyFileSync(path.join(repo, 'deploy/staging', f), path.join(dir, 'deploy/staging', f));
 	writeFileSync(path.join(dir, 'deploy/staging/clerk-instances/production.json'), JSON.stringify(profile, null, '\t'));
 	symlinkSync(path.join(repo, 'src'), path.join(dir, 'src'));
 	writeFileSync(path.join(dir, '.gitignore'), '.local/\n');

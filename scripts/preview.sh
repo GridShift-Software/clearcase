@@ -12,7 +12,8 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 CONFIG=deploy/staging/wrangler.jsonc
-HOST_SUFFIX=clearcase-staging.shiny-sunset-211d.workers.dev
+# Previews stay on the Worker's workers.dev host whatever staging's own origin is (deploy/staging/origin.ts).
+HOST_SUFFIX=$(bun deploy/staging/origin.ts workers-dev-host)
 
 say() { printf 'preview: %s\n' "$*" >&2; }
 die() { say "FAIL: $*"; exit 1; }
@@ -53,13 +54,7 @@ bun run --bun build:hosted >&2
 bun deploy/staging/clerk.ts allow "$origin" >&2
 
 # The runtime accepts a CLEARCASE_NATIVE_CONFIG only when its hostname is CLEARCASE_APP_ORIGIN's: re-aim staging's at this preview.
-native=$(ORIGIN=$origin bun -e "
-const text = (await Bun.file('$CONFIG').text()).replace(/^\s*\/\/.*$/gm, '');
-const config = JSON.parse(JSON.parse(text).vars.CLEARCASE_NATIVE_CONFIG);
-const host = new URL(process.env.ORIGIN).hostname;
-config.deployment.hostname = host;
-for (const c of config.manifest.clients) c.hostname = host;
-console.log(JSON.stringify(config));")
+native=$(bun deploy/staging/origin.ts native "$origin")
 
 out=$(wrangler preview -c "$CONFIG" --name "$name" --tag "$sha" --message "preview.sh $sha" --json \
 	--var "CLEARCASE_APP_ORIGIN:$origin" --var "CLEARCASE_NATIVE_CONFIG:$native" 2>&1) || { echo "$out" >&2; die 'wrangler preview failed'; }

@@ -16,7 +16,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 say() { printf 'clerk-instance: %s\n' "$*" >&2; }
 die() { say "FAIL: $*"; exit 1; }
-STAGING_ORIGIN=https://clearcase-staging.shiny-sunset-211d.workers.dev
+STAGING_ORIGIN=$(bun deploy/staging/origin.ts get)
 # The attribution trailer of the commit this script makes; COMMIT_TRAILER overrides it.
 COMMIT_TRAILER=${COMMIT_TRAILER:-'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'}
 

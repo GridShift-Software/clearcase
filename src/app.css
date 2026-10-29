@@ -380,6 +380,16 @@ span.error, small.error { display: inline-block; padding: 4px 10px; }
 	   bleed above made the scroller 32 px wider than the card, which cut off both its edges (GRS-273). */
 	.pad0 > .table-scroll { margin: 0; width: 100%; }
 	.card > .table-scroll:last-child { margin-bottom: -16px; }
+	/* A table whose last column is the Open link to its row's document (data-open-col) is wider than a phone, and a column pinned to its
+	   right edge with position: sticky can lose its paint after a touch swipe (GRS-274). So the Open cell leaves the row: the row's
+	   first cell, always at the left, gets a 44 px strip under its text and Open sits in it as a whole 44 px target. Open scrolls with
+	   its row like the rest of it, which also keeps a reading order of Ref then Open. The column heading goes with the cell. */
+	table[data-open-col] thead th:last-child { display: none; }
+	table[data-open-col] tbody tr { position: relative; }
+	table[data-open-col] tbody td:first-child:not(:last-child) { padding-bottom: 52px; }
+	table[data-open-col] tbody td:last-child:not(:first-child) { position: absolute; left: 4px; bottom: 1px; padding: 0 8px; border: 0; background: none; }
+	table[data-open-col] tbody tr:hover > td:last-child { background: none; }
+	table[data-open-col] td:last-child :is(a.doc, a.cite) { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 0 6px; }
 	.filters label, .row > div, .q-row > div, .fields > div, .field { flex: 1 1 100%; }
 	.unavailable-view { margin: 16px 0; padding: 32px 16px; }
 }

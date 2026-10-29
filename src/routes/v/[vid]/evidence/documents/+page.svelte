@@ -36,7 +36,7 @@
 	<div class="toolbar types" id="doc-types">{#each m.types as t (t.type)}<span class="badge">{t.type}: {t.count}</span>{/each}</div>
 	<p class="note" id="doc-order">Ordered by type, then date (undated first). Types are imported classifications and have not been verified.</p>
 	<div class="card pad0">
-		<TableScroll label="Documents"><table class="tbl" id="documents-table">
+		<TableScroll label="Documents"><table class="tbl" id="documents-table" data-open-col>
 			<thead><tr><th>Ref</th><th>Type</th><th>Date</th><th>Title</th><th class="num">Amount</th><th>Status</th><th>Doc</th></tr></thead>
 			<tbody>
 				{#each m.page.slice as r (r.ref)}
@@ -60,10 +60,4 @@
 <style>
 	.toolbar { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: .5rem; }
 	.toolbar .in { margin-left: auto; max-width: 240px; }
-	/* On a phone the table scrolls sideways and Open is its last column: pin that column to the right edge so it is in reach, and make it a 44 px target. */
-	@media (max-width: 40rem) {
-		#documents-table th:last-child, #documents-table td:last-child { position: sticky; right: 0; z-index: 1; padding: 0 8px; box-shadow: -1px 0 0 var(--border); }
-		#documents-table td:last-child, #documents-table tbody tr:hover > td:last-child { background: var(--surface); box-shadow: -1px 0 0 var(--border), inset 0 -1px 0 var(--border); }
-		#documents-table td a.doc { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; }
-	}
 </style>

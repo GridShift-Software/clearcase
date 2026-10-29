@@ -5,6 +5,8 @@
 //            44 px high and wide and the Documents list's first Open action is in view without scrolling sideways.
 //            GRS-273: on the phone it also swipes the Documents table and the DOC-column analysis tables towards the row end and back,
 //            and measures Open and the leading cell as seen: clipped by every ancestor and the viewport, and painted in a screenshot.
+//            GRS-274: Open is judged as painted at about 100 ms and 1.5 s after each touchEnd (a screenshot's ink, not only its DOM box), on
+//            Documents and on every analysis table with a Doc column, and must not sit in `position: sticky` inside a scroller.
 //   compare: two measure outputs (base, head): the phone table, and whether every 1440 box is identical.
 // The probe reads the fixtures and server helpers of the checkout it is run from; --root is the build under test, so one probe
 // measures the base and the head. Build first (--build) and run under the browser lock and the offline namespace:
@@ -35,7 +37,7 @@ const GROUPS = {
   pdf_viewer: { page_zoom_controls: '[data-viewer="pdf"] button, [data-viewer="pdf"] input[type="number"]', download: '[data-viewer="pdf"] a[data-action="download-original"]' },
 };
 
-// GRS-273: the analysis views whose tables end in a DOC column of Open links.
+// GRS-273: the analysis views whose tables end in a DOC column of Open links (GRS-274: found by their last heading, whichever link class).
 const DOC_TABLES = ['evidence/contracts_tab', 'evidence/filings_tab', 'litigation/legality_tab', 'quantum/invoice_ledger_tab', 'quantum/quantum_tab', 'quantum/prescription_tab'];
 const log = (...a) => console.error('[phone-targets]', ...a);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -85,28 +87,31 @@ async function inkIn(page, box) {
   for (let i = 0; i < d.length; i += 4) if (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2] < 160) ink++;
   return ink;
 }
-/** The first Open link and the first row's leading cell of `table`, as seen now, with the scroller's offset. */
+/** The first Open link (the first link in a body row's last cell) and that row's leading cell of `table`, as seen now, with the scroller's
+ *  offset and whether the link, its cell or a scroller between them is `position: sticky` or `fixed` (the repaint-loss class, GRS-274). */
 async function openSeen(page, table) {
   // An expression rather than a function argument, so `seen` goes with it (the app's CSP refuses eval in the page).
   const out = await page.evaluate(`(() => { const seen = ${seen};
-    const t = document.querySelector(${JSON.stringify(table)}), a = t?.querySelector('td a.doc'), lead = a?.closest('tr')?.querySelector('td');
-    return a ? { scrollLeft: Math.round(t.closest('.table-scroll')?.scrollLeft ?? 0), open: seen(a), lead: seen(lead) } : null; })()`);
+    const t = document.querySelector(${JSON.stringify(table)}), a = t?.querySelector('tbody tr > td:last-child a'), lead = a?.closest('tr')?.querySelector('td'), sc = t?.closest('.table-scroll');
+    let pinned = false; for (let e = a; e && e !== document.body; e = e.parentElement) if (['sticky', 'fixed'].includes(getComputedStyle(e).position)) pinned = true;
+    return a ? { scrollLeft: Math.round(sc?.scrollLeft ?? 0), scrolls: !!sc && sc.scrollWidth > sc.clientWidth + 1, pinned, open: seen(a), lead: seen(lead) } : null; })()`);
   if (out) out.open.ink = await inkIn(page, out.open);
   return out;
 }
-/** A finger swipe across `table`'s first row by `dx` CSS px (negative: towards the end of the row), then the scroll settles. */
+/** A finger swipe across `table`'s first row by `dx` CSS px (negative: towards the end of the row). The finger stops before it lifts, so
+ *  the scroll does not fling on and a sample taken right after touchEnd is of a settled position. Resolves at touchEnd. */
 async function swipe(page, table, dx) {
   const y = await page.evaluate(t => { const r = document.querySelector(t).querySelector('tbody tr').getBoundingClientRect(); return r.top + Math.min(r.height, 60) / 2; }, table);
   const session = await page.context().newCDPSession(page);
   const from = dx < 0 ? 300 : 90;
   await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: from, y }] });
   for (let i = 1; i <= 10; i++) { await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: from + (dx * i) / 10, y }] }); await sleep(30); }
+  await sleep(150);
   await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await session.detach();
-  await sleep(800);
 }
-/** `table`'s Open link and leading cell at rest, after a swipe towards the row's end and after a swipe back (phone only). With
- *  --shots DIR, each state's screenshot is saved there as `<name>-<state>.png`. */
+/** `table`'s Open link and leading cell at rest, and after each swipe at about 100 ms (`<state>Early`) and about 1.5 s (`<state>`) after
+ *  touchEnd (phone only). With --shots DIR, each sample's screenshot is saved there as `<name>-<state>.png`. */
 async function swipeCheck(page, table, name) {
   await page.evaluate(t => { const e = document.querySelector(t); window.scrollTo(0, e.getBoundingClientRect().top + scrollY - 180); }, table);
   await sleep(300);
@@ -114,8 +119,13 @@ async function swipeCheck(page, table, name) {
   const states = { rest: await openSeen(page, table) };
   if (!states.rest) return null;
   await shot('rest');
-  await swipe(page, table, -210); states.swiped = await openSeen(page, table); await shot('swiped');
-  await swipe(page, table, 280); states.back = await openSeen(page, table); await shot('back');
+  for (const [state, dx] of [['swiped', -210], ['back', 280]]) {
+    // A swipe back on a table that did not move is Chrome's back-navigation gesture, not a scroll: the table has nothing to return from.
+    if (state === 'back' && !states.swiped.scrollLeft) { states.backEarly = states.swipedEarly; states.back = states.swiped; break; }
+    await swipe(page, table, dx);
+    await sleep(100); states[`${state}Early`] = await openSeen(page, table); await shot(`${state}-100ms`);
+    await sleep(1400); states[state] = await openSeen(page, table); await shot(`${state}-1500ms`);
+  }
   return states;
 }
 
@@ -180,8 +190,20 @@ async function viewsLocal(browser, root, tmp) {
         result.docTables = {};
         for (const view of DOC_TABLES) {
           await page.goto(`${base}/${view}`); await ready(page, view.split('/')[1]);
-          const tables = await page.locator('main table:has(td a.doc)').evaluateAll(ts => ts.map((t, i) => (t.dataset.probe = String(i), `table[data-probe="${i}"]`)));
+          const tables = await page.evaluate(() => [...document.querySelectorAll('main table')].filter(t => /^doc$/i.test(t.querySelector('thead th:last-child')?.textContent.trim() ?? '') && t.querySelector('tbody tr > td:last-child a'))
+            .map((t, i) => (t.dataset.probe = String(i), `table[data-probe="${i}"]`)));
           if (tables.length) result.docTables[view] = { scroll: await page.evaluate(t => { const s = document.querySelector(t).closest('.table-scroll'); return s ? { client: s.clientWidth, scroll: s.scrollWidth } : null; }, tables[0]), ...await swipeCheck(page, tables[0], view.split('/')[1]) };
+        }
+      }
+      if (width === 'desktop') {
+        // GRS-274: the Documents list and the Doc-column tables are laid out as before at 1440 (every cell and Open link box).
+        r.docTables = {};
+        for (const view of ['evidence/documents', ...DOC_TABLES]) {
+          await page.goto(`${base}/${view}`); await ready(page, view.split('/')[1]);
+          r.docTables[view] = await page.evaluate(() => [...document.querySelectorAll('main table')].filter(t => /^doc$/i.test(t.querySelector('thead th:last-child')?.textContent.trim() ?? '')).map(t => {
+            const b = e => { const x = e.getBoundingClientRect(); return [x.x, x.y, x.width, x.height].map(n => Math.round(n * 10) / 10); };
+            return { table: b(t), head: [...t.querySelectorAll('thead th')].map(b), rows: [...t.querySelectorAll('tbody tr')].slice(0, 6).map(tr => [...tr.children].map(b)), links: [...t.querySelectorAll('tbody tr > td:last-child a')].slice(0, 6).map(b) };
+          }));
         }
       }
       await context.close();
@@ -231,23 +253,27 @@ const phoneTargets = out => {
   for (const side of Object.values(out.legs)) for (const [view, m] of Object.entries(side.phone ?? {})) for (const [name, g] of Object.entries(m.groups)) rows.push({ view, name, ...g });
   return rows;
 };
-const STATES = ['rest', 'swiped', 'back'];
+const STATES = ['rest', 'swipedEarly', 'swiped', 'backEarly', 'back'];
 const box = b => `${b.x}+${b.w}x${b.h} of ${b.boxX}+${b.boxW}x${b.boxH}`;
-/** What the swipe check finds wrong with `states` of `name`. Documents (`pinned`): Open is seen whole, 44 x 44, painted and tappable in
- *  every state. Every table: the swipe moves it and the swipe back returns it, its leading cell is whole at rest and back, and its
- *  Open is seen whole and painted once the row is swiped to its end. */
-const swipeFaults = (name, states, pinned) => {
-  if (!states) return [`${name}: no Open link to measure`];
+/** What the swipe check finds wrong with `states` of `name`. Open must never sit in `position: sticky` or `fixed` inside the scroller
+ *  (a compositor can lose its paint after a touch swipe, GRS-274). It is seen whole, 44 x 44, painted and tappable at rest and
+ *  after the swipe back, at about 100 ms and 1.5 s after touchEnd, and so is the leading cell when the table is not scrolled. While the row is swiped away Open moves
+ *  with it: a scrolled-out Open is the scroll, not a fault, but one that is pinned or that stayed put must still be whole and painted. */
+const swipeFaults = (name, states) => {
+  if (!states?.rest) return [`${name}: no Open link to measure`];
   const bad = [];
   const whole = b => b.w >= b.boxW - 0.5 && b.h >= b.boxH - 0.5;
-  if (!(states.swiped.scrollLeft > 0)) bad.push(`${name}: the swipe did not scroll the table`);
-  if (states.back.scrollLeft !== 0) bad.push(`${name}: the swipe back left the table at ${states.back.scrollLeft}`);
-  for (const k of ['rest', 'back']) if (!whole(states[k].lead)) bad.push(`${name} ${k}: leading cell cut off, seen ${box(states[k].lead)}`);
-  for (const k of pinned ? STATES : ['swiped']) {
-    const o = states[k].open;
-    if (!whole(o) || (pinned && (o.w < MIN || o.h < MIN))) bad.push(`${name} ${k}: Open seen ${box(o)}`);
-    if (o.ink < 20) bad.push(`${name} ${k}: Open not painted (${o.ink} ink pixels)`);
-    if (pinned && !o.hit) bad.push(`${name} ${k}: a tap on Open does not reach it`);
+  if (states.rest.pinned) bad.push(`${name}: Open sits in position: sticky or fixed inside a horizontal scroller`);
+  if (states.rest.scrolls && !(states.swiped.scrollLeft > 0)) bad.push(`${name}: the swipe did not scroll the table`);
+  if (states.back.scrollLeft !== 0 || states.backEarly.scrollLeft !== 0) bad.push(`${name}: the swipe back left the table at ${states.back.scrollLeft}`);
+  for (const k of STATES) {
+    const s = states[k], o = s.open, away = k.startsWith('swiped') && s.scrollLeft > 0 && !s.pinned;
+    if (!away) {
+      if (!whole(o) || o.w < MIN || o.h < MIN) bad.push(`${name} ${k}: Open seen ${box(o)}`);
+      if (o.ink < 20) bad.push(`${name} ${k}: Open not painted (${o.ink} ink pixels)`);
+      if (!o.hit) bad.push(`${name} ${k}: a tap on Open does not reach it`);
+      if (!s.scrollLeft && !whole(s.lead)) bad.push(`${name} ${k}: leading cell cut off, seen ${box(s.lead)}`);
+    }
   }
   return bad;
 };
@@ -258,8 +284,8 @@ const verdict = out => {
   for (const [leg, side] of Object.entries(out.legs)) for (const [view, m] of Object.entries(side.phone ?? {})) if (m.scrollWidth > 390) bad.push(`${view} phone scrollWidth ${m.scrollWidth}`);
   const local = out.legs.local;
   if (local) {
-    bad.push(...swipeFaults('documents', local.phone.documents.swipe, true));
-    for (const [view, states] of Object.entries(local.docTables ?? {})) bad.push(...swipeFaults(view, states, false));
+    bad.push(...swipeFaults('documents', local.phone.documents.swipe));
+    for (const [view, states] of Object.entries(local.docTables ?? {})) bad.push(...swipeFaults(view, states));
   }
   return bad;
 };
@@ -270,9 +296,9 @@ const table = out => {
   if (open) lines.push(`documents first Open: x=${open.x}, right=${open.right}, table edge ${open.scrollerRight}, in view without scrolling: ${open.inView}`);
   for (const [leg, side] of Object.entries(out.legs)) for (const [view, m] of Object.entries(side.phone ?? {})) lines.push(`scrollWidth ${view} (phone): ${m.scrollWidth}`);
   const swiped = { documents: out.legs.local?.phone?.documents?.swipe, ...out.legs.local?.docTables };
-  for (const [name, states] of Object.entries(swiped)) if (states) for (const k of STATES) {
-    const { scrollLeft, open: o, lead } = states[k];
-    lines.push(`${name.padEnd(26)} ${k.padEnd(6)} scroll ${String(scrollLeft).padStart(3)}  Open seen ${box(o)} ink ${o.ink} tap ${o.hit ? 'reaches it' : `lands on ${o.at ?? 'nothing'}`}  lead seen ${box(lead)}`);
+  for (const [name, states] of Object.entries(swiped)) if (states?.rest) for (const k of STATES) {
+    const { scrollLeft, open: o, lead, pinned } = states[k];
+    lines.push(`${name.padEnd(26)} ${k.padEnd(11)}${pinned ? ' STICKY' : ''} scroll ${String(scrollLeft).padStart(3)}  Open seen ${box(o)} ink ${o.ink} tap ${o.hit ? 'reaches it' : `lands on ${o.at ?? 'nothing'}`}  lead seen ${box(lead)}`);
   }
   return lines.join('\n');
 };
@@ -297,7 +323,7 @@ async function runMeasure() {
   if (outFile) await fs.writeFile(outFile, JSON.stringify(out, null, 1));
   console.log(`revision ${out.revision}\n${table(out)}`);
   const bad = verdict(out);
-  console.log(bad.length ? `RED: ${bad.length} below target\n  ${bad.join('\n  ')}` : 'GREEN: every listed control is at least 44 x 44, the first Open action is in view, and Open stays whole and painted through a swipe and back');
+  console.log(bad.length ? `RED: ${bad.length} below target\n  ${bad.join('\n  ')}` : 'GREEN: every listed control is at least 44 x 44, and Open is whole, painted and tappable at rest and after a swipe, on Documents and on every analysis table with a Doc column');
   process.exitCode = flag('--require-green') && bad.length ? 1 : 0;
 }
 

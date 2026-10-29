@@ -31,7 +31,7 @@
 		{#each c.groups as g, gi (gi)}
 			<section class="card group" aria-labelledby="group-{gi}" data-group={gi}>
 				<h2 id="group-{gi}" class="chead">{g.key} <span class="tag">({g.items.length})</span></h2>
-				<TableScroll label={g.key}><table class="tbl">
+				<TableScroll label={g.key}><table class="tbl" data-open-col>
 					<thead><tr><th>Ref</th><th>Date</th><th>Contract</th><th>Signed</th><th>Text</th><th>Doc</th></tr></thead>
 					<tbody>
 						{#each g.items as x, i (i)}

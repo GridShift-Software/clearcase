@@ -71,7 +71,7 @@
 		</form>
 		{#if ssrNotes.length}<div class="q-flag" role="note" id="pr-url-note">{#each ssrNotes as n (n)}<p>{n}</p>{/each}</div>{/if}
 		<TableScroll label="Prescription" class="q-wrap">
-			<table class="q-tbl" id="prescription">
+			<table class="q-tbl" id="prescription" data-open-col>
 				<thead><tr><th>Ref</th><th>Invoice</th><th>Invoice date</th><th>Prescribes (3yr)</th><th>Risk</th><th>As-of status</th><th>Doc</th></tr></thead>
 				<tbody>
 					{#each pg.slice as r, i (`${r.ref}#${i}`)}

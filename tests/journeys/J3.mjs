@@ -114,15 +114,19 @@ export const journey = () => run('J3', async j => {
       const rows = rowWithOriginal(p, plist); await rows.first().waitFor();
       const count = await rows.count();
       check(count >= PHONE_ROWS, `Only ${count} chronology rows with an original at 390 px; the phone check taps ${PHONE_ROWS}`);
-      const shows = [];
+      // Each tap is timed through the original drawn in the pane, against one-click-row-original's budgets.
+      const taps = [];
       for (let i = 0; i < PHONE_ROWS; i++) {
         if (i) await p.locator('[data-testid="chronology-document-pane"] .pane-back').tap();
         const r = rows.nth(i), rref = await r.getAttribute('data-ref');
-        const button = r.locator('button.preview'); await button.scrollIntoViewIfNeeded(); await button.tap();
-        shows.push(await paneShowsOriginal(p.locator(`[data-testid="chronology-document-pane"][data-ref="${rref}"]`), rref));
+        const button = r.locator('button.preview'); await button.scrollIntoViewIfNeeded();
+        const start = performance.now(); await button.tap();
+        const shows = await paneShowsOriginal(p.locator(`[data-testid="chronology-document-pane"][data-ref="${rref}"]`), rref); await paint(p);
+        taps.push({ shows, ms: Math.round(performance.now() - start), budgetMs: shows === 'pdf' ? PDF_MS : PAGE_MS });
       }
-      j.metadata.phonePaneShows = shows;
-      j.results.push({ name: 'phone-pane-original', status: 'PASS' });
+      j.metadata.phonePaneShows = taps.map(t => t.shows);
+      const over = taps.filter(t => t.ms >= t.budgetMs);
+      j.results.push({ name: 'phone-pane-original', status: over.length ? 'FAIL' : 'PASS', taps, ...(over.length ? { reason: 'Latency budget exceeded' } : {}) });
     });
   } finally { await phone.close(); }
 });

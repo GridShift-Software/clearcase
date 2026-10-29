@@ -48,6 +48,7 @@ export function preflightProblems(needs = []) {
   }
   for (const name of needs) if (!env(name)) problems.push(`${name} is required (${NEED_WHAT[name] || 'the reference of a document of the case under test'})`);
   if (needs.includes('EXPECTED_DOCUMENTS') && env('EXPECTED_DOCUMENTS') && !/^[1-9]\d*$/.test(env('EXPECTED_DOCUMENTS'))) problems.push(`EXPECTED_DOCUMENTS must be a positive integer`);
+  if (env('HEADS_EXPECTED') && !/^(0|[1-9]\d*)$/.test(env('HEADS_EXPECTED'))) problems.push('HEADS_EXPECTED must be a whole number of Heads entries (0 for a case with none)');
   if (env('CLEARCASE_BROWSER_LOCK') !== 'none' && !process.env.CLEARCASE_BROWSER_SLOT) problems.push('run under the browser lock (orch-bin/browser-lock, or the path in CLEARCASE_BROWSER_LOCK), or set CLEARCASE_BROWSER_LOCK=none where no workspace lock exists; docs/development.md "Browser admission"');
   return problems;
 }
@@ -89,6 +90,21 @@ export const VIEW_CONTENT = Object.freeze({
 });
 const contentOf = id => (id.startsWith('doc:') ? ['document'] : VIEW_CONTENT[id] ?? ['rows', 'narrative', 'events', 'form']);
 const PLACEHOLDER = '^(Coming soon|Internal Error|Not Found|Hosted runtime is unavailable)$';
+/**
+ * In the page: whether a table or grid row holds domain data. It is shown, is not an empty, error, placeholder or loading row
+ * (nor inside a busy region), and has at least two shown cells whose text is neither a loading phrase nor only dashes or dots.
+ */
+function isDomainRow(r) {
+  const shown = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  const notData = '.empty, .error, .placeholder, .loading, .skeleton, [role="alert"], [role="status"], [aria-busy="true"], [data-loading], [data-placeholder]';
+  if (!shown(r) || r.matches(notData) || r.querySelector(notData) || r.closest('[aria-busy="true"]')) return false;
+  const usable = c => { const t = c.innerText.trim(); return shown(c) && t && !/^(loading|please wait|fetching|retrieving)\b/i.test(t) && !/^[\s\-\u2013\u2014.\u2026]*$/.test(t); };
+  return [...r.querySelectorAll(':scope > td, :scope > [role="cell"], :scope > [role="gridcell"]')].filter(usable).length >= 2;
+}
+// An in-page function that can call isDomainRow: page functions are shipped as source, so the helper goes with them.
+const withDomainRow = fn => new Function('arg', `const isDomainRow = ${isDomainRow};\nreturn (${fn})(arg);`);
+/** In the page: how many rows under `root` hold domain data (isDomainRow). */
+export const countDomainRows = withDomainRow(root => [...root.querySelectorAll('tbody tr, [role="row"]')].filter(isDomainRow).length);
 /** In the page: null while the view is not there yet, loading or without its content; otherwise 'ready' or why it failed. */
 function viewState({ id, kinds, placeholder }) {
   const main = document.querySelector(`main[data-ready="${CSS.escape(id)}"]`);
@@ -105,8 +121,7 @@ function viewState({ id, kinds, placeholder }) {
   if (any('[role="alert"], .error, [data-pane-state="error"], [data-viewer-state="error"]', text)) return 'Error state instead of view';
   if (!any('h1', text) || any('[aria-busy="true"], [data-pane-state="loading"], [data-viewer-state="loading"]')) return null;
   const has = {
-    rows: () => any('tbody tr', r => r.querySelectorAll('td').length >= 2 && !r.querySelector('.empty, .error, [role="alert"]') && text(r))
-      || any('[role="row"]', r => r.querySelector('[role="cell"], [role="gridcell"]') && text(r)),
+    rows: () => [...main.querySelectorAll('tbody tr, [role="row"]')].some(isDomainRow),
     narrative: () => any('.narrative', text),
     events: () => any('[data-phase] [role="listitem"]', e => e.querySelector('a[href]') && text(e)),
     form: () => any('input:not([type="hidden"]), select, textarea', c => !c.disabled && !c.readOnly && !c.closest('fieldset[disabled]')),
@@ -114,9 +129,10 @@ function viewState({ id, kinds, placeholder }) {
   };
   return kinds.some(k => has[k]()) ? 'ready' : null;
 }
+const VIEW_STATE = withDomainRow(viewState);
 /** Waits until view `id` is usable: its content visible, no loading state left; an error, unavailable or placeholder state fails at once. */
 export async function ready(page, id) {
-  const state = await (await page.waitForFunction(viewState, { id, kinds: contentOf(id), placeholder: PLACEHOLDER }, { polling: 'raf' })).jsonValue();
+  const state = await (await page.waitForFunction(VIEW_STATE, { id, kinds: contentOf(id), placeholder: PLACEHOLDER }, { polling: 'raf' })).jsonValue();
   check(state === 'ready', state);
 }
 // The hosted PDF viewer (J3's pane and J4's opened original): a page counts once its viewer is ready and page 1 is drawn.

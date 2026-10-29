@@ -9,10 +9,10 @@ variable, with no values).
 | Journey | Checks |
 |---|---|
 | J1 | the shell and every visible navigation entry opens its view, and the step's timer stops only once that view is ready (below) |
-| J2 | Overview shows the document count, exactly the three slots (Open deadlines, Unbilled time, Freshness), each filled, visible, titled and holding its value with no error or failure text, and the Dates heading with its date span |
-| J3 | one click on a row shows its original in the pane beside the list, timed to the pane (`one-click-row`) and on to the original drawn in it (`one-click-row-original`); one citation click opens its document; at 390 px the eight column headings are visible and do not overlap, and three rows each show their original. A PDF must draw a visible page 1; an email or download-only state must show visible links to the same original's viewer and download, and a local-original state a link to its document page. The phone context's network and page errors count like the desktop's |
+| J2 | Overview shows the document count, exactly the three slots (Open deadlines, Unbilled time, Freshness), each filled, visible, with its title and value in rendered, visible text and no error or failure text, and the Dates heading with its date span |
+| J3 | one click on a row shows its original in the pane beside the list, timed to the pane (`one-click-row`) and on to the original drawn in it (`one-click-row-original`); one citation click opens its document; at 390 px the eight column headings are visible and do not overlap, and three rows each show their original, each tap timed through the drawn original against the same budgets (the timings are in the `phone-pane-original` step's `taps`). A PDF must draw a visible page 1; an email or download-only state must show visible links to the same original's viewer and download, and a local-original state a link to its document page. The phone context's network and page errors count like the desktop's |
 | J4 | list, document page and first PDF page for a small, a medium and the largest original: the opened page's own viewer must show a visible, drawn page-1 canvas, and its error state fails at once (the local isolated viewer likewise, in a visible frame) |
-| J5 | the 24 analysis views: the hosted `analysis-content` wrapper around the view's `main` is visible and says `data-empty="false"`, and the view shows visible domain rows, events, narrative or calculator output, never just any text (Heads: see "Fresh-case Heads") |
+| J5 | the 24 analysis views: the hosted `analysis-content` wrapper around the view's `main` is visible and says `data-empty="false"`, and the view shows visible domain rows, events, narrative or calculator output, never just any text (Heads: see "Heads entries") |
 | J6 | a known-reference search updates `?q=` and shows the matching document link |
 | J7 | a document note saves, survives a reload and appears in the case notes list (writes) |
 | J8 | a deadline saves, survives a reload and downloads as an ICS event (writes) |
@@ -21,14 +21,16 @@ variable, with no values).
 
 A view is ready (`ready()` in `lib.mjs`, used by every journey that opens one) when its `main[data-ready]` and heading are visible,
 nothing in it is loading (`aria-busy="true"`, a loading pane or viewer state), and it shows the content `VIEW_CONTENT` names for
-it: populated table or grid rows, its narrative, its timeline events with links, an entry form with working controls, or (a
+it: domain rows (shown, not an empty, error, placeholder or loading row nor inside a busy region, with at least two shown cells whose text is not a loading phrase or only dashes), its narrative, its timeline events with links, an entry form with working controls, or (a
 document page) its original's metadata. A visible error (`role="alert"`, `.error`, an error pane or viewer state), an
 unavailable placeholder (`data-unavailable`) or a placeholder phrase fails the step at once.
 
-**Fresh-case Heads.** Heads of argument are the lawyer's own entries, and an import supplies none, so a fresh case legitimately
-shows the empty state: J5 accepts `data-empty="true"` only with no rows and exactly one empty-state row, and in either case
-requires the add form's fields and its submit button to be usable. A case that should already hold submissions is not told apart
-from a fresh one; that needs a seeded case.
+**Heads entries.** Heads of argument are the lawyer's own entries, and an import supplies none, so a fresh case legitimately
+shows the empty state. J5 always requires the add form's fields and its submit button to be usable. `HEADS_EXPECTED=<n>` says
+how many entries the case under test holds: with `n` > 0 exactly `n` visible entries and `data-empty="false"`, with 0 the
+documented empty state (one empty-state row, no entries, `data-empty="true"`). Unset, either is accepted (no rows with exactly one
+empty-state row and `data-empty="true"`, or rows with `data-empty="false"`), so a case whose saved submissions were lost passes
+unless `HEADS_EXPECTED` is set; the release-candidate gate sets it.
 
 Budgets, strict `<`: page or action 2,000 ms, first PDF page 3,000 ms, sign-in 5,000 ms (`SIGN_IN_MS`), saves and downloads 2,000 ms, bundle
 assembly 5,000 ms (`BUNDLE_MS`). J3's `one-click-row-original` takes the first PDF page budget when the pane shows a PDF and the
@@ -113,6 +115,7 @@ Space runs at least 45 s apart on a development Clerk instance, which rate-limit
 | `SMALL_BUNDLE`, `MEDIUM_BUNDLE`, `LARGE_BUNDLE` | optional bundle (group) button name to open before filtering, where the documents list groups by bundle |
 | `SEARCH_REF` | J6's known result; defaults to `SMALL_REF` |
 | `EXPECTED_DOCUMENTS` | Required by J2 and `run-all`: the Overview document count of the case under test, so a partial import fails |
+| `HEADS_EXPECTED` | optional, J5: the number of Heads entries the case under test holds (0: the empty state); see "Heads entries" |
 | `CREDENTIALS_JSON` | private `{email,password,otp?}`; never logged. Without it (or `STORAGE_STATE`) sign-in speed is untested |
 | `STORAGE_STATE` | private Playwright storage state carrying an existing Access or app session |
 | `SIGN_IN_PATH` | default `/sign-in` |

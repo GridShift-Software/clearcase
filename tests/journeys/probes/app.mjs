@@ -20,9 +20,16 @@ ${wrap(`<main data-ready="${id}"><h1>${id}</h1>${body}</main>`)}${script ? `<scr
 const bare = (body, attrs = '') => `<!doctype html><html><head><meta charset="utf-8"><link rel="icon" href="data:,"></head><body${attrs}>${body}</body></html>`;
 
 const TABLE = '<table><tbody><tr><td>Synthetic row</td><td>Value one</td></tr><tr><td>Second row</td><td>Value two</td></tr></tbody></table>';
-const heads = ({ usable = true } = {}) => `<form id="hd-add"><input type="hidden" name="addId" value="a">
+const heads = ({ usable = true, entries = 0 } = {}) => `<form id="hd-add"><input type="hidden" name="addId" value="a">
   <input id="hd_head" ${usable ? '' : 'disabled'}><input id="hd_sub" ${usable ? '' : 'disabled'}>${usable ? '<button type="submit">Add</button>' : ''}</form>
-  <table id="heads-table"><tbody><tr><td colspan="6"><div class="empty">No submissions yet.</div></td></tr></tbody></table>`;
+  <table id="heads-table"><tbody>${entries
+    ? Array.from({ length: entries }, (_, i) => `<tr data-row="r${i}"><td>${i + 1}</td><td><b>Heading ${i + 1}</b></td><td>A synthetic submission</td><td>An authority</td><td>PRB-1</td><td><button type="button">Delete</button></td></tr>`).join('')
+    : '<tr><td colspan="6"><div class="empty">No submissions yet.</div></td></tr>'}</tbody></table>`;
+// A table whose only row is a loading placeholder, and Overview tiles whose titles and values sit in hidden children (PR #206 review).
+const PLACEHOLDER_ROWS = '<table><tbody><tr class="placeholder"><td>Loading…</td><td>Please wait</td></tr></tbody></table>';
+const hideSlotText = html => html.replace(/<h2>(Open deadlines|Unbilled time|Freshness)<\/h2>/g, '<h2 style="min-height:20px"><span hidden>$1</span></h2>')
+  .replace(/<p class="num">([^<]+)<\/p>/g, '<p class="num" style="min-height:20px"><span hidden>$1</span></p>')
+  .replace(/<p id="freshness-stamp">([^<]+)<\/p>/, '<p id="freshness-stamp" style="min-height:20px"><span hidden>$1</span></p>');
 const ANALYSIS = {
   matter: '<section id="matter-storyline-card"><h2>Storyline</h2><p class="narrative">A synthetic storyline for the probe.</p></section>',
   timeline: `<div data-phase="0"><div role="listitem"><a href="${V}/doc/PRB-1">A synthetic event</a></div></div>`,
@@ -54,7 +61,7 @@ const PANE = {
   email: ref => `${viewerLink(ref)}<p class="pane-state" data-pane-state="email">This email opens in the full viewer. <a href="${original(ref)}/view">Open it</a> or ${download(ref, 'download the original')}.</p>`,
   'download-only-unlinked': ref => `${viewerLink(ref)}<p class="pane-state" data-pane-state="download-only">This file type is not shown in the app.</p>`,
 };
-const chronology = ({ states = ['pdf', 'download-only', 'email'], delay = 0, phoneHeadings = true, phoneImage = false } = {}) => {
+const chronology = ({ states = ['pdf', 'download-only', 'email'], delay = 0, phoneDelay = 0, phoneHeadings = true, phoneImage = false } = {}) => {
   const heads = ['Preview', 'Date', 'Ref', 'Title / subject', 'Type', 'Bundle', 'Amount', 'Status', 'Original'].map(h => `<span role="columnheader">${h}</span>`).join('');
   const rows = states.map((_, i) => `<div class="grid-row" role="row" data-ref="${REFS[i]}"><span role="cell"><button class="preview" data-i="${i}">Preview</button></span>
     <span role="cell">day ${i + 1}</span><span role="cell"><a href="${V}/doc/${REFS[i]}">${REFS[i]}</a></span><span role="cell">Synthetic subject</span><span role="cell">letter</span>
@@ -67,7 +74,7 @@ const chronology = ({ states = ['pdf', 'download-only', 'email'], delay = 0, pho
       document.querySelectorAll('button.preview').forEach(b => b.addEventListener('click', () => {
         const ref = b.closest('[data-ref]').dataset.ref; pane.dataset.ref = ref;
         body.innerHTML = '<p class="pane-state" data-pane-state="loading" role="status">Loading the original…</p>';
-        setTimeout(() => { body.innerHTML = panes[ref]; }, ${delay});
+        setTimeout(() => { body.innerHTML = panes[ref]; }, innerWidth < 600 ? ${phoneDelay} : ${delay});
       }));
       pane.querySelector('.pane-back button').addEventListener('click', () => { delete pane.dataset.ref; body.innerHTML = ''; });
       ${phoneImage ? "if (innerWidth < 600) { const i = document.createElement('img'); i.alt = 'decoration'; i.src = '/probe/phone-only.png'; document.body.append(i); }" : ''}`,
@@ -102,6 +109,11 @@ export const SCENARIOS = {
   m1: { chronology: () => chronology({ delay: 3200 }) },
   m2: { 'litigation/heads_tab': () => analysis('heads_tab', heads({ usable: false })) },
   m3: { chronology: () => chronology({ states: ['pdf'], phoneHeadings: false }) },
+  'h1-placeholder': { 'evidence/people': () => page('people', PLACEHOLDER_ROWS) },
+  'h2-hidden-text': { overview: () => hideSlotText(overview()) },
+  'h3-placeholder': { 'evidence/contracts_tab': () => analysis('contracts_tab', PLACEHOLDER_ROWS, false) },
+  'm1-phone': { chronology: () => chronology({ phoneDelay: 3200 }) },
+  'heads-seeded': { 'litigation/heads_tab': () => analysis('heads_tab', heads({ entries: 2 }), false) },
 };
 const HEALTHY_VIEWER = { 'PRB-1': 'hosted', 'PRB-2': 'legacy', 'PRB-3': 'hosted' };
 

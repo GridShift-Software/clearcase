@@ -21,6 +21,14 @@ const PROBES = [
   { finding: 'M1', journey: 'J3', scenario: 'm1', fails: ['one-click-row-original'] },
   { finding: 'M2', journey: 'J5', scenario: 'm2', fails: ['heads_tab'] },
   { finding: 'M3', journey: 'J3', scenario: 'm3', fails: ['phone-headings', 'phone-pane-original'] },
+  // PR #206 review round: placeholder rows, hidden slot text, the phone leg of M1 and an expected Heads count.
+  { finding: 'H1-placeholder', journey: 'J1', scenario: 'h1-placeholder', fails: ['nav:people'] },
+  { finding: 'H2-hidden-text', journey: 'J2', scenario: 'h2-hidden-text', fails: ['overview-content', 'journey'] },
+  { finding: 'H3-placeholder', journey: 'J5', scenario: 'h3-placeholder', fails: ['contracts_tab'] },
+  { finding: 'M1-phone', journey: 'J3', scenario: 'm1-phone', fails: ['phone-pane-original'] },
+  { finding: 'M2-expected', journey: 'J5', scenario: 'healthy', env: { HEADS_EXPECTED: '2' }, fails: ['heads_tab'] },
+  { finding: 'control:J5-heads0', journey: 'J5', scenario: 'healthy', env: { HEADS_EXPECTED: '0' }, fails: [] },
+  { finding: 'control:J5-heads2', journey: 'J5', scenario: 'heads-seeded', env: { HEADS_EXPECTED: '2' }, fails: [] },
 ];
 
 const args = process.argv.slice(2);
@@ -37,6 +45,7 @@ for (const probe of PROBES.filter(p => !only.size || only.has(p.finding) || only
     ...Object.fromEntries(PASS_THROUGH.filter(n => process.env[n]).map(n => [n, process.env[n]])),
     MODE: 'hosted', BASE_URL: app.origin, CASE_ID: CASE, RESULTS_VERSION: RV, EXPECTED_SHA: SHA, EXPECTED_DOCUMENTS: '3',
     SMALL_REF: REFS[0], MEDIUM_REF: REFS[1], LARGE_REF: REFS[2], RESULTS_DIR: path.join(out, probe.finding.replace(':', '-')),
+    ...probe.env,
   };
   try {
     await new Promise(resolve => spawn(process.execPath, [path.join(journeys, `${probe.journey}.mjs`)], { env, stdio: 'ignore' }).on('exit', resolve));
@@ -50,7 +59,7 @@ for (const probe of PROBES.filter(p => !only.size || only.has(p.finding) || only
     ? (result.status === 'PASS' ? 'FALSE PASS' : result.status === 'FAIL' && exact ? 'caught' : 'WRONG STEPS')
     : (result.status === 'PASS' ? 'passes' : 'HEALTHY APP FAILS');
   rows.push({ ...probe, status: result.status, failed, verdict, reasons: result.steps.filter(s => s.status === 'FAIL').map(s => `${s.name}: ${s.reason}`) });
-  console.log(`${probe.finding.padEnd(11)} ${probe.journey}  ${result.status.padEnd(4)}  ${verdict.padEnd(17)} failed: ${failed.join(', ') || '-'}`);
+  console.log(`${probe.finding.padEnd(17)} ${probe.journey}  ${result.status.padEnd(4)}  ${verdict.padEnd(17)} failed: ${failed.join(', ') || '-'}`);
 }
 for (const r of rows.filter(r => !['caught', 'passes'].includes(r.verdict))) console.log(`\n${r.finding}: expected failing [${r.fails.join(', ')}]\n  ${r.reasons.join('\n  ') || 'no failed step'}`);
 await fs.rm(out, { recursive: true, force: true });

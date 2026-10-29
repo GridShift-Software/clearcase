@@ -13,9 +13,14 @@ export const journey = () => run('J2', async j => {
     // EXPECTED_DOCUMENTS pins the count of the case under test, so a partial import fails here.
     check(count === Number(process.env.EXPECTED_DOCUMENTS), 'Unexpected document count');
     const slots = await j.page.locator('[data-slot]').evaluateAll((es, expected) => es.map(e => {
-      const shown = x => !!x && x.getClientRects().length > 0 && getComputedStyle(x).visibility !== 'hidden';
-      // textContent: the tiles' titles are styled uppercase, which innerText would report
-      const text = x => (shown(x) ? x.textContent.replace(/\s+/g, ' ').trim() : '');
+      const shown = x => !!x && x.getClientRects().length > 0 && x.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+      // Only text that is rendered and visible, as written: the tiles' titles are styled uppercase, which innerText would report.
+      const text = x => {
+        if (!shown(x)) return '';
+        const parts = [];
+        for (const walk = document.createTreeWalker(x, NodeFilter.SHOW_TEXT); walk.nextNode();) if (shown(walk.currentNode.parentElement)) parts.push(walk.currentNode.textContent);
+        return parts.join('').replace(/\s+/g, ' ').trim();
+      };
       return {
         id: e.dataset.slot, filled: e.dataset.slotStatus === 'filled', shown: shown(e), heading: text(e.querySelector('h2')),
         value: text(e.querySelector(expected[e.dataset.slot]?.value || ':not(*)')),

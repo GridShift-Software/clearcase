@@ -29,6 +29,9 @@ describe('the case list', () => {
     expect(displayName({ name: 'a-viewer', principal: { subject: 'a-viewer' } })).toBeNull();
     expect(displayName({ name: '  ', principal: { subject: RAW_ID } })).toBeNull();
     expect(displayName({ principal: null })).toBeNull();
+    // An email configured as the name claim is an address, not a name: show nothing (276 review).
+    expect(displayName({ name: 'synthetic.viewer@example.invalid', principal: { subject: RAW_ID } })).toBeNull();
+    expect(displayName({ name: 'Viewer <synthetic@example.invalid>', principal: { subject: RAW_ID } })).toBeNull();
   });
 
   it('never sends or renders the raw Clerk ID', async () => {

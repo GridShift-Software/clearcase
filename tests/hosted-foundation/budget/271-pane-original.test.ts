@@ -4,7 +4,8 @@
 // available" while the viewer page shows the same original. A real gone original must still say so. Synthetic SQLite and
 // R2 doubles, with the asset-ticket key set as on staging (it turns on the fast original path the snapshot serves).
 import { expect, it, vi } from 'vitest';
-vi.mock('cloudflare:workers', () => ({ env: { CLEARCASE_ASSET_TICKET_KEY: 'k'.repeat(64) } }));
+const TICKET_KEY = vi.hoisted(() => 'k'.repeat(64));
+vi.mock('cloudflare:workers', () => ({ env: { CLEARCASE_ASSET_TICKET_KEY: TICKET_KEY } }));
 import { readFileSync } from 'node:fs';
 import { hostedServices } from '../../../src/lib/server/runtime/hosted/services.ts';
 import { provisionAuditBinding } from '../../../src/lib/audit/d1-log.ts';
@@ -12,6 +13,7 @@ import { auditConfig } from '../../../src/lib/audit/config.ts';
 import { mintAppSession, signAppSession } from '../../../src/lib/auth/app-session.ts';
 import { id } from '../../../src/lib/server/runtime/ids.ts';
 import { shardPrefix } from '../../../src/lib/results/hosted/shards.ts';
+import { verifyTicket } from '../../../src/lib/viewer/hosted/ticket.ts';
 import { planNativeRuntimeConfig } from '../../../deploy/native-alpha/runtime-config.ts';
 import * as paneOriginal from '../../../deploy/client/routes/cases/[caseId]/v/[version]/chronology/original/[ref]/+server.ts';
 import { exampleInput } from '../native-runtime-config/example-input.ts';
@@ -29,8 +31,8 @@ async function world() {
   w.db.sqlite.exec(readFileSync('src/lib/publication/hosted/migrations/0007_shard_admission.sql', 'utf8'));
   const rv = w.resultsVersion!;
   const refs = w.db.rows<{ ref: string }>("SELECT ref FROM rs_document WHERE version_id = ? AND json_extract(state_json, '$.original.sha256') IS NOT NULL ORDER BY ord LIMIT 2", rv).map((r) => r.ref);
-  // The ETag intake records (GRS-250), which the original-serving route reads instead of probing the bytes.
-  w.db.exec("UPDATE rs_original SET etag = '\"synthetic-etag\"' WHERE etag IS NULL");
+  // The ETag and media family intake records (GRS-250), which the original-serving route reads instead of probing the bytes.
+  w.db.exec("UPDATE rs_original SET etag = '\"synthetic-etag\"', media_family = 'pdf' WHERE etag IS NULL");
   // The chronology's one list page, admitted by the publication: the pane endpoint finds the document's row there.
   const page = new TextEncoder().encode(JSON.stringify({ page: 1, pages: 1, total: refs.length, rows: refs.map((ref) => ({ ref, file: 'present' })) }));
   w.bucket.setRaw(`${shardPrefix(rv)}list/page-1.json`, page);
@@ -66,6 +68,11 @@ it("271 the pane's POST shows a present original as available, through the reque
     const { view } = await w.open(ref!);
     expect(view).toMatchObject({ state: 'available', mode: 'pdf' });
     expect(view.srcHref).toMatch(new RegExp(`^/cases/case-a/originals/${ref}\\?t=`));
+    // The ticket is one the byte route accepts for this case and asset, and only for them.
+    const ticket = new URL(view.srcHref!, 'https://client-a.clearcase.test').searchParams.get('t')!;
+    expect(await verifyTicket(ticket, TICKET_KEY, 'case-a', ref!)).toMatchObject({ caseId: 'case-a', assetId: ref, mediaType: 'application/pdf', mediaFamily: 'pdf', subject: 'pane-viewer' });
+    expect(await verifyTicket(ticket, TICKET_KEY, 'case-b', ref!)).toBeNull();
+    expect(await verifyTicket(ticket, TICKET_KEY, 'case-a', w.refs[1]!)).toBeNull();
   } finally { await w.cleanup(); }
 });
 

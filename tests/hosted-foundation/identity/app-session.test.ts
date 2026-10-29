@@ -3,7 +3,8 @@ import { appCookieValue, appSetCookie, mintAppSession, readAppSession, revokeApp
 import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 import { appSessionRefresh, clerkBrowserNeeded } from '../../../src/lib/auth/app-browser.ts';
 import { craftedInstance } from './synthetic.ts';
-import { signOutClerkSession } from '../../../src/lib/auth/clerk/flow.ts';
+import { bootstrapProof, signOutClerkSession } from '../../../src/lib/auth/clerk/flow.ts';
+import { readClerkIdentityConfig } from '../../../src/lib/auth/clerk/config.ts';
 import { id } from '../../../src/lib/server/runtime/ids.ts';
 
 const client = craftedInstance('app-client.clerk.test'), staff = craftedInstance('app-staff.clerk.test');
@@ -21,7 +22,13 @@ function fixture() {
 		if (!result.ok) throw new Error(result.reason);
 		return result.provider;
 	};
-	return { config, env, sessions, session, request, provider };
+	/** A Clerk session cookie with the proof the return of this browser's own handshake sets beside it (GRS-279). */
+	const proven = async (token: string) => {
+		const read = readClerkIdentityConfig(env);
+		if (!read.ok) throw new Error(read.reason);
+		return `__session=${token}; ${(await bootstrapProof(read.config, token)).pair}`;
+	};
+	return { config, env, sessions, session, request, provider, proven };
 }
 describe('app session', () => {
 	it('refuses 8 hours and 1 minute after the last refresh', async () => {
@@ -77,12 +84,13 @@ describe('app session', () => {
 		invalid.headers.set('cookie', `${invalid.headers.get('cookie')}; __session=${client.token({ sub: 'user_app', sid: 'sess_app', azp: f.config.origin })}`);
 		expect((await f.provider().authenticate({ request: invalid })).kind).toBe('anonymous');
 	});
-	it('bootstraps only at sign-in, networklessly, from a pinned Clerk JWT', async () => {
-		const f = fixture();
-		const headers = { cookie: `__session=${client.token({ sub: 'user_app', sid: 'sess_app', azp: f.config.origin, claims: { name: 'Synthetic Lawyer' } })}` };
+	it('bootstraps only at sign-in, networklessly, from a pinned Clerk JWT and its proof', async () => {
+		const f = fixture(), token = client.token({ sub: 'user_app', sid: 'sess_app', azp: f.config.origin, claims: { name: 'Synthetic Lawyer' } });
+		const headers = { cookie: await f.proven(token) };
 		const network = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected network'));
 		try {
 			expect((await f.provider().authenticate({ request: new Request(`${f.config.origin}/sign-in`, { headers }) })).kind).toBe('verified');
+			expect((await f.provider().authenticate({ request: new Request(`${f.config.origin}/sign-in`, { headers: { cookie: `__session=${token}` } }) })).kind).toBe('anonymous');
 			expect((await f.provider().authenticate({ request: new Request(`${f.config.origin}/cases`, { headers }) })).kind).toBe('anonymous');
 			expect(network).toHaveBeenCalledTimes(0);
 		} finally { network.mockRestore(); }
@@ -98,10 +106,10 @@ describe('app session', () => {
 			f.sessions.get.mockClear();
 			expect((await f.provider().authenticate({ request: b })).kind).toBe('anonymous');
 			expect(f.sessions.get).toHaveBeenCalledTimes(1);
-			const bootstrap = (iat: number) => new Request(`${f.config.origin}/sign-in`, { headers: { cookie: `__session=${client.token({ sub: first.subject, sid: 'sess_new', azp: f.config.origin, claims: { iat } })}` } });
-			expect((await f.provider().authenticate({ request: bootstrap(first.iat) })).kind).toBe('anonymous');
+			const bootstrap = async (iat: number) => new Request(`${f.config.origin}/sign-in`, { headers: { cookie: await f.proven(client.token({ sub: first.subject, sid: 'sess_new', azp: f.config.origin, claims: { iat } })) } });
+			expect((await f.provider().authenticate({ request: await bootstrap(first.iat) })).kind).toBe('anonymous');
 			vi.advanceTimersByTime(2000);
-			expect((await f.provider().authenticate({ request: bootstrap(Math.floor(Date.now() / 1000)) })).kind).toBe('verified');
+			expect((await f.provider().authenticate({ request: await bootstrap(Math.floor(Date.now() / 1000)) })).kind).toBe('verified');
 			const fresh = await mintAppSession(f.config, { sid: 'sess_new', subject: first.subject, name: first.name });
 			expect((await f.provider().authenticate({ request: f.request(await signAppSession(f.config, fresh)) })).kind).toBe('verified');
 		} finally { vi.useRealTimers(); }

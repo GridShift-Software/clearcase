@@ -38,19 +38,20 @@ export interface ClerkIdentityConfig {
 	/** When set, a session token must carry exactly this audience (Clerk session tokens carry none by default), else null. */
 	readonly audience: string | null;
 }
-declare const checkedStaffDevBrowser: unique symbol;
+declare const checkedDevBrowser: unique symbol;
 /**
- * A `__clerk_db_jwt` value whose tie verified for one app, client and staff instance (flow.ts tiedDevBrowser, the only
- * place that makes one), the only dev browser the staff portal takes, and only in that scope.
+ * A `__clerk_db_jwt` value whose tie to one instance verified for one app, client and that instance (flow.ts
+ * tiedDevBrowser, the only place that makes one), the only dev browser that instance's portal takes, and only in that scope.
  */
-export interface StaffDevBrowser {
-	readonly [checkedStaffDevBrowser]: true;
-	readonly instance: 'staff';
+export interface TiedDevBrowser<K extends InstanceKind = InstanceKind> {
+	readonly [checkedDevBrowser]: true;
+	readonly instance: K;
 	readonly value: string;
 	readonly appOrigin: string;
 	readonly clientId: ClientId;
 	readonly issuer: string;
 }
+export type StaffDevBrowser = TiedDevBrowser<'staff'>;
 export type ConfigResult = { ok: true; config: ClerkIdentityConfig } | { ok: false; reason: string };
 
 /** The variables a deployment sets; secrets are Worker secrets, the rest plain vars. */
@@ -206,23 +207,24 @@ export function readClerkIdentityConfig(env: Readonly<Record<string, unknown>>, 
  * `devBrowser` is the browser's `__clerk_db_jwt` on this origin. A development instance keeps one Clerk client per dev
  * browser, so a portal on another origin signs in this browser's client only when handed it, as @clerk/backend's
  * redirectToSignIn does; without it the portal signs in a client of its own and the handshake here stays signed out. The
- * cookie name is shared by both instances on this origin and the cookie does not show which one minted it, so the staff
- * portal takes only a `StaffDevBrowser` checked for this app, client and staff instance (flow.ts tiedDevBrowser: the dev
- * browser a staff-signed handshake this browser started here set), never a plain string or another app's value. The
- * value is transport only: the session that comes back is verified as any other.
+ * cookie name is shared by both instances on this origin, the cookie does not show which one minted it, and a link or a
+ * sibling origin can plant one, so each portal takes only a `TiedDevBrowser` checked for this app, client and its own
+ * instance (flow.ts tiedDevBrowser: the dev browser a handshake of that instance this browser started here set), never a
+ * plain string or another app's or instance's value (GRS-279). The value is transport only: the session that comes back
+ * is verified as any other.
  *
  * Each portal returns to its own sign-in page on this origin, exactly and with no query: an instance that allows only
  * exact redirect URLs then needs one entry per client origin, and the sign-in page takes the handshake and sends the
  * verified session on to the target the sign-in POST kept in its attempt cookie (flow.ts signInReturnCookie).
  */
-export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, kind: InstanceKind = 'client', devBrowser: string | StaffDevBrowser | null = null): { href: string } | null {
+export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, kind: InstanceKind = 'client', devBrowser: string | TiedDevBrowser | null = null): { href: string } | null {
 	const read = readClerkIdentityConfig(env, { keys: 'optional' });
 	const signInUrl = read.ok ? (kind === 'client' ? read.config.signInUrl : read.config.staffSignInUrl) : null;
 	if (!read.ok || signInUrl === null) return null;
 	const target = new URL(signInUrl);
 	target.searchParams.set('redirect_url', new URL(SIGN_IN_PAGE[kind], read.config.appOrigin).href);
-	const staffScoped = typeof devBrowser === 'object' && devBrowser?.instance === 'staff' && devBrowser.appOrigin === read.config.appOrigin && devBrowser.clientId === read.config.clientId && devBrowser.issuer === read.config.staff.issuer;
-	const value = kind === 'client' ? (typeof devBrowser === 'string' ? devBrowser : null) : staffScoped ? devBrowser.value : null;
+	const scoped = typeof devBrowser === 'object' && devBrowser?.instance === kind && devBrowser.appOrigin === read.config.appOrigin && devBrowser.clientId === read.config.clientId && devBrowser.issuer === read.config[kind].issuer;
+	const value = scoped ? devBrowser.value : null;
 	const development = read.config[kind].publishableKey.startsWith('pk_test_');
 	if (development && value !== null && DEV_BROWSER.test(value) && target.origin !== read.config.appOrigin) target.searchParams.set('__clerk_db_jwt', value);
 	return { href: target.href };

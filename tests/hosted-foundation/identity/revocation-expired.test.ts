@@ -130,7 +130,7 @@ describe('sign-out revokes a live session whose signed token has expired', () =>
 		const r = await outcome(async () => signOut.actions.default!({ locals: localsOf(await anonymousFor(token)), request: post(`__session=${token}; __client_uat=1`), url: new URL(ORIGIN), cookies: c.cookies } as never));
 		expect(r.thrown).toMatchObject({ status: 303, location: '/sign-in' });
 		expect(status.statusOf('sess_route')).toBe('revoked');
-		expect(c.deleted.sort()).toEqual(['__client_uat', '__session', 'clearcase_session']);
+		expect(c.deleted.sort()).toEqual(['__Host-clearcase_boot', '__client_uat', '__session', 'clearcase_session']);
 	});
 	it('tells the truth when Clerk cannot confirm it: 503, no cookie cleared, session still live (lookup outage and revoke failure)', async () => {
 		for (const [sid, arm, disarm] of [['sess_out1', () => status.outage(true), () => status.outage(false)], ['sess_out2', () => status.failRevoke(true), () => status.failRevoke(false)]] as const) {

@@ -11,7 +11,7 @@ import { clerkBrowserHandshakeFromEnv, clerkCookieClears, signOutClerkSession, t
 import { clearableNames, cookiePairs, devBrowserOf, sdkCookieHeader } from '../../../src/lib/auth/clerk/flow.ts';
 import { CLERK_COOKIE_NAME, REFRESH_COOKIE_NAME, SESSION_COOKIE_NAME, presentedToken, sessionCookieNames } from '../../../src/lib/auth/clerk/session.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
-import { bindingStarted, consumed } from './started-here.ts';
+import { bindingStarted, clientTie, consumed } from './started-here.ts';
 
 const ORIGIN = 'https://client-a.clearcase.test';
 // Hosts whose publishable key gives a cookie suffix with an underscore (zW_MaF8B) and a hyphen (a3-vmljj), as the SDK derives it.
@@ -104,15 +104,17 @@ describe('cookie-name whitespace cannot defeat the handshake boundary', () => {
 	});
 	it('treats a handshake cookie with whitespace in its name as the handshake cookie, which never reaches the SDK', async () => {
 		const token = U.sign({ handshake: [`__session=${T}; Path=/`, '__client_uat=1761400000; Path=/'] });
-		const plain = await handshake(U).handle(page('/cases', `__clerk_handshake=${token}; __clerk_db_jwt=${DEV}`));
-		const spaced = await handshake(U).handle(page('/cases', `__clerk_handshake =${token}; __clerk_db_jwt=${DEV}`));
-		const tabbed = await handshake(U).handle(page('/cases', `__clerk_db_jwt=${DEV}; \t__clerk_handshake\t=${token}`));
+		// with the dev browser its own client handshake tied here (GRS-279, client-signin-tie.test.ts)
+		const tie = await clientTie(env(U), DEV);
+		const plain = await handshake(U).handle(page('/cases', `__clerk_handshake=${token}; __clerk_db_jwt=${DEV}; ${tie}`));
+		const spaced = await handshake(U).handle(page('/cases', `__clerk_handshake =${token}; __clerk_db_jwt=${DEV}; ${tie}`));
+		const tabbed = await handshake(U).handle(page('/cases', `__clerk_db_jwt=${DEV}; ${tie}; \t__clerk_handshake\t=${token}`));
 		expect(plain).toEqual({ kind: 'continue' });
 		expect(spaced).toEqual(plain);
 		expect(tabbed).toEqual(plain);
 	});
 	it('keeps an unrelated look-alike cookie out of the refresh policy: it reaches the SDK and changes nothing', async () => {
-		const o = await handshake(U).handle(page('/cases', `__clerk_db_jwt=${DEV}; __client_uat=1761400000; __session=${T}; __refreshing=1; __refresh.x=1`));
+		const o = await handshake(U).handle(page('/cases', `__clerk_db_jwt=${DEV}; ${await clientTie(env(U), DEV)}; __client_uat=1761400000; __session=${T}; __refreshing=1; __refresh.x=1`));
 		expect(o).toEqual({ kind: 'continue' });
 	});
 });
@@ -215,7 +217,8 @@ describe('a handshake with base64url-suffixed cookies', () => {
 		expect(o.setCookies[2]).toBe(`__session_${s}=${session}; Path=/; Max-Age=60; SameSite=Lax; HttpOnly; Secure`);
 		const jar = o.setCookies.slice(1).map((c) => c.split(';')[0]).join('; ');
 		expect(await identityOf(client, jar)).toMatchObject({ kind: 'verified', principal: { kind: 'client', subject: client === U ? 'user_u1' : 'user_h1' } });
-		expect(await handshake(client).handle(page('/cases', jar))).toEqual({ kind: 'continue' });
+		// a suffixed dev browser is never tied (flow.ts tiedDevBrowser): the browser's tied plain one stands for it (GRS-279)
+		expect(await handshake(client).handle(page('/cases', `${jar}; __clerk_db_jwt=${DEV}; ${await clientTie(env(client), DEV)}`))).toEqual({ kind: 'continue' });
 	});
 	it.each([['underscore', U, SU], ['hyphen', H, SH]] as const)('still refuses a malformed %s suffix, a suffix over 32 characters and an unknown suffixed name', async (_name, client, s) => {
 		for (const bad of [`__session_${s}.x`, `__session_${'a'.repeat(33)}`, `__clerk_session_${s}`, `__sessionx`]) {

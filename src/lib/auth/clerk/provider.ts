@@ -1,11 +1,12 @@
 // Client requests verify an app session locally and check one KV revocation key.
-// Clerk JWTs bootstrap the app session only at /sign-in. Staff retains its Clerk protocol.
+// Clerk JWTs bootstrap the app session only at /sign-in, and only with the proof that this browser's own handshake set
+// them (flow.ts bootstrapProof, GRS-279). Staff retains its Clerk protocol.
 // Deployments with app-session bindings use local client verification; staff keeps the Clerk protocol.
 import { createClerkClient, verifyToken } from '@clerk/backend';
 import type { CaseId, CaseOperation, Identity, IdentityProvider, Principal, SessionId } from '../../server/runtime/contracts.ts';
 import { codeOf, contractError } from '../../server/runtime/errors.ts';
 import { id } from '../../server/runtime/ids.ts';
-import { revokeClerkSession } from './flow.ts';
+import { bootstrapProven, revokeClerkSession } from './flow.ts';
 import { inspectToken, presentedToken } from './session.ts';
 import { readClerkIdentityConfig, rsaJwkOf, type ClerkIdentityConfig, type ClerkInstanceConfig } from './config.ts';
 
@@ -132,6 +133,7 @@ export function createClerkIdentityProvider(a: { config: ClerkIdentityConfig; au
 			const verified: Verified = result;
 			const bootstrap = app && verified.instance.kind === 'client' && new URL(request.url).pathname === '/sign-in';
 			if (app && verified.instance.kind === 'client' && !bootstrap) return refusedIdentity('unauthenticated');
+			if (bootstrap && !await bootstrapProven(request, config, token)) return refusedIdentity('unauthenticated');
 			if (bootstrap && (!Number.isFinite(verified.issuedAt) || !await issuedAfterRevocation(app!, verified.subject, verified.issuedAt))) return refusedIdentity('invalid-session');
 			const refused = bootstrap ? null : await sessionStands(verified);
 			if (refused) return refusedIdentity(refused);

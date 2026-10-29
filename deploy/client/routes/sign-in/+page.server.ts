@@ -5,7 +5,7 @@ import { refuse } from '$lib/server/runtime/hosted/http';
 import { codeOf } from '$lib/server/runtime/errors';
 import { id } from '$lib/server/runtime/ids';
 import { clerkSignInTarget } from '$lib/auth/clerk/config';
-import { applySignInReturnChange, devBrowserOf, documentNavigation, prepareSignIn, signInReturn, signInReturnCookie } from '$lib/auth/clerk/flow';
+import { applySignInReturnChange, bootstrapProofName, documentNavigation, prepareSignIn, signInReturn, signInReturnCookie, tiedDevBrowserOf } from '$lib/auth/clerk/flow';
 
 import { appSessionConfig, appCookieOptions, mintAppSession, signAppSession, appCookieValue, APP_COOKIE } from '$lib/auth/app-session';
 
@@ -14,8 +14,9 @@ const unconfigured = () => error(503, { message: 'No sign-in provider is configu
 // The hosted-gate profile signs in through its test identity double. Production signs in at this client's Clerk
 // application (GRS-113), which is invite-only: the page links there and holds no key.
 // The client portal returns here, to this exact URL; a verified client session then goes on to the target the POST kept
-// in its attempt cookie. The page data never carries the dev browser; only the POST's redirect hands it to the portal.
-const clerk = (request?: Request) => clerkSignInTarget(env, 'client', request ? devBrowserOf(request) : null);
+// in its attempt cookie. The page data never carries the dev browser; only the POST's redirect hands the portal the one
+// tied to the client instance here (GRS-279).
+const clerk = async (request?: Request) => clerkSignInTarget(env, 'client', request ? await tiedDevBrowserOf(request, env, 'client') : null);
 
 export async function load({ locals, url, request, cookies, isDataRequest }: RequestEvent) {
 	const double = locals.runtime.testIdentity;
@@ -31,13 +32,14 @@ export async function load({ locals, url, request, cookies, isDataRequest }: Req
 			if (config) {
 			const session = await mintAppSession(config, { sid: locals.identity.sessionId, subject: locals.identity.principal.subject, name });
 			cookies.set(APP_COOKIE, await signAppSession(config!, session), appCookieOptions(session));
+			cookies.delete(bootstrapProofName(url.protocol === 'https:'), { path: '/', secure: url.protocol === 'https:' });
 			}
 		}
 		const back = await signInReturn(env, request, url, 'client', isDataRequest);
 		applySignInReturnChange(cookies, back.change);
 		redirect(303, back.location);
 	}
-	const target = clerk();
+	const target = await clerk();
 	if (!target) unconfigured();
 	return { provider: 'clerk', href: target!.href, options: [] };
 }
@@ -48,7 +50,7 @@ export const actions: Actions = {
 		const form = await request.formData().catch(() => null);
 		if (!double) {
 			if (appCookieValue(request) !== null && locals.identity.kind !== 'verified') cookies.delete(APP_COOKIE, { path: '/', secure: true });
-			const target = clerk(request);
+			const target = await clerk(request);
 			if (!target) unconfigured();
 			// One browser session per origin: a session of the other identity is signed out first, an ambiguous one refused.
 			const prepared = await prepareSignIn({ env, request, identity: locals.identity, target: 'client' }).catch((e) => refuse(e));

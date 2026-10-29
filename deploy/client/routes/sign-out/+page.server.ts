@@ -2,7 +2,7 @@ import { error, redirect, type Actions, type RequestEvent } from '@sveltejs/kit'
 import { env } from 'cloudflare:workers';
 import { SESSION_COOKIE } from '$lib/server/runtime/hosted/session';
 import { refuse } from '$lib/server/runtime/hosted/http';
-import { signOutClerkSession, signOutScopes } from '$lib/auth/clerk/flow';
+import { bootstrapProofName, signOutClerkSession, signOutScopes } from '$lib/auth/clerk/flow';
 import { APP_COOKIE, LEGACY_APP_COOKIE, appCookieValue, appSessionConfig, revokeAppSession } from '$lib/auth/app-session';
 import { readClerkIdentityConfig } from '$lib/auth/clerk/config';
 import { SESSION_COOKIE as CLERK_SESSION_COOKIE } from '$lib/auth/clerk/session';
@@ -30,7 +30,7 @@ export const actions: Actions = {
 		if (!double) clear = await signOutClerkSession({ env, request: request ?? new Request(url), identity: locals.identity }).then((r) => r.clear, (e) => refuse(e));
 		const secure = url.protocol === 'https:';
 		// with the unprefixed name the app session had before GRS-278, so a stale one goes too
-		for (const name of new Set([SESSION_COOKIE, LEGACY_APP_COOKIE, CLERK_SESSION_COOKIE, ...clear])) cookies.delete(name, { path: '/', secure });
+		for (const name of new Set([SESSION_COOKIE, LEGACY_APP_COOKIE, CLERK_SESSION_COOKIE, bootstrapProofName(secure), ...clear])) cookies.delete(name, { path: '/', secure });
 		if (!double) {
 			// and every Clerk session name this deployment owns on each parent domain, where a live copy would otherwise sign the
 			// browser back in once the host-only one is gone; a session cookie of another instance it may not clear means

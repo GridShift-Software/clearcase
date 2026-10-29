@@ -125,7 +125,9 @@ export function createHandle(servicesFor: (request: Request, credential?: Reques
 		// that carries the handshake token, so anything else is the handshake's own redirect to the clean URL (GRS-266).
 		if (signedIn) {
 			if (response.status < 300 || response.status > 399 || !response.headers.has('location')) return secured(signedIn.response);
-			for (const c of signedIn.response.headers.getSetCookie()) response.headers.append('set-cookie', c);
+			// a cookie the route set or cleared itself keeps the route's directive: the bootstrap proof it spent minting (GRS-279)
+			const own = new Set(response.headers.getSetCookie().map((c) => c.slice(0, c.indexOf('='))));
+			for (const c of signedIn.response.headers.getSetCookie()) if (!own.has(c.slice(0, c.indexOf('=')))) response.headers.append('set-cookie', c);
 		}
 		for (const [name, value] of Object.entries(SECURITY)) response.headers.set(name, value);
 		// A fetch refused for a session only the handshake renews (expired, its hold spent or refused) cannot follow it, so

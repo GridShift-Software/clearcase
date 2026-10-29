@@ -8,7 +8,7 @@ import { createRedirect } from '@clerk/backend/internal';
 import { signInFormActionOrigins } from '../../../src/lib/auth/clerk/config.ts';
 import { clerkBrowserHandshakeFromEnv, type HandshakeOutcome } from '../../../src/lib/auth/clerk/browser.ts';
 import { craftedInstance } from './synthetic.ts';
-import { bindingStarted } from './started-here.ts';
+import { bindingStarted, clientTie } from './started-here.ts';
 
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
 vi.mock('cloudflare:workers', () => workers);
@@ -154,10 +154,11 @@ describe('the operator sign-in forwards nothing it cannot tie to the staff insta
 	});
 });
 
-describe('the client sign-in is unchanged', () => {
-	it('still hands the client portal the plain dev browser, and never the staff tie', async () => {
+describe('the client sign-in', () => {
+	it('hands the client portal only the dev browser tied to the client instance (GRS-279)', async () => {
 		const sdk = createRedirect({ publishableKey: A.publishableKey, baseUrl: ORIGIN, signInUrl: CLIENT_SIGN_IN, devBrowserToken: CLIENT_DVB, redirectAdapter: (u: string) => u }).redirectToSignIn({ returnBackUrl: `${ORIGIN}/sign-in` });
-		const r = await outcome(() => client.actions.default!({ locals, url: new URL(`${ORIGIN}/sign-in`), request: new Request(`${ORIGIN}/sign-in`, { method: 'POST', headers: { cookie: `__clerk_db_jwt=${CLIENT_DVB}` } }), cookies: { delete: () => {}, set: () => {} } } as never));
-		expect(r.thrown).toMatchObject({ status: 303, location: sdk });
+		const post = (cookie: string) => outcome(() => client.actions.default!({ locals, url: new URL(`${ORIGIN}/sign-in`), request: new Request(`${ORIGIN}/sign-in`, { method: 'POST', headers: { cookie } }), cookies: { delete: () => {}, set: () => {} } } as never));
+		expect((await post(`__clerk_db_jwt=${CLIENT_DVB}; ${await clientTie(configured(), CLIENT_DVB)}`)).thrown).toMatchObject({ status: 303, location: sdk });
+		expect((await post(`__clerk_db_jwt=${CLIENT_DVB}`)).thrown).toMatchObject({ status: 303, location: `${CLIENT_SIGN_IN}?redirect_url=${encodeURIComponent(`${ORIGIN}/sign-in`)}` });
 	});
 });

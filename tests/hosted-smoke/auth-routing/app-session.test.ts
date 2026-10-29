@@ -3,6 +3,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { craftedInstance, statusDouble } from '../../hosted-foundation/identity/synthetic.ts';
 import { appSessionConfig, mintAppSession, readAppSession, signAppSession } from '../../../src/lib/auth/app-session.ts';
 import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
+import { readClerkIdentityConfig } from '../../../src/lib/auth/clerk/config.ts';
+import { bootstrapProof } from '../../../src/lib/auth/clerk/flow.ts';
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown>, waitUntil: () => {} }));
 vi.mock('cloudflare:workers', () => workers);
 import { handle } from '../../../src/lib/server/runtime/hosted/hooks.server.ts';
@@ -44,18 +46,23 @@ async function invoke(request: Request, signOut = false) {
 }
 describe('client app-session hook and actions', () => {
 	it('sets the app cookie on the pinned Clerk callback and returns to the case list', async () => {
-		const request = new Request(`${ORIGIN}/sign-in`, { headers: { cookie: `__session=${client.token({ sub: 'user_smoke', sid: 'sess_callback', azp: ORIGIN })}` } });
+		// with the proof the return of this browser's own handshake set beside the token (GRS-279)
+		const token = client.token({ sub: 'user_smoke', sid: 'sess_callback', azp: ORIGIN }), read = readClerkIdentityConfig(workers.env);
+		if (!read.ok) throw new Error(read.reason);
+		const request = new Request(`${ORIGIN}/sign-in`, { headers: { cookie: `__session=${token}; ${(await bootstrapProof(read.config, token)).pair}` } });
 		const provider = clerkIdentityProviderFromEnv(workers.env, { authorizeCase: async () => {} });
 		if (!provider.ok) throw new Error(provider.reason);
 		const identity = await provider.provider.authenticate({ request });
 		const installed: Promise<boolean>[] = [];
 		const cookies = { set: (name: string, value: string, options: { httpOnly: boolean; secure: boolean; sameSite: string; path: string }) => {
 			installed.push((async () => name === '__Host-clearcase_session' && (await readAppSession(config(), value))?.name === 'user_smoke' && options.httpOnly && options.secure && options.sameSite === 'lax' && options.path === '/')());
-		}, delete: () => {} };
+		}, delete: (name: string) => { deleted.push(name); } };
+		const deleted: string[] = [];
 		let location = '';
 		try { await load({ request, url: new URL(request.url), locals: { identity, runtime: { testIdentity: null } }, cookies, isDataRequest: false } as never); }
 		catch (error) { if (typeof error === 'object' && error !== null && 'location' in error && typeof error.location === 'string') location = error.location; else throw error; }
 		expect(await Promise.all(installed)).toEqual([true]);
+		expect(deleted).toContain('__Host-clearcase_boot');
 		expect(location).toBe('/cases');
 	});
 	it('survives 20 minutes idle, slides through the real hook, and never calls Clerk or marks reauthentication', async () => {

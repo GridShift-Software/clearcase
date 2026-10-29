@@ -58,6 +58,33 @@ it('269 /cases lists every granted case in a fixed number of storage round trips
   } finally { await w.cleanup(); }
 });
 
+// The storage gate's identity reads are one round trip with the case rows and the grant read, not one before them.
+it('269 /cases reads its case rows and grants beside the storage gate: 3 storage round trips', async () => {
+  const w = await rcWorld({ slowReads: true });
+  try {
+    firm(w);
+    const r = await list(w);
+    expect(r.thrown).toBeUndefined(); show('/cases beside the gate', r);
+    // The session's KV read, the gate beside the case rows and the grants, and one audit batch.
+    expect(r.sequential).toBeLessThanOrEqual(3);
+    expect(r.counts).toMatchObject({ d1: 5, r2: 1, clerk: 0, otherFetch: 0 });
+  } finally { await w.cleanup(); }
+});
+
+it.each(['foreign-database', 'unbound-database', 'foreign-bucket'])('269 /cases lists and records nothing when the storage gate it ran beside refuses (%s)', async fault => {
+  const w = await rcWorld({ slowReads: true });
+  try {
+    firm(w);
+    if (fault === 'foreign-database') w.db.exec("UPDATE rs_storage_identity SET client_id = 'client-c'");
+    else if (fault === 'unbound-database') w.db.exec('DELETE FROM rs_storage_identity');
+    else w.bucket.setRaw('identity/client.json', new TextEncoder().encode('{"client_id":"client-c"}'));
+    const r = await list(w);
+    expect(r.thrown).toMatchObject({ status: 503, body: { code: 'storage-unavailable' } });
+    expect(r.value).toBeUndefined();
+    expect(w.db.rows("SELECT event_id FROM native_audit_events WHERE action = 'case.read'")).toEqual([]);
+  } finally { await w.cleanup(); }
+});
+
 // The calls are counted, not timed, so a case count that adds one fails here whatever the runner's load.
 it.each([1, 5, 50])('269 /cases with %i listed cases and 3 refused makes 5 D1 calls, 2 of them batches, and 1 R2 read', async listed => {
   const w = await rcWorld({ slowReads: true });

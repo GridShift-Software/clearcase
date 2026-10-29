@@ -52,6 +52,8 @@ const overview = (freshness = FRESHNESS) => page('overview', `<p class="num" id=
   ${slot('deadlines', 'Open deadlines', '<p class="num">2</p><p><small>in the deadline tracker</small></p>')}${slot('unbilled-time', 'Unbilled time', '<p class="num">1.5 h</p>')}${slot('rescan-freshness', 'Freshness', freshness)}
   <section><h2>Dates</h2><p id="date-span">Date span: first → last</p></section>${TABLE}`);
 
+// What a viewer's draw puts on its canvases: ink, which the journeys look for on a page marked rendered (GRS-273).
+const draw = "document.querySelectorAll('canvas').forEach(c => { const x = c.getContext('2d'); x.fillStyle = '#345'; x.fillRect(10, 10, 50, 50); });";
 // What the chronology pane shows for a row, as the hosted HostedOriginal.svelte renders it.
 const viewerLink = ref => `<p class="pane-original"><span>${ref}.pdf</span> <a data-action="open-viewer" href="${original(ref)}/view">Open full viewer</a></p>`;
 const download = (ref, label = 'Download the original') => `<a data-action="download-original" href="${original(ref)}?download=1">${label}</a>`;
@@ -61,7 +63,7 @@ const PANE = {
   email: ref => `${viewerLink(ref)}<p class="pane-state" data-pane-state="email">This email opens in the full viewer. <a href="${original(ref)}/view">Open it</a> or ${download(ref, 'download the original')}.</p>`,
   'download-only-unlinked': ref => `${viewerLink(ref)}<p class="pane-state" data-pane-state="download-only">This file type is not shown in the app.</p>`,
 };
-const chronology = ({ states = ['pdf', 'download-only', 'email'], delay = 0, phoneDelay = 0, phoneHeadings = true, phoneImage = false } = {}) => {
+const chronology = ({ states = ['pdf', 'download-only', 'email'], delay = 0, phoneDelay = 0, phoneHeadings = true, phoneImage = false, blank = false } = {}) => {
   const heads = ['Preview', 'Date', 'Ref', 'Title / subject', 'Type', 'Bundle', 'Amount', 'Status', 'Original'].map(h => `<span role="columnheader">${h}</span>`).join('');
   const rows = states.map((_, i) => `<div class="grid-row" role="row" data-ref="${REFS[i]}"><span role="cell"><button class="preview" data-i="${i}">Preview</button></span>
     <span role="cell">day ${i + 1}</span><span role="cell"><a href="${V}/doc/${REFS[i]}">${REFS[i]}</a></span><span role="cell">Synthetic subject</span><span role="cell">letter</span>
@@ -74,7 +76,7 @@ const chronology = ({ states = ['pdf', 'download-only', 'email'], delay = 0, pho
       document.querySelectorAll('button.preview').forEach(b => b.addEventListener('click', () => {
         const ref = b.closest('[data-ref]').dataset.ref; pane.dataset.ref = ref;
         body.innerHTML = '<p class="pane-state" data-pane-state="loading" role="status">Loading the original…</p>';
-        setTimeout(() => { body.innerHTML = panes[ref]; }, innerWidth < 600 ? ${phoneDelay} : ${delay});
+        setTimeout(() => { body.innerHTML = panes[ref]; ${blank ? '' : draw} }, innerWidth < 600 ? ${phoneDelay} : ${delay});
       }));
       pane.querySelector('.pane-back button').addEventListener('click', () => { delete pane.dataset.ref; body.innerHTML = ''; });
       ${phoneImage ? "if (innerWidth < 600) { const i = document.createElement('img'); i.alt = 'decoration'; i.src = '/probe/phone-only.png'; document.body.append(i); }" : ''}`,
@@ -85,11 +87,13 @@ const documents = () => page('documents', `<input data-testid="document-filter" 
 const doc = ref => page(`doc:${ref}`, `<p id="original-state" data-testid="original-metadata">PDF, 1,234 bytes</p>
   <a data-testid="open-original" id="open-original" target="_blank" href="${original(ref)}/view">Open original</a>`);
 // The opened original: the hosted viewer, or the local isolated viewer's window.__viewer, healthy or in its error state.
-const draw = "document.querySelectorAll('canvas').forEach(c => { const x = c.getContext('2d'); x.fillStyle = '#345'; x.fillRect(10, 10, 50, 50); });";
 const VIEWER = {
   hosted: () => bare(`<div data-viewer="pdf" data-viewer-state="ready"><canvas data-testid="pdf-page" data-page-number="1" data-rendered="true" width="300" height="400"></canvas></div><script>${draw}</script>`),
   legacy: () => bare(`<div data-page="1" data-rendered="1"><canvas width="300" height="400"></canvas></div><script>window.__viewer = { rendered: 1, error: null }; ${draw}</script>`, ' data-ready="1"'),
   'hosted-error': () => bare('<div data-viewer="pdf" data-viewer-state="error"><p role="alert">This file cannot be displayed here.</p></div><canvas data-testid="pdf-page" data-page-number="1" data-rendered="true" width="300" height="400" style="display:none"></canvas>'),
+  // GRS-273: the flags of a drawn page 1 over a canvas that holds nothing.
+  'hosted-blank': () => bare('<div data-viewer="pdf" data-viewer-state="ready"><canvas data-testid="pdf-page" data-page-number="1" data-rendered="true" width="300" height="400"></canvas></div>'),
+  'legacy-blank': () => bare('<div data-page="1" data-rendered="1"><canvas width="300" height="400"></canvas></div><script>window.__viewer = { rendered: 1, error: null };</script>', ' data-ready="1"'),
   'legacy-error': () => bare('<p id="status">This file cannot be displayed. Use Download.</p><canvas width="300" height="400" style="display:none"></canvas><script>window.__viewer = { rendered: 1, error: "probe" };</script>'),
 };
 
@@ -113,6 +117,7 @@ export const SCENARIOS = {
   'h2-hidden-text': { overview: () => hideSlotText(overview()) },
   'h3-placeholder': { 'evidence/contracts_tab': () => analysis('contracts_tab', PLACEHOLDER_ROWS, false) },
   'm1-phone': { chronology: () => chronology({ phoneDelay: 3200 }) },
+  'blank-canvas': { chronology: () => chronology({ blank: true }), viewer: { 'PRB-1': 'hosted-blank', 'PRB-2': 'legacy-blank' } },
   'heads-seeded': { 'litigation/heads_tab': () => analysis('heads_tab', heads({ entries: 2 }), false) },
 };
 const HEALTHY_VIEWER = { 'PRB-1': 'hosted', 'PRB-2': 'legacy', 'PRB-3': 'hosted' };

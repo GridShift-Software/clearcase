@@ -1,9 +1,9 @@
-import { run, direct, check, paint, MODE, PAGE_MS, PDF_MS, PDF, PDF_RENDERED, PDF_FAILED } from './lib.mjs';
+import { run, direct, check, paint, drawn, MODE, PAGE_MS, PDF_MS, PDF, PDF_RENDERED, PDF_FAILED } from './lib.mjs';
 // Ticket 11's acceptance: one click on a row shows its original in the pane beside the list; one click on a citation opens the
 // matching document page. The row step and the citation step are separate, so neither stands in for the other.
 // GRS-271: the pane must show the row's original, not a failure state (every hosted pane once said the original was gone),
 // and the same holds at a 390 px phone with touch, where the pane sits under the list and the headings must not overlap.
-// Where a pane ends. A hosted PDF ends only in its viewer's rendered page or its viewer's error state, canvas or not; an
+// Where a pane ends. A hosted PDF ends only in its viewer's rendered page, with ink on its canvas, or its viewer's error state; an
 // image once it has decoded; an email, a download-only file and the local pane's links are their own end, each only with
 // the visible links that reach that original (GRS-266).
 const OTHER = 'img.pane-image, [data-pane-state="local-original"], [data-pane-state="download-only"], [data-pane-state="email"]';
@@ -43,6 +43,8 @@ async function paneShowsOriginal(pane, ref) {
     await pane.locator(`${PDF_RENDERED}, ${PDF_FAILED}`).first().waitFor();
     check(!(await pane.locator(PDF_FAILED).count()), "The pane's PDF viewer could not render the original");
     check(await pane.locator(`${PDF_RENDERED}[data-page-number="1"]`).evaluate(c => c.getClientRects().length > 0 && c.width > 0 && c.height > 0), "The pane's first PDF page is not visible");
+    // GRS-273: the flags once stood over a blank canvas; the page must hold ink.
+    check(await drawn(pane.locator(`${PDF_RENDERED}[data-page-number="1"]`)), "The pane's first PDF page is marked rendered, but its canvas is blank");
     return 'pdf';
   }
   const image = pane.locator('img.pane-image');

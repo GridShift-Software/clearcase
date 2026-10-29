@@ -140,8 +140,31 @@ export const PDF = '[data-viewer="pdf"]';
 export const PDF_RENDERED = `${PDF}[data-viewer-state="ready"] canvas[data-testid="pdf-page"][data-rendered="true"]`;
 export const PDF_FAILED = `${PDF}[data-viewer-state="error"]`;
 /**
- * Waits for the opened original's first page: the hosted viewer's page-1 canvas in `page` itself, visible and drawn; or the local
- * isolated viewer (window.__viewer, in a visible frame) once it has drawn page 1 without an error. Either viewer's error state fails at once.
+ * In the page: whether any of the canvases (one element or a list) holds ink, at least 16 pixels darker than light grey. A
+ * viewer once marked a scan's page 1 rendered over a blank canvas (GRS-273), so the flags alone are not a drawn page.
+ */
+export function inked(target) {
+  return [target].flat().some(c => {
+    if (!(c instanceof HTMLCanvasElement) || !c.width || !c.height) return false;
+    const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let ink = 0;
+    for (let i = 0; i < data.length && ink < 16; i += 4) if (data[i + 3] > 127 && 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] < 200) ink++;
+    return ink >= 16;
+  });
+}
+const BLANK_GRACE_MS = 1000;
+/** Whether the canvases `canvases` (a locator) hold ink within a second; a page drawn a moment after its flag is set still counts. */
+export async function drawn(canvases) {
+  for (const until = Date.now() + BLANK_GRACE_MS; ; await new Promise(resolve => setTimeout(resolve, 50))) {
+    if (await canvases.evaluateAll(inked).catch(() => false)) return true;
+    if (Date.now() >= until) return false;
+  }
+}
+const BLANK = 'The PDF viewer marks page 1 rendered, but its canvas is blank';
+/**
+ * Waits for the opened original's first page: the hosted viewer's page-1 canvas in `page` itself, visible and drawn with ink; or the
+ * local isolated viewer (window.__viewer, in a visible frame) once it has drawn page 1, with ink, without an error. Either viewer's
+ * error state fails at once, and so does a page marked rendered whose canvas stays blank.
  */
 export async function firstPDF(page, timeout = 30000) {
   const until = Date.now() + timeout;
@@ -152,7 +175,10 @@ export async function firstPDF(page, timeout = 30000) {
       return [...document.querySelectorAll(`${rendered}[data-page-number="1"]`)].some(c => c instanceof HTMLCanvasElement && shown(c) && c.width > 0 && c.height > 0) ? 'rendered' : null;
     }, [PDF_RENDERED, PDF_FAILED]).catch(() => null);
     check(hosted !== 'failed', 'The PDF viewer shows its error state');
-    if (hosted === 'rendered') return;
+    if (hosted === 'rendered') {
+      check(await drawn(page.mainFrame().locator(`${PDF_RENDERED}[data-page-number="1"]`)), BLANK);
+      return;
+    }
     for (const frame of page.frames()) {
       const legacy = await frame.evaluate(() => {
         const v = window.__viewer;
@@ -163,7 +189,10 @@ export async function firstPDF(page, timeout = 30000) {
         return document.body.dataset.ready === '1' && v.rendered >= 1 && drawn ? 'rendered' : null;
       }).catch(() => null);
       check(legacy !== 'failed', 'The PDF viewer shows its error state');
-      if (legacy === 'rendered' && (frame === page.mainFrame() || await (await frame.frameElement()).isVisible())) return;
+      if (legacy === 'rendered' && (frame === page.mainFrame() || await (await frame.frameElement()).isVisible())) {
+        check(await drawn(frame.locator('[data-page="1"][data-rendered="1"] canvas')), BLANK);
+        return;
+      }
     }
     await new Promise(resolve => setTimeout(resolve, 25));
   }

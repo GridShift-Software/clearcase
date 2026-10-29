@@ -27,6 +27,9 @@ const PROBES = [
   { finding: 'H3-placeholder', journey: 'J5', scenario: 'h3-placeholder', fails: ['contracts_tab'] },
   { finding: 'M1-phone', journey: 'J3', scenario: 'm1-phone', fails: ['phone-pane-original'] },
   { finding: 'M2-expected', journey: 'J5', scenario: 'healthy', env: { HEADS_EXPECTED: '2' }, fails: ['heads_tab'] },
+  // GRS-273: a scan's page 1 marked rendered over a blank canvas, in the chronology pane (desktop and phone) and the opened original.
+  { finding: 'B1', journey: 'J3', scenario: 'blank-canvas', fails: ['one-click-row-original', 'pane-original', 'phone-pane-original'] },
+  { finding: 'B1-J4', journey: 'J4', scenario: 'blank-canvas', fails: ['small:first-pdf-page', 'small', 'medium:first-pdf-page', 'medium'] },
   { finding: 'control:J5-heads0', journey: 'J5', scenario: 'healthy', env: { HEADS_EXPECTED: '0' }, fails: [] },
   { finding: 'control:J5-heads2', journey: 'J5', scenario: 'heads-seeded', env: { HEADS_EXPECTED: '2' }, fails: [] },
 ];

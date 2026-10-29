@@ -11,6 +11,7 @@ import { createHandle } from '../../../src/lib/server/runtime/hosted/handle.ts';
 import { createUnavailableServices } from '../../../src/lib/server/runtime/unavailable.ts';
 import { id } from '../../../src/lib/server/runtime/ids.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
+import { bindingStarted } from './started-here.ts';
 
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
 vi.mock('cloudflare:workers', () => workers);
@@ -36,7 +37,7 @@ const env = (): Record<string, unknown> => ({
 const handshake = () => {
 	const made = clerkBrowserHandshakeFromEnv(env());
 	if (!made.ok) throw new Error(made.reason);
-	return made.handshake;
+	return bindingStarted(made.handshake, env());
 };
 const identityOf = async (request: Request) => {
 	const made = clerkIdentityProviderFromEnv(env(), { authorizeCase: async () => {} });

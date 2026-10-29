@@ -121,8 +121,14 @@ export function createCloudReader(a: { open: () => Promise<OpenStorage>; identit
     async listCases() {
       const s = await open();
       await identity.checkRevocation();
+      const rows = caseRows(s.db);
+      if (identity.authorizeCases) {
+        // The grant read runs beside the case rows; a case is returned only once it is allowed and recorded.
+        const allowed = await identity.authorizeCases({ operation: 'read', caseIds: rows.then((r) => r.map((c) => c.caseId)) });
+        return freeze((await rows).filter((c) => allowed.has(c.caseId)));
+      }
       const out: C.CaseInfo[] = [];
-      for (const c of await caseRows(s.db)) {
+      for (const c of await rows) {
         try { await identity.authorize({ caseId: c.caseId, operation: 'read' }); out.push(c); }
         catch (e) { if (!(e instanceof Error && 'code' in e && e.code === 'forbidden')) throw e; }
       }

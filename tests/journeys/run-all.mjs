@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { ROOT, OUT, NEEDS, preflightProblems, refuse } from './lib.mjs';
+import { ROOT, OUT, NEEDS, SIGN_IN_DEVICE, preflightProblems, refuse } from './lib.mjs';
 // Every journey needs the case's references, so a missing one stops the run here, before the first browser starts.
 const problems = preflightProblems([...NEEDS.samples, ...NEEDS.documents]);
 if (problems.length) { refuse(problems); process.exit(2); }
@@ -29,6 +29,8 @@ const skipped = r => r.steps.filter(s => s.status === 'SKIPPED').map(s => s.name
 const table = ['| Journey | Result | Timings (ms) | Failed checks | Skipped steps |', '|---|---|---|---|---|', ...results.map(r => `| ${r.id} | ${cell(r)} | ${r.steps.filter(s => s.ms !== undefined).map(s => `${s.name}: ${s.ms}`).join('; ')} | ${r.steps.filter(s => s.status === 'FAIL').map(s => `${s.name}: ${s.reason}`).join('; ')} | ${skipped(r)} |`)].join('\n');
 const count = status => results.filter(r => r.status === status).length;
 const tally = `PASS ${count('PASS')} · FAIL ${count('FAIL')} · PARTIAL ${count('PARTIAL')} · SKIPPED ${count('SKIPPED')}`;
-await fs.writeFile(path.join(OUT, 'summary.md'), `${table}\n\n${tally}\n`);
-console.log(`${table}\n\n${tally}`);
+// Which sign-in the timings are of (GRS-269): a fresh browser meets Clerk's device code, a returning device normally does not.
+const device = `Sign-in device: ${SIGN_IN_DEVICE}`;
+await fs.writeFile(path.join(OUT, 'summary.md'), `${table}\n\n${tally}\n${device}\n`);
+console.log(`${table}\n\n${tally}\n${device}`);
 process.exitCode = results.some(r => r.status === 'FAIL') ? 1 : 0;

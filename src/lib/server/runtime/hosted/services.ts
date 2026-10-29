@@ -1,5 +1,5 @@
 import { requestReadAudit } from '../../../audit/facades.ts';
-import { requestCaseLookup } from '../../../tenancy/request-case.ts';
+import { principalCaseGrants, requestCaseLookup } from '../../../tenancy/request-case.ts';
 import { bindPageReads } from '../../../tenancy/page-reads.ts';
 import type { Readiness } from './handle.ts';
 import type { Identity, IdentityState, RequestServices } from '../contracts.ts';
@@ -123,6 +123,23 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 			});
 			await authorizer.authorizeCase(a);
 		},
+		// The case list: one grant read for every case, and every listed case's event in one fail-closed append.
+		authorizeCases: async (a) => {
+			if (!native) throw contractError('identity-unavailable', true);
+			const { db } = native, sink = services.audit;
+			// The sink's own atomic inserts, alone in one batch (one transaction): each refuses an unbound log, spent capacity
+			// or a reused id by failing the batch, so every event is stored or none is and the list is refused.
+			const appendAll = async (events: readonly import('../contracts.ts').AuditEvent[]) => {
+				if (!sink.atomic) throw contractError('audit-unavailable', true);
+				const statements = (await Promise.all(events.map(event => sink.atomic!({ db, event })))).flat();
+				await db.batch(statements).catch(() => { throw contractError('audit-unavailable', true); });
+			};
+			return createCaseAuthorizer({
+				caseGrants: principalCaseGrants(db, native.deployment),
+				deployment: native.deployment, grants: d1GrantRepository(db),
+				cases: d1CaseDirectory({ db, deployment: native.deployment }), audit: { append: event => sink.append(event), appendAll }, now,
+			}).authorizeCases(a);
+		},
 	});
 	if (!clerk.ok) return { ready: false, reason: clerk.reason, services };
 	native = nativeContext(env, b, clerk.config);
@@ -135,8 +152,11 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 		const context = native;
 		scheduleRead = requestReadAudit({ db: native.db, config: native.audit, ...(scheduler ? { waitUntil: work => scheduler.waitUntil(work) } : {}) });
 		if (pageRequest || versionPost) {
-			const original = /^\/cases\/[^/]+\/originals\/([^/]+)\/view$/.exec(pagePath);
-			pageLookup = requestCaseLookup(native.db, native.deployment, original ? decodeURIComponent(original[1]!) : null);
+			// The one lookup carries the original a request shows: the viewer page's, or the chronology pane's (a version
+			// POST). Without it the snapshot answers that original as not found, and the pane says it is no longer available.
+			const original = /^\/cases\/[^/]+\/(?:originals\/([^/]+)\/view|v\/[^/]+\/chronology\/original\/([^/]+))$/.exec(pagePath);
+			const assetId = original?.[1] ?? original?.[2];
+			pageLookup = requestCaseLookup(native.db, native.deployment, assetId ? decodeURIComponent(assetId) : null);
 		}
 		services.audit = requestAuditSink({ db: native.db, config: native.audit, requester: stateOf(services.identity), now });
 		const cloud = cloudBindings(env), budgets = storageBudgets(native.settings.storageBudgets);

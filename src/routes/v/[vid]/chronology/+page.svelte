@@ -160,6 +160,8 @@
 		.chrono-split :global(.chrono-pane) { min-height: 0; }
 	}
 	@container (max-width: 959.98px) {
+		/* Narrow, the title column sits at its minimum: a heading wraps rather than running into the next one. */
+		.chrono-split :global(.chrono-grid .grid-head > [role='columnheader']) { white-space: normal; min-width: 0; }
 		.chrono-split :global(.chrono-pane .pane-back) { display: block; }
 		.chrono-split :global(.chrono-pane:not([data-ref])) { display: none; }
 	}

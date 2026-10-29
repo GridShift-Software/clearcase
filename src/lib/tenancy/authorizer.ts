@@ -1,5 +1,5 @@
-import type { AuditSink, CaseId, CaseOperation, IdentityState, Principal, SessionId } from '../server/runtime/contracts.ts';
-import { contractError } from '../server/runtime/errors.ts';
+import type { AuditEvent, AuditSink, CaseId, CaseOperation, IdentityState, Principal, SessionId } from '../server/runtime/contracts.ts';
+import { codeOf, contractError } from '../server/runtime/errors.ts';
 import { effective, enables, permits, type CaseCapability, type CaseDirectory, type GrantRecord, type GrantRepository } from './grants.ts';
 import type { ClientResourceIdentity } from './manifest.ts';
 
@@ -11,15 +11,20 @@ import type { ClientResourceIdentity } from './manifest.ts';
  */
 export type AuthorizeCase = (a: { principal: Principal; sessionId: SessionId; caseId: CaseId; operation: CaseOperation }) => Promise<void>;
 export type AuthorizeCapability = (a: { principal: Principal; sessionId: SessionId; caseId: CaseId; capability: CaseCapability }) => Promise<void>;
+/** AuthorizeCase over a list: resolves to the cases allowed, once every one of them is recorded; refuses as it does. */
+export type AuthorizeCases = (a: { principal: Principal; sessionId: SessionId; operation: CaseOperation; caseIds: readonly CaseId[] | Promise<readonly CaseId[]> }) => Promise<ReadonlySet<CaseId>>;
 
 export interface CaseAuthorizerOptions {
   /** The validated resource identity of this deployment (resolveDeployment), from trusted deployment configuration. */
   deployment: ClientResourceIdentity;
   grants: GrantRepository;
   cases: CaseDirectory;
-  audit: AuditSink;
+  /** `appendAll`, when given, stores every event or none, and resolves only once all are stored. */
+  audit: AuditSink & { appendAll?(events: readonly AuditEvent[]): Promise<void> };
   now: () => Date;
   lookup?: (a: { principal: Principal; caseId: CaseId }) => Promise<{ grants: readonly GrantRecord[]; exists: boolean }>;
+  /** Every case grant of a principal and which of their cases exist (principalCaseGrants), so a list is decided in one read. */
+  caseGrants?: (principal: Principal) => Promise<{ grants: readonly GrantRecord[]; present: ReadonlySet<string> }>;
   readAudit?: (event: import('../server/runtime/contracts.ts').AuditEvent) => void;
   newEventId?: () => string;
 }
@@ -45,7 +50,7 @@ export function belongs(deployment: ClientResourceIdentity, principal: Principal
  * grant on. object.id carries the requested id only when it is a well-formed id. A missing grant and an unknown case refuse
  * identically.
  */
-export function createCaseAuthorizer(o: CaseAuthorizerOptions): { authorizeCase: AuthorizeCase; authorizeCapability: AuthorizeCapability } {
+export function createCaseAuthorizer(o: CaseAuthorizerOptions): { authorizeCase: AuthorizeCase; authorizeCapability: AuthorizeCapability; authorizeCases: AuthorizeCases } {
   if (typeof o?.audit?.append !== 'function' || typeof o.grants?.grantsOf !== 'function' || typeof o.cases?.exists !== 'function') throw new TypeError('the case authorizer needs a grant store, a case directory and an audit sink');
   const { deployment } = o, clientId = deployment.clientId, eventId = o.newEventId ?? (() => crypto.randomUUID());
   const actor = (principal: Principal | null, sessionId: SessionId | null): IdentityState =>
@@ -79,7 +84,46 @@ export function createCaseAuthorizer(o: CaseAuthorizerOptions): { authorizeCase:
     await event(who, action, objectId, a.caseId, 'succeeded').catch(() => { throw contractError('audit-unavailable', true); });
   }
 
+  const appendAll = (events: AuditEvent[]) => !events.length ? Promise.resolve()
+    : o.audit.appendAll ? o.audit.appendAll(events) : Promise.all(events.map((e) => o.audit.append(e))).then(() => undefined);
+
+  /**
+   * check()'s rules for each case of a list, in its order, from one grant read: the first refusal that is not `forbidden`
+   * refuses the list, as a loop of checks would. A listed case is returned only once its `succeeded` event is stored,
+   * all in one append; the denials go in another, best-effort, as check()'s do.
+   */
+  async function checkAll(a: Parameters<AuthorizeCases>[0], allowed: (g: GrantRecord) => boolean, action: string): Promise<ReadonlySet<CaseId>> {
+    if (!o.caseGrants) {
+      const ids = await a.caseIds;
+      const listed = await Promise.all(ids.map((caseId) => check({ ...a, caseId }, allowed, action).then(() => true, (e) => { if (codeOf(e) === 'forbidden') return false; throw e; })));
+      return new Set(ids.filter((_, i) => listed[i]));
+    }
+    const principal = a?.principal ?? null, sessionId = a?.sessionId ?? null, who = actor(principal, sessionId);
+    const verified = !!principal && !!sessionId && typeof principal.issuer === 'string' && typeof principal.subject === 'string' && !!principal.subject;
+    const [ids, read] = await Promise.all([a.caseIds, verified && belongs(deployment, principal) ? o.caseGrants(principal).catch(() => { throw unavailable(); }) : null]);
+    const now = o.now(), granted = new Set<CaseId>(), reads: AuditEvent[] = [], denials: AuditEvent[] = [];
+    const record = (objectId: string, scoped: CaseId | null, outcome: 'succeeded' | 'denied'): AuditEvent =>
+      ({ eventId: eventId(), actor: who, action, object: { kind: 'case', id: objectId, caseId: scoped }, version: null, outcome, at: now.toISOString() });
+    for (const caseId of ids) {
+      const objectId = typeof caseId === 'string' && CASE_LABEL.test(caseId) ? caseId : 'invalid';
+      if (!verified) throw contractError('unauthenticated');
+      if (!read) { await appendAll([record(objectId, null, 'denied')]).catch(() => undefined); throw contractError('wrong-client'); }
+      if (typeof caseId !== 'string' || !caseId) { denials.push(record(objectId, null, 'denied')); continue; }
+      const held = read.grants.filter((g) => effective(g, { clientId, principal: principal!, scope: { kind: 'case', caseId }, now }));
+      const exists = read.present.has(caseId);
+      if (!held.some(allowed)) denials.push(record(objectId, held.length > 0 && exists ? caseId : null, 'denied'));
+      else if (!exists) denials.push(record(objectId, null, 'denied'));
+      else { granted.add(caseId); reads.push(record(objectId, caseId, 'succeeded')); }
+    }
+    await Promise.all([
+      appendAll(denials).catch(() => undefined),
+      appendAll(reads).catch(() => { throw contractError('audit-unavailable', true); }),
+    ]);
+    return granted;
+  }
+
   return {
+    authorizeCases: (a) => checkAll(a, (g) => OPERATIONS.has(a.operation) && permits(g.role, a.operation), `case.${OPERATIONS.has(a?.operation) ? a.operation : 'unknown'}`),
     authorizeCase: (a) => check(a, (g) => OPERATIONS.has(a.operation) && permits(g.role, a.operation), `case.${OPERATIONS.has(a?.operation) ? a.operation : 'unknown'}`),
     authorizeCapability: (a) => check(a, (g) => CAPABILITIES.has(a.capability) && enables(g.role, a.capability), `case.${CAPABILITIES.has(a?.capability) ? a.capability : 'unknown'}`),
   };

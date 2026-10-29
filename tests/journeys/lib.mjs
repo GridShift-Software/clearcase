@@ -1,4 +1,4 @@
-import { chromium } from 'playwright-core';
+import { chromium, request as playwrightRequest } from 'playwright-core';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -21,6 +21,10 @@ const budgetMs = (name, fallback) => {
   return value;
 };
 export const PAGE_MS = 2000, PDF_MS = 3000, SIGN_IN_MS = budgetMs('SIGN_IN_MS', 5000);
+// GRS-269: Clerk's Device Trust asks for an email code whenever a password sign-in comes from a browser it has not seen, and every
+// journey starts a fresh browser. Unset (or "fresh") is that behaviour. "returning" signs in once untimed to enrol the device,
+// signs out of the app, and times a second sign-in in the same context against the same SIGN_IN_MS.
+export const SIGN_IN_DEVICE = env('SIGN_IN_DEVICE') || 'fresh';
 const bytesOf = name => (env(name) ? Number(env(name)) : null);
 // No case value is committed: the three PDF samples (a small, a medium and the largest original of the case under test)
 // come from the environment. The byte sizes and the bundle (group) names are optional; a size is checked when given.
@@ -35,6 +39,8 @@ const NEED_WHAT = { EXPECTED_DOCUMENTS: 'the Overview document count of the case
 export function preflightProblems(needs = []) {
   const problems = [];
   if (!['local', 'hosted'].includes(MODE)) problems.push('MODE must be local or hosted');
+  if (!['fresh', 'returning'].includes(SIGN_IN_DEVICE)) problems.push('SIGN_IN_DEVICE must be fresh (the default) or returning');
+  else if (SIGN_IN_DEVICE === 'returning' && (MODE !== 'hosted' || !process.env.CREDENTIALS_JSON)) problems.push('SIGN_IN_DEVICE=returning needs MODE=hosted and CREDENTIALS_JSON; without a sign-in there is nothing to time');
   if (MODE === 'hosted') {
     if (!env('EXPECTED_SHA')) problems.push('MODE=hosted needs EXPECTED_SHA, the deployed build revision that /health must report; refusing to run against an unidentified deployment');
     if (!env('CASE_ID')) problems.push('MODE=hosted needs CASE_ID');
@@ -42,6 +48,7 @@ export function preflightProblems(needs = []) {
   }
   for (const name of needs) if (!env(name)) problems.push(`${name} is required (${NEED_WHAT[name] || 'the reference of a document of the case under test'})`);
   if (needs.includes('EXPECTED_DOCUMENTS') && env('EXPECTED_DOCUMENTS') && !/^[1-9]\d*$/.test(env('EXPECTED_DOCUMENTS'))) problems.push(`EXPECTED_DOCUMENTS must be a positive integer`);
+  if (env('HEADS_EXPECTED') && !/^(0|[1-9]\d*)$/.test(env('HEADS_EXPECTED'))) problems.push('HEADS_EXPECTED must be a whole number of Heads entries (0 for a case with none)');
   if (env('CLEARCASE_BROWSER_LOCK') !== 'none' && !process.env.CLEARCASE_BROWSER_SLOT) problems.push('run under the browser lock (orch-bin/browser-lock, or the path in CLEARCASE_BROWSER_LOCK), or set CLEARCASE_BROWSER_LOCK=none where no workspace lock exists; docs/development.md "Browser admission"');
   return problems;
 }
@@ -69,23 +76,94 @@ export function hook(page, name, fallback) {
   return hookAll(page, name, fallback).first();
 }
 export const paint = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-export async function ready(page, id) {
-  const main = page.locator(`main[data-ready="${id}"]`);
-  await main.waitFor({ state: 'visible' });
-  await main.getByRole('heading', { level: 1 }).first().waitFor();
-  check(!await main.getByText(/^(Coming soon|Internal Error|Not Found|Hosted runtime is unavailable)$/i).count(), 'Error or placeholder instead of view');
+// What each view must show, visible, before it counts as ready: populated data rows, its narrative, its timeline events, an
+// entry form whose controls work, or (a document page) its original's metadata. Views missing here (local-only) take any.
+const ROWS = ['rows'], FORM = ['form'];
+export const VIEW_CONTENT = Object.freeze({
+  overview: ROWS, chronology: ROWS, documents: ROWS, people: ROWS, entity_ledger_tab: ROWS, contracts_tab: ROWS, filings_tab: ROWS,
+  quantum_tab: ROWS, invoice_ledger_tab: ROWS, prescription_tab: ROWS, payments_tab: ROWS, discovery_tab: ROWS, court_bundle_tab: ROWS,
+  contradictions_tab: ROWS, risk_matrix_tab: ROWS, vdm_matrix_tab: ROWS, info_required_tab: ROWS, witness_tab: ROWS,
+  enforcement_tab: ROWS, legality_tab: ROWS, elements_tab: ROWS, authorities_tab: ROWS, crossexam_tab: ROWS,
+  matter: ['narrative'], timeline: ['events'],
+  search: FORM, hoa_diff_tab: FORM, caselines_tab: FORM, conflict_tab: FORM, heads_tab: FORM, interest_calc_tab: FORM, settlement_tab: FORM,
+  deadlines_tab: FORM, disbursements_tab: FORM, timesheet_tab: FORM, privilege_tab: FORM, popia_tab: FORM, annotations_tab: FORM, transcriptions_tab: FORM,
+});
+const contentOf = id => (id.startsWith('doc:') ? ['document'] : VIEW_CONTENT[id] ?? ['rows', 'narrative', 'events', 'form']);
+const PLACEHOLDER = '^(Coming soon|Internal Error|Not Found|Hosted runtime is unavailable)$';
+/**
+ * In the page: whether a table or grid row holds domain data. It is shown, is not an empty, error, placeholder or loading row
+ * (nor inside a busy region), and has at least two shown cells whose text is neither a loading phrase nor only dashes or dots.
+ */
+function isDomainRow(r) {
+  const shown = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  const notData = '.empty, .error, .placeholder, .loading, .skeleton, [role="alert"], [role="status"], [aria-busy="true"], [data-loading], [data-placeholder]';
+  if (!shown(r) || r.matches(notData) || r.querySelector(notData) || r.closest('[aria-busy="true"]')) return false;
+  const usable = c => { const t = c.innerText.trim(); return shown(c) && t && !/^(loading|please wait|fetching|retrieving)\b/i.test(t) && !/^[\s\-\u2013\u2014.\u2026]*$/.test(t); };
+  return [...r.querySelectorAll(':scope > td, :scope > [role="cell"], :scope > [role="gridcell"]')].filter(usable).length >= 2;
 }
+// An in-page function that can call isDomainRow: page functions are shipped as source, so the helper goes with them.
+const withDomainRow = fn => new Function('arg', `const isDomainRow = ${isDomainRow};\nreturn (${fn})(arg);`);
+/** In the page: how many rows under `root` hold domain data (isDomainRow). */
+export const countDomainRows = withDomainRow(root => [...root.querySelectorAll('tbody tr, [role="row"]')].filter(isDomainRow).length);
+/** In the page: null while the view is not there yet, loading or without its content; otherwise 'ready' or why it failed. */
+function viewState({ id, kinds, placeholder }) {
+  const main = document.querySelector(`main[data-ready="${CSS.escape(id)}"]`);
+  const shown = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  if (!main || !shown(main)) return null;
+  const text = e => (e.innerText || '').trim();
+  const any = (selector, ok = () => true) => [...main.querySelectorAll(selector)].some(e => shown(e) && ok(e));
+  const phrase = new RegExp(placeholder, 'i');
+  for (const walk = document.createTreeWalker(main, NodeFilter.SHOW_TEXT); walk.nextNode();) {
+    const owner = walk.currentNode.parentElement;
+    if (walk.currentNode.textContent.trim() && owner.textContent.length <= 64 && phrase.test(owner.textContent.replace(/\s+/g, ' ').trim())) return 'Error or placeholder instead of view';
+  }
+  if (any('[data-unavailable]')) return 'Unavailable placeholder instead of view';
+  if (any('[role="alert"], .error, [data-pane-state="error"], [data-viewer-state="error"]', text)) return 'Error state instead of view';
+  if (!any('h1', text) || any('[aria-busy="true"], [data-pane-state="loading"], [data-viewer-state="loading"]')) return null;
+  const has = {
+    rows: () => [...main.querySelectorAll('tbody tr, [role="row"]')].some(isDomainRow),
+    narrative: () => any('.narrative', text),
+    events: () => any('[data-phase] [role="listitem"]', e => e.querySelector('a[href]') && text(e)),
+    form: () => any('input:not([type="hidden"]), select, textarea', c => !c.disabled && !c.readOnly && !c.closest('fieldset[disabled]')),
+    document: () => any('[data-testid="original-metadata"], #original-state', text),
+  };
+  return kinds.some(k => has[k]()) ? 'ready' : null;
+}
+const VIEW_STATE = withDomainRow(viewState);
+/** Waits until view `id` is usable: its content visible, no loading state left; an error, unavailable or placeholder state fails at once. */
+export async function ready(page, id) {
+  const state = await (await page.waitForFunction(VIEW_STATE, { id, kinds: contentOf(id), placeholder: PLACEHOLDER }, { polling: 'raf' })).jsonValue();
+  check(state === 'ready', state);
+}
+// The hosted PDF viewer (J3's pane and J4's opened original): a page counts once its viewer is ready and page 1 is drawn.
+export const PDF = '[data-viewer="pdf"]';
+export const PDF_RENDERED = `${PDF}[data-viewer-state="ready"] canvas[data-testid="pdf-page"][data-rendered="true"]`;
+export const PDF_FAILED = `${PDF}[data-viewer-state="error"]`;
+/**
+ * Waits for the opened original's first page: the hosted viewer's page-1 canvas in `page` itself, visible and drawn; or the local
+ * isolated viewer (window.__viewer, in a visible frame) once it has drawn page 1 without an error. Either viewer's error state fails at once.
+ */
 export async function firstPDF(page, timeout = 30000) {
   const until = Date.now() + timeout;
   while (Date.now() < until) {
+    const hosted = await page.mainFrame().evaluate(([rendered, failed]) => {
+      const shown = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+      if (document.querySelector(failed) || document.body?.dataset.ready === 'error') return 'failed';
+      return [...document.querySelectorAll(`${rendered}[data-page-number="1"]`)].some(c => c instanceof HTMLCanvasElement && shown(c) && c.width > 0 && c.height > 0) ? 'rendered' : null;
+    }, [PDF_RENDERED, PDF_FAILED]).catch(() => null);
+    check(hosted !== 'failed', 'The PDF viewer shows its error state');
+    if (hosted === 'rendered') return;
     for (const frame of page.frames()) {
-      const rendered = await frame.evaluate(() => {
-        const marked = document.querySelector('[data-testid="pdf-page"][data-page-number="1"][data-rendered="true"]');
-        const canvas = document.querySelector('canvas');
-        const legacy = window.__viewer?.rendered >= 1;
-        return !!(marked || (legacy && canvas?.width > 0 && canvas?.height > 0));
-      }).catch(() => false);
-      if (rendered) return;
+      const legacy = await frame.evaluate(() => {
+        const v = window.__viewer;
+        if (!v) return null;
+        if (v.error || document.body.dataset.ready === 'error') return 'failed';
+        const canvas = document.querySelector('[data-page="1"][data-rendered="1"] canvas');
+        const drawn = canvas && canvas.getClientRects().length > 0 && getComputedStyle(canvas).visibility !== 'hidden' && canvas.width > 0 && canvas.height > 0;
+        return document.body.dataset.ready === '1' && v.rendered >= 1 && drawn ? 'rendered' : null;
+      }).catch(() => null);
+      check(legacy !== 'failed', 'The PDF viewer shows its error state');
+      if (legacy === 'rendered' && (frame === page.mainFrame() || await (await frame.frameElement()).isVisible())) return;
     }
     await new Promise(resolve => setTimeout(resolve, 25));
   }
@@ -113,8 +191,9 @@ function capture(context) {
 // A sign-in failure whose message is safe to show: it names a step, never a URL, value or Playwright stack.
 class SignInError extends Error {}
 const SIGN_IN_DEADLINE_MS = 60000;
-async function signIn(j) {
-  if (MODE !== 'hosted' || !process.env.CREDENTIALS_JSON) return;
+// One password sign-in, timed as the step `name` against `budget` (null: information only). Returns whether Clerk asked for the code.
+async function signIn(j, { name = 'sign-in', budget = SIGN_IN_MS } = {}) {
+  let codeStep = false;
   // No secret values, URLs, headers, DOM snapshots or Playwright exception stacks are logged.
   let credentials;
   try { credentials = JSON.parse(await fs.readFile(process.env.CREDENTIALS_JSON, 'utf8')); }
@@ -127,7 +206,7 @@ async function signIn(j) {
   const onResponse = response => { const p = prepares.find(x => x.request === response.request()); if (p) { p.done = true; p.ok = response.ok(); } };
   const onFailed = request => { const p = prepares.find(x => x.request === request); if (p) p.done = true; };
   j.page.on('request', onRequest); j.page.on('response', onResponse); j.page.on('requestfailed', onFailed);
-  await j.measure('sign-in', async () => {
+  await j.measure(name, async () => {
     // One deadline bounds the whole sign-in: navigation, every wait, and the final paint.
     const deadline = Date.now() + SIGN_IN_DEADLINE_MS;
     const remaining = () => Math.max(1, deadline - Date.now());
@@ -167,6 +246,7 @@ async function signIn(j) {
           const atCode = await quietly(code.isVisible());
           let typed = false;
           if (atCode) {
+            codeStep = true;
             if (!credentials.otp) throw new SignInError('Hosted sign-in failed: the sign-in code is needed but the credentials hold none');
             await codeSent();
             // typed key by key, which Clerk's code boxes take (a single fill leaves them empty); the last digit submits the step
@@ -189,7 +269,33 @@ async function signIn(j) {
       let timer;
       await Promise.race([paint(j.page), new Promise((_, reject) => { timer = setTimeout(() => reject(new SignInError('Hosted sign-in failed: no paint before the deadline')), remaining()); })]).finally(() => clearTimeout(timer));
     } catch (error) { throw error instanceof SignInError ? error : new Error('Hosted sign-in failed; inspect authentication privately'); }
-  }, async () => {}, SIGN_IN_MS).finally(() => { j.page.off('request', onRequest); j.page.off('response', onResponse); j.page.off('requestfailed', onFailed); });
+  }, async () => {}, budget).finally(() => { j.page.off('request', onRequest); j.page.off('response', onResponse); j.page.off('requestfailed', onFailed); });
+  return codeStep;
+}
+// The app's own sign-out, then proof the app session is gone: /cases answers 401 to the context's cookies, read through a separate
+// request context so the expected 401 is not counted as a network error of the journey. Clerk's device cookies stay in the context.
+async function signOutOfApp(j) {
+  // the hosted app's own sign-out is the control of its case list, a POST to /sign-out
+  const out = hook(j.page, 'sign-out', '#sign-out');
+  await j.page.goto(`${BASE_URL}/cases`, { waitUntil: 'domcontentloaded' });
+  await out.waitFor({ state: 'visible', timeout: 15000 }).catch(() => { throw new Error('Returning-device sign-in failed: no sign-out control on the case list'); });
+  await out.click();
+  await out.waitFor({ state: 'detached', timeout: 30000 }); // the POST navigated away from the case list
+  const api = await playwrightRequest.newContext({ storageState: await j.context.storageState() });
+  try {
+    const response = await api.get(`${BASE_URL}/cases`, { maxRedirects: 0, failOnStatusCode: false });
+    check(response.status() === 401, `Returning-device sign-in failed: /cases answered ${response.status()} after sign-out, expected 401`);
+  } finally { await api.dispose(); }
+}
+// The timed sign-in of a journey. Returning: the enrol pass (no budget) and the sign-out come first, so the timed step is the second sign-in.
+async function signInSteps(j) {
+  if (MODE !== 'hosted' || !process.env.CREDENTIALS_JSON) return;
+  const record = (name, deviceCodeStep) => Object.assign(j.results.findLast(x => x.name === name), { deviceCodeStep });
+  if (SIGN_IN_DEVICE === 'returning') {
+    record('sign-in-enrol', await signIn(j, { name: 'sign-in-enrol', budget: null }));
+    await signOutOfApp(j);
+    record('sign-in', await signIn(j));
+  } else await signIn(j);
 }
 export async function createJourney(id) {
   const problems = preflightProblems();
@@ -208,20 +314,24 @@ export async function createJourney(id) {
     });
     const network = capture(context);
     const page = await context.newPage(); page.setDefaultTimeout(10000); page.setDefaultNavigationTimeout(30000);
-    const j = { id, browser, context, page, rv: process.env.RESULTS_VERSION, network, results: [], startedAt: new Date().toISOString(), metadata: { mode: MODE, baseURL: BASE_URL, chromium: browser.version(), sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim(), signIn: MODE === 'hosted' && process.env.CREDENTIALS_JSON ? 'requested' : 'not-tested', runId: process.env.RUN_ID || `${Date.now()}` } };
+    const j = { id, browser, context, page, rv: process.env.RESULTS_VERSION, network, networks: [network], results: [], startedAt: new Date().toISOString(), metadata: { mode: MODE, baseURL: BASE_URL, chromium: browser.version(), sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim(), signIn: MODE === 'hosted' && process.env.CREDENTIALS_JSON ? 'requested' : 'not-tested', runId: process.env.RUN_ID || `${Date.now()}`, signInDevice: SIGN_IN_DEVICE } };
+    // Records step `name`, timed from `start` (a performance.now()) to now: a failure when `error` is given or the budget is spent.
+    j.timed = (name, start, budgetMs, error = null) => {
+      const ms = Math.round(performance.now() - start);
+      if (error) j.results.push({ name, status: 'FAIL', ms, budgetMs, reason: error.name === 'TimeoutError' ? 'Target not ready before timeout' : error.message.split('\n')[0] });
+      else j.results.push({ name, status: budgetMs !== null && ms >= budgetMs ? 'FAIL' : 'PASS', ms, budgetMs, ...(budgetMs !== null && ms >= budgetMs ? { reason: 'Latency budget exceeded' } : {}) });
+    };
     j.measure = async (name, action, target = async () => {}, budgetMs = PAGE_MS, targetPage = page) => {
       const start = performance.now();
       try {
         const value = await action(); await target(value); await paint(typeof targetPage === 'function' ? targetPage() : targetPage);
-        const ms = Math.round(performance.now() - start);
-        j.results.push({ name, status: budgetMs !== null && ms >= budgetMs ? 'FAIL' : 'PASS', ms, budgetMs, ...(budgetMs !== null && ms >= budgetMs ? { reason: 'Latency budget exceeded' } : {}) });
+        j.timed(name, start, budgetMs);
         return value;
-      } catch (error) {
-        j.results.push({ name, status: 'FAIL', ms: Math.round(performance.now() - start), budgetMs, reason: error.name === 'TimeoutError' ? 'Target not ready before timeout' : error.message.split('\n')[0] });
-        throw error;
-      }
+      } catch (error) { j.timed(name, start, budgetMs, error); throw error; }
     };
     j.attempt = async (name, fn) => { try { await fn(); } catch (e) { if (!j.results.some(x => x.name === name && x.status === 'FAIL')) j.results.push({ name, status: 'FAIL', reason: e.name === 'TimeoutError' ? 'Required control/content missing' : e.message.split('\n')[0] }); } };
+    // Every further context a journey opens (J3's phone) is captured before its first page, and its failures count in the verdict.
+    j.newContext = async options => { const extra = await browser.newContext(options); j.networks.push(capture(extra)); return extra; };
     j.url = suffix => route(j.rv, suffix);
     j.go = async (suffix, view, label = view) => j.measure(label, () => page.goto(j.url(suffix), { waitUntil: 'domcontentloaded' }), () => ready(page, view));
     j.nav = async id => j.measure(id, () => page.locator(`nav [data-view="${id}"]`).click(), () => ready(page, id));
@@ -259,7 +369,7 @@ export async function createJourney(id) {
       const h = await health.json(); j.metadata.build = h.build;
       check(h.build?.revision === process.env.EXPECTED_SHA, 'Hosted build differs from EXPECTED_SHA');
     }
-    await signIn(j);
+    await signInSteps(j);
     if (!j.rv) {
       await page.goto(`${BASE_URL}${MODE === 'hosted' ? `/cases/${encodeURIComponent(process.env.CASE_ID || '')}` : '/cases'}`, { waitUntil: 'domcontentloaded' });
       const link = page.locator('a[href*="/v/"][href$="/overview"]').first(); await link.waitFor();
@@ -302,9 +412,9 @@ export async function run(id, work, { needs = [], writes = null } = {}) {
         j.metadata.buildVerifiedAtEnd = true;
       } catch { j.results.push({ name: 'build-identity', status: 'FAIL', reason: 'Build identity changed or became unavailable' }); }
       await j.context.close();
-      if (j.network.http4xx || j.network.http5xx || j.network.pageErrors || j.network.failedRequests) j.results.push({ name: 'network/runtime', status: 'FAIL', reason: 'HTTP errors, failed requests or uncaught page errors' });
+      if (j.networks.some(n => n.http4xx || n.http5xx || n.pageErrors || n.failedRequests)) j.results.push({ name: 'network/runtime', status: 'FAIL', reason: 'HTTP errors, failed requests or uncaught page errors' });
       const status = j.results.some(x => x.status === 'FAIL') ? 'FAIL' : j.results.some(x => x.status === 'SKIPPED') ? 'PARTIAL' : 'PASS';
-      result = { id, status, startedAt: j.startedAt, metadata: j.metadata, network: j.network, steps: j.results };
+      result = { id, status, startedAt: j.startedAt, metadata: j.metadata, network: j.network, ...(j.networks.length > 1 ? { otherContexts: j.networks.slice(1) } : {}), steps: j.results };
       await j.browser.close();
     }
     await record(id, result);

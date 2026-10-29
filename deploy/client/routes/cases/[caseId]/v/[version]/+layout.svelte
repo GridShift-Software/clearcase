@@ -11,7 +11,7 @@
 	setHostedWriteAccess(() => data.canWrite);
 	const routeId = $derived(page.route.id ?? '');
 	const current = $derived(routeId.endsWith('/[category]/[view]') ? page.params.view ?? null : routeId.endsWith('/[category]') ? page.params.category ?? null : routeId.split('/').at(-1) ?? null);
-	const shell = $derived<ShellData>({ ...data.shell, current });
+	const shell = $derived<ShellData>({ ...data.shell, current, hosted: true });
 </script>
 
 <AppShell {shell}>

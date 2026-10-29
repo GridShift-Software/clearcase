@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { tick, type Snippet } from 'svelte';
-	import { setRouteBase, type ShellData } from './shell.ts';
+	import { setHosted, setRouteBase, type ShellData } from './shell.ts';
 	import TopBar from './TopBar.svelte';
 	let { shell, sidebar, notice, children }: { shell: ShellData; sidebar: Snippet; notice?: Snippet; children: Snippet } = $props();
 	setRouteBase(() => shell.base);
+	setHosted(() => shell.hosted === true);
 
 	// Under 40rem the sidebar is a drawer. Closed it is not rendered, so Tab skips it; the toggle in the top bar opens it.
 	// Open it is modal: Tab cycles inside it, and the top bar, notices and main are inert behind the backdrop.

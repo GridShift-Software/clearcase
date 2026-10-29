@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { displayFilename } from '../case-package/browser.ts';
-	import type { DocumentStateRow, OriginalLinks } from '../local-case/model.ts';
+	import type { DocumentStateRow, OriginalLinks } from '../local-case/model.ts'; import { isHosted } from './shell.ts';
 	let { state, links, onDisk = null, page = null, parentHref = null }: { state: DocumentStateRow; links: OriginalLinks; onDisk?: string | null; page?: number | null; parentHref?: string | null } = $props();
-	const o = $derived(state.original);
+	const o = $derived(state.original); const onHosted = isHosted(); // hosted shell only: no case folder path, no hash
 	const label = $derived(
 		links.presentation === 'viewer' ? 'PDF, shown in the isolated ClearCase viewer (scripts in the file never run)'
 		: links.presentation === 'inline' ? 'Image, shown on the isolated originals site'
@@ -15,13 +15,13 @@
 	<h2 id="original-heading">Original</h2>
 	{#if state.file === 'present' && o && onDisk}
 		<p class="missing" id="original-state"><span class="route" data-route="unavailable">Original missing on disk</span>:
-			<code class="wrap" title={o.path}>{displayFilename(o.path, 160)}</code> was verified when this results version was imported, but it is not available now ({onDisk}), so it is not served.
-			Restore the file at that path in the case folder, or import a new results package.</p>
+			{#if onHosted()}This original is not available right now.{:else}<code class="wrap" title={o.path}>{displayFilename(o.path, 160)}</code> was verified when this results version was imported, but it is not available now ({onDisk}), so it is not served.
+			Restore the file at that path in the case folder, or import a new results package.{/if}</p>
 	{:else if state.file === 'present' && o}
 		<p id="original-state">
-			<span class="route" data-route="direct">Direct original</span>:
+			{#if onHosted()}<span class="route" data-route="direct">File</span>: <small>{o.mediaType}, {o.size.toLocaleString('en')} bytes</small>{:else}<span class="route" data-route="direct">Direct original</span>:
 			<code class="wrap" title={o.path}>{displayFilename(o.path, 160)}</code>
-			<small>({o.mediaType}, {o.size.toLocaleString('en')} bytes, sha256 {o.sha256.slice(0, 12)}…)</small>
+			<small>({o.mediaType}, {o.size.toLocaleString('en')} bytes, sha256 {o.sha256.slice(0, 12)}…)</small>{/if}
 		</p>
 		<p id="original-family">{label}.
 			{#if state.flags.includes('download-only')}<strong class="warning-inline" data-flag="download-only">Its content does not match its declared type, so it is offered only as a download.</strong>{/if}

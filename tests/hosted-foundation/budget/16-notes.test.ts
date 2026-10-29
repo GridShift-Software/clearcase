@@ -88,6 +88,26 @@ it('16 document note action survives a loader roundtrip, and the bound read fetc
   } finally { w.db.close(); }
 });
 
+it('16 document delnote action removes the saved note, and the loader no longer returns it', async () => {
+  const w = notes();
+  try {
+    const doc = { ref: 'D-001', source: 'results', fields: {}, state: { original: { sha256: SHA_A }, flags: [] }, attachments: [], assetIds: {}, mediaType: null, originalState: 'missing' };
+    const locals = {
+      store: { publication: async () => ({ versionId: RV1, shardManifestSha256: 'a'.repeat(64), shards: { 'doc/D-001.json': 100 } }) },
+      userWork: w.work, shards: { read: async () => Response.json(doc) },
+    } as unknown as C.RequestServices;
+    const post = (action: string, fields: Record<string, string>) => {
+      const form = new FormData(); for (const [k, v] of Object.entries(fields)) form.set(k, v);
+      return { locals, params: { caseId: CASE, version: RV1, ref: 'D-001' }, url: new URL('https://synthetic.invalid/'),
+        request: new Request(`https://synthetic.invalid/?/${action}`, { method: 'POST', body: form }) };
+    };
+    const saved = await actions.note!(post('note', { body: 'Synthetic note to delete', operationId: 'delete-roundtrip' }) as never) as { note: { id: string; version: string } };
+    expect((await document(post('note', {}) as never)).notes).toHaveLength(1);
+    expect(await actions.delnote!(post('delnote', { id: saved.note.id, version: saved.note.version, operationId: 'delete-note' }) as never)).toEqual({ deleted: true });
+    expect((await document(post('note', {}) as never)).notes).toEqual([]);
+  } finally { w.db.close(); }
+});
+
 it('16 note save commits its audit in exactly one D1 batch, with no post-commit audit append', async () => {
   const db = database(); bind(db);
   const auth = authority(); auth.grant('editor', CASE, 'editor');

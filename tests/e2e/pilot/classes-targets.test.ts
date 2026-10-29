@@ -599,8 +599,35 @@ describe('hosted forms are declared, with a reason the suite checks', () => {
  test('discovery finds the hosted sign-in, sign-out and case-list forms', () => {
   expect(found).toEqual(expect.arrayContaining(SMOKE_ROUTES));
  });
- test('discovery finds exactly the hosted sign-in, operator sign-in, sign-out, case-list, notes, chronology filter and intake forms', () => {
-  expect(found).toEqual(['/cases', '/cases/[caseId]/notes', '/cases/[caseId]/views/[resultsVersion]/chronology', '/client/intake/[caseId]', '/operator/cases/[caseId]/preview/[candidateId]', '/sign-in', '/sign-in/operator', '/sign-out']);
+ test('discovery finds exactly the hosted sign-in, operator sign-in, sign-out, case-list, notes, chronology filter, intake and user-work view forms (analysis, bundles, document, evidence, litigation, quantum and registers)', () => {
+  expect(found).toEqual([
+   '/cases',
+   '/cases/[caseId]/notes',
+   '/cases/[caseId]/v/[version]/analysis/info_required_tab',
+   '/cases/[caseId]/v/[version]/bundles/caselines_tab',
+   '/cases/[caseId]/v/[version]/bundles/court_bundle_tab',
+   '/cases/[caseId]/v/[version]/bundles/discovery_tab',
+   '/cases/[caseId]/v/[version]/doc/[ref]',
+   '/cases/[caseId]/v/[version]/evidence/filings_tab',
+   '/cases/[caseId]/v/[version]/litigation/authorities_tab',
+   '/cases/[caseId]/v/[version]/litigation/crossexam_tab',
+   '/cases/[caseId]/v/[version]/litigation/enforcement_tab',
+   '/cases/[caseId]/v/[version]/litigation/heads_tab',
+   '/cases/[caseId]/v/[version]/quantum/payments_tab',
+   '/cases/[caseId]/v/[version]/registers/annotations_tab',
+   '/cases/[caseId]/v/[version]/registers/deadlines_tab',
+   '/cases/[caseId]/v/[version]/registers/disbursements_tab',
+   '/cases/[caseId]/v/[version]/registers/popia_tab',
+   '/cases/[caseId]/v/[version]/registers/privilege_tab',
+   '/cases/[caseId]/v/[version]/registers/timesheet_tab',
+   '/cases/[caseId]/v/[version]/registers/transcriptions_tab',
+   '/cases/[caseId]/views/[resultsVersion]/chronology',
+   '/client/intake/[caseId]',
+   '/operator/cases/[caseId]/preview/[candidateId]',
+   '/sign-in',
+   '/sign-in/operator',
+   '/sign-out',
+  ]);
  });
  test('every hosted form is declared and every declaration names a form discovery finds', () => {
   expect(declaredRoutes.sort()).toEqual(found);
@@ -616,7 +643,7 @@ describe('hosted forms are declared, with a reason the suite checks', () => {
  });
  test('the other declared routes are driven by tracked unit or component tests, labelled as that and never as browser or workerd proof', () => {
   const others = declaredRoutes.filter((r) => !SMOKE_ROUTES.includes(r));
-  expect(others).toHaveLength(5);
+  expect(others).toHaveLength(23);
   for (const route of others) {
    const ev: Evidence = declared.HOSTED_FORM_EVIDENCE[route];
    expect(['unit', 'component'], `${route} is labelled ${ev.kind}`).toContain(ev.kind);

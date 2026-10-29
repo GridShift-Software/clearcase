@@ -56,7 +56,7 @@
 				<h3>Invoice ledger ({q.invoiceLedger.length})</h3>
 				<div class="toolbar"><button type="button" id="export-invoices" onclick={() => download(data.exportName.name, invoicesCsv(q.invoiceLedger))}>Export CSV</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}</div>
 				<TableScroll label="Invoice ledger" class="q-wrap q-h460">
-					<table class="q-tbl" id="invoice-ledger">
+					<table class="q-tbl" id="invoice-ledger" data-open-col>
 						<thead><tr><th>Ref</th><th>Invoice</th><th>Date</th><th class="num">Amount</th><th>Doc</th></tr></thead>
 						<tbody>{#each q.invoiceLedger as r, i (i)}<tr><td class="mono">{r.ref}</td><td class="mono">{r.no}</td><td class="mono">{r.date || '—'}</td><td class="num">{importedMoney(r.amount)}</td><td><CitationLink resultsVersion={vid} ref={r.ref} exists={known.has(r.ref)} label={known.has(r.ref) ? 'open ↗' : r.ref} /></td></tr>{/each}</tbody>
 					</table>

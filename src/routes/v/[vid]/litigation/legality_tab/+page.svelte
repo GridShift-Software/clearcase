@@ -22,7 +22,7 @@
 		<div class="card narr risk"><h3>The risk</h3>{#if data.intro}<Narrative text={data.intro} resultsVersion={vid} known={data.known} />{/if}</div>
 		<div class="card pad0">
 			<div class="chead">{data.docsHeading}</div>
-			<div class="wrap"><TableScroll label={data.docsHeading}><table id="legality-docs">
+			<div class="wrap"><TableScroll label={data.docsHeading}><table id="legality-docs" data-open-col>
 				<thead><tr><th>Ref</th><th>Date</th><th>Document</th><th>Doc</th></tr></thead>
 				<tbody>
 					{#each data.docs as d, i (i)}

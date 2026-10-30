@@ -9,7 +9,7 @@ export const HOSTED_PDF_VERSION = '6.4.299';
 // Captured from the frozen bun.lock install at c6f0d9536e381dc8eebbf2035f49834409434761.
 export const HOSTED_PDF_PACKAGE_DIGEST = 'sha256:ae9a1328f4de3e2cf14b24d711e34299963dc64c10eab7b1afe849b79846e577';
 // The in-app viewer's pdf.js worker, pdfjs/pdf-viewer-worker.mjs: build/pdf.worker.min.mjs with WORKER_PATCH applied.
-export const HOSTED_PDF_VIEWER_WORKER_DIGEST = 'sha256:79bdd72351096425f4efd42b4c238e7513f321c1a38951a825a148119530b511';
+export const HOSTED_PDF_VIEWER_WORKER_DIGEST = 'sha256:bf3b48c6184d676fb0212df8f65822ecc43f50b998b68527373281297d9ed0b3';
 
 /**
  * The one patch to pdf.js (upstream pdfjs-dist 6.4.299, build/pdf.worker.min.mjs; GRS-251), served only to the in-app
@@ -23,6 +23,12 @@ export const HOSTED_PDF_VIEWER_WORKER_DIGEST = 'sha256:79bdd72351096425f4efd42b4
  * recovery, so it still blocks, as upstream. A deferred check still corrects the worker's page count when /Count is
  * wrong, and the added `ClearcasePageCount` request answers, once the check has run, with the corrected count (null when
  * /Count stood), which pdf-reader.mjs passes to the viewer. A deferred check's own failure is no longer a load failure.
+ * GRS-288: upstream `getPageDict` also starts a fetch of every top-level /Kids entry, last first, on its first walk, so
+ * opening a large flat page tree asked for most of the file at once and every later page queued behind it. A walk to a
+ * requested page now starts fetches, first to last, only for the kids of each node it opens that can hold that page (each
+ * kid holds at least one), and still checks each kid as upstream does. The deferred check first walks to the last page
+ * one fetch at a time, so the walk it must make never crowds out a requested page; checkLastPage then finds that walk's
+ * objects already read.
  * Each replacement must match exactly once, so another pdf.js build is refused, never half-patched.
  */
 const WORKER_PATCH: ReadonlyArray<readonly [string, string]> = [
@@ -30,7 +36,12 @@ const WORKER_PATCH: ReadonlyArray<readonly [string, string]> = [
 		'await this.ensureDoc("checkFirstPage",[e]);let clearcaseCount;try{clearcaseCount=await this.ensureCatalog("numPages")}catch{}' +
 		'if(!(Number.isInteger(clearcaseCount)&&clearcaseCount>0)){await this.ensureDoc("checkLastPage",[e]);return}' +
 		'let clearcaseChecked;this.lastPageChecked=new Promise(t=>{clearcaseChecked=t});' +
-		'this.deferredLastPageCheck=()=>{this.deferredLastPageCheck=null;this.ensureDoc("checkLastPage",[e]).catch(()=>{}).then(clearcaseChecked)}}'],
+		'this.deferredLastPageCheck=()=>{this.deferredLastPageCheck=null;this.ensureCatalog("getPageDict",[clearcaseCount-1,!0]).catch(()=>{})' +
+			'.then(()=>this.ensureDoc("checkLastPage",[e])).catch(()=>{}).then(clearcaseChecked)}}'],
+	['async getPageDict(e){', 'async getPageDict(e,clearcaseSerial){'],
+	['for(let e=h.length-1;e>=0;e--){const a=h[e];t.push(a);n===this.toplevelPagesDict&&a instanceof Ref&&!o.has(a)&&o.put(a,s.fetchAsync(a))}',
+		'for(let e=h.length-1;e>=0;e--)t.push(h[e]);if(!clearcaseSerial)for(let clearcaseKid=0;clearcaseKid<Math.min(h.length,e-l+1);clearcaseKid++){' +
+		'const a=h[clearcaseKid];a instanceof Ref&&!o.has(a)&&o.put(a,s.fetchAsync(a))}'],
 	['l){a.getPage(e).then(function(e){const a=new WorkerTask(`GetOperatorList: page ${t}`);',
 		'l){const clearcasePdfManager=a;a.getPage(e).then(function(e){const a=new WorkerTask(`GetOperatorList: page ${t}`);'],
 	['pageIndex:t,pageProxyId:n}).then(()=>{l.close()},e=>{a.terminated||l.error(e)}).finally(()=>{finishWorkerTask(a)})})});c.on("GetTextContent"',

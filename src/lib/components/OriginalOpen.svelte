@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { displayFilename } from '../case-package/browser.ts';
+	import { viewerPageHref } from '../viewer/hosted/page-link.ts';
 	import type { DocumentStateRow, OriginalLinks } from '../local-case/model.ts'; import { isHosted } from './shell.ts';
 	let { state, links, onDisk = null, page = null, parentHref = null }: { state: DocumentStateRow; links: OriginalLinks; onDisk?: string | null; page?: number | null; parentHref?: string | null } = $props();
 	const o = $derived(state.original); const onHosted = isHosted(); // hosted shell only: no case folder path, no hash
@@ -29,7 +30,7 @@
 		</p>
 		<p class="actions">
 			{#if links.presentation === 'viewer' && links.viewer}
-				<a class="btn primary" href="{links.viewer}{page ? `#page=${page}` : ''}" target="_blank" rel="noopener noreferrer" id="open-original">Open{page ? ` at page ${page}` : ''}</a>
+				<a class="btn primary" href={viewerPageHref(links.viewer, page)} target="_blank" rel="noopener noreferrer" id="open-original">Open{page ? ` at page ${page}` : ''}</a>
 			{:else if (links.presentation === 'inline' || links.presentation === 'text') && links.open}
 				<a class="btn primary" href={links.open} target="_blank" rel="noopener noreferrer" id="open-original">Open</a>
 			{/if}

@@ -88,6 +88,12 @@ The second variable, `CLEARCASE_HOSTED_PROFILE`, is a test variable read at buil
 
 A Node or Bun server pass is not hosted evidence; only these workerd runs are. No Cloudflare account, token, login or deploy is involved: every binding in `deploy/client/wrangler.toml` is `remote = false`, and its database id is a placeholder. The client a deployment serves comes from its `CLEARCASE_CLIENT_ID` var, never from a request.
 
+### Native original metadata migration
+
+The current native runtime needs the additive increments through `0009_rs_original_etag.sql`, including on a fresh database. `assembleNativeSchema` emits the historical `0001` baseline; its bytes stay pinned. The `original-metadata-0009` packet in [runtime-migration.ts](../deploy/native-alpha/runtime-migration.ts) follows the existing `0008` PDF-session packet and adds nullable ETag and delivery-family columns without changing earlier rows or migrations.
+
+Prepare and verify that packet offline with `bun scripts/hosted-native-runtime-migration.ts prepare .local/native-original-metadata original-metadata-0009` and the same command with `verify` instead of `prepare`. This stages SQL and the checked invocation; it does not contact a provider or apply a migration. Apply required increments before running the current artifact. Staging's deployment script already applies its matching `0009`; an existing database must not replay that DDL.
+
 ### Test doubles and the GRS-138 feature map
 
 - **Doubles.** In the hosted-gate artifact these are doubles:

@@ -11,6 +11,7 @@ const INCREMENTS = {
 	[packets.NATIVE_IMPORT_STAGING_MIGRATION_MODE]: [packets.prepareNativeImportStagingMigration, packets.readNativeImportStagingMigration],
 	[packets.NATIVE_INTAKE_FILE_SETS_MIGRATION_MODE]: [packets.prepareNativeIntakeFileSetsMigration, packets.readNativeIntakeFileSetsMigration],
 	[packets.NATIVE_PDF_SESSIONS_MIGRATION_MODE]: [packets.prepareNativePdfSessionsMigration, packets.readNativePdfSessionsMigration],
+	[packets.NATIVE_ORIGINAL_METADATA_MIGRATION_MODE]: [packets.prepareNativeOriginalMetadataMigration, packets.readNativeOriginalMetadataMigration],
 } as const;
 type Mode = keyof typeof INCREMENTS;
 

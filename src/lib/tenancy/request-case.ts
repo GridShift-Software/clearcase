@@ -21,6 +21,17 @@ export interface RequestCase {
   original: (Omit<OriginalRow, 'etag' | 'mediaFamily'> & { etag: string | null; mediaFamily: string | null }) | null;
 }
 
+type CaseRow = Parameters<typeof parseGrant>[0] & {
+  row_kind: 'case'; work_bound: number; case_label: string | null; pub_state: string | null; pub_version: string | null;
+  published_at: string | null; previous_version_id: string | null; stored: string | null; withdrawn: string | null;
+  manifest_sha256: string | null; admitted_json: string | null; original_sha256: string | null; original_size: number;
+  original_etag: string | null; original_key: string; media_family: string | null; filename: string; media_type: string;
+};
+type OverviewRow = Omit<CaseRow, 'row_kind'> & {
+  row_kind: 'overview'; total: number; here: number; exact: number; ambiguous: number; missing: number; unanchored: number; page_notes: number;
+};
+type RefRow = { row_kind: 'ref'; ref: string; ref_count: number; ref_status: OverviewNoteSummary['byRef'][number]['status'] };
+
 /**
  * Every live case grant of one principal in this client's database, and which of their cases exist here, in one
  * statement: the grant read of `d1GrantRepository.grantsOf` for all cases at once, and `d1CaseDirectory`'s existence rule
@@ -71,25 +82,26 @@ export function requestCaseLookup(db: D1, deployment: ClientResourceIdentity, as
       LEFT JOIN rs_original o ON o.sha256 = co.sha256
       WHERE g.client_id = ? AND g.issuer = ? AND g.subject = ? AND g.principal_kind = ?
       AND g.scope = 'case' AND g.case_id = ? AND g.state = 'active'`;
-    const { results } = await db.prepare(profile === 'overview' ? overviewQuery(base) : base)
+    const { results } = await db.prepare(profile === 'overview' ? overviewQuery(base) : `SELECT 'case' AS row_kind, s.* FROM (${base}) s`)
       .bind(USER_WORK_SCHEMA_VERSION, LAYOUT, assetId, deployment.clientId, a.principal.issuer, a.principal.subject, a.principal.kind, a.caseId)
-      .all<Parameters<typeof parseGrant>[0] & { work_bound: number; case_label: string | null; pub_state: string | null; pub_version: string | null; published_at: string | null; previous_version_id: string | null; stored: string | null; withdrawn: string | null; manifest_sha256: string | null; admitted_json: string | null; total: number; here: number; exact: number; ambiguous: number; missing: number; unanchored: number; page_notes: number; ref: string | null; ref_count: number; ref_status: OverviewNoteSummary['byRef'][number]['status']; original_sha256: string | null; original_size: number; original_etag: string | null; original_key: string; media_family: string; filename: string; media_type: string }>()
+      .all<CaseRow | OverviewRow | RefRow>()
       .catch(() => { throw contractError('identity-unavailable', true); });
-    const r = results[0];
+    const snapshots = results.filter(row => row.row_kind !== 'ref');
+    const r = snapshots[0];
     if (!r) return { grants: [], exists: false, info: null, published: null, workBound: false, overviewNotes: null, original: null };
     const published = r.pub_state === 'published' && r.pub_version && r.stored === 'stored' && !r.withdrawn
       ? { versionId: resultsVersion(r.pub_version), publishedAt: r.published_at, previousVersionId: r.previous_version_id ? resultsVersion(r.previous_version_id) : null, shardManifestSha256: r.manifest_sha256, shards: admittedShards(r.admitted_json) } : null;
-    return { grants: [...new Map(results.map(row => [row.grant_id, parseGrant(row)])).values()], exists: true, published, workBound: r.work_bound === 1,
-      overviewNotes: profile === 'overview' ? { total: r.total, here: r.here, exact: r.exact, ambiguous: r.ambiguous, missing: r.missing, unanchored: r.unanchored, pageNotes: r.page_notes,
-        byRef: [...new Map(results.flatMap((row): [string, OverviewNoteSummary['byRef'][number]][] => row.ref === null ? [] : [[row.ref, { ref: row.ref, n: row.ref_count, status: row.ref_status }]])).values()] } : null,
+    return { grants: snapshots.map(parseGrant), exists: true, published, workBound: r.work_bound === 1,
+      overviewNotes: r.row_kind === 'overview' ? { total: r.total, here: r.here, exact: r.exact, ambiguous: r.ambiguous, missing: r.missing, unanchored: r.unanchored, pageNotes: r.page_notes,
+        byRef: results.filter(row => row.row_kind === 'ref').map(row => ({ ref: row.ref, n: row.ref_count, status: row.ref_status })) } : null,
       original: assetId && r.original_sha256 ? { caseId: a.caseId, assetId, sha256: r.original_sha256, size: r.original_size, etag: r.original_etag, objectKey: r.original_key, mediaFamily: r.media_family, filename: r.filename, mediaType: r.media_type, clientId: deployment.clientId, issuer: a.principal.issuer, subject: a.principal.subject } : null,
       info: { caseId: id('case', a.caseId), caseLabel: r.case_label, href: `/cases/${encodeURIComponent(a.caseId)}`, documents: null,
         publication: published ? { kind: 'published', resultsVersion: published.versionId } : { kind: r.pub_state === null ? 'none' : 'withdrawn' } } };
   }
 }
 
-/** Counts only, with one result row per ref (never one unbounded JSON cell). The snapshot still owns authorization and
- * publication. Ordering preserves summary's first-note status and first-seen ref order, including ambiguous matches. */
+/** Separate snapshots and counted refs, so publication metadata never multiplies by refs or refs by grants.
+ * Ordering preserves summary's first-note status and first-seen ref order, including ambiguous matches. */
 function overviewQuery(base: string): string {
   return `WITH snapshot AS (${base}),
     targets AS (
@@ -122,8 +134,14 @@ function overviewQuery(base: string): string {
         COUNT(CASE WHEN status = 'missing' THEN 1 END) AS missing, COUNT(CASE WHEN status = 'unanchored' THEN 1 END) AS unanchored
       FROM statuses
     )
-    SELECT s.*, t.*, r.ref, r.ref_count, n.status AS ref_status,
-      (SELECT COUNT(*) FROM uw_register_row WHERE case_id = s.case_id AND store = '${PAGE_NOTE_STORE}') AS page_notes
-    FROM snapshot s CROSS JOIN totals t LEFT JOIN ref_counts r ON 1 = 1 LEFT JOIN statuses n ON n.seq = r.first_note
-    ORDER BY r.first_note, r.ref`;
+    SELECT 'overview' AS row_kind, s.*, t.*,
+      (SELECT COUNT(*) FROM uw_register_row WHERE case_id = s.case_id AND store = '${PAGE_NOTE_STORE}') AS page_notes,
+      NULL AS ref, NULL AS ref_count, NULL AS ref_status, NULL AS first_note
+    FROM snapshot s CROSS JOIN totals t
+    UNION ALL
+    SELECT 'ref' AS row_kind, s.*, t.*, NULL AS page_notes, r.ref, r.ref_count, n.status AS ref_status, r.first_note
+    FROM ref_counts r JOIN statuses n ON n.seq = r.first_note
+      -- Nonmatching joins supply NULL columns for the UNION without repeating any snapshot or totals values.
+      LEFT JOIN snapshot s ON 0 LEFT JOIN totals t ON 0
+    ORDER BY first_note, ref`;
 }

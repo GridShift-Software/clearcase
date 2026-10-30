@@ -18,6 +18,7 @@ import {
   assembleNativeRuntimeMigration, NATIVE_RUNTIME_MIGRATION_INPUTS, assembleNativeRenderCaseLimitMigration, NATIVE_RENDER_CASE_LIMIT_MIGRATION_INPUTS,
   assembleNativeEvidenceMigration, NATIVE_EVIDENCE_MIGRATION_INPUTS, assembleNativeImportStagingMigration, NATIVE_IMPORT_STAGING_MIGRATION_INPUTS,
   assembleNativeIntakeFileSetsMigration, NATIVE_INTAKE_FILE_SETS_MIGRATION_INPUTS, assembleNativePdfSessionsMigration, NATIVE_PDF_SESSIONS_MIGRATION_INPUTS,
+  assembleNativeOriginalMetadataMigration, NATIVE_ORIGINAL_METADATA_MIGRATION_INPUTS,
 } from '../../../deploy/native-alpha/runtime-migration.ts';
 import type { Identity, Principal, SessionId } from '../../../src/lib/server/runtime/contracts.ts';
 import type { AuthorizeCase } from '../../../src/lib/tenancy/authorizer.ts';
@@ -79,7 +80,7 @@ function nativeSchema(db: DatabaseSync) {
   for (const sql of [assembleNativeRenderCaseLimitMigration(sources(NATIVE_RENDER_CASE_LIMIT_MIGRATION_INPUTS)).sql, assembleNativeEvidenceMigration(sources(NATIVE_EVIDENCE_MIGRATION_INPUTS)).sql,
     assembleNativeImportStagingMigration(sources(NATIVE_IMPORT_STAGING_MIGRATION_INPUTS)).sql, assembleNativeIntakeFileSetsMigration(sources(NATIVE_INTAKE_FILE_SETS_MIGRATION_INPUTS)).sql,
     assembleNativePdfSessionsMigration(sources(NATIVE_PDF_SESSIONS_MIGRATION_INPUTS)).sql,
-    readFileSync('deploy/staging/migrations/0009_rs_original_etag.sql', 'utf8')]) {
+    assembleNativeOriginalMetadataMigration(sources(NATIVE_ORIGINAL_METADATA_MIGRATION_INPUTS)).sql]) {
     db.exec('BEGIN'); try { db.exec(sql); db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
 }

@@ -153,3 +153,35 @@ describe('0008 scaled PDF evidence sessions increment', () => {
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
+
+it('0009 original metadata is a separate pinned native increment, preserving existing originals and the earlier schema', () => {
+ const db = deployed();
+ for (const sql of LATER) migrate(db, sql());
+ migrate(db, SQL());
+ db.exec(`INSERT INTO rs_original (sha256,size,object_key) VALUES ('${SHA('a')}',4,'orig/${SHA('a')}')`);
+ const before = snapshot(db), root = process.cwd(), dir = mkdtempSync(path.join(tmpdir(), 'cc-original-metadata-'));
+ const cli = (...args: string[]) => spawnSync(process.execPath, ['scripts/hosted-native-runtime-migration.ts', ...args], { cwd: root, encoding: 'utf8' });
+ try {
+  const stage = path.join(dir, 'stage'), prepared = cli('prepare', stage, 'original-metadata-0009');
+  expect(prepared.status, prepared.stderr).toBe(0);
+  const packet = JSON.parse(prepared.stdout);
+  expect(packet.output.path).toBe('migrations/0009_rs_original_etag.sql');
+  expect(packet.appliedPdfSessionsDependency).toEqual(assembleNativePdfSessionsMigration(sources(NATIVE_PDF_SESSIONS_MIGRATION_INPUTS)).manifest.output);
+  expect(packet.inputs.map((p: { path: string }) => p.path)).toEqual(['src/lib/storage/cloud/migrations/0003_rs_original_etag.sql']);
+  expect(cli('verify', stage, 'original-metadata-0009').status).toBe(0);
+  migrate(db, readFileSync(path.join(stage, packet.output.path), 'utf8'));
+  const after = snapshot(db);
+  expect(after.tables.filter(t => t.name !== 'rs_original')).toEqual(before.tables.filter(t => t.name !== 'rs_original'));
+  expect(after.triggers).toEqual(before.triggers); expect(after.indexes).toEqual(before.indexes);
+  expect(db.prepare('SELECT sha256,size,object_key,etag,media_family FROM rs_original').all()).toEqual([
+   { sha256: SHA('a'), size: 4, object_key: `orig/${SHA('a')}`, etag: null, media_family: null },
+  ]);
+  db.prepare("INSERT INTO rs_original (sha256,size,object_key,etag,media_family) VALUES (?,4,?,'verified-etag','pdf')").run(SHA('b'), `orig/${SHA('b')}`);
+  expect(db.prepare('SELECT etag,media_family FROM rs_original WHERE sha256=?').get(SHA('b'))).toEqual({ etag: 'verified-etag', media_family: 'pdf' });
+  const applied = snapshot(db);
+  expect(() => migrate(db, readFileSync(path.join(stage, packet.output.path), 'utf8'))).toThrow();
+  expect(snapshot(db)).toEqual(applied);
+  writeFileSync(path.join(stage, packet.output.path), 'tampered');
+  expect(cli('verify', stage, 'original-metadata-0009').status).toBe(1);
+ } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
+});

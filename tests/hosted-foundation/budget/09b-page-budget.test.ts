@@ -298,6 +298,39 @@ it('large valid case notes cannot break document, search, chronology or overview
  } finally { dep.db.exec("DELETE FROM uw_note WHERE note_id LIKE 'large-%'"); }
 });
 
+it('overview lookup does not repeat the publication shard list for each noted document', async () => {
+ const caseId = id('case', CASE_ID), version = rv(b.built.record.resultsVersion);
+ const refs = dep.db.rows<{ ref: string }>('SELECT ref FROM rs_document WHERE version_id=? ORDER BY ref LIMIT 200', version);
+ expect(refs).toHaveLength(200);
+ const before = await locals(dep).userWork.summary({ caseId, resultsVersion: version });
+ const body = 'Synthetic document note';
+ try {
+  dep.db.exec(`INSERT INTO tenant_case_grants (grant_id,client_id,scope,case_id,issuer,subject,principal_kind,role,slot,state,version,created_operation_id,request,created_by_issuer,created_by_subject,created_at)
+   SELECT 'fanout-grant',client_id,scope,case_id,issuer,subject,principal_kind,'operator','operator',state,version,'fanout-grant-op',request,created_by_issuer,created_by_subject,created_at FROM tenant_case_grants WHERE grant_id='page-grant'`);
+  for (const [i, { ref }] of refs.entries()) {
+   const target = { kind: 'document', anchor: { caseId, resultsVersion: version, refAtCreation: ref, sha256: null } };
+   dep.db.exec(`INSERT INTO uw_note (case_id,note_id,target_kind,anchor_results_version,anchor_ref,target_json,body,body_sha256,created_at,version)
+    VALUES (?,?,'document',?,?,?,?,?,'2200-01-01T00:00:00Z','v-fanout')`, caseId, `fanout-${i}`, version, ref, JSON.stringify(target), body, sha256Hex(body));
+  }
+  for (const data of [false, true]) {
+   const profile = requestPage('GET', `/cases/${caseId}/v/${version}/overview${data ? '/__data.json' : ''}`).profile;
+   const payloads: unknown[] = [], w = request('reader', 'client-a', CASE_ID, memoryShardCache(), counters(), payloads, profile);
+   const result = await measure(w.c, () => w.l.overviewNoteSummary!({ caseId, resultsVersion: version }));
+   expect(result.thrown).toBeUndefined(); expect(result.counts.d1).toBe(1);
+   expect(result.value).toMatchObject({ total: before.total + refs.length, here: before.here + refs.length });
+   expect(result.value?.byRef).toEqual(refs.map(({ ref }) => ({ ref, n: 1, status: 'here' })));
+   const rows = payloads.flat() as Record<string, unknown>[];
+   const manifests = rows.filter(r => typeof r.admitted_json === 'string');
+   // At most one case snapshot per live grant, independent of the number of noted refs.
+   expect(manifests).toHaveLength(2);
+   expect(Buffer.byteLength(JSON.stringify(rows))).toBeLessThan(1_000_000);
+  }
+ } finally {
+  dep.db.exec("DELETE FROM uw_note WHERE note_id LIKE 'fanout-%'");
+  dep.db.exec("DELETE FROM tenant_case_grants WHERE grant_id='fanout-grant'");
+ }
+});
+
 it('overview counts match the full summary for every attachment status, ref ordering and stored page-note count', async () => {
  const caseId = id('case', CASE_ID), resultsVersion = rv(b.built.record.resultsVersion), oldVersion = rv(`sha256:${'b'.repeat(64)}`);
  const fingerprints = dep.db.rows<{ ref: string; sha: string }>("SELECT ref, json_extract(state_json, '$.original.sha256') AS sha FROM rs_document WHERE version_id=? AND ref IN ('BK-0000', 'BK-0001', 'BK-0002') ORDER BY ref", resultsVersion);

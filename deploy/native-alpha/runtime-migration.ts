@@ -58,6 +58,12 @@ export const NATIVE_PDF_SESSIONS_MIGRATION_INPUTS = freeze([
 // The already applied increment this one runs after: a dependency record only, never emitted, rewritten or replayed.
 export const NATIVE_PDF_SESSIONS_APPLIED_INTAKE_FILE_SETS = freeze({ path: 'migrations/0007_native_intake_file_sets.sql', bytes: 15914,
 	sha256: 'sha256:e90183aa1663336a1eaa8c3032fa6a239bba3c9323517003b48a6fd1c9a27871' });
+export const NATIVE_ORIGINAL_METADATA_MIGRATION_MODE = 'original-metadata-0009';
+export const NATIVE_ORIGINAL_METADATA_MIGRATION_INPUTS = freeze([
+	{ path: 'src/lib/storage/cloud/migrations/0003_rs_original_etag.sql', bytes: 663, sha256: 'sha256:4d0c5ce2b59bdc070a628b0d43880eaa339656ccb07eb2f602947f004b22121d' },
+]);
+export const NATIVE_ORIGINAL_METADATA_APPLIED_PDF_SESSIONS = freeze({ path: 'migrations/0008_native_pdf_sessions.sql', bytes: 5263,
+	sha256: 'sha256:de0b32f6349fc6b47a8854e368bbb8ea513c791961a5f1e2fa8401c4b4ec0b5a' });
 const CLIENTS = freeze([
 	{ slot: 'client-a', name: 'cc-sbx-a-20261023-db', id: 'cd257736-7bf3-49f6-8544-ac58c2207802' },
 	{ slot: 'client-b', name: 'cc-sbx-b-20261025-r1-db', id: '7c340891-9fcc-4398-8128-68abe726f130' },
@@ -179,6 +185,14 @@ const PDF_SESSIONS_PACKET = {
 		appliedIntakeFileSetsDependency: NATIVE_PDF_SESSIONS_APPLIED_INTAKE_FILE_SETS, inputs: NATIVE_PDF_SESSIONS_MIGRATION_INPUTS, output, targets, providerProof: false, provisioned: false }),
 };
 
+const ORIGINAL_METADATA_PACKET = {
+	tag: NATIVE_ORIGINAL_METADATA_MIGRATION_MODE, inputs: NATIVE_ORIGINAL_METADATA_MIGRATION_INPUTS, sqlFile: 'migrations/0009_rs_original_etag.sql', manifestFile: 'original-metadata-migration.json', privateStage: true,
+	header: '-- ClearCase native original delivery metadata increment 0009. Requires the applied native increments through 0008.\n',
+	manifest: (output: Output, targets: Target[]) => ({ schema: 'clearcase.native-original-metadata-migration/1', mode: NATIVE_ORIGINAL_METADATA_MIGRATION_MODE,
+		initialSchemaDependency: NATIVE_RUNTIME_INITIAL_SCHEMA, appliedPdfSessionsDependency: NATIVE_ORIGINAL_METADATA_APPLIED_PDF_SESSIONS,
+		inputs: NATIVE_ORIGINAL_METADATA_MIGRATION_INPUTS, output, targets, providerProof: false, provisioned: false }),
+};
+
 function assemble<M extends { readonly targets: readonly Target[] }>(packet: Packet<M>, inputs: readonly { path: string; bytes: Uint8Array }[]) {
 	const items = dense(inputs, packet.inputs.length, 'inputs');
 	const chunks: string[] = [];
@@ -221,6 +235,11 @@ export function assembleNativeIntakeFileSetsMigration(inputs: readonly { path: s
 /** The single pinned viewer PDF-session input only, under the same one-copy capture. Emits a separately named 0008 after the applied 0007. */
 export function assembleNativePdfSessionsMigration(inputs: readonly { path: string; bytes: Uint8Array }[]) {
 	return assemble(PDF_SESSIONS_PACKET, inputs);
+}
+
+/** Adds nullable original metadata after the historical packets; their emitted bytes remain unchanged. */
+export function assembleNativeOriginalMetadataMigration(inputs: readonly { path: string; bytes: Uint8Array }[]) {
+	return assemble(ORIGINAL_METADATA_PACKET, inputs);
 }
 
 function realPath(file: string, directory: boolean) {
@@ -352,3 +371,6 @@ export const checkNativeIntakeFileSetsMigrationInvocation = (value: { root: stri
 export const prepareNativePdfSessionsMigration = (value: { root: string; out: string }) => prepare(PDF_SESSIONS_PACKET, value);
 export const readNativePdfSessionsMigration = (value: { root: string; stage: string }) => read(PDF_SESSIONS_PACKET, value);
 export const checkNativePdfSessionsMigrationInvocation = (value: { root: string; stage: string; cwd: string; slot: NativeRuntimeMigrationSlot; argv: readonly string[] }) => checkInvocation(PDF_SESSIONS_PACKET, value);
+export const prepareNativeOriginalMetadataMigration = (value: { root: string; out: string }) => prepare(ORIGINAL_METADATA_PACKET, value);
+export const readNativeOriginalMetadataMigration = (value: { root: string; stage: string }) => read(ORIGINAL_METADATA_PACKET, value);
+export const checkNativeOriginalMetadataMigrationInvocation = (value: { root: string; stage: string; cwd: string; slot: NativeRuntimeMigrationSlot; argv: readonly string[] }) => checkInvocation(ORIGINAL_METADATA_PACKET, value);

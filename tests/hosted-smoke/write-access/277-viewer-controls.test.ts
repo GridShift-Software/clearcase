@@ -15,6 +15,7 @@ import { registerHead, type ShownRow } from '../../../src/lib/views/registers/sh
 import HeadsPage from '../../../src/routes/v/[vid]/litigation/heads_tab/+page.svelte';
 import DocPage from '../../../src/routes/v/[vid]/doc/[ref]/+page.svelte';
 import CourtBundlePage from '../../../src/routes/v/[vid]/bundles/court_bundle_tab/+page.svelte';
+import CaseLinesPage from '../../../src/routes/v/[vid]/bundles/caselines_tab/+page.svelte';
 import NotesPage from '../../../deploy/client/routes/cases/[caseId]/notes/+page.svelte';
 import * as courtBundle from '../../../deploy/client/routes/cases/[caseId]/v/[version]/bundles/court_bundle_tab/+page.server.ts';
 import type * as C from '../../../src/lib/server/runtime/contracts.ts';
@@ -111,6 +112,26 @@ describe('277 court bundle', () => {
       expect(body).toContain('Synthetic custom bundle');
       expect(body).toContain('id="cb-word-all"');
       for (const control of ['id="cb-build"', 'id="cb-header"', 'id="cb-save"', 'data-delete=']) expect(body.includes(control), control).toBe(writes);
+    });
+  }
+});
+
+describe('290 CaseLines', () => {
+  // The shape the hosted and local loads return, over synthetic names: a served bundle, one linked file in the index, a search hit.
+  const data = {
+    version: VERSION, hosted: true, content: { name: 'Synthetic bundle', note: null, subtitle: null }, pages: 3,
+    bundle: { ref: 'D-001', page: null }, files: { 'D-001': '/synthetic/bundle.pdf', 'D-002': '/synthetic/extra.pdf' },
+    downloads: { 'D-001': '/synthetic/bundle.pdf?download', 'D-002': '/synthetic/extra.pdf?download' },
+    cover: { indexed: 3, withoutText: 0, emptyPages: [] }, q: 'synthetic', qTooLong: false,
+    search: { total: 1, occurrences: 1, hits: [{ p: 2, pre: 'a ', mid: 'synthetic', post: ' word', count: 1 }] },
+    links: [{ rowId: 'l-1', path: 'EXTRA/Synthetic extra.pdf', seq: 1, name: 'Synthetic extra.pdf', ref: 'D-002' }],
+  };
+  const SESSION_ADD = ['id="cl-drop"', 'id="cl-file"', 'Add documents to CaseLines', 'Drag &amp; drop files here', 'Files added for this session', 'adding files', 'and add documents'];
+  for (const access of ACCESS) {
+    it(`for ${access}: the session add heading, drop zone, file picker and their instructions ${access === 'viewer' ? 'are hidden' : 'are shown'}; the linked file, bundle, search and page navigation stay`, () => {
+      const body = html(CaseLinesPage, { data }, access), writes = access !== 'viewer';
+      for (const read of ['id="cl-open"', 'id="cl-download"', 'id="cl-q"', 'id="cl-go"', 'id="cl-pg"', 'id="cl-goto"', 'id="cl-summary"', 'id="cl-docs"', 'Synthetic extra.pdf', 'href="/synthetic/extra.pdf"', 'href="/synthetic/extra.pdf?download"']) expect(body, read).toContain(read);
+      for (const control of [...SESSION_ADD, 'id="cl-path"', 'id="cl-link"', 'class="rm"']) expect(body.includes(control), control).toBe(writes);
     });
   }
 });

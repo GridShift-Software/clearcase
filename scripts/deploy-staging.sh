@@ -3,6 +3,7 @@
 #
 #   scripts/deploy-staging.sh                   build, bookmark D1, migrate, upload a version tagged with HEAD, deploy, smoke
 #   scripts/deploy-staging.sh --rollback [id]   redeploy the newest earlier version with a different SHA tag (or <id>), smoke
+#   scripts/deploy-staging.sh --verify [sha]    read only: smoke the version serving 100% now, expected at <sha> (default HEAD)
 #   scripts/deploy-staging.sh --secrets         put the four Clerk secrets on the Worker and the Preview base config
 #
 # Prints `sha url version` last. Needs a clean worktree, Bun, real Node (Wrangler runs under Node, never Bun) and either
@@ -38,9 +39,27 @@ if [[ -n ${CF_ACCESS_CLIENT_ID:-} && -n ${CF_ACCESS_CLIENT_SECRET:-} ]]; then
 	access_headers=(-H "@$access_file")
 fi
 eval "$xtrace"
-# smoke <base> <sha>: /health 200 at that SHA, /sign-in 200, /cases 401, cf-placement remote-LHR.
+# placement_proof <version> <sha>: Cloudflare's record, through Wrangler, that <version> is tagged <sha> and serves 100% with
+# targeted London placement (scripts/staging-placement.ts). Prints the summary, or the reason and returns 1. The two
+# responses carry the version's bindings, so they go to a 0600 directory that is removed, and only checked fields print.
+placement_proof() {
+	local dir rc=0
+	dir=$(umask 077 && mktemp -d)
+	if ! wrangler deployments list --json -c "$CONFIG" >"$dir/deployments.json" || ! wrangler versions view "$1" --json -c "$CONFIG" >"$dir/version.json"; then
+		echo "Wrangler could not read the deployments or version $1: sign in with wrangler login, or export CLOUDFLARE_API_TOKEN (with Workers Scripts Read) and CLOUDFLARE_ACCOUNT_ID"
+		rc=1
+	else
+		bun scripts/staging-placement.ts provider "$1" "$2" "$dir/deployments.json" "$dir/version.json" 2>&1 || rc=1
+	fi
+	rm -rf "$dir"
+	return $rc
+}
+# smoke <base> <sha> <version>: /health 200 at that SHA, /sign-in 200, /cases 401, and London placement. A
+# `cf-placement: remote-LHR` header shows the response ran there; any other cf-placement fails. With no header, Cloudflare's
+# record must show <version>, tagged <sha>, active at 100% with targeted aws:eu-west-2 placement: that verifies the
+# provider's configuration, not where the response ran, and the PASS line says which one it saw.
 smoke() {
-	local base=$1 want=$2 hdr body code
+	local base=$1 want=$2 version=$3 hdr body code
 	hdr=$(mktemp) body=$(mktemp)
 	trap 'rm -f "$hdr" "$body"' RETURN
 	for attempt in 1 2 3 4 5 6 7 8 9 10; do
@@ -53,16 +72,21 @@ smoke() {
 		sleep 3
 	done
 	[[ $code == 200 ]] || die "smoke: GET /health is $code, not 200: $(head -c 400 "$body")"
-	local got placement
+	local got placement proof
 	got=$(json 'j.build?.revision' <"$body")
 	[[ $got == "$want" ]] || die "smoke: /health serves $got, not $want"
-	placement=$(grep -i '^cf-placement:' "$hdr" | tr -d '\r' | cut -d' ' -f2-)
-	[[ $placement == remote-LHR ]] || die "smoke: cf-placement is '${placement}', not remote-LHR"
+	placement=$(bun scripts/staging-placement.ts header "$hdr" 2>&1) || die "smoke: $placement"
+	if [[ $placement == absent:* ]]; then
+		proof=$(placement_proof "$version" "$want") || die "smoke: no cf-placement header, and Cloudflare's record does not prove London placement: $proof"
+		placement="$proof; ${placement#absent: }"
+	else
+		placement=${placement#observed: }
+	fi
 	code=$(curl -sS -o /dev/null -w '%{http_code}' "${access_headers[@]}" "$base/sign-in")
 	[[ $code == 200 ]] || die "smoke: GET /sign-in is $code, not 200"
 	code=$(curl -sS -o /dev/null -w '%{http_code}' "${access_headers[@]}" "$base/cases")
 	[[ $code == 401 ]] || die "smoke: GET /cases is $code, not 401"
-	say "smoke: PASS /health 200 at $want, /sign-in 200, /cases 401, cf-placement remote-LHR"
+	say "smoke: PASS /health 200 at $want, /sign-in 200, /cases 401; placement: $placement"
 }
 
 case ${1:-} in
@@ -90,13 +114,25 @@ case ${1:-} in
 	[[ -n $target_url ]] || die "version $target has no CLEARCASE_APP_ORIGIN"
 	[[ $target_url == "$URL" ]] || say "rollback: $target serves $target_url, not the config's $URL"
 	wrangler rollback "$target" -y -m "deploy-staging.sh --rollback from $current_sha" -c "$CONFIG" >&2
-	smoke "$target_url" "$target_sha" || die "rolled back to $target but could not verify it (smoke exit $?; message above)"
+	smoke "$target_url" "$target_sha" "$target" || die "rolled back to $target but could not verify it (smoke exit $?; message above)"
 	say "rollback: done in $(($(date +%s) - started)) s; a D1 restore is separate: see .local/staging/deploys.jsonl and the runbook"
 	echo "$target_sha $target_url $target"
 	exit 0
 	;;
+--verify)
+	# Read only: no build, migration, upload or deploy. For checking a version already live, for example after a smoke failed.
+	want=${2:-$(git rev-parse HEAD)}
+	[[ $want =~ ^[0-9a-f]{40}$ ]] || die "--verify needs a full SHA, not '$want'"
+	active=$(wrangler deployments list --json -c "$CONFIG" | bun scripts/staging-placement.ts active /dev/stdin 2>&1) || die "--verify: $active (Wrangler needs its login, or CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID)"
+	active_url=$(wrangler versions view "$active" --json -c "$CONFIG" | json "j.resources.bindings.find(b => b.name === 'CLEARCASE_APP_ORIGIN')?.text ?? ''") || die "--verify: could not read version $active"
+	[[ -n $active_url ]] || die "version $active has no CLEARCASE_APP_ORIGIN"
+	[[ $active_url == "$URL" ]] || say "verify: $active serves $active_url, not the config's $URL"
+	smoke "$active_url" "$want" "$active" || die "could not verify $active (smoke exit $?; message above)"
+	echo "$want $active_url $active"
+	exit 0
+	;;
 '') ;;
-*) die "unknown argument $1 (use --rollback [version-id] or --secrets)" ;;
+*) die "unknown argument $1 (use --rollback [version-id], --verify [sha] or --secrets)" ;;
 esac
 
 started=$(date +%s)
@@ -155,6 +191,6 @@ fi
 
 mkdir -p "$(dirname "$LOG")"
 printf '{"at":"%s","sha":"%s","version":"%s","bookmark":"%s"}\n' "$(date -u +%FT%TZ)" "$sha" "$version" "$bookmark" >>"$LOG"
-smoke "$URL" "$sha" || die "deployed $version but could not verify it (smoke exit $?; message above)"
+smoke "$URL" "$sha" "$version" || die "deployed $version but could not verify it (smoke exit $?; message above)"
 say "done in $(($(date +%s) - started)) s"
 echo "$sha $URL $version"

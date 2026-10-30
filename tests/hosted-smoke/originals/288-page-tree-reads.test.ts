@@ -16,13 +16,16 @@ let bytes = new Uint8Array(), log: Read[] = [];
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function original(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   if (String(input) !== SRC) throw new Error(`unexpected fetch ${String(input)}`);
-  const [, a, b] = /^bytes=(\d+)-(\d+)$/.exec(new Headers(init.headers).get('range') ?? '')!;
+  const range = new Headers(init.headers).get('range');
+  const [, a, b] = range ? /^bytes=(\d+)-(\d+)$/.exec(range)! : ['', '0', String(bytes.byteLength - 1)];
   const read = { begin: Number(a), end: Number(b) + 1, at: performance.now(), done: Infinity };
   log.push(read);
   await wait(ROUND_TRIP);
   if (init.signal?.aborted) throw new DOMException('aborted', 'AbortError');
   read.done = performance.now();
-  return new Response(bytes.slice(read.begin, read.end), { status: 206, headers: { 'content-range': `bytes ${a}-${read.end - 1}/${bytes.byteLength}` } });
+  return new Response(bytes.slice(read.begin, read.end), range
+    ? { status: 206, headers: { 'content-range': `bytes ${a}-${read.end - 1}/${bytes.byteLength}` } }
+    : { status: 200, headers: { 'content-length': String(bytes.byteLength) } });
 }
 /** The most reads in flight at once among `reads`. */
 const concurrency = (reads: Read[]) => Math.max(0, ...reads.map((r) => reads.filter((q) => q.at <= r.at && r.at < q.done).length));
@@ -114,4 +117,51 @@ it('keeps an understated /Count of 40 over 64 pages, as upstream pdf.js does', a
     expect([reader.pages, told]).toEqual([40, null]);
     await expect(reader.draw(41, 1)).rejects.toThrow();
   } finally { reader.destroy(); }
+});
+
+/** Four valid pages in one nested subtree, followed by a sibling whose array never ends. */
+function malformedSibling(): Uint8Array {
+  const objects: Record<number, string> = {
+    1: '<< /Type /Catalog /Pages 2 0 R >>',
+    2: '<< /Type /Pages /Kids [11 0 R] /Count 4 >>',
+    11: '<< /Type /Pages /Parent 2 0 R /Kids [13 0 R 12 0 R] /Count 4 >>',
+    12: '<< /Type /Pages /Kids [',
+    13: '<< /Type /Pages /Parent 11 0 R /Kids [3 0 R 4 0 R 5 0 R 6 0 R] /Count 4 >>',
+  };
+  for (let page = 1; page <= 4; page++) {
+    objects[page + 2] = `<< /Type /Page /Parent 13 0 R /MediaBox [0 0 100 100] /Resources <<>> /Contents ${page + 6} 0 R >>`;
+    const ops = `${page * 10} 0 10 10 re f`;
+    objects[page + 6] = `<< /Length ${ops.length} >>\nstream\n${ops}\nendstream`;
+  }
+  let text = '%PDF-1.4\n% SYNTHETIC ONLY GRS-288\n';
+  const offsets = [0];
+  for (let n = 1; n <= 13; n++) {
+    offsets[n] = text.length;
+    text += `${n} 0 obj\n${objects[n]}\nendobj\n`;
+  }
+  const xref = text.length;
+  text += 'xref\n0 14\n0000000000 65535 f \n';
+  for (let n = 1; n <= 13; n++) text += `${String(offsets[n]).padStart(10, '0')} 00000 n \n`;
+  return new TextEncoder().encode(text + `trailer\n<< /Size 14 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+}
+
+it('observes an unused malformed nested sibling rejection while all requested pages still draw', async () => {
+  bytes = malformedSibling();
+  const unhandled: unknown[] = [];
+  const record = (reason: unknown) => { unhandled.push(reason); };
+  process.on('unhandledRejection', record);
+  const canvas = createCanvas(100, 100);
+  let reader: Reader | undefined;
+  try {
+    reader = await open(canvas);
+    for (let page = 1; page <= 4; page++) {
+      await reader.draw(page, 1);
+      expect(inkOf(canvas, page)).toBe(100);
+    }
+    await wait(ROUND_TRIP);
+    expect(unhandled).toEqual([]);
+  } finally {
+    reader?.destroy();
+    process.off('unhandledRejection', record);
+  }
 });

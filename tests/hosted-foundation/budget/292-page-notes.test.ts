@@ -13,7 +13,7 @@ import { createD1UserWork } from '../../../src/lib/user-work/hosted/d1-user-work
 import { memoryShardCache } from '../../../src/lib/server/runtime/memory-shards.ts';
 import { authority, auditLog, bind, CASE, caseReader, CLIENT, d1, database, LIMITS, RV1, SHA_A, SHA_B } from '../user-work/world.ts';
 import { docCase, PARENT } from '../../publication/shards/12-world.ts';
-import { CASE_ID, published } from '../../publication/shards/world.ts';
+import { CASE_ID, locals, published } from '../../publication/shards/world.ts';
 import type * as C from '../../../src/lib/server/runtime/contracts.ts';
 
 const STORE = 'original-page-notes';
@@ -91,5 +91,32 @@ it('292 the full document visit over production authority shows an existing page
     const warm = await measure(c, visit); expect(warm.thrown).toBeUndefined();
     expect(warm.value?.[1].pageNotes).toMatchObject([{ rowId: 'existing-row', version: 'existing-version', page: 3, body: 'Synthetic existing page note', here: true, intact: true }]);
     expect(warm.counts.d1).toBe(4); expect(warm.counts.clerk).toBe(0);
+  } finally { await Promise.all(pending); await b.cleanup(); }
+});
+
+it('292 the overview notes summary counts the case\'s stored page notes inside its one lookup query, as the d1 summary does', async () => {
+  const b = await docCase(), pending: Promise<void>[] = [];
+  try {
+    const dep = await published(b), rv = b.built.record.resultsVersion as C.ResultsVersion, caseId = CASE_ID as C.CaseId;
+    const legacy = locals(dep);
+    const empty = await legacy.userWork.summary({ caseId, resultsVersion: rv });
+    expect(empty.pageNotes).toBe(0);
+    const noteBody = 'Synthetic case note', noteDigest = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(noteBody))).toString('hex');
+    dep.db.sqlite.prepare("INSERT INTO uw_note (case_id, note_id, target_kind, anchor_results_version, anchor_ref, anchor_sha256, target_json, body, body_sha256, created_at, version) VALUES (?, 'case-note', 'case', NULL, NULL, NULL, '{\"kind\":\"case\"}', ?, ?, '2200-01-01T00:00:00Z', 'v-n')").run(CASE_ID, noteBody, noteDigest);
+    // two page notes as the viewer stores them, one of them no longer a readable page note: both are stored, both count
+    const insert = dep.db.sqlite.prepare('INSERT INTO uw_register_row (case_id, store, row_id, anchor_json, fields_json, fields_sha256, created_at, updated_at, version) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)');
+    insert.run(CASE_ID, STORE, 'page-a', JSON.stringify({ assetId: PARENT, page: 1, body: 'Synthetic page note', sha256: 'e'.repeat(64) }), 'x', '2200-01-01T00:00:00Z', '2200-01-01T00:00:00Z', 'v-a');
+    insert.run(CASE_ID, STORE, 'page-b', JSON.stringify({ assetId: PARENT, body: 'no page' }), 'x', '2200-01-01T00:00:00Z', '2200-01-01T00:00:00Z', 'v-b');
+    // another register's rows and another case's page notes do not count
+    insert.run(CASE_ID, 'deadlines', 'deadline-a', JSON.stringify({ title: 'Synthetic deadline' }), 'x', '2200-01-01T00:00:00Z', '2200-01-01T00:00:00Z', 'v-d');
+    insert.run('synthetic-other-case', STORE, 'page-other', JSON.stringify({ assetId: PARENT, page: 1, body: 'Other case', sha256: 'e'.repeat(64) }), 'x', '2200-01-01T00:00:00Z', '2200-01-01T00:00:00Z', 'v-o');
+    const expected = await legacy.userWork.summary({ caseId, resultsVersion: rv });
+    expect(expected).toMatchObject({ total: 1, here: 1, pageNotes: 2 });
+    const c = counters();
+    const { l } = await oneLookupLocals(dep, c, memoryShardCache(), pending);
+    const result = await measure(c, () => l.userWork.summary({ caseId, resultsVersion: rv }));
+    expect(result.thrown).toBeUndefined(); expect(result.value).toEqual(expected);
+    // 09b's one-read summary: the count rides in the grant/case/publication/notes lookup, no row is decoded
+    expect(result.counts).toMatchObject({ d1: 1, clerk: 0, r2: 0 });
   } finally { await Promise.all(pending); await b.cleanup(); }
 });

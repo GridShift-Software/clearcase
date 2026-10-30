@@ -81,7 +81,7 @@ export type Anchor = Omit<DocumentAnchor, 'caseId' | 'resultsVersion' | 'sha256'
 export type NoteTarget = { kind: 'case' } | { kind: 'document'; anchor: Anchor } | { kind: 'analysis'; resultsVersion: ResultsVersion; section: string };
 export type WorkRegisterRow = Omit<RegisterRow, 'anchor'> & { anchor: Anchor | null };
 export type HostedNote = Omit<NoteView, 'refAtCreation' | 'resultsVersion' | 'anchorSha256'> & { target: NoteTarget };
-export type HostedNoteSummary = Omit<NoteSummary, 'detached'> & { detached: HostedNote[] };
+export type HostedNoteSummary = Omit<NoteSummary, 'detached' | 'pageNotes'> & { detached: HostedNote[]; pageNotes: number };
 export interface SnapshotStore { put(a: Scope & { snapshot: UserWorkExport; revision: CaseRevision }): Promise<Id<'snapshot'>>; get(a: Scope & { id: Id<'snapshot'> }): Promise<UserWorkExport | null> }
 export type RegisterCommand = { kind: 'add'; fields: Fields } | { kind: 'replace'; rowId: string; fields: Fields } | { kind: 'remove'; rowId: string };
 export interface AsyncRegisterStore {

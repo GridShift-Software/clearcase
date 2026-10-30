@@ -34,7 +34,7 @@ export function bindPageReads(services: RequestServices, lookup: ReturnType<type
     if (resultsVersion && snapshot.published?.versionId !== resultsVersion) throw contractError('forbidden');
     const raw: (Omit<Versioned<HostedNote>, 'version' | 'intact' | 'status' | 'candidates'> & { version: string; bodySha256: string })[] = JSON.parse(snapshot.notesJson);
     const fingerprints: { ref: string; sha256: string | null }[] = JSON.parse(snapshot.fingerprintsJson);
-    const result: HostedNoteSummary = { total: raw.length, here: 0, exact: 0, ambiguous: 0, missing: 0, unanchored: 0, byRef: [], detached: [] };
+    const result: HostedNoteSummary = { total: raw.length, here: 0, exact: 0, ambiguous: 0, missing: 0, unanchored: 0, byRef: [], detached: [], pageNotes: snapshot.pageNotes };
     for (const n of raw) {
       const { bodySha256, ...plain } = n;
       const note: Versioned<HostedNote> = { ...plain, version: id('row-version', n.version), intact: sha256Hex(n.body) === bodySha256, status: 'here', candidates: [] };

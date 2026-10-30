@@ -13,6 +13,7 @@ import type { D1, D1Statement } from '../../server/runtime/hosted/bindings.ts';
 import { contractError, isDenial } from '../../server/runtime/errors.ts';
 import { id, sha256 } from '../../server/runtime/ids.ts';
 import { viewSeeds } from '../../case-package/user-work.ts';
+import { PAGE_NOTE_STORE } from '../../viewer/hosted/page-notes.ts';
 import {
   AnchorCheck, BUILTINS, NoteRowCheck, OverlayCheck, RegisterRowCheck, TargetCheck, body, builtin, canonical, cells, definition,
   fields, invalid, isBuiltin, isReserved, operationId, parsed, rowIdOf, sha256Hex, storeName, tableKey,
@@ -371,8 +372,9 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       return a.target === null ? notes : notes.filter((n) => sameJson(n.target, a.target));
     },
     async summary(a) {
-      const notes = await work.notesFor({ caseId: a.caseId, target: null });
-      const result: C.HostedNoteSummary = { total: notes.length, here: 0, exact: 0, ambiguous: 0, missing: 0, unanchored: 0, byRef: [], detached: [] };
+      // The notes and the page notes (counted apart: they belong to an original's bytes, not to a version) are one read.
+      const { notes, rows } = await work.readNoteWork({ caseId: a.caseId, target: null, store: PAGE_NOTE_STORE });
+      const result: C.HostedNoteSummary = { total: notes.length, here: 0, exact: 0, ambiguous: 0, missing: 0, unanchored: 0, byRef: [], detached: [], pageNotes: rows.length };
       for (const note of notes) {
         const match = note.target.kind === 'document' && a.resultsVersion ? await work.resolve({ anchor: note.target.anchor, into: { caseId: a.caseId, resultsVersion: a.resultsVersion } }) : { status: note.target.kind === 'case' ? 'here' as const : 'unanchored' as const, refs: [] as string[] };
         result[match.status]++;

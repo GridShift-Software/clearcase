@@ -14,7 +14,7 @@ async function open(mediaType: string, viewerHref: string | null) {
     store: { publication: async () => ({ versionId: RV, shardManifestSha256: 'c'.repeat(64), shards: { 'doc/D-001.json': 100 } }) },
     shards: { read: async () => Response.json(doc) },
     assets: { links: async () => ({ originalHref: ORIGINAL, downloadHref: `${ORIGINAL}?download=1`, viewerHref }) },
-    userWork: { notesFor: async () => [] },
+    userWork: { notesFor: async () => [], readNoteWork: async () => ({ notes: [], rows: [] }) },
   } as unknown as RequestServices;
   const page = await load({ locals, params: { caseId: CASE, version: RV, ref: 'D-001' }, url: new URL('https://synthetic.invalid/') } as never);
   return page.links;

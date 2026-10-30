@@ -17,7 +17,7 @@ function unavailableStore(): CaseReader {
 function unavailableWork(): AsyncUserWork {
   return {
     anchorFor: storage, resolve: storage, notesFor: storage, summary: storage, addNote: storage, deleteNote: storage,
-    seedRows: storage, overlays: storage, seedViews: storage, putSeedOverlay: storage, listRows: storage, readViewWork: storage, putRow: storage,
+    seedRows: storage, overlays: storage, seedViews: storage, putSeedOverlay: storage, listRows: storage, readViewWork: storage, readNoteWork: storage, putRow: storage,
     deleteRow: storage, tables: storage, defineTable: storage, registerStores: storage, listTableRows: storage,
     putTableRow: storage, putTableRows: storage, deleteTableRow: storage, exportAll: storage, importAll: storage,
     snapshots: { put: rejectUnavailable('snapshot-failed'), get: storage },

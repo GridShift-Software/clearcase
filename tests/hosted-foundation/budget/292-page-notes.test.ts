@@ -35,6 +35,13 @@ it('292 a page note saved through the viewer is on the case notes list after rel
     expect(r.counts).toMatchObject({ d1: 3, clerk: 0, otherFetch: 0 }); expect(r.sequential).toBe(2);
     // the row is the viewer's own, unchanged by being listed
     expect(w.db.rows("SELECT json_extract(fields_json, '$.body') AS body FROM uw_register_row WHERE store = ?", STORE)).toEqual([{ body: 'Synthetic page note from the viewer' }]);
+    w.db.sqlite.prepare('INSERT INTO uw_register_row (case_id, store, row_id, fields_json, fields_sha256, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('case-a', STORE, 'malformed-page-row', 'null', 'digest', '2200-01-01T00:00:00Z', '2200-01-01T00:00:00Z', 'malformed-version');
+    const reloaded = await w.timed('/notes', { method: 'GET' }, (locals, _r, url) => notesLoad({ locals, params: { caseId: 'case-a' }, url } as never));
+    expect(reloaded.thrown).toBeUndefined();
+    expect(reloaded.value?.notes.state).toBe('available');
+    expect(reloaded.value?.pageNotes).toMatchObject({ unreadable: 1, items: [{ body: 'Synthetic page note from the viewer' }] });
+    expect(reloaded.counts).toMatchObject({ d1: 3, clerk: 0, otherFetch: 0 }); expect(reloaded.sequential).toBe(2);
   } finally { await w.cleanup(); }
 });
 
@@ -65,6 +72,13 @@ it('292 the document loader shows the page notes on its original\'s bytes in its
     ]);
     // 16 pins this loader at one notes query and one links call: unchanged
     expect([result.counts.d1, links, anchors]).toEqual([1, 1, 0]);
+    await work.putRow({ caseId: CASE, expected: { kind: 'absent' }, operationId: 'malformed-doc-note', store: STORE, rowId: null,
+      fields: { assetId: 'D-001', sha256: SHA_A, body: 'Synthetic missing page' }, anchor: null });
+    const reloaded = await measure(c, () => document({ locals, params: { caseId: CASE, version: RV1, ref: 'D-001' }, url: new URL('https://synthetic.invalid/') } as never));
+    expect(reloaded.thrown).toBeUndefined();
+    expect(reloaded.value?.pageNotes).toHaveLength(2);
+    expect(reloaded.value?.pageNotesUnreadable).toBe(1);
+    expect(reloaded.counts.d1).toBe(1); expect([links, anchors]).toEqual([2, 0]);
   } finally { db.close(); }
 });
 

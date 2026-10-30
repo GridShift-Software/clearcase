@@ -94,6 +94,24 @@ it('292 a stored row altered since it was saved is shown with intact false, so t
   } finally { w.db.close(); }
 });
 
+it('292 non-object stored fields count as unreadable while a valid page note remains available', async () => {
+  const w = world();
+  try {
+    await w.add(CASE, 'D-001', 1, 'Synthetic readable note');
+    const insert = w.db.prepare('INSERT INTO uw_register_row (case_id, store, row_id, fields_json, fields_sha256, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    let n = 0;
+    for (const fields of [null, [], true, 7, 'synthetic primitive']) {
+      const rowId = `invalid-shape-${++n}`;
+      insert.run(CASE, PAGE_NOTE_STORE, rowId, JSON.stringify(fields), 'digest', '2200-01-02T00:00:00Z', '2200-01-02T00:00:00Z', `v-${rowId}`);
+    }
+    const before = w.db.prepare('SELECT * FROM uw_register_row ORDER BY rowid').all();
+    const list = pageNotes(CASE, (await w.work('reader').readNoteWork({ caseId: CASE, target: null, store: PAGE_NOTE_STORE })).rows);
+    expect(list.items.map((note) => note.body)).toEqual(['Synthetic readable note']);
+    expect(list.unreadable).toBe(5);
+    expect(w.db.prepare('SELECT * FROM uw_register_row ORDER BY rowid').all()).toEqual(before);
+  } finally { w.db.close(); }
+});
+
 it('292 an asset id is encoded into its viewer link', () => {
   const row = { rowId: 'r1', store: PAGE_NOTE_STORE, anchor: null, fields: { assetId: 'D 1/x?y', page: 2, body: 'Synthetic', sha256: SHA_A }, createdAt: '2200-01-01T00:00:00Z', updatedAt: '2200-01-01T00:00:00Z', intact: true, version: 'v1' } as unknown as C.Versioned<C.WorkRegisterRow>;
   expect(pageNotes(CASE, [row]).items[0]!.href).toBe('/cases/synthetic-case/originals/D%201%2Fx%3Fy/view?page=2');

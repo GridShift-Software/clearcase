@@ -82,4 +82,10 @@ it('292 a document\'s My notes shows its page notes with their page and viewer l
   expect(notes).not.toContain('<form');
   expect(notes).not.toContain('No notes.');
   expect(render(Document, { props: { data: { ...data, pageNotes: [] }, form: null } as never }).body).toContain('No notes.');
+  const unreadable = render(Document, { props: { data: { ...data, pageNotes: [], pageNotesUnreadable: 1 }, form: null } as never }).body;
+  expect(unreadable).toContain('1 stored page note could not be read, so it is not shown.');
+  expect(unreadable).not.toContain('No notes.');
+  const mixed = render(Document, { props: { data: { ...data, pageNotesUnreadable: 2 }, form: null } as never }).body;
+  expect(mixed).toContain('Synthetic page two');
+  expect(mixed).toContain('2 stored page notes could not be read, so they are not shown.');
 });

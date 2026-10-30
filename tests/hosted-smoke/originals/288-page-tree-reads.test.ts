@@ -120,13 +120,15 @@ it('keeps an understated /Count of 40 over 64 pages, as upstream pdf.js does', a
 });
 
 /** Four valid pages in one nested subtree, followed by a sibling whose array never ends. */
-function malformedSibling(): Uint8Array {
+function malformedSibling(required = false): Uint8Array {
   const objects: Record<number, string> = {
     1: '<< /Type /Catalog /Pages 2 0 R >>',
     2: '<< /Type /Pages /Kids [11 0 R] /Count 4 >>',
     11: '<< /Type /Pages /Parent 2 0 R /Kids [13 0 R 12 0 R] /Count 4 >>',
     12: '<< /Type /Pages /Kids [',
-    13: '<< /Type /Pages /Parent 11 0 R /Kids [3 0 R 4 0 R 5 0 R 6 0 R] /Count 4 >>',
+    13: required
+      ? '<< /Type /Pages /Parent 11 0 R /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>'
+      : '<< /Type /Pages /Parent 11 0 R /Kids [3 0 R 4 0 R 5 0 R 6 0 R] /Count 4 >>',
   };
   for (let page = 1; page <= 4; page++) {
     objects[page + 2] = `<< /Type /Page /Parent 13 0 R /MediaBox [0 0 100 100] /Resources <<>> /Contents ${page + 6} 0 R >>`;
@@ -164,4 +166,13 @@ it('observes an unused malformed nested sibling rejection while all requested pa
     reader?.destroy();
     process.off('unhandledRejection', record);
   }
+});
+
+it('still refuses a requested page whose required sibling is malformed', async () => {
+  bytes = malformedSibling(true);
+  const reader = await open(createCanvas(100, 100));
+  try {
+    await reader.draw(1, 1);
+    await expect(reader.draw(4, 1)).rejects.toThrow('End of file inside array.');
+  } finally { reader.destroy(); }
 });

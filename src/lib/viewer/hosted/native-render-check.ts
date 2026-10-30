@@ -13,7 +13,7 @@ import { checkedPageSet, decide, lookupReceiptRows, MAX_CHECKED_PAGES, MAX_DOCUM
 // Deliberately not an import of the build-time (node:fs) asset preparer. Parent supplies its reviewed inventory.
 const PDF_VERSION = '6.4.299';
 const PACKAGE_DIGEST = 'sha256:ae9a1328f4de3e2cf14b24d711e34299963dc64c10eab7b1afe849b79846e577';
-const VIEWER_WORKER_DIGEST = 'sha256:bf3b48c6184d676fb0212df8f65822ecc43f50b998b68527373281297d9ed0b3';
+const VIEWER_WORKER_DIGEST = 'sha256:bf0324b08956821b6b0da7f1e3803bad2ead020838896eea69c86b73b8ad4170';
 const READER_DIGEST = 'sha256:1c577c4a67a9d6927700ac642c591e8fff078a5dce6077ea5a78f90275113df5';
 // The viewer's image decoders under pdfjs/wasm/ (scripts/hosted-pdf-assets.ts, DECODERS). This check never loads them.
 const DECODERS_DIGEST = 'sha256:64e5725ef447ad6f8d4b22db596eab1cb45682fbf1f8c631a926c4b7bc7eef41';

@@ -9,7 +9,7 @@ export const HOSTED_PDF_VERSION = '6.4.299';
 // Captured from the frozen bun.lock install at c6f0d9536e381dc8eebbf2035f49834409434761.
 export const HOSTED_PDF_PACKAGE_DIGEST = 'sha256:ae9a1328f4de3e2cf14b24d711e34299963dc64c10eab7b1afe849b79846e577';
 // The in-app viewer's pdf.js worker, pdfjs/pdf-viewer-worker.mjs: build/pdf.worker.min.mjs with WORKER_PATCH applied.
-export const HOSTED_PDF_VIEWER_WORKER_DIGEST = 'sha256:bf3b48c6184d676fb0212df8f65822ecc43f50b998b68527373281297d9ed0b3';
+export const HOSTED_PDF_VIEWER_WORKER_DIGEST = 'sha256:bf0324b08956821b6b0da7f1e3803bad2ead020838896eea69c86b73b8ad4170';
 
 /**
  * The one patch to pdf.js (upstream pdfjs-dist 6.4.299, build/pdf.worker.min.mjs; GRS-251), served only to the in-app
@@ -28,7 +28,8 @@ export const HOSTED_PDF_VIEWER_WORKER_DIGEST = 'sha256:bf3b48c6184d676fb0212df8f
  * requested page now starts fetches, first to last, only for the kids of each node it opens that can hold that page (each
  * kid holds at least one), and still checks each kid as upstream does. The deferred check first walks to the last page
  * one fetch at a time, so the walk it must make never crowds out a requested page; checkLastPage then finds that walk's
- * objects already read.
+ * objects already read. A rejected speculative fetch is observed, but its original promise stays cached so a walk that
+ * needs that object still receives the parser error.
  * Each replacement must match exactly once, so another pdf.js build is refused, never half-patched.
  */
 const WORKER_PATCH: ReadonlyArray<readonly [string, string]> = [
@@ -41,7 +42,7 @@ const WORKER_PATCH: ReadonlyArray<readonly [string, string]> = [
 	['async getPageDict(e){', 'async getPageDict(e,clearcaseSerial){'],
 	['for(let e=h.length-1;e>=0;e--){const a=h[e];t.push(a);n===this.toplevelPagesDict&&a instanceof Ref&&!o.has(a)&&o.put(a,s.fetchAsync(a))}',
 		'for(let e=h.length-1;e>=0;e--)t.push(h[e]);if(!clearcaseSerial)for(let clearcaseKid=0;clearcaseKid<Math.min(h.length,e-l+1);clearcaseKid++){' +
-		'const a=h[clearcaseKid];a instanceof Ref&&!o.has(a)&&o.put(a,s.fetchAsync(a))}'],
+		'const a=h[clearcaseKid];if(a instanceof Ref&&!o.has(a)){const clearcaseFetch=s.fetchAsync(a);clearcaseFetch.catch(()=>{});o.put(a,clearcaseFetch)}}'],
 	['l){a.getPage(e).then(function(e){const a=new WorkerTask(`GetOperatorList: page ${t}`);',
 		'l){const clearcasePdfManager=a;a.getPage(e).then(function(e){const a=new WorkerTask(`GetOperatorList: page ${t}`);'],
 	['pageIndex:t,pageProxyId:n}).then(()=>{l.close()},e=>{a.terminated||l.error(e)}).finally(()=>{finishWorkerTask(a)})})});c.on("GetTextContent"',

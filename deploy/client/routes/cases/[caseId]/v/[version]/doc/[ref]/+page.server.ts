@@ -1,6 +1,7 @@
-import type { Actions, RequestEvent } from '@sveltejs/kit';
+import { fail, type Actions, type RequestEvent } from '@sveltejs/kit';
 import { serveModeOf } from '$lib/case-package/media';
 import type { OriginalLinks } from '$lib/local-case/model';
+import { deleteStep } from '$lib/components/confirm-delete';
 import { codeOf, isDenial } from '$lib/server/runtime/errors';
 import { refuse } from '$lib/server/runtime/hosted/http';
 import { publishedVersion, shard } from '$lib/views/hosted/payloads.server';
@@ -73,8 +74,11 @@ export const actions: Actions = {
 	},
 	delnote: async ({ locals, params, request }: RequestEvent) => {
 		const v = await publishedVersion(locals, params);
-		const form = await request.formData();
-		const result = await guarded('delete', null, async (work) => work.deleteNote(v.caseId, String(form.get('id') ?? '')), SAY,
+		const form = await request.formData(), id = String(form.get('id') ?? '');
+		// a Delete not confirmed for this note reaches no work store: the page asks, or after Cancel does not (GRS-280)
+		const step = deleteStep(form, id);
+		if (step !== 'confirm') return fail(400, { op: 'delete' as const, confirm: step === 'ask' ? id : null });
+		const result = await guarded('delete', null, async (work) => work.deleteNote(v.caseId, id), SAY,
 			{}, hostedWork(locals, v.caseId, v.resultsVersion, form));
 		return result.ok ? { deleted: true } : result.failure;
 	},

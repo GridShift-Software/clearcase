@@ -1,9 +1,11 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import type { SubmitFunction } from '$app/forms';
 	import CitationLink from '$lib/components/CitationLink.svelte';
+	import ConfirmDelete from '$lib/components/ConfirmDelete.svelte';
+	import { deleteStep } from '$lib/components/confirm-delete';
 	import DateValue from '$lib/components/DateValue.svelte';
 	import OriginalOpen from '$lib/components/OriginalOpen.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
@@ -58,6 +60,17 @@
 	// note another tab deleted meanwhile is not shown again. Raw, so `data` keeps its identity for the comparison.
 	let saved = $state.raw<{ note: Note; data: typeof data } | null>(null);
 	const notes = $derived(saved && saved.data === data && !data.notes.some((n) => n.id === saved!.note.id) ? [...data.notes, saved.note] : data.notes);
+	// the note whose Delete awaits Confirm; without JavaScript the server's answer names it
+	let confirming = $state<string | null>(untrack(() => (form && 'confirm' in form && typeof form.confirm === 'string' ? form.confirm : null)));
+	let deleting = $state<string | null>(null);
+	const removeNote: SubmitFunction = ({ formData, cancel }) => {
+		const id = String(formData.get('id'));
+		const step = deleteStep(formData, id);
+		if (step !== 'confirm') { cancel(); confirming = step === 'ask' ? id : null; return; }
+		confirming = null;
+		deleting = id;
+		return async ({ update }) => { try { await update(); } finally { deleting = null; } };
+	};
 </script>
 
 <main id="main" tabindex="-1" data-ready={ready ? `doc:${data.ref}` : null}>
@@ -112,7 +125,7 @@
 				<li data-note={n.id} data-anchor={n.status}><span class="wrap">{n.body}</span> <small>({n.createdAt}{n.status === 'exact' ? `, written on ${n.refAtCreation} in an earlier version and re-attached by its original's fingerprint` : ''})</small>
 					{#if n.status === 'ambiguous'}<strong class="warning-inline">This note was written on {n.refAtCreation} in another version; its original's bytes are shared by {n.candidates.join(', ')} here, so it is shown on each.</strong>{/if}
 					{#if !n.intact}<strong class="unresolved" data-note-integrity="mismatch">this note was altered on disk since it was saved</strong>{/if}
-					{#if n.status === 'here' && access.canWrite}<form method="POST" action="?/delnote" use:enhance><input type="hidden" name="id" value={n.id} /><input type="hidden" name="version" value={n.version ?? ''} /><input type="hidden" name="operationId" value={`${data.operationId}.d.${n.id}`} /><button aria-label="Delete note" disabled={noteRefused}>Delete</button></form>{/if}
+					{#if n.status === 'here' && access.canWrite}<form method="POST" action="?/delnote" use:enhance={removeNote}><input type="hidden" name="id" value={n.id} /><input type="hidden" name="version" value={n.version ?? ''} /><input type="hidden" name="operationId" value={`${data.operationId}.d.${n.id}`} /><ConfirmDelete bind:pending={confirming} target={n.id} question="Delete this note?" aria-label="Delete note" disabled={noteRefused || deleting === n.id} /></form>{/if}
 				</li>
 			{:else}<li>No notes.</li>{/each}
 		</ul>

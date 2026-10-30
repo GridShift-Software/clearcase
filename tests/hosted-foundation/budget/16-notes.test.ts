@@ -103,7 +103,33 @@ it('16 document delnote action removes the saved note, and the loader no longer 
     };
     const saved = await actions.note!(post('note', { body: 'Synthetic note to delete', operationId: 'delete-roundtrip' }) as never) as { note: { id: string; version: string } };
     expect((await document(post('note', {}) as never)).notes).toHaveLength(1);
-    expect(await actions.delnote!(post('delnote', { id: saved.note.id, version: saved.note.version, operationId: 'delete-note' }) as never)).toEqual({ deleted: true });
+    expect(await actions.delnote!(post('delnote', { id: saved.note.id, version: saved.note.version, operationId: 'delete-note', confirm: saved.note.id }) as never)).toEqual({ deleted: true });
+    expect((await document(post('note', {}) as never)).notes).toEqual([]);
+  } finally { w.db.close(); }
+});
+
+it('280 document delnote deletes nothing until confirmed for that note: the page asks, or after Cancel does not', async () => {
+  const w = notes();
+  try {
+    const doc = { ref: 'D-001', source: 'results', fields: {}, state: { original: { sha256: SHA_A }, flags: [] }, attachments: [], assetIds: {}, mediaType: null, originalState: 'missing' };
+    const locals = {
+      store: { publication: async () => ({ versionId: RV1, shardManifestSha256: 'a'.repeat(64), shards: { 'doc/D-001.json': 100 } }) },
+      userWork: w.work, shards: { read: async () => Response.json(doc) },
+    } as unknown as C.RequestServices;
+    const post = (action: string, fields: Record<string, string>) => {
+      const form = new FormData(); for (const [k, v] of Object.entries(fields)) form.set(k, v);
+      return { locals, params: { caseId: CASE, version: RV1, ref: 'D-001' }, url: new URL('https://synthetic.invalid/'),
+        request: new Request(`https://synthetic.invalid/?/${action}`, { method: 'POST', body: form }) };
+    };
+    const saved = await actions.note!(post('note', { body: 'Synthetic note kept until confirmed', operationId: 'confirm-add' }) as never) as { note: { id: string; version: string } };
+    const before = w.c.d1;
+    const ask = { id: saved.note.id, version: saved.note.version, operationId: 'confirm-delete' };
+    for (const [extra, confirm] of [[{}, saved.note.id], [{ confirm: 'another-note' }, saved.note.id], [{ confirm: '' }, saved.note.id], [{ cancel: saved.note.id }, null], [{ cancel: saved.note.id, confirm: saved.note.id }, null]] as const)
+      expect(await actions.delnote!(post('delnote', { ...ask, ...extra }) as never), JSON.stringify(extra)).toMatchObject({ status: 400, data: { op: 'delete', confirm } });
+    // the refusal comes before the work store: no note query and no write
+    expect(w.c.d1).toBe(before);
+    expect((await document(post('note', {}) as never)).notes).toMatchObject([{ id: saved.note.id }]);
+    expect(await actions.delnote!(post('delnote', { ...ask, confirm: saved.note.id }) as never)).toEqual({ deleted: true });
     expect((await document(post('note', {}) as never)).notes).toEqual([]);
   } finally { w.db.close(); }
 });

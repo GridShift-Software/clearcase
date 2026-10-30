@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
+	import ConfirmDelete from '$lib/components/ConfirmDelete.svelte';
 	import { displayFilename } from '$lib/views/hosted/display';
 	import NoteText from '$lib/views/hosted/NoteText.svelte';
 	import type { NoteItem, NoteRefusal } from '$lib/views/hosted/model';
@@ -10,6 +12,8 @@
 	// A refused annotation keeps its original version even after withdrawal or replacement, never silently a case note.
 	const draftVersion = $derived(form?.op === 'add' ? (form.resultsVersion ?? data.resultsVersion) : data.resultsVersion);
 	const draftRef = $derived(form?.op === 'add' ? (form.ref ?? '') : '');
+	// the note whose Delete awaits Confirm; without JavaScript the server's answer names it
+	let confirming = $state<string | null>(untrack(() => (form?.op === 'delete' ? (form.confirm ?? null) : null)));
 </script>
 
 <style>
@@ -54,7 +58,7 @@
 								<input type="hidden" name="id" value={n.id} />
 								<input type="hidden" name="version" value={n.version} />
 								<input type="hidden" name="operationId" value={`${data.operationId}.d${i}`} />
-								<button type="submit" data-action="delete-note">Delete</button>
+								<ConfirmDelete bind:pending={confirming} target={n.id} question="Delete this note?" data-action="delete-note" />
 							</form>
 						{/if}
 					</li>

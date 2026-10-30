@@ -223,14 +223,14 @@ const NOTES: [string, Act, FormCase[]][] = [
       // a saved note redirects to the notes list
       expect(await statusOf(() => notes.actions.add!(post(w.editor, { caseId: CASE }, 'add', { body: 'Synthetic note to delete', operationId: 'op-277-case-seed' })))).toBe(303);
       const item = ((await notes.load(read(w.editor, { caseId: CASE }))) as any).notes.items[0];
-      return { id: item.id, version: item.version, operationId: 'op-277-case-delete' };
+      return { id: item.id, version: item.version, operationId: 'op-277-case-delete', confirm: item.id };
     } },
   ]],
   ['doc/[ref] (document notes)', doc, [
     { action: 'note', params: { ...PARAMS, ref: 'D-001' }, fields: () => ({ body: 'Synthetic document note', operationId: 'op-277-doc-add' }) },
     { action: 'delnote', params: { ...PARAMS, ref: 'D-001' }, fields: async (w) => {
       const saved = (await doc.actions.note!(post(w.editor, { ...PARAMS, ref: 'D-001' }, 'note', { body: 'Synthetic document note to delete', operationId: 'op-277-doc-seed' }))) as any;
-      return { id: saved.note.id, version: saved.note.version, operationId: 'op-277-doc-delete' };
+      return { id: saved.note.id, version: saved.note.version, operationId: 'op-277-doc-delete', confirm: saved.note.id };
     } },
   ]],
 ];

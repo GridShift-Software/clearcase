@@ -35,3 +35,35 @@ it('M1 not-found maps to missing Original not supplied state',async()=>{
  expect((await w.view(w.identity,'missing')).view).toMatchObject({state:'unavailable',reason:'missing'});
  expect(await w.locals().assets.availability({asset:{kind:'original',caseId:'case-a' as never,assetId:'missing'}})).toMatchObject({kind:'unavailable',reason:'missing'});
 });
+
+it('finalized intake originals open and download with the asset-ticket key, including legacy metadata', async () => {
+ const w = await originalWorld({ allowLegacyBuffer: true });
+ const { createOriginalIntake } = await import('../../../src/lib/storage/cloud/intake');
+ const { BUDGETS, QUOTAS, ids, pdf, shaOf } = await import('../../hosted-foundation/storage/fixture');
+ const bytes = pdf('synthetic intake ticket read'), sha = shaOf(bytes);
+ const intake = createOriginalIntake({ bindings: { db: w.dep.db, bucket: w.dep.bucket }, clientId: ids.clientA, budgets: BUDGETS, quotas: QUOTAS,
+  authorize: async () => {}, now: () => new Date('2200-01-01T00:00:00Z') });
+ expect(await intake.declare({ caseId: ids.caseA, operationId: 'intake-ticket', assetId: 'intake-a', filename: 'intake.pdf', mediaType: 'application/pdf', size: bytes.length, sha256: sha })).toMatchObject({ kind: 'declared' });
+ expect(await intake.put({ caseId: ids.caseA, operationId: 'intake-ticket', bytes })).toMatchObject({ kind: 'stored' });
+ expect(await intake.finalize({ caseId: ids.caseA, operationId: 'intake-ticket' })).toMatchObject({ kind: 'finalized' });
+ const stored = w.dep.db.rows<{ etag: string; media_family: string }>('SELECT etag,media_family FROM rs_original WHERE sha256 = ?', sha)[0];
+ expect(stored).toEqual({ etag: (await w.dep.bucket.head(`orig/${sha}`))!.etag, media_family: 'pdf' });
+ for (const legacy of [false, true]) {
+  if (legacy) w.dep.db.exec('UPDATE rs_original SET etag = NULL, media_family = NULL WHERE sha256 = ?', sha);
+  await expect(fastOriginals(w.locals().assets)!.locate({ kind: 'original', caseId: ids.caseA, assetId: 'intake-a' })).resolves.toMatchObject({ etag: stored.etag, mediaFamily: 'pdf' });
+  const view = await w.view(w.identity, 'intake-a');
+  expect(view.view).toMatchObject({ state: 'available', mode: 'pdf' });
+  if (view.view.state !== 'available') throw new Error('intake viewer unavailable');
+  for (const href of [view.view.srcHref, view.view.downloadHref]) {
+   const response = await w.get(w.identity, href, { caseId: 'case-a', assetId: 'intake-a' });
+   expect(response.status).toBe(200);
+   expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+  }
+  const range = await w.get(w.identity, view.view.srcHref, { caseId: 'case-a', assetId: 'intake-a' }, { range: 'bytes=2-5' });
+  expect(range.status).toBe(206);
+  expect(new Uint8Array(await range.arrayBuffer())).toEqual(bytes.slice(2, 6));
+ }
+ // A legacy row cannot turn verification off: corrupt bytes still release nothing.
+ w.dep.bucket.tamper(`orig/${sha}`, b => { b[0] ^= 1; return b; });
+ await expect(w.view(w.identity, 'intake-a')).rejects.toMatchObject({ status: 410, body: { code: 'changed-original' } });
+});

@@ -21,7 +21,7 @@ export interface RequestCase {
   /** the case's stored page notes (the viewer's register rows), counted by the primary key, none decoded */
   pageNotes: number;
   fingerprintsJson: string;
-  original: OriginalRow | null;
+  original: (Omit<OriginalRow, 'etag' | 'mediaFamily'> & { etag: string | null; mediaFamily: string | null }) | null;
 }
 
 /**
@@ -84,7 +84,7 @@ export function requestCaseLookup(db: D1, deployment: ClientResourceIdentity, as
     const published = r.pub_state === 'published' && r.pub_version && r.stored === 'stored' && !r.withdrawn
       ? { versionId: resultsVersion(r.pub_version), publishedAt: r.published_at, previousVersionId: r.previous_version_id ? resultsVersion(r.previous_version_id) : null, shardManifestSha256: r.manifest_sha256, shards: admittedShards(r.admitted_json) } : null;
     return { grants: results.map(parseGrant), exists: true, published, workBound: r.work_bound === 1, notesJson: r.notes_json, pageNotes: r.page_notes, fingerprintsJson: r.fingerprints_json,
-      original: assetId && r.original_sha256 && r.original_etag ? { caseId: a.caseId, assetId, sha256: r.original_sha256, size: r.original_size, etag: r.original_etag, objectKey: r.original_key, mediaFamily: r.media_family, filename: r.filename, mediaType: r.media_type, clientId: deployment.clientId, issuer: a.principal.issuer, subject: a.principal.subject } : null,
+      original: assetId && r.original_sha256 ? { caseId: a.caseId, assetId, sha256: r.original_sha256, size: r.original_size, etag: r.original_etag, objectKey: r.original_key, mediaFamily: r.media_family, filename: r.filename, mediaType: r.media_type, clientId: deployment.clientId, issuer: a.principal.issuer, subject: a.principal.subject } : null,
       info: { caseId: id('case', a.caseId), caseLabel: r.case_label, href: `/cases/${encodeURIComponent(a.caseId)}`, documents: null,
         publication: published ? { kind: 'published', resultsVersion: published.versionId } : { kind: r.pub_state === null ? 'none' : 'withdrawn' } } };
   }

@@ -134,11 +134,21 @@ it('fences both simultaneous writers before the first cleanup listing; one settl
   expect((await w.open()).kind).toBe('progress');
   const files = [...w.fx.files].filter(([path]) => path !== 'manifest.json');
   const original = w.durable.r2.put.bind(w.durable.r2);
-  const releases: (() => void)[] = [];
+  const originalHead = w.durable.r2.head.bind(w.durable.r2);
+  const firstSha = sha256Hex(files[0][1]), secondSha = sha256Hex(files[1][1]);
+  let secondEntered!: () => void;
+  const atSecond = new Promise<void>(resolve => { secondEntered = resolve; });
+  // Force the second launched writer to reach R2 first: hash/read completion order is not launch order.
+  w.durable.r2.head = async key => {
+    if (key.endsWith(firstSha)) await atSecond;
+    return originalHead(key);
+  };
+  const releases = new Map<string, () => void>();
   let entered!: () => void;
   const both = new Promise<void>(resolve => { entered = resolve; });
   w.durable.r2.put = async (...args) => {
-    await new Promise<void>(resolve => { releases.push(resolve); if (releases.length === 2) entered(); });
+    if (args[0].endsWith(secondSha)) secondEntered();
+    await new Promise<void>(resolve => { releases.set(args[0], resolve); if (releases.size === 2) entered(); });
     return original(...args);
   };
   const pending = files.slice(0, 2).map(file => w.p.service.staged!.put(w.p.token, { operationId: w.key.operationId, files: new Map([file]) }));
@@ -148,7 +158,9 @@ it('fences both simultaneous writers before the first cleanup listing; one settl
   try {
     expect(await sweep()).toMatchObject({ state: 'sweeping', deleted: 0, remaining: 1 });
     expect(await w.ledger.beginWrite({ ...w.key, at: new Date().toISOString() })).toBeNull(); // Atomic tombstone gate, not just a service-side check.
-    releases[0]();
+    const first = [...releases].find(([key]) => key.endsWith(firstSha))!;
+    first[1]();
+    await Promise.race([pending[0], pending[1].then(() => { throw new Error('Released the other writer; the first writer would wait forever'); })]);
     await pending[0];
     const ended = w.durable.db.rows<{ key: string }>("SELECT key FROM native_import_stage_fact WHERE pass = 'writer-end'");
     // Retrying one settlement is idempotent and cannot settle a different writer.
@@ -157,9 +169,10 @@ it('fences both simultaneous writers before the first cleanup listing; one settl
     expect(await sweep()).toMatchObject({ state: 'sweeping', deleted: 0 });
     expect(await w.ledger.held(w.key)).toBe(w.cap);
   } finally {
-    for (const release of releases) release();
+    for (const release of releases.values()) release();
     await Promise.all(pending);
     w.durable.r2.put = original;
+    w.durable.r2.head = originalHead;
   }
   expect(await w.ledger.writing(w.key)).toBe(false);
   expect(await sweep()).toMatchObject({ state: 'done' });

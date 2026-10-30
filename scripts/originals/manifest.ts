@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { link, mkdir, readFile, rm, stat, symlink, writeFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { serveModeOf } from '../../src/lib/case-package/media.ts';
+import { originalMediaFamily as mediaFamily, type OriginalMediaFamily } from '../../src/lib/case-package/media.ts';
 import { originalKey } from '../../src/lib/storage/cloud/keys.ts';
 
 export const BATCH_ROWS = 50;
@@ -38,18 +38,11 @@ export async function digest(file: string, size: number): Promise<{ sha256: stri
   const etag = size >= MULTIPART_FROM ? `${createHash('md5').update(Buffer.concat(parts)).digest('hex')}-${parts.length}` : whole.digest('hex');
   return { sha256: sha.digest('hex'), etag };
 }
-export type MediaFamily = 'pdf' | 'image' | 'email-text' | 'download';
+export type MediaFamily = OriginalMediaFamily;
 export interface ManifestEntry { path: string; sha256: string; size: number; mediaType: string; assetId: string }
 export interface Summary { fileAssets: number; uniqueSha256: number; uniqueBytes: number; missing: number; embedded: number; packageFiles: number; sqlBatches: number; etags: number }
 
-/** The delivery family of an original, from its media type's serving policy. */
-export function mediaFamily(mediaType: string): MediaFamily {
-  if (mediaType === 'application/pdf') return 'pdf';
-  const mode = serveModeOf(mediaType);
-  if (mode === 'text-sandboxed') return 'email-text';
-  if (mode === 'inline-isolated') return 'image';
-  return 'download';
-}
+export { mediaFamily };
 
 const SHA = /^[0-9a-f]{64}$/;
 const PACKAGE_KEY = /^P-[0-9a-f]{16}$/;

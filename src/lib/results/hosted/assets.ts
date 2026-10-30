@@ -4,7 +4,7 @@ import type { CloudR2 } from '../../storage/cloud/bindings';
 import type * as C from '../../server/runtime/contracts.ts';
 import { codeOf, contractError, isDenial } from '../../server/runtime/errors.ts';
 import { sha256 } from '../../server/runtime/ids.ts';
-import { servePolicy } from '../../case-package/media.ts';
+import { originalMediaFamily, servePolicy } from '../../case-package/media.ts';
 import type { OpenStorage } from '../../storage/cloud/access.ts';
 import { rangedRead, verifiedRead } from '../../storage/cloud/objects.ts';
 import type { StorageEvent } from './index.ts';
@@ -134,9 +134,18 @@ export function createCloudAssets(a: { open: () => Promise<OpenStorage>; clientI
   };
   const fast = {
     async locate(asset: C.AssetRef): Promise<OriginalRow> {
-      const {row} = await described(asset, () => once(asset), 'asset.read-original');
-      if (!row.etag || !row.media_family) throw contractError('changed-original');
-      return {caseId:asset.caseId,assetId:asset.assetId,sha256:row.sha256,etag:row.etag,size:row.size,mediaType:row.media_type,mediaFamily:row.media_family,filename:row.filename,clientId:a.clientId ?? identity.clientId,issuer:identity.kind === 'verified' ? identity.principal.issuer : undefined,subject:identity.kind === 'verified' ? identity.principal.subject : '',objectKey:row.object_key};
+      const {row, s} = await described(asset, () => once(asset), 'asset.read-original');
+      let etag = row.etag;
+      // Originals finalized before intake stored ETags retain their bounded, whole-object integrity check.
+      if (!etag) {
+        const read = await verifiedRead(s.bucket, row.object_key, row, s.budgets.maxBufferedObjectBytes);
+        if (read.kind === 'missing') throw contractError('missing-original');
+        if (read.kind === 'changed') throw contractError('changed-original');
+        if (read.kind !== 'ok') return failed();
+        await authorize(s, asset);
+        etag = read.etag;
+      }
+      return {caseId:asset.caseId,assetId:asset.assetId,sha256:row.sha256,etag,size:row.size,mediaType:row.media_type,mediaFamily:row.media_family ?? originalMediaFamily(row.media_type),filename:row.filename,clientId:a.clientId ?? identity.clientId,issuer:identity.kind === 'verified' ? identity.principal.issuer : undefined,subject:identity.kind === 'verified' ? identity.principal.subject : '',objectKey:row.object_key};
     },
     record(asset: C.AssetRef, outcome: 'succeeded'|'failed'|'refused', subject?: string) {
       const pending = new Promise<void>(resolve => setTimeout(resolve,0)).then(() => a.record({action:'asset.read-original',object:{kind:'asset',id:asset.assetId,caseId:asset.caseId},version:null,outcome,subject}));

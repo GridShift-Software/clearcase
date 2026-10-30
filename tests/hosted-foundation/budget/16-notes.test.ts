@@ -47,7 +47,12 @@ it('16 document loader uses one notes query plus one links call beyond publicati
     const target: C.NoteTarget = { kind: 'document', anchor: { caseId: CASE, resultsVersion: RV1, refAtCreation: 'D-001', sha256: SHA_A } };
     await w.work.addNote({ caseId: CASE, operationId: 'document-note', expected: { kind: 'absent' }, target, body: 'Synthetic page note' });
     let links = 0, anchors = 0;
-    const doc = { ref: 'D-001', source: 'results', fields: {}, state: { original: { sha256: SHA_A }, flags: [] }, attachments: [], assetIds: { own: 'D-001' }, mediaType: 'application/pdf', originalState: 'available' };
+    const doc = { ref: 'D-001', source: 'results', fields: {}, state: { original: { sha256: SHA_A }, flags: [] },
+      attachments: [
+        { key: 'ATT:1', route: 'direct', hasDocument: false },
+        { key: 'ATT-2', route: 'parent', hasDocument: false },
+        { key: 'ATT-3', route: 'unavailable', hasDocument: false },
+      ], assetIds: { own: 'D-001', attachments: ['ATT:1'] }, mediaType: 'application/pdf', originalState: 'available' };
     const locals = {
       // Publication and asset serving have separate budget suites; count the route's calls, not an invented full-request cost.
       store: { publication: async () => ({ versionId: RV1, shardManifestSha256: 'a'.repeat(64), shards: { 'doc/D-001.json': 100 } }) },
@@ -58,6 +63,10 @@ it('16 document loader uses one notes query plus one links call beyond publicati
     const result = await measure(w.c, () => document({ locals, params: { caseId: CASE, version: RV1, ref: 'D-001' }, url: new URL('https://synthetic.invalid/') } as never));
     expect(result.thrown).toBeUndefined();
     expect(result.value?.notes).toMatchObject([{ body: 'Synthetic page note', refAtCreation: 'D-001' }]);
+    expect(result.value?.attachments).toMatchObject([
+      { key: 'ATT:1', links: { presentation: 'download', download: `/cases/${CASE}/originals/ATT%3A1?download=1` } },
+      { key: 'ATT-2', links: null }, { key: 'ATT-3', links: null },
+    ]);
     expect([result.counts.d1, links, anchors]).toEqual([1, 1, 0]);
   } finally { w.db.close(); }
 });

@@ -9,7 +9,7 @@ import { deployment, grantedIdentity, ids, BUDGETS } from '../../hosted-foundati
 import { counters, countedD1, countedR2, routeEvent } from '../../hosted-foundation/budget/harness';
 import { serveAsset } from '../../../src/lib/viewer/hosted/route';
 import { load } from '../../../deploy/client/routes/cases/[caseId]/originals/[assetId]/view/+page.server';
-export async function originalWorld() {
+export async function originalWorld({ allowLegacyBuffer = false } = {}) {
  const dep = deployment('client-a',['case-a','case-b']), c = counters();
  const hash = 'a'.repeat(64), key = `orig/${hash}`;
  dep.bucket.setRaw(key,new Uint8Array([1,2,3,4]));
@@ -24,7 +24,7 @@ export async function originalWorld() {
   if (o?.onlyIf && o.onlyIf.etagMatches !== object.etag) return {...object};
   const bytes = new Uint8Array(await object.arrayBuffer());
   const body = o?.range ? bytes.slice(o.range.offset,o.range.offset+o.range.length) : bytes;
-  return {...object, arrayBuffer:async()=>{throw new Error('object buffering forbidden');},body:new ReadableStream<Uint8Array>({start(s){s.enqueue(body);s.close();}})};
+  return {...object, arrayBuffer:async()=>{if (allowLegacyBuffer && !o?.onlyIf) return bytes.buffer; throw new Error('object buffering forbidden');},body:new ReadableStream<Uint8Array>({start(s){s.enqueue(body);s.close();}})};
  }},c);
  const events: StorageEvent[] = [], pending: Promise<unknown>[] = [];
  const base = grantedIdentity(ids.clientA,['case-a']).identity;

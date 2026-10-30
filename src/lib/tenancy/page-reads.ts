@@ -58,6 +58,8 @@ export function bindPageReads(services: RequestServices, lookup: ReturnType<type
   if (fast) registerFastOriginals(services.assets, { ...fast, locate: async asset => {
     const snapshot = await read(asset.caseId, 'read-original');
     if (asset.kind !== 'original' || snapshot.original?.assetId !== asset.assetId) throw contractError('not-found');
-    return snapshot.original;
+    const original = snapshot.original;
+    if (!original.etag || !original.mediaFamily) return fast.locate(asset);
+    return { ...original, etag: original.etag, mediaFamily: original.mediaFamily };
   } });
 }

@@ -108,6 +108,18 @@ describe('293 the request classification', () => {
 });
 
 describe('293 the original viewer through hostedServices', () => {
+  it('a legacy intake original without delivery metadata remains readable on both page-load paths', async () => {
+    const w = await world();
+    try {
+      w.db.exec('UPDATE rs_original SET etag = NULL, media_family = NULL');
+      for (const data of [false, true]) {
+        const r = await w.open('v293', data);
+        expect(r.status).toBe(200);
+        expect(r.value).toMatchObject({ view: { state: 'available' }, canWrite: false });
+      }
+    } finally { await w.cleanup(); }
+  });
+
   it('hard load and data request give a viewer no write controls and an editor all, at the same D1 count', async () => {
     const w = await world();
     try {

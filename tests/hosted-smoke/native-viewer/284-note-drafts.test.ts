@@ -287,6 +287,30 @@ it('an annotation never submitted keeps its original version and identity when d
   expect(value('#note-body')).toBe('Synthetic original-version draft');
 });
 
+it('a failed document-note deletion keeps the draft, retry identity and leave guard on the document page', async () => {
+  open(DocPage, DOC_PATH, doc);
+  type('#note-body', 'Synthetic draft beside a failed deletion');
+  for (const result of [
+    { type: 'error', status: 503, error: { message: 'Synthetic deletion unavailable' } },
+    { type: 'error', error: { message: 'Synthetic lost deletion response' } },
+  ] satisfies Result[]) {
+    await click(button('n-1', 'Delete'));
+    await click(button('n-1', 'Confirm delete'));
+    await respond(result);
+    expect(errorPages).toEqual([]);
+    expect(row('n-1')).not.toBeNull();
+    expect(value('#note-body')).toBe('Synthetic draft beside a failed deletion');
+    expect(value('#note-form [name="operationId"]')).toBe('op-1');
+    expect(el('[data-op="delete"][role="alert"]')?.textContent).toMatch(/not.*deleted|unavailable/i);
+    expect(navigate('link', '/cases/c1/notes')).toBe(true);
+    await click(el('#lit-ask-stay'));
+  }
+  await click(el('#note-add'));
+  expect(sent.at(-1)?.fields).toMatchObject({ body: 'Synthetic draft beside a failed deletion', operationId: 'op-1' });
+  await respond({ type: 'success', status: 200, data: { saved: true, note: docNote('n-saved'), operationId: 'op-new' } });
+  expect(value('#note-body')).toBe('');
+});
+
 it('a document save with an unknown outcome keeps its retry identity through deletion and same-page reload', async () => {
   open(DocPage, DOC_PATH, doc);
   type('#note-body', 'Synthetic unknown-outcome document draft');

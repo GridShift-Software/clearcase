@@ -88,13 +88,22 @@
 	// the note whose Delete awaits Confirm; without JavaScript the server's answer names it
 	let confirming = $state<string | null>(untrack(() => (form && 'confirm' in form && typeof form.confirm === 'string' ? form.confirm : null)));
 	let deleting = $state<string | null>(null);
+	let deleteError = $state<string | null>(null);
 	const removeNote: SubmitFunction = ({ formData, cancel }) => {
 		const id = String(formData.get('id'));
 		const step = deleteStep(formData, id);
 		if (step !== 'confirm') { cancel(); confirming = step === 'ask' ? id : null; return; }
 		confirming = null;
 		deleting = id;
-		return async ({ update }) => { try { await update(); } finally { deleting = null; } };
+		deleteError = null;
+		return async ({ result, update }) => {
+			try {
+				if (result.type === 'error') deleteError = `The note was not deleted: ${result.status ? `the app answered ${result.status}.` : 'the app did not answer.'} Try again.`;
+				else await update();
+			} catch {
+				deleteError = 'The deletion could not be confirmed. Your draft is kept; try again.';
+			} finally { deleting = null; }
+		};
 	};
 </script>
 
@@ -145,6 +154,7 @@
 	{/if}
 
 	<section class="card" aria-labelledby="notes-heading"><h2 id="notes-heading">My notes</h2>
+		{#if deleteError}<p class="error" role="alert" data-op="delete">{deleteError}</p>{/if}
 		<ul id="notes">
 			{#each notes as n (n.id)}
 				<li data-note={n.id} data-anchor={n.status}><span class="wrap">{n.body}</span> <small>({n.createdAt}{n.status === 'exact' ? `, written on ${n.refAtCreation} in an earlier version and re-attached by its original's fingerprint` : ''})</small>

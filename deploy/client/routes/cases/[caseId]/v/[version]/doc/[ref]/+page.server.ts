@@ -9,6 +9,7 @@ import type { DocShard } from '$lib/views/payloads/doc';
 import { guarded, hostedWork, noteView } from '$lib/views/hosted/work-adapter.server';
 import { sha256 } from '$lib/server/runtime/ids';
 import { documentPageNotes, PAGE_NOTE_STORE, pageNotes } from '$lib/views/hosted/page-note-items';
+import { originalHref } from '$lib/views/hosted/paths';
 
 const NONE: OriginalLinks = { presentation: null, open: null, download: null, viewer: null };
 
@@ -54,7 +55,8 @@ export async function load({ locals, params, url }: RequestEvent) {
 		links,
 		onDisk,
 		page: Number.isInteger(pageNo) && pageNo > 0 && pageNo < 1e6 ? pageNo : null,
-		attachments: attachments.map((x) => ({ ...x, links: null })),
+		attachments: attachments.map((x) => ({ ...x, links: x.route === 'direct' && doc.assetIds.attachments.includes(x.key)
+			? { ...NONE, presentation: 'download' as const, download: `${originalHref(v.caseId, x.key)}?download=1` } : null })),
 		base: v.base,
 		notes: work.notes.map(noteView),
 		/** read only here: each links to its original's viewer, where it is changed or deleted */

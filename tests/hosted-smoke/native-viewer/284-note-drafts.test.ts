@@ -3,6 +3,7 @@
 // PageHarness, so an action's answer and a data reload change their props as SvelteKit does. `enhance`,
 // `beforeNavigate`, `afterNavigate`, `goto` and `history.go` are doubles that record what the pages send and do, and the
 // test plays the app's side. A UI regression, not browser, route-contract or hosted evidence.
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { flushSync, mount, unmount } from 'svelte';
 // @ts-expect-error jsdom ships no types and the root pins no @types/jsdom; the suite only constructs windows and types them as any.
@@ -26,6 +27,7 @@ const errorPages: Result[] = [];
 let reply: ((r: Result) => void) | null = null;
 let reloaded: unknown = null;
 let popped = '';
+let abortAt: 'fetch' | 'body' | null = null;
 let dom: any, harness: any;
 
 const fieldsOf = (fd: FormData) => Object.fromEntries([...fd].map(([k, v]) => [k, String(v)]));
@@ -46,38 +48,28 @@ vi.mock('$app/navigation', () => ({
   beforeNavigate: (fn: (nav: Nav) => void) => { guards.push(fn); },
   afterNavigate: (fn: () => void) => { afters.push(fn); },
   goto: vi.fn(async (to: URL | string) => { gotos.push({ to: String(to), cancelled: navigate('goto', String(to)) }); }),
-  invalidateAll: vi.fn(async () => {}),
+  invalidateAll: vi.fn(async () => { if (reloaded) harness.answer({ data: reloaded }); flushSync(); }),
 }));
-// SvelteKit's side of an enhanced form: the page's submit function decides what is sent; `update` applies a failure or
-// success as the page's `form` and follows a redirect with a goto that reloads the page's data (`reloaded`). An error
-// is recorded where SvelteKit would replace the page with its error page.
-vi.mock('$app/forms', () => ({
-  enhance: (form: HTMLFormElement, submit?: (input: unknown) => unknown) => {
-    const onsubmit = async (e: SubmitEvent) => {
-      e.preventDefault();
-      const formData = new FormData(form), by = e.submitter as HTMLButtonElement | null, action = new URL(form.action);
-      if (by?.name) formData.set(by.name, by.value);
-      let cancelled = false;
-      const after = await submit?.({ formData, formElement: form, submitter: by, action, cancel: () => { cancelled = true; } });
-      if (cancelled) return;
-      sent.push({ action: form.getAttribute('action')!, fields: fieldsOf(formData) });
-      const result = await new Promise<Result>((resolve) => { reply = resolve; });
-      const update = async (o: { reset?: boolean } = {}) => {
-        if (result.type === 'success' && o.reset !== false) form.reset();
-        if (result.type === 'success' || result.type === 'failure') harness.answer({ form: result.data });
-        else if (result.type === 'redirect') {
-          const cancelled = navigate('goto', result.location);
-          reloads.push({ to: result.location, cancelled });
-          if (!cancelled) harness.answer({ data: reloaded, form: null });
-        } else errorPages.push(result);
-      };
-      if (typeof after === 'function') await after({ result, update, formData, formElement: form, action });
-      else await update();
-    };
-    form.addEventListener('submit', onsubmit);
-    return { destroy: () => form.removeEventListener('submit', onsubmit) };
-  },
-}));
+// Run the installed enhance implementation, including its AbortError early return. Only navigation, action application
+// and the synthetic server are supplied here; an error Result is distinct from a rejected fetch or response body.
+vi.mock('$app/forms', async () => {
+  const code = readFileSync('node_modules/@sveltejs/kit/src/runtime/app/forms/client.js', 'utf8');
+  const body = code.slice(code.indexOf('function clone('), code.indexOf('/**\n * This action')) +
+    code.slice(code.indexOf('export function enhance')).replace('export function enhance', 'function enhance');
+  const applyAction = async (r: Result) => {
+    if (r.type === 'redirect') {
+      const cancelled = navigate('goto', r.location);
+      reloads.push({ to: r.location, cancelled });
+      if (!cancelled) harness.answer({ data: reloaded, form: null });
+    } else if (r.type === 'success' || r.type === 'failure') harness.answer({ form: r.data });
+    else errorPages.push(r);
+    flushSync();
+  };
+  const refresh = async () => { if (reloaded) harness.answer({ data: reloaded }); flushSync(); };
+  const enhance = new Function('DEV', 'noop', 'refreshAll', 'applyAction', 'apply_action_navigation', 'handle_error', 'is_current_location', 'notify_version', 'deserialize', 'resolve_url',
+    body + '\nreturn enhance;')(false, () => {}, refresh, applyAction, async (_url: string, r: Result) => applyAction(r), async (e: unknown) => e, () => true, () => {}, JSON.parse, (u: string) => new URL(u, location.href));
+  return { enhance, applyAction, deserialize: JSON.parse };
+});
 const { default: PageHarness } = await import('./PageHarness.svelte');
 const { default: DocPage } = await import('../../../src/routes/v/[vid]/doc/[ref]/+page.svelte');
 const { default: NotesPage } = await import('../../../deploy/client/routes/cases/[caseId]/notes/+page.svelte');
@@ -99,7 +91,7 @@ const DOC_PATH = `/cases/c1/v/${encodeURIComponent(RV)}/doc/D-001`;
 
 function open(Page: unknown, path: string, data: unknown, form: unknown = null) {
   dom = new JSDOM('<!doctype html><html><body></body></html>', { url: `${ORIGIN}${path}` });
-  for (const key of ['window', 'document', 'location', 'history', 'Node', 'Element', 'HTMLElement', 'HTMLButtonElement', 'HTMLMediaElement', 'Text', 'Comment', 'Event', 'SubmitEvent', 'FormData', 'MutationObserver'])
+  for (const key of ['window', 'document', 'location', 'history', 'Node', 'Element', 'HTMLElement', 'HTMLButtonElement', 'HTMLFormElement', 'HTMLMediaElement', 'Text', 'Comment', 'Event', 'SubmitEvent', 'FormData', 'MutationObserver'])
     vi.stubGlobal(key, dom.window[key]);
   vi.stubGlobal('addEventListener', dom.window.addEventListener.bind(dom.window));
   vi.stubGlobal('removeEventListener', dom.window.removeEventListener.bind(dom.window));
@@ -128,7 +120,14 @@ const asking = () => el('#lit-ask-q')?.textContent ?? null;
 
 beforeEach(() => {
   for (const list of [sent, native, guards, afters, gotos, traversals, reloads, errorPages]) list.length = 0;
-  reply = null; reloaded = null; popped = '';
+  reply = null; reloaded = null; popped = ''; abortAt = null;
+  vi.stubGlobal('fetch', vi.fn(async (url: URL, options: RequestInit) => {
+    sent.push({ action: new URL(url).search, fields: Object.fromEntries(new URLSearchParams(String(options.body))) });
+    if (abortAt === 'fetch') throw new DOMException('Synthetic fetch interruption', 'AbortError');
+    if (abortAt === 'body') return { text: async () => { throw new DOMException('Synthetic body interruption', 'AbortError'); }, headers: new Headers() };
+    const r = await new Promise<Result>((resolve) => { reply = resolve; });
+    return new Response(JSON.stringify(r), { status: r.type === 'failure' ? r.status : 200 });
+  }));
 });
 afterEach(async () => {
   if (harness) await unmount(harness);
@@ -270,3 +269,61 @@ it('the shared document page: leaving a typed note asks first and a refused save
   expect(gotos).toEqual([]);
   expect(value('#note-body')).toBe('');
 });
+
+
+it('an annotation never submitted keeps its original version and identity when deletion reloads a newer publication', async () => {
+  open(NotesPage, '/cases/c1/notes', notesData({ resultsVersion: OLD }));
+  type('#note-body', 'Synthetic original-version draft');
+  type('#note-ref', 'D-001');
+  reloaded = notesData({ operationId: 'op-2', deleted: true, notes: { state: 'available', items: [caseNote('n-2')] } });
+  await click(button('n-1', 'Delete'));
+  await click(button('n-1', 'Confirm delete'));
+  await respond({ type: 'redirect', status: 303, location: '/cases/c1/notes?deleted=1' });
+  expect(draft()).toEqual({ body: 'Synthetic original-version draft', ref: 'D-001', resultsVersion: OLD, operationId: 'op-1' });
+  expect(el('[data-note-target-moved]')).not.toBeNull();
+  await click(el('#note-save'));
+  expect(sent.at(-1)?.fields).toMatchObject({ resultsVersion: OLD, operationId: 'op-1' });
+  await respond({ type: 'failure', status: 409, data: { op: 'add', body: 'Synthetic original-version draft', ref: 'D-001', resultsVersion: OLD, operationId: 'op-1', message: 'The results changed.' } });
+  expect(value('#note-body')).toBe('Synthetic original-version draft');
+});
+
+it('a document save with an unknown outcome keeps its retry identity through deletion and same-page reload', async () => {
+  open(DocPage, DOC_PATH, doc);
+  type('#note-body', 'Synthetic unknown-outcome document draft');
+  await click(el('#note-add'));
+  await respond({ type: 'error', error: { message: 'Synthetic lost response' } });
+  reloaded = { ...doc, operationId: 'op-2', notes: [] };
+  await click(button('n-1', 'Delete'));
+  await click(button('n-1', 'Confirm delete'));
+  await respond({ type: 'success', status: 200, data: { deleted: true } });
+  harness.answer({ data: { ...doc, notes: [], operationId: 'op-3' }, form: null });
+  await settle();
+  expect(value('#note-body')).toBe('Synthetic unknown-outcome document draft');
+  expect(value('#note-form [name="operationId"]')).toBe('op-1');
+  await click(el('#note-add'));
+  expect(sent.at(-1)?.fields).toMatchObject({ body: 'Synthetic unknown-outcome document draft', operationId: 'op-1' });
+  await respond({ type: 'success', status: 200, data: { saved: true, note: docNote('n-saved'), operationId: 'op-new' } });
+  expect(value('#note-body')).toBe('');
+  type('#note-body', 'Synthetic next note');
+  expect(value('#note-form [name="operationId"]')).toBe('op-new');
+});
+
+for (const Page of [NotesPage, DocPage]) for (const at of ['fetch', 'body'] as const) {
+  it(`${Page === NotesPage ? 'case' : 'document'} note remains editable and retryable after a real enhance ${at} AbortError`, async () => {
+    open(Page, Page === NotesPage ? '/cases/c1/notes' : DOC_PATH, Page === NotesPage ? notesData() : doc);
+    type('#note-body', 'Synthetic aborted note');
+    const submit = Page === NotesPage ? '#note-save' : '#note-add';
+    abortAt = at;
+    await click(el(submit));
+    expect(el<HTMLButtonElement>(submit)?.disabled).toBe(false);
+    expect(el<HTMLTextAreaElement>('#note-body')?.readOnly).toBe(false);
+    expect(value('#note-body')).toBe('Synthetic aborted note');
+    expect(value('#note-form [name="operationId"]')).toBe('op-1');
+    expect(navigate('leave', null)).toBe(true);
+    abortAt = null;
+    await click(el(submit));
+    expect(sent.at(-1)?.fields).toMatchObject({ body: 'Synthetic aborted note', operationId: 'op-1' });
+    await respond({ type: 'success', status: 200, data: { saved: true, operationId: 'op-new' } });
+    expect(value('#note-body')).toBe('');
+  });
+}

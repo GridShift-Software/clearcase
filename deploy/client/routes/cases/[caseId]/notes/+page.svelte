@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { enhance } from '$app/forms';
+	import { applyAction, enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import type { SubmitFunction } from '$app/forms';
+	import { postNote } from '$lib/components/post-note';
 	import ConfirmDelete from '$lib/components/ConfirmDelete.svelte';
 	import { deleteStep } from '$lib/components/confirm-delete';
 	import { displayFilename } from '$lib/views/hosted/display';
@@ -17,34 +19,47 @@
 	let refused = $state.raw(untrack(() => (form?.op === 'add' ? form : null)));
 	let body = $state(untrack(() => refused?.body ?? ''));
 	let ref = $state(untrack(() => refused?.ref ?? ''));
-	const operationId = $derived(refused?.operationId ?? data.operationId);
+	let draft = $state.raw<{ operationId: string; resultsVersion: string | null } | null>(untrack(() => refused ? {
+		operationId: refused.operationId ?? data.operationId, resultsVersion: refused.resultsVersion ?? data.resultsVersion,
+	} : null));
+	const operationId = $derived(draft ? draft.operationId : data.operationId);
 	// A refused annotation keeps its original version even after withdrawal or replacement, never silently a case note.
-	const draftVersion = $derived(refused ? (refused.resultsVersion ?? data.resultsVersion) : data.resultsVersion);
+	const draftVersion = $derived(draft ? draft.resultsVersion : data.resultsVersion);
 	let saving = $state(false);
 	let saveError = $state<string | null>(null);
 	const unsaved = $derived(body.trim() !== '' || ref.trim() !== '');
 	function discard() {
+		draft = null;
 		refused = null;
 		body = '';
 		ref = '';
 	}
-	const saveNote: SubmitFunction = () => {
-		refused = { op: 'add', body, ref, resultsVersion: draftVersion ?? undefined, operationId };
+	function captureDraft() {
+		draft ??= { operationId: data.operationId, resultsVersion: data.resultsVersion };
+	}
+	const saveNote: SubmitFunction = async (submission) => {
+		submission.cancel();
+		if (saving) return;
+		captureDraft();
+		const submitted = draft;
 		saving = true;
 		saveError = null;
-		return async ({ result, update }) => {
-			try {
-				if (result.type === 'error') {
-					saveError = 'The note may not have been saved. Your text is kept; try again.';
-					return;
-				}
-				if (result.type === 'success' || result.type === 'redirect') discard();
-				await update({ reset: false });
-				if (result.type === 'failure' && form?.op === 'add') refused = form;
-			} finally {
-				saving = false;
+		try {
+			const result = await postNote(submission);
+			if (draft !== submitted) return;
+			if (result.type === 'error') {
+				saveError = 'The note may not have been saved. Your text is kept; try again.';
+				return;
 			}
-		};
+			if (result.type === 'success' || result.type === 'redirect') discard();
+			if (result.type === 'success') await invalidateAll();
+			await applyAction(result);
+			if (result.type === 'failure' && form?.op === 'add') refused = form;
+		} catch {
+			saveError = 'The note may not have been saved. Your text is kept; try again.';
+		} finally {
+			saving = false;
+		}
 	};
 	// the note whose Delete awaits Confirm; without JavaScript the server's answer names it
 	let confirming = $state<string | null>(untrack(() => (form?.op === 'delete' ? (form.confirm ?? null) : null)));
@@ -89,11 +104,11 @@
 	<form method="POST" action="?/add" id="note-form" use:enhance={saveNote}>
 		<input type="hidden" name="operationId" value={operationId} />
 		<label for="note-body">New note</label><br />
-		<textarea id="note-body" name="body" rows="5" cols="60" maxlength="20000" required readonly={saving} bind:value={body}></textarea><br />
+		<textarea id="note-body" name="body" rows="5" cols="60" maxlength="20000" required readonly={saving} oninput={captureDraft} bind:value={body}></textarea><br />
 		{#if draftVersion || refused?.ref}
 			<input type="hidden" name="resultsVersion" value={draftVersion ?? ''} />
 			<label for="note-ref">Document ref (optional, to annotate a document of these results)</label><br />
-			<input id="note-ref" name="ref" readonly={saving} bind:value={ref} /><br />
+			<input id="note-ref" name="ref" readonly={saving} oninput={captureDraft} bind:value={ref} /><br />
 			{#if ref && draftVersion !== data.resultsVersion}<p data-note-target-moved>This draft still refers to {ref} in the results version you wrote it against. It cannot be saved while that version is not current; copy the text into a new note to choose another target.</p>{/if}
 		{/if}
 		<button type="submit" id="note-save" disabled={saving}>Save note</button>

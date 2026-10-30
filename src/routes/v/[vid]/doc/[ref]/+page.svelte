@@ -61,7 +61,7 @@
 	let saved = $state.raw<{ note: Note; data: typeof data } | null>(null);
 	const notes = $derived(saved && saved.data === data && !data.notes.some((n) => n.id === saved!.note.id) ? [...data.notes, saved.note] : data.notes);
 	// the note whose Delete awaits Confirm; without JavaScript the server's answer names it
-	let confirming = $state<string | null>(untrack(() => (form && 'confirm' in form ? (form.confirm ?? null) : null)));
+	let confirming = $state<string | null>(untrack(() => (form && 'confirm' in form && typeof form.confirm === 'string' ? form.confirm : null)));
 	let deleting = $state<string | null>(null);
 	const removeNote: SubmitFunction = ({ formData, cancel }) => {
 		const id = String(formData.get('id'));

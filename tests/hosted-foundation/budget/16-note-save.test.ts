@@ -83,13 +83,13 @@ it('16 a note delete from the document page stays within its D1 round-trip ceili
     // The add's deferred read-audit insert (a setTimeout(0), then a D1 write) is not the delete's: settle it before counting.
     await Promise.all(w.pending.splice(0));
     const note = w.db.rows<{ note_id: string; version: string }>('SELECT note_id, version FROM uw_note')[0]!;
-    const deleted = await measure(w.counters, () => w.post('delnote', { id: note.note_id, version: note.version, operationId: 'delete-budget' }));
+    const deleted = await measure(w.counters, () => w.post('delnote', { id: note.note_id, version: note.version, operationId: 'delete-budget', confirm: note.note_id }));
     expect(deleted.thrown).toBeUndefined(); expect(deleted.value).toEqual({ deleted: true });
     console.log('16 note delete D1 round trips', deleted.counts);
     expect(deleted.counts.d1).toBeLessThanOrEqual(DELETE_D1); expect(deleted.counts.clerk).toBe(0);
     expect(w.db.rows('SELECT note_id FROM uw_note')).toEqual([]);
     // The same delete from a second tab, with another operation id, finds the note gone.
-    const stale = await w.post('delnote', { id: note.note_id, version: note.version, operationId: 'delete-budget-stale' });
+    const stale = await w.post('delnote', { id: note.note_id, version: note.version, operationId: 'delete-budget-stale', confirm: note.note_id });
     expect(stale).toMatchObject({ status: 409, data: { gone: true } });
   } finally { await w.cleanup(); }
 });

@@ -81,12 +81,25 @@ describe('case notes through AsyncUserWork', () => {
   it('a stale delete is 409 with the server\'s current version and text, and deletes nothing', async () => {
     const f = fake({ publication: published });
     seedNote(f, 'n1', 'v2', 'edited elsewhere');
-    const r = await act(f, 'delete', { id: 'n1', version: 'v1', operationId: OP });
+    const r = await act(f, 'delete', { id: 'n1', version: 'v1', operationId: OP, confirm: 'n1' });
     expect(r).toMatchObject({ value: { status: 409, data: { op: 'delete', current: { id: 'n1', version: 'v2', body: 'edited elsewhere' } } } });
     expect(f.notes.has('n1')).toBe(true);
-    const ok = await act(f, 'delete', { id: 'n1', version: 'v2', operationId: `${OP}.d0` });
+    const ok = await act(f, 'delete', { id: 'n1', version: 'v2', operationId: `${OP}.d0`, confirm: 'n1' });
     expect(ok).toMatchObject({ thrown: { status: 303 } });
     expect(f.notes.has('n1')).toBe(false);
+  });
+
+  it('a delete not confirmed for that note deletes nothing, after the authorized case read: the page asks, or after Cancel does not (GRS-280)', async () => {
+    const f = fake({ publication: published });
+    seedNote(f, 'n1', 'v1', 'kept until confirmed'); seedNote(f, 'n2', 'v1', 'another note');
+    for (const [extra, confirm] of [[{}, 'n1'], [{ confirm: 'n2' }, 'n1'], [{ confirm: '' }, 'n1'], [{ cancel: 'n1' }, null], [{ cancel: 'n1', confirm: 'n1' }, null]] as const) {
+      const r = await act(f, 'delete', { id: 'n1', version: 'v1', operationId: OP, ...extra });
+      expect(r, JSON.stringify(extra)).toEqual({ value: { status: 400, data: { op: 'delete', confirm } } });
+    }
+    expect([f.calls.includes('getCase'), f.calls.includes('deleteNote')]).toEqual([true, false]);
+    expect([f.notes.has('n1'), f.writes]).toEqual([true, []]);
+    expect(await act(f, 'delete', { id: 'n1', version: 'v1', operationId: OP, confirm: 'n1' })).toMatchObject({ thrown: { status: 303, location: `/cases/${CASE}/notes?deleted=1` } });
+    expect([f.notes.has('n1'), f.notes.has('n2')]).toEqual([false, true]);
   });
 
   it('a storage fault keeps the text and the operation id, so saving again repeats the same write', async () => {

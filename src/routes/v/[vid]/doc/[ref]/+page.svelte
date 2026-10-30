@@ -10,6 +10,8 @@
 	import DateValue from '$lib/components/DateValue.svelte';
 	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
 	import OriginalOpen from '$lib/components/OriginalOpen.svelte';
+	import PageNoteText from '$lib/views/hosted/PageNoteText.svelte';
+	import type { DocumentPageNote } from '$lib/views/hosted/page-note-items';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { writeAccess } from '$lib/components/write-access';
 	import { money } from '$lib/components/format';
@@ -76,6 +78,8 @@
 		}
 	};
 	type Note = (typeof data.notes)[number];
+	// Hosted only: the page notes written on this document's original in its viewer, shown read only.
+	const pageNotes = $derived((data as { pageNotes?: DocumentPageNote[] }).pageNotes ?? []);
 	// The saved note shows only over the data it was saved on: any completed reload replaces `data` and retires it, so a
 	// note another tab deleted meanwhile is not shown again. Raw, so `data` keeps its identity for the comparison.
 	let saved = $state.raw<{ note: Note; data: typeof data } | null>(null);
@@ -147,7 +151,11 @@
 					{#if !n.intact}<strong class="unresolved" data-note-integrity="mismatch">this note was altered on disk since it was saved</strong>{/if}
 					{#if n.status === 'here' && access.canWrite}<form method="POST" action="?/delnote" use:enhance={removeNote}><input type="hidden" name="id" value={n.id} /><input type="hidden" name="version" value={n.version ?? ''} /><input type="hidden" name="operationId" value={`${data.operationId}.d.${n.id}`} /><ConfirmDelete bind:pending={confirming} target={n.id} question="Delete this note?" aria-label="Delete note" disabled={noteRefused || deleting === n.id} /></form>{/if}
 				</li>
-			{:else}<li>No notes.</li>{/each}
+			{/each}
+			{#each pageNotes as p (p.rowId)}
+				<li data-page-note={p.rowId}><PageNoteText note={p} elsewhere={!p.here} /></li>
+			{/each}
+			{#if !notes.length && !pageNotes.length}<li>No notes.</li>{/if}
 		</ul>
 		{#if !access.canWrite}
 			<!-- a viewer reads the notes; adding and deleting them is an editor's -->

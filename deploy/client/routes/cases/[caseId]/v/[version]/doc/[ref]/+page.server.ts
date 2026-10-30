@@ -8,6 +8,7 @@ import { publishedVersion, shard } from '$lib/views/hosted/payloads.server';
 import type { DocShard } from '$lib/views/payloads/doc';
 import { guarded, hostedWork, noteView } from '$lib/views/hosted/work-adapter.server';
 import { sha256 } from '$lib/server/runtime/ids';
+import { documentPageNotes, PAGE_NOTE_STORE, pageNotes } from '$lib/views/hosted/page-note-items';
 
 const NONE: OriginalLinks = { presentation: null, open: null, download: null, viewer: null };
 
@@ -39,6 +40,12 @@ export async function load({ locals, params, url }: RequestEvent) {
 			onDisk = codeOf(e) ?? 'not stored';
 		}
 	}
+	// The document's notes, and the page notes written on its original's bytes in any version, are one read.
+	const fingerprint = doc.state.original?.sha256 ?? null;
+	const target = { kind: 'document' as const, anchor: { caseId: v.caseId, resultsVersion: v.resultsVersion, refAtCreation: doc.ref, sha256: fingerprint ? sha256(fingerprint) : null } };
+	const work = await (fingerprint
+		? locals.userWork.readNoteWork({ caseId: v.caseId, target, store: PAGE_NOTE_STORE, rowsWhere: { field: 'sha256', equals: fingerprint } })
+		: locals.userWork.notesFor({ caseId: v.caseId, target }).then((notes) => ({ notes, rows: [] }))).catch((e) => refuse(e));
 	const pageNo = Number(url.searchParams.get('page'));
 	const { assetIds: _ids, mediaType: _media, originalState: _state, attachments, ...rest } = doc;
 	return {
@@ -48,10 +55,9 @@ export async function load({ locals, params, url }: RequestEvent) {
 		page: Number.isInteger(pageNo) && pageNo > 0 && pageNo < 1e6 ? pageNo : null,
 		attachments: attachments.map((x) => ({ ...x, links: null })),
 		base: v.base,
-		notes: (await locals.userWork.notesFor({ caseId: v.caseId, target: { kind: 'document', anchor: {
-			caseId: v.caseId, resultsVersion: v.resultsVersion, refAtCreation: doc.ref,
-			sha256: doc.state.original ? sha256(doc.state.original.sha256) : null,
-		} } }).catch(e => refuse(e))).map(noteView),
+		notes: work.notes.map(noteView),
+		/** read only here: each links to its original's viewer, where it is changed or deleted */
+		pageNotes: documentPageNotes(pageNotes(v.caseId, work.rows), { sha256: fingerprint, assetId: doc.assetIds.own }),
 		operationId: crypto.randomUUID(),
 	};
 }

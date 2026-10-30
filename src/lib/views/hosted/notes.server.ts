@@ -13,6 +13,7 @@ import { canWriteWork, currentVersion, part, readCase } from './case.server.ts';
 import { caseHref, chronologyHref, notesHref } from './paths.ts';
 import { deleteStep } from '../../components/confirm-delete.ts';
 import type { NoteItem, NoteRefusal } from './model.ts';
+import { PAGE_NOTE_STORE, pageNotes, type PageNotes } from './page-note-items.ts';
 
 export type { NoteItem, NoteRefusal };
 
@@ -28,14 +29,17 @@ const newest = (a: NoteItem, b: NoteItem) => (a.createdAt < b.createdAt ? 1 : a.
 
 export async function loadNotes(services: RequestServices, raw: string | undefined) {
   const { caseId, info } = await readCase(services, raw);
-  const [notes, current, canWrite] = await Promise.all([part(services.userWork.notesFor({ caseId, target: null })), currentVersion(services, info), canWriteWork(services, caseId)]);
+  // The case's notes and the page notes written in its originals' viewer, in one read: neither is shown without the other.
+  const [work, current, canWrite] = await Promise.all([part(services.userWork.readNoteWork({ caseId, target: null, store: PAGE_NOTE_STORE })), currentVersion(services, info), canWriteWork(services, caseId)]);
   const resultsVersion = current.kind === 'current' ? current.resultsVersion : null;
   return {
     caseId, label: info.caseLabel ?? info.caseId, caseHref: caseHref(caseId), notesHref: notesHref(caseId),
     chronologyHref: resultsVersion ? chronologyHref(caseId, resultsVersion) : null,
     /** annotations attach to documents of this version only; null while results are pending, withdrawn or unavailable */
     resultsVersion,
-    notes: notes.state === 'available' ? { state: 'available' as const, items: notes.value.map(item).sort(newest) } : { state: 'unavailable' as const, items: [] as NoteItem[] },
+    notes: work.state === 'available' ? { state: 'available' as const, items: work.value.notes.map(item).sort(newest) } : { state: 'unavailable' as const, items: [] as NoteItem[] },
+    /** read only here: each links to its original's viewer, where it is changed or deleted */
+    pageNotes: work.state === 'available' ? pageNotes(caseId, work.value.rows) : ({ items: [], unreadable: 0 } satisfies PageNotes),
     /** a fresh operation id per rendered form; a resubmission of the same form repeats, never duplicates, the write */
     operationId: crypto.randomUUID(),
     /** false for a viewer: the page shows the notes without the add and delete forms */

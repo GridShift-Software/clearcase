@@ -45,11 +45,12 @@ const viewContent = (subtitle: string): C.ViewContentReader => ({
   fill: (view, field, params = {}) => (view === 'overview' && field === 'subtitle' ? { text: subtitle.replace('{docCount}', String(params.docCount)), missing: [] } : null),
 });
 
-export interface Fake { services: C.RequestServices; calls: string[]; notes: Map<string, C.Versioned<C.HostedNote>>; writes: unknown[] }
+export interface Fake { services: C.RequestServices; calls: string[]; notes: Map<string, C.Versioned<C.HostedNote>>; rows: C.Versioned<C.WorkRegisterRow>[]; writes: unknown[] }
 
 export function fake(script: Script): Fake {
   const calls: string[] = [], writes: unknown[] = [];
   const notes = new Map<string, C.Versioned<C.HostedNote>>();
+  const rows: C.Versioned<C.WorkRegisterRow>[] = [];
   let n = 0;
   const fail = (port: keyof NonNullable<Script['fail']>) => { const code = script.fail?.[port]; if (code) throw contractError(code, code === 'storage-unavailable'); };
   const rec = (name: string, a?: unknown) => { calls.push(name); if (a && typeof a === 'object' && 'caseId' in a && (a as { caseId: unknown }).caseId !== CASE) throw contractError('forbidden'); };
@@ -91,6 +92,12 @@ export function fake(script: Script): Fake {
     get(_t, prop: string) {
       if (prop === 'then') return undefined;
       if (prop === 'notesFor') return async (a: C.Scope & { target: C.NoteTarget | null }) => { rec('notesFor', a); fail('notesFor'); return [...notes.values()].filter((x) => a.target === null || JSON.stringify(x.target) === JSON.stringify(a.target)); };
+      // The notes read and one register's rows together; a notes fault fails both, as the one D1 read does.
+      if (prop === 'readNoteWork') return async (a: C.Scope & { target: C.NoteTarget | null; store: string; rowsWhere?: { field: string; equals: string } }) => {
+        rec('readNoteWork', a); fail('notesFor');
+        return { notes: [...notes.values()].filter((x) => a.target === null || JSON.stringify(x.target) === JSON.stringify(a.target)),
+          rows: rows.filter((r) => r.store === a.store && (!a.rowsWhere || r.fields[a.rowsWhere.field] === a.rowsWhere.equals)) };
+      };
       if (prop === 'anchorFor') return async (a: C.VersionScope & { ref: string }) => { rec('anchorFor', a); return { caseId: a.caseId, resultsVersion: a.resultsVersion, refAtCreation: a.ref, sha256: null } satisfies C.Anchor; };
       if (prop === 'addNote') return async (a: C.CreateScope & { target: C.NoteTarget; body: string }): Promise<C.Written<C.HostedNote>> => {
         rec('addNote', a); fail('addNote'); writes.push(structuredClone(a));
@@ -112,7 +119,7 @@ export function fake(script: Script): Fake {
   });
   const identity: C.Identity = { kind: 'anonymous', principal: null, sessionId: null, clientId: id('client', 'client-a'), checkRevocation: async () => {}, authorize: async () => { calls.push('identity.authorize'); } };
   const services: C.RequestServices = { identity, store, assets, userWork, audit: { append: async (e) => ({ eventId: e.eventId }) }, runtime: { now: () => new Date('2026-10-25T00:00:00Z'), probe: async () => ({ ok: false, bindings: { DB: false, BUCKET: false, ASSETS: false }, probes: { d1: false, r2: false } }), build: undefined as never, gate: null, testIdentity: null }, shards: { read: async () => { calls.push('shards.read'); return null; } } };
-  return { services, calls, notes, writes };
+  return { services, calls, notes, rows, writes };
 }
 
 /** A note already stored for the case, at the given version. */

@@ -123,7 +123,7 @@ case ${1:-} in
 	# Read only: no build, migration, upload or deploy. For checking a version already live, for example after a smoke failed.
 	want=${2:-$(git rev-parse HEAD)}
 	[[ $want =~ ^[0-9a-f]{40}$ ]] || die "--verify needs a full SHA, not '$want'"
-	active=$(bun scripts/staging-placement.ts active <(wrangler deployments list --json -c "$CONFIG") 2>&1) || die "--verify: $active (Wrangler needs its login, or CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID)"
+	active=$(wrangler deployments list --json -c "$CONFIG" | bun scripts/staging-placement.ts active /dev/stdin 2>&1) || die "--verify: $active (Wrangler needs its login, or CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID)"
 	active_url=$(wrangler versions view "$active" --json -c "$CONFIG" | json "j.resources.bindings.find(b => b.name === 'CLEARCASE_APP_ORIGIN')?.text ?? ''") || die "--verify: could not read version $active"
 	[[ -n $active_url ]] || die "version $active has no CLEARCASE_APP_ORIGIN"
 	[[ $active_url == "$URL" ]] || say "verify: $active serves $active_url, not the config's $URL"

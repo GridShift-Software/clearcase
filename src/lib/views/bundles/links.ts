@@ -6,6 +6,7 @@
 import { decodeLegacyLocator } from '../../case-package/paths.ts';
 import { isPathKey } from '../../case-package/refs.ts';
 import { documentRoute } from '../../case-package/render.ts';
+import { viewerPageHref } from '../../viewer/hosted/page-link.ts';
 
 export const NOT_SERVED = 'not in the verified index; not served';
 
@@ -46,6 +47,6 @@ export function resolveLocator(index: ReadonlyMap<string, string>, url: unknown,
 
 export function hrefOf(vid: string, files: Readonly<Record<string, string>>, r: Resolved | null, page: number | null = r?.page ?? null): string | null {
 	if (!r) return null;
-	if (Object.hasOwn(files, r.ref)) return page ? `${files[r.ref]}#page=${page}` : files[r.ref]!;
+	if (Object.hasOwn(files, r.ref)) return viewerPageHref(files[r.ref]!, page);
 	return isPathKey(r.ref) ? null : documentRoute(vid, r.ref, page);
 }

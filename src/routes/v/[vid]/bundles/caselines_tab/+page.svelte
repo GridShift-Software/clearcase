@@ -14,6 +14,10 @@
 	const c = $derived(data.content);
 	const pagesLabel = $derived(data.pages === null ? '' : data.pages.toLocaleString('en'));
 	const bundleHref = (p: number | null = null) => hrefOf(vid, data.files, data.bundle, p);
+	// A viewer cannot add documents, so imported copy that offers adding is replaced by the read-only line; an editor and the
+	// local pilot keep the imported subtitle as it is.
+	const subtitle = $derived(access.canWrite ? (c.subtitle ?? 'The consolidated court bundle — open, download, search, and add documents')
+		: c.subtitle && !/\badd(?:s|ed|ing)?\b/i.test(c.subtitle) ? c.subtitle : 'The consolidated court bundle — open, download and search');
 
 	let q = $state(page.url.searchParams.get('q') ?? '');
 	const search = () => goto(`?${new URLSearchParams(q.trim() ? { q: q.trim() } : {})}`, { reset: false, replaceState: true });
@@ -61,7 +65,7 @@
 </script>
 
 <main id="main" tabindex="-1" data-ready="caselines_tab" data-hydrated={ready ? '1' : null} data-busy={busy ? '1' : '0'} aria-busy={busy}>
-	<PageHeader heading="CaseLines" section="CaseLines" caseName={data.version.titleName} subtitle={c.subtitle ?? (access.canWrite ? 'The consolidated court bundle — open, download, search, and add documents' : 'The consolidated court bundle — open, download and search')} />
+	<PageHeader heading="CaseLines" section="CaseLines" caseName={data.version.titleName} {subtitle} />
 	{#if off}<p class="notice" id="cl-nojs">{#if access.canWrite}Search, go to page, linking and adding files need JavaScript, which is off or still loading; nothing on this page can be saved without it.{:else}Search and go to page need JavaScript, which is off or still loading.{/if}</p>{/if}
 	<div class="cl-hero">
 		<div>{#if c.name}<div class="t">{c.name}</div>{/if}{#if c.note}<div class="m">{c.note}</div>{/if}</div>

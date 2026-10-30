@@ -1,12 +1,13 @@
 <script lang="ts">
 	// The chronology's document pane, beside the list (below it on a narrow screen). It names the selected document, links
 	// to its document page and shows its original: through `original` where the app can show it in the page (hosted), and
-	// otherwise as a state. A missing, blocked or download-only original is said in words, never a blank viewer.
+	// otherwise as a state. A missing, blocked or download-only original is said in words, never a blank viewer. `onclose`
+	// clears the selection: Close beside the list, Back to list below it.
 	import type { Snippet } from 'svelte';
 	import { statusLabel } from '../../local-case/chronology.ts';
 	import type { ChronologyListRow } from '../../local-case/model.ts';
-	let { row, selected, docHref, original, onback, notFound = false, pane = $bindable() }: {
-		row: ChronologyListRow | null; selected: string | null; docHref: string | null; original?: Snippet<[string]>; onback: () => void;
+	let { row, selected, docHref, original, onclose, notFound = false, pane = $bindable() }: {
+		row: ChronologyListRow | null; selected: string | null; docHref: string | null; original?: Snippet<[string]>; onclose: () => void;
 		/** Every row is loaded and none is `selected`. */
 		notFound?: boolean; pane?: HTMLElement;
 	} = $props();
@@ -14,7 +15,7 @@
 </script>
 
 <section class="chrono-pane card" data-testid="chronology-document-pane" data-ref={selected || undefined} aria-labelledby="chrono-pane-h" tabindex="-1" bind:this={pane}>
-	<p class="pane-back"><button type="button" onclick={onback}>Back to list</button></p>
+	{#if selected}<p class="pane-back"><button type="button" onclick={onclose}><span class="pane-close-wide">Close</span><span class="pane-close-narrow">Back to list</span></button></p>{/if}
 	{#if !selected}
 		<h2 id="chrono-pane-h" class="visually-hidden">Document</h2>
 		<p class="pane-state" data-pane-state="none">Select a document in the list, or use its Preview button, to see it here.</p>
@@ -45,8 +46,9 @@
 <style>
 	.chrono-pane { min-width: 0; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
 	.chrono-pane:focus { outline: none; }
-	/* the page shows Back when the pane sits below the list */
-	.pane-back { display: none; margin: 0; }
+	/* the page relabels Close as Back to list when the pane sits below the list */
+	.pane-back { display: flex; justify-content: flex-end; margin: 0; }
+	.pane-close-narrow { display: none; }
 	.pane-head { display: flex; flex-direction: column; gap: 6px; }
 	.pane-title { font-size: 15px; margin: 0; overflow-wrap: anywhere; }
 	.pane-excerpt { margin: 0; font-size: 13px; max-height: 8.5em; overflow: auto; overflow-wrap: anywhere; }

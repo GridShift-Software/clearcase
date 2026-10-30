@@ -184,7 +184,7 @@ const row = (ref: string, o: Partial<ChronologyListRow> = {}): ChronologyListRow
   ref, ord: 0, date: '2001-02-03', dateType: null, dateSource: null, docType: 'letter', bundle: 'Bulk A', subject: `Invented subject ${ref}`, filename: `${ref}.pdf`, sender: 'Invented sender', to: '',
   excerpt: '', amount: '', alsoIn: [], url: '', textStatus: 'extracted', parentRef: null, file: 'present', preview: 'inline-isolated', attachments: 0, ...o,
 });
-const pane = (props: Record<string, unknown>) => render(ChronologyPane, { props: { row: null, selected: null, docHref: null, onback: () => {}, ...props } as never }).body;
+const pane = (props: Record<string, unknown>) => render(ChronologyPane, { props: { row: null, selected: null, docHref: null, onclose: () => {}, ...props } as never }).body;
 
 describe('11 chronology split pane', () => {
   test('without a selection it asks for one; the pane hook carries no ref', () => {

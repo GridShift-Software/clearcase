@@ -248,7 +248,7 @@ export const PINNED_BROWSER_MODULES: Readonly<Record<string, PinnedBrowserModule
 	},
 	// The in-app viewer's worker: pdf.worker.min.mjs with WORKER_PATCH, bound by HOSTED_PDF_VIEWER_WORKER_DIGEST.
 	'.svelte-kit/cloudflare/pdfjs/pdf-viewer-worker.mjs': {
-		asset: 'pdfjs/pdf-viewer-worker.mjs', bytes: 1265100,
+		asset: 'pdfjs/pdf-viewer-worker.mjs', bytes: 1265169,
 		sha256: 'sha256:bf0324b08956821b6b0da7f1e3803bad2ead020838896eea69c86b73b8ad4170',
 		uses: PDF_PROBE,
 	},

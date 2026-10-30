@@ -82,6 +82,8 @@ export type NoteTarget = { kind: 'case' } | { kind: 'document'; anchor: Anchor }
 export type WorkRegisterRow = Omit<RegisterRow, 'anchor'> & { anchor: Anchor | null };
 export type HostedNote = Omit<NoteView, 'refAtCreation' | 'resultsVersion' | 'anchorSha256'> & { target: NoteTarget };
 export type HostedNoteSummary = Omit<NoteSummary, 'detached' | 'pageNotes'> & { detached: HostedNote[]; pageNotes: number };
+/** Counts for the hosted overview, with no detached bodies or claim about their integrity. */
+export type OverviewNoteSummary = Omit<HostedNoteSummary, 'detached'>;
 export interface SnapshotStore { put(a: Scope & { snapshot: UserWorkExport; revision: CaseRevision }): Promise<Id<'snapshot'>>; get(a: Scope & { id: Id<'snapshot'> }): Promise<UserWorkExport | null> }
 export type RegisterCommand = { kind: 'add'; fields: Fields } | { kind: 'replace'; rowId: string; fields: Fields } | { kind: 'remove'; rowId: string };
 export interface AsyncRegisterStore {
@@ -162,6 +164,8 @@ export interface ShardReader {
   read(a: VersionScope & { name: string; bytes: number }): Promise<Response | null>;
 }
 export interface RequestServices {
+  /** Present only on an explicitly selected overview request snapshot. */
+  overviewNoteSummary?: (a: VersionScope) => Promise<OverviewNoteSummary>;
   /** The authorized request snapshot; absent on local and legacy adapters. */
   caseRead?: (a: Scope) => Promise<{ caseId: CaseId; info: CaseInfo | null; published: PublicationRecord | null }>;
   /** Whether the signed-in person's own grant on the case writes user work, from the request snapshot; absent where caseRead

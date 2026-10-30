@@ -18,10 +18,10 @@ const config = auditConfig({ clientId: ids.clientA, trustedIssuers: [deployment.
   limits: { maxEventBytes: 4096, maxRows: 100_000, maxReadRows: 100_000, maxDenialRows: 1000, maxDenialsPerActor: 100, maxPageRows: 50, maxPagesPerRequest: 5 } });
 
 /** The `locals` of one visit, and how many times the page asked to authorize the case. */
-export async function oneLookupLocals(dep: Deployment, c: Counters, cache: ShardCache, pending: Promise<void>[]) {
+export async function oneLookupLocals(dep: Deployment, c: Counters, cache: ShardCache, pending: Promise<void>[], profile: 'case' | 'overview' = 'case') {
   const db = countedD1(dep.db, c);
   const authority = await realAuthority(dep, db);
-  const lookup = requestCaseLookup(db, deployment);
+  const lookup = requestCaseLookup(db, deployment, null, profile);
   const schedule = requestReadAudit({ db, config, waitUntil: work => { pending.push(work); } });
   const authorizer = createCaseAuthorizer({ deployment, grants: d1GrantRepository(db), cases: d1CaseDirectory({ db, deployment }), lookup,
     audit: { append: async event => { schedule(event); return { eventId: event.eventId }; } }, readAudit: schedule,

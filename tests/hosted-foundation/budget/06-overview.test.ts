@@ -35,7 +35,7 @@ function client() {
   const c = counters(), cache = memoryShardCache();
   let authorizations = 0;
   const view = async () => {
-    const services = await oneLookupLocals(dep, c, cache, pending);
+    const services = await oneLookupLocals(dep, c, cache, pending, 'overview');
     const event = { locals: services.l, params: { caseId: CASE_ID, version: b.built.record.resultsVersion }, url: new URL('https://client-a.example.invalid/') } as never;
     try { return await Promise.all([layoutLoad(event), overviewLoad(event)]); } finally { authorizations = services.authorizations(); }
   };

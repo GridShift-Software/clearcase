@@ -12,7 +12,7 @@ export async function load({ locals, params }: RequestEvent) {
 	const v = await publishedVersion(locals, params);
 	const [data, summary, registerSlots] = await Promise.all([
 		shard<OverviewShard>(locals, params, 'overview.json'),
-		locals.userWork.summary({ caseId: v.caseId, resultsVersion: v.resultsVersion }).catch((e: unknown) => refuse(e)),
+		(locals.overviewNoteSummary ?? locals.userWork.summary)({ caseId: v.caseId, resultsVersion: v.resultsVersion }).catch((e: unknown) => refuse(e)),
 		hostedRegisterSlots(locals, { caseId: v.caseId }),
 	]);
 	// The overview lists notes by ref; a detached note's own text is the notes page's, not the overview's.

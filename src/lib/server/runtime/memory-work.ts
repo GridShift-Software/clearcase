@@ -4,6 +4,7 @@ import { copy } from './data.ts';
 import { id, sha256 } from './ids.ts';
 import { contractError } from './errors.ts';
 import { viewSeeds } from '../../case-package/user-work.ts';
+import { PAGE_NOTE_STORE } from '../../viewer/hosted/page-notes.ts';
 import { Type, type TSchema } from 'typebox';
 import { Compile } from 'typebox/compile';
 
@@ -144,8 +145,8 @@ export function createMemoryWork(ctx: MemoryContext, store: C.CaseReader): C.Asy
     },
     async notesFor(a) { await authorize(a); return copy([...ctx.work(a.caseId).notes.values()].filter((n) => a.target === null || JSON.stringify(n.target) === JSON.stringify(a.target))); },
     async summary(a) {
-      const notes = await work.notesFor({ ...a, target: null });
-      const result: C.HostedNoteSummary = { total: notes.length, here: 0, exact: 0, ambiguous: 0, missing: 0, unanchored: 0, byRef: [], detached: [] };
+      const { notes, rows } = await work.readNoteWork({ ...a, target: null, store: PAGE_NOTE_STORE });
+      const result: C.HostedNoteSummary = { total: notes.length, here: 0, exact: 0, ambiguous: 0, missing: 0, unanchored: 0, byRef: [], detached: [], pageNotes: rows.length };
       for (const note of notes) {
         const match = note.target.kind === 'document' && a.resultsVersion ? await work.resolve({ anchor: note.target.anchor, into: { caseId: a.caseId, resultsVersion: a.resultsVersion } }) : { status: note.target.kind === 'case' ? 'here' as const : 'unanchored' as const, refs: [] };
         result[match.status]++;
@@ -176,6 +177,13 @@ export function createMemoryWork(ctx: MemoryContext, store: C.CaseReader): C.Asy
       return change(a, ['overlay', a], (next, version) => { const k = key(a.overlay.datasetKey, a.overlay.seedId), conflict = compare(a.expected, next.overlays.get(k)); if (conflict) return { kind: conflict }; next.overlays.set(k, { ...copy(a.overlay), fields: fields(a.overlay.fields), version }); return { kind: 'written', value: undefined }; });
     },
     async listRows(a) { await authorize(a); storeName(a.store); return copy([...ctx.work(a.caseId).rows.values()].filter((r) => r.store === a.store)); },
+    async readNoteWork(a) {
+      storeName(a.store);
+      await authorize(a);
+      const current = ctx.work(a.caseId), where = a.rowsWhere;
+      return copy({ notes: [...current.notes.values()].filter((n) => a.target === null || JSON.stringify(n.target) === JSON.stringify(a.target)),
+        rows: [...current.rows.values()].filter((r) => r.store === a.store && (!where || r.fields[where.field] === where.equals)) });
+    },
     async readViewWork(a) {
       storeName(a.store);
       if (a.datasetKey !== undefined) storeName(a.datasetKey);

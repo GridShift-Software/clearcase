@@ -8,12 +8,17 @@
 	import { deleteStep } from '$lib/components/confirm-delete';
 	import { displayFilename } from '$lib/views/hosted/display';
 	import NoteText from '$lib/views/hosted/NoteText.svelte';
+	import PageNoteText from '$lib/views/hosted/PageNoteText.svelte';
+	import type { PageNotes } from '$lib/views/hosted/page-note-items';
 	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
 	import type { NoteItem, NoteRefusal } from '$lib/views/hosted/model';
-	type Data = { caseId: string; label: string; caseHref: string; chronologyHref: string | null; resultsVersion: string | null; notes: { state: 'available' | 'unavailable'; items: NoteItem[] }; operationId: string; saved: boolean; deleted: boolean; canWrite: boolean };
+	type Data = { caseId: string; label: string; caseHref: string; chronologyHref: string | null; resultsVersion: string | null; notes: { state: 'available' | 'unavailable'; items: NoteItem[] }; pageNotes?: PageNotes; operationId: string; saved: boolean; deleted: boolean; canWrite: boolean };
 	let { data, form }: { data: Data; form: NoteRefusal | null } = $props();
 	// After a refused save the server's current notes replace the loaded list, and the user's text stays in the form.
 	const items = $derived(form?.notes ?? data.notes.items);
+	// Page notes are counted apart: they are written, changed and deleted in an original's viewer, not here.
+	const pageNotes = $derived(data.pageNotes ?? { items: [], unreadable: 0 });
+	const pageCount = $derived(pageNotes.items.length);
 	// The draft is the page's own (GRS-284): a delete answers `form` and reloads `data` behind it, and neither may change
 	// what is being written. A refused save's answer seeds it, and its retry identity and version stay with the text.
 	let refused = $state.raw(untrack(() => (form?.op === 'add' ? form : null)));
@@ -119,8 +124,8 @@
 	{#if data.notes.state === 'unavailable' && !form?.notes}
 		<p data-notes-unavailable>Your notes list is unavailable right now. Any unsaved text is kept in the form above; retry saving shortly. Nothing is saved in this browser instead.</p>
 	{:else}
-		<h2>{items.length} notes</h2>
-		{#if items.length}
+		<h2>{items.length} notes{pageCount ? ` and ${pageCount} ${pageCount === 1 ? 'page note' : 'page notes'} on originals` : ''}</h2>
+		{#if items.length || pageCount}
 			<ul class="notes" data-testid="case-notes-list">
 				{#each items as n (n.id)}
 					<li data-note-id={n.id} data-note-version={n.version}>
@@ -135,10 +140,14 @@
 						{/if}
 					</li>
 				{/each}
+				{#each pageNotes.items as p (p.rowId)}
+					<li data-page-note-id={p.rowId} data-note-version={p.version}><PageNoteText note={p} /></li>
+				{/each}
 			</ul>
 		{:else}
 			<p>No notes on this case yet.</p>
 		{/if}
+		{#if pageNotes.unreadable}<p data-page-notes-unreadable>{pageNotes.unreadable} stored {pageNotes.unreadable === 1 ? 'page note could' : 'page notes could'} not be read, so {pageNotes.unreadable === 1 ? 'it is' : 'they are'} not shown.</p>{/if}
 	{/if}
 	{#if data.chronologyHref}<p><a data-action="open-chronology" href={data.chronologyHref}>Chronology</a></p>{/if}
 </main>

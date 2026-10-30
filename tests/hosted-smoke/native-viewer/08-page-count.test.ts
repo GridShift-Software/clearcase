@@ -7,6 +7,8 @@ import { mount, unmount, flushSync } from 'svelte';
 import { JSDOM } from 'jsdom';
 import Harness from './ViewerHarness.svelte';
 
+vi.mock('$app/navigation', () => ({ beforeNavigate: () => {}, afterNavigate: () => {}, goto: vi.fn(async () => {}) }));
+
 const data = { caseId: 'case-a', assetId: 'A',
   view: { state: 'available' as const, mode: 'pdf' as const, filename: 'A.pdf', mediaType: 'application/pdf', size: 123,
     srcHref: '/cases/case-a/originals/A', downloadHref: '/cases/case-a/originals/A?download=1' },
@@ -18,6 +20,8 @@ beforeEach(() => {
   dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://case.test' });
   for (const key of ['window', 'document', 'Node', 'Element', 'HTMLElement', 'HTMLCanvasElement', 'HTMLMediaElement', 'Text', 'Comment', 'Event', 'CustomEvent', 'MutationObserver'])
     vi.stubGlobal(key, dom.window[key]);
+  vi.stubGlobal('addEventListener', dom.window.addEventListener.bind(dom.window));
+  vi.stubGlobal('removeEventListener', dom.window.removeEventListener.bind(dom.window));
 });
 afterEach(async () => { if (component) await unmount(component); component = null; dom.window.close(); vi.unstubAllGlobals(); });
 

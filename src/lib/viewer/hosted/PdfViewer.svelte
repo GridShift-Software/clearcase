@@ -9,6 +9,7 @@
 	import { writeAccess } from '../../components/write-access';
 	import ConfirmDelete from '../../components/ConfirmDelete.svelte';
 	import { CONFIRM } from '../../components/confirm-delete';
+	import LeaveGuard from '../../views/litigation/LeaveGuard.svelte';
 	let { src, size, downloadHref, notesHref, notes: initial, notesAvailable, requestedPage = null, canWrite }: { src: string; size?: number; downloadHref: string; notesHref: string; notes: readonly PageNote[]; notesAvailable: boolean; requestedPage?: string | null; canWrite?: boolean } = $props();
 	// a viewer reads the page notes; adding and deleting them is an editor's (the full viewer page passes its grant, the pane inherits the case layout's)
 	const access = writeAccess();
@@ -168,8 +169,9 @@
 </script>
 
 <div data-viewer-state={status} data-viewer="pdf">
+<LeaveGuard unsaved={draft.trim() !== ''} what="Your page note is not saved." reloadKeepsDraft={false} discard={() => { draft = ''; draftRevision++; retry = null; }} />
 	{#if status === 'error'}
-		<p role="alert">This file cannot be displayed here. <a data-action="download-original" href={downloadHref}>Download the original</a>.</p>
+		<p role="alert">This file cannot be displayed here. <a data-action="download-original" href={downloadHref} download>Download the original</a>.</p>
 	{:else}
 		<p>
 			<button type="button" onclick={() => go(current - 1)} disabled={status !== 'ready' || current <= 1}>Previous</button>
@@ -178,7 +180,7 @@
 			<button type="button" onclick={() => go(current + 1)} disabled={status !== 'ready' || current >= pages}>Next</button>
 			<button type="button" onclick={() => zoom(0.8)} disabled={status !== 'ready'}>Zoom out</button>
 			<button type="button" onclick={() => zoom(1.25)} disabled={status !== 'ready'}>Zoom in</button>
-			<a data-action="download-original" href={downloadHref}>Download</a>
+			<a data-action="download-original" href={downloadHref} download>Download</a>
 		</p>
 		{#if pageError}<p role="alert">{pageError}</p>{/if}
 		<div class="pdf-viewport" bind:this={viewport}><canvas data-testid="pdf-page" data-page-number={shown ?? undefined} data-rendered={shown !== null ? 'true' : undefined} bind:this={canvas} aria-label={`Page ${current}`} style:visibility={shown === current ? null : 'hidden'}></canvas></div>

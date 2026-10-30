@@ -8,6 +8,27 @@ import type { WorkVersion } from '../../../src/lib/server/runtime/contracts.ts';
 // The local Vitest config compiles this synthetic harness as a client component.
 import Harness from './ViewerHarness.svelte';
 
+type Navigation = { type: string; from: { url: URL }; to: { url: URL } | null; willUnload: boolean; delta?: number; cancel(): void };
+const guards: ((nav: Navigation) => void)[] = [];
+const afters: (() => void)[] = [];
+const destinations: string[] = [];
+function navigate(type: string, destination: string | null, delta?: number, hasPageRoute = true) {
+  let cancelled = false;
+  const nav = { type, from: { url: new URL(window.location.href) }, to: destination === null ? null : { url: new URL(destination, window.location.href) }, willUnload: type === 'leave' || (type === 'link' && !hasPageRoute), delta, cancel: () => { cancelled = true; } };
+  for (const guard of [...guards]) guard(nav);
+  flushSync();
+  if (!cancelled) for (const after of [...afters]) after();
+  return cancelled;
+}
+vi.mock('$app/navigation', async () => {
+  const { onDestroy } = await import('svelte');
+  return {
+    beforeNavigate: (fn: (nav: Navigation) => void) => { guards.push(fn); onDestroy(() => { guards.splice(guards.indexOf(fn), 1); }); },
+    afterNavigate: (fn: () => void) => { afters.push(fn); onDestroy(() => { afters.splice(afters.indexOf(fn), 1); }); },
+    goto: vi.fn(async (url: URL) => { if (!navigate('goto', url.href)) destinations.push(url.href); }),
+  };
+});
+
 function deferred<T>() {
   let resolve!: (value: T) => void, reject!: (reason: unknown) => void;
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
@@ -36,9 +57,15 @@ function start(open = vi.fn(async () => reader())) {
   return open;
 }
 beforeEach(() => {
-  dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://case.test' });
-  for (const key of ['window', 'document', 'Node', 'Element', 'HTMLElement', 'HTMLCanvasElement', 'HTMLMediaElement', 'Text', 'Comment', 'Event', 'CustomEvent', 'MutationObserver'])
+  guards.length = 0; afters.length = 0; destinations.length = 0;
+  dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://case.test/cases/case-a/originals/A/view' });
+  for (const key of ['window', 'document', 'history', 'Node', 'Element', 'HTMLElement', 'HTMLCanvasElement', 'HTMLMediaElement', 'Text', 'Comment', 'Event', 'CustomEvent', 'MutationObserver'])
     vi.stubGlobal(key, dom.window[key]);
+  vi.stubGlobal('addEventListener', dom.window.addEventListener.bind(dom.window));
+  vi.stubGlobal('removeEventListener', dom.window.removeEventListener.bind(dom.window));
+  vi.stubGlobal('location', dom.window.location);
+  // jsdom has no SVG anchor class. These tests click HTML anchors, never SVG elements.
+  vi.stubGlobal('SVGAElement', dom.window.SVGElement);
 });
 afterEach(async () => { if (component) await unmount(component); component = null; dom.window.close(); vi.unstubAllGlobals(); });
 
@@ -141,6 +168,88 @@ it('clears only the unchanged submitted draft, not text edited away and back', a
 it('clears an unchanged successful draft', async () => {
   start(); await settle(); vi.stubGlobal('fetch', vi.fn(async () => reply()));
   type('saved'); submit(); await settle(); expect(draft().value).toBe('');
+});
+
+it.each(['link', 'form'])('guards a page-note draft on %s navigation: Stay preserves it and explicit Discard leaves', async (kind) => {
+  start(); await settle(); type('Synthetic unsaved page note'); draft().focus();
+  expect(navigate(kind, '/cases')).toBe(true);
+  expect(document.querySelector('[role=alertdialog]')?.textContent).toContain('page note');
+  press('Stay on this page');
+  expect(draft().value).toBe('Synthetic unsaved page note');
+  expect(document.activeElement).toBe(draft());
+  expect(destinations).toEqual([]);
+  expect(navigate(kind, '/cases')).toBe(true);
+  press('Leave and discard it'); await settle();
+  expect(destinations).toEqual(['https://case.test/cases']);
+  expect(draft().value).toBe('');
+});
+
+it('guards a same-path requested-page load because the original route remounts the viewer', async () => {
+  start(); await settle(); type('Synthetic draft before query navigation');
+  expect(navigate('link', '/cases/case-a/originals/A/view?page=2')).toBe(true);
+  press('Stay on this page');
+  expect(draft().value).toBe('Synthetic draft before query navigation');
+});
+
+it.each(['ready', 'error'])('Download in the %s viewer hands off to the browser without navigation or draft loss', async (state) => {
+  const r = reader();
+  if (state === 'error') r.draw.mockRejectedValueOnce(new Error('Synthetic rendering failure'));
+  start(vi.fn(async () => r)); await settle(); type('Synthetic draft kept during download');
+  const link = document.querySelector<HTMLAnchorElement>('[data-action="download-original"]')!;
+  // Use the installed router's link classifier. Only its native-download transport and route lookup are supplied.
+  // @ts-expect-error Kit's internal JavaScript utility has no declaration file.
+  const { get_link_info } = await import('../../../node_modules/@sveltejs/kit/src/runtime/client/utils.js');
+  const downloads: string[] = [];
+  document.addEventListener('click', (event) => {
+    event.preventDefault();
+    const { url, download } = get_link_info(link, '', false);
+    if (download) downloads.push(url.href);
+    else if (!navigate('link', url.href, undefined, false)) downloads.push(url.href);
+  }, { once: true });
+  link.click(); await settle();
+  expect(downloads).toEqual([new URL(data().view.downloadHref, window.location.href).href]);
+  expect(document.querySelector('[role=alertdialog]')).toBeNull();
+  expect(destinations).toEqual([]);
+  expect(draft().value).toBe('Synthetic draft kept during download');
+});
+
+it('guards reload and closing the tab through SvelteKit leave cancellation', async () => {
+  start(); await settle(); type('Synthetic draft before unload');
+  expect(navigate('leave', null)).toBe(true);
+  expect(document.querySelector('[role=alertdialog]')).toBeNull();
+  expect(draft().value).toBe('Synthetic draft before unload');
+});
+
+it('discards a draft on Back by preserving the history traversal', async () => {
+  start(); await settle(); type('Synthetic draft before Back');
+  const go = vi.spyOn(window.history, 'go').mockImplementation(() => {});
+  expect(navigate('popstate', '/cases', -1)).toBe(true);
+  press('Leave and discard it');
+  expect(go).toHaveBeenCalledWith(-1);
+  expect(destinations).toEqual([]);
+  expect(draft().value).toBe('');
+});
+
+it('keeps guarding an in-flight or failed save without retiring its retry identity', async () => {
+  start(); await settle(); const held = deferred<Response>();
+  const fetcher = vi.fn().mockReturnValueOnce(held.promise).mockResolvedValueOnce(reply()); vi.stubGlobal('fetch', fetcher);
+  type('Synthetic retry draft'); submit();
+  expect(navigate('link', '/cases')).toBe(true); press('Stay on this page');
+  held.reject(new Error('Synthetic interrupted response')); await settle();
+  expect(navigate('link', '/cases')).toBe(true); press('Stay on this page');
+  expect(draft().value).toBe('Synthetic retry draft');
+  submit(); await settle();
+  expect(JSON.parse(fetcher.mock.calls[0]![1].body).operationId).toBe(JSON.parse(fetcher.mock.calls[1]![1].body).operationId);
+  expect(draft().value).toBe('');
+  expect(navigate('link', '/cases')).toBe(false);
+});
+
+it('still guards newer typing after an earlier save succeeds, but not an empty composer', async () => {
+  start(); await settle(); expect(navigate('link', '/cases')).toBe(false);
+  const held = deferred<Response>(); vi.stubGlobal('fetch', vi.fn(() => held.promise));
+  type('Submitted text'); submit(); type('Newer unsaved text'); held.resolve(reply('Submitted text')); await settle();
+  expect(navigate('link', '/cases')).toBe(true); press('Stay on this page');
+  expect(draft().value).toBe('Newer unsaved text');
 });
 
 it('aborts an old save, never merges its completion, and sends the new draft only to the new original', async () => {

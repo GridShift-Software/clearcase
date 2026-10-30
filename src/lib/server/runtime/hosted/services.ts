@@ -87,6 +87,28 @@ function nativeContext(env: Readonly<Record<string, unknown>>, b: Bindings, cler
 /** Keeps work running after the response for the invocation that calls it. */
 export interface RequestScheduler { waitUntil(work: Promise<void>): void }
 
+// SvelteKit asks for a page's data on client-side navigation at the page's path plus this suffix; that request is the
+// same page view, so it is classified (and reads through the one lookup) exactly as the page itself.
+const DATA = '(?:/__data\\.json)?';
+const BYTE_ROUTE = /^\/cases\/[^/]+\/v\/[^/]+\/assets\/[^/]+\/?$/;
+const PAGE = new RegExp(`^/cases/[^/]+(?:/v/|/originals/[^/]+/view${DATA}$|/notes${DATA}$|$)`);
+const ORIGINAL = new RegExp(`^/cases/[^/]+/(?:originals/([^/]+)/view${DATA}|v/[^/]+/chronology/original/([^/]+))$`);
+
+/**
+ * How a request reads its case. A page view (a hard load or its client-side data request, alike) reads through the
+ * request's one lookup, which also answers the page's write-control snapshot; so does a version page's form POST (a note
+ * save or delete), whose write-user-work authorizations still query the grant afresh and append their event before the
+ * write, fail closed. `originalSegment` is the (still encoded) original the lookup carries: the viewer page's, or the
+ * chronology pane's.
+ */
+export function requestPage(method: string, path: string): { pageRequest: boolean; versionPost: boolean; originalSegment: string | null } {
+	const byteRoute = BYTE_ROUTE.test(path);
+	const pageRequest = method === 'GET' && !byteRoute && PAGE.test(path);
+	const versionPost = method === 'POST' && !byteRoute && /^\/cases\/[^/]+\/v\//.test(path);
+	const original = pageRequest || versionPost ? ORIGINAL.exec(path) : null;
+	return { pageRequest, versionPost, originalSegment: original?.[1] ?? original?.[2] ?? null };
+}
+
 /**
  * Fresh identity and audit state for this exact request; only immutable deployment configuration is shared. The identity
  * is read from `credential` (a renewed session, handle.ts) when given, else from the request itself.
@@ -100,13 +122,7 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 	let native: NativeContext | null = null;
 	let pageLookup: ReturnType<typeof requestCaseLookup> | undefined;
 	let scheduleRead: ReturnType<typeof requestReadAudit> | undefined;
-	const pagePath = new URL(request.url).pathname;
-	const byteRoute = /^\/cases\/[^/]+\/v\/[^/]+\/assets\/[^/]+\/?$/.test(pagePath);
-	// The case notes list (and its client-side data request) is a page view of the case too: it reads through the one lookup.
-	const pageRequest = request.method === 'GET' && !byteRoute && /^\/cases\/[^/]+(?:\/v\/|\/originals\/[^/]+\/view$|\/notes(?:\/__data\.json)?$|$)/.test(pagePath);
-	// A version page's form POST (a note save or delete) reads the case through the same one lookup; its write-user-work
-	// authorizations still query the grant afresh and append their event before the write, fail closed.
-	const versionPost = request.method === 'POST' && !byteRoute && /^\/cases\/[^/]+\/v\//.test(pagePath);
+	const { pageRequest, versionPost, originalSegment } = requestPage(request.method, new URL(request.url).pathname);
 	const readAudit = (event: import('../contracts.ts').AuditEvent) => scheduleRead?.(event);
 	const clerk = clerkIdentityProviderFromEnv(env, {
 		authorizeCase: async (a) => {
@@ -154,9 +170,7 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 		if (pageRequest || versionPost) {
 			// The one lookup carries the original a request shows: the viewer page's, or the chronology pane's (a version
 			// POST). Without it the snapshot answers that original as not found, and the pane says it is no longer available.
-			const original = /^\/cases\/[^/]+\/(?:originals\/([^/]+)\/view|v\/[^/]+\/chronology\/original\/([^/]+))$/.exec(pagePath);
-			const assetId = original?.[1] ?? original?.[2];
-			pageLookup = requestCaseLookup(native.db, native.deployment, assetId ? decodeURIComponent(assetId) : null);
+			pageLookup = requestCaseLookup(native.db, native.deployment, originalSegment ? decodeURIComponent(originalSegment) : null);
 		}
 		services.audit = requestAuditSink({ db: native.db, config: native.audit, requester: stateOf(services.identity), now });
 		const cloud = cloudBindings(env), budgets = storageBudgets(native.settings.storageBudgets);

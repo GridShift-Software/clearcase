@@ -10,7 +10,7 @@ import { JSDOM } from 'jsdom';
 type Sent = { action: string; fields: Record<string, string> };
 const sent: Sent[] = [];
 let settle: ((ok: boolean) => void) | null = null;
-vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(async () => {}) }));
+vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(async () => {}), beforeNavigate: () => {}, afterNavigate: () => {}, goto: vi.fn(async () => {}) }));
 vi.mock('$app/forms', () => ({
   enhance: (form: HTMLFormElement, submit?: (input: unknown) => unknown) => {
     const onsubmit = async (e: SubmitEvent) => {
@@ -55,7 +55,7 @@ afterEach(async () => { if (component) await unmount(component); component = nul
 
 for (const [page, Page, data, action] of [['the shared document page', DocPage, doc, '?/delnote'], ['the hosted case notes page', NotesPage, caseNotes, '?/delete']] as const) {
   it(`${page}: Delete asks, Cancel sends nothing and returns focus, Confirm sends the delete confirmed for that note`, async () => {
-    // the hosted case notes page has no enhance: its native submit is held here instead of navigating the test window
+    // a native submit is held here instead of navigating the test window
     document.addEventListener('submit', (e) => { if (!e.defaultPrevented) { e.preventDefault(); const f = e.target as HTMLFormElement, by = (e as SubmitEvent).submitter as HTMLButtonElement | null; const fd = new FormData(f); if (by?.name) fd.set(by.name, by.value); sent.push({ action: f.getAttribute('action')!, fields: Object.fromEntries([...fd].map(([k, v]) => [k, String(v)])) }); } });
     component = mount(Page as never, { target: document.body, props: { data, form: null } as never });
     flushSync();

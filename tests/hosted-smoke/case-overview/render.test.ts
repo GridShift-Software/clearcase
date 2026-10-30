@@ -23,7 +23,7 @@ describe('hosted case pages escape case text', () => {
     const body = html(CasePage, { data });
     safe(body);
     expect(body).toContain('data-overview-state="published"');
-    expect(body).toContain(`href="/cases/${CASE}/views/${encodeURIComponent(RV)}/chronology"`);
+    expect(body).toContain(`href="/cases/${CASE}/v/${encodeURIComponent(RV)}/chronology"`);
     expect(body).toContain('id="count-documents" data-count="3"');
   });
 

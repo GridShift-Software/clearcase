@@ -13,7 +13,7 @@ it('retains immutable public configuration from the actual verified pinned stati
   vi.resetModules();vi.stubGlobal('__CLEARCASE_PDF_ASSETS__',input.inventory);
   const {compiledPdfAssetPins}=await import('../../../src/lib/server/runtime/hosted/render-pins.ts');
   const pins=compiledPdfAssetPins();
-  expect(pins?.files).toHaveLength(191);
+  expect(pins?.files).toHaveLength(198);
   expect(pins?.pdfjsVersion).toBe('6.4.299');
   expect(pins).toBe(compiledPdfAssetPins());
   expect(Object.isFrozen(pins)).toBe(true);expect(Object.isFrozen(pins?.files)).toBe(true);

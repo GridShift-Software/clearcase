@@ -74,6 +74,10 @@
               {
                 "const": "assets",
                 "type": "string"
+              },
+              {
+                "const": "preview",
+                "type": "string"
               }
             ]
           },
@@ -99,7 +103,7 @@
         ],
         "type": "object"
       },
-      "maxItems": 1023,
+      "maxItems": 8191,
       "minItems": 1,
       "type": "array"
     },

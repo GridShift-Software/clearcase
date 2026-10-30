@@ -351,7 +351,7 @@ export async function signoffPublish(ctx: Ctx, state: State, human: { reviewerRe
   // a stale delete must change nothing; a note write by an outsider or from another origin must be refused
   const noteId = tagsWith((await A.send('GET', expand(port(ctx, 'case.notes').path, v(ctx)))).text, 'data-note-id')[0]?.['data-note-id'];
   if (noteId) {
-    const stale = await rec.guard('p2.note-stale-delete', () => call(ctx, A, 'case.notes.delete', v(ctx), form({ id: noteId, version: 'stale-version-0', operationId: opId(ctx) })));
+    const stale = await rec.guard('p2.note-stale-delete', () => call(ctx, A, 'case.notes.delete', v(ctx), form({ id: noteId, version: 'stale-version-0', operationId: opId(ctx), confirm: noteId })));
     if (stale) rec.add('p2.note-stale-delete', stale.status === 409, `deleting a note at a stale version answered ${stale.status}`, stale.status);
   } else rec.add('p2.note-stale-delete', false, 'no note to delete was found on the notes page');
   const xo = await rec.guard('p2.note-cross-origin', () => call(ctx, A, 'case.notes.add', v(ctx), { ...form({ operationId: opId(ctx), body: `journey-note-${f.runId} cross-origin` }), origin: 'https://evil.example' }));

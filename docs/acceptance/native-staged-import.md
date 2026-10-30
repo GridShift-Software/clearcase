@@ -1,0 +1,153 @@
+# Chunked, resumable results import (U15)
+
+Local synthetic evidence only: node:sqlite stand-ins for D1, an in-memory R2, a recording stager and the real route modules. Not workerd, not deployed, not a provider or browser result. Migration 0006 is staged by `deploy/native-alpha/runtime-migration.ts` and has been applied to no D1.
+
+## Why
+
+The one-request import (`POST /operator/results/[caseId]/imports`) carries the whole package as UTF-8 text in one JSON body, so it cannot carry a PDF preview, and its limits (64 files, 8 MiB, 2 MiB per file in the live policy; 1,024 files in the schema) stop a v5-sized export (1,689 documents, previews, extracted attachments) before it starts. Workers Paid removes the CPU limit (`rx-cpu-probe.md`: about 0.5 s for a v5-sized validation). The limits that remain are wall time, subrequests and memory per request, so the work is split into bounded requests.
+
+## Protocol
+
+The routes sit under `/operator/results/[caseId]/imports/staged` and take the one-request import's authority: verified staff, own client, the `operate` capability, decided before any body byte is read; every write is fenced on the live session and the grant as SQL.
+
+| Step | Request | Does |
+| --- | --- | --- |
+| open | `POST .../staged` `{operationId, submissionRevisionId, manifest}` (manifest.json as text) | Checks the manifest alone: strict JSON, committed schema, recomputed `inputRevision.id` and `resultsVersion`, case, file, byte and batch budgets, and at most 512 datasets. Writes the session row (only inside the client's staging cap, else `staging-quota`, 409), then the manifest object. |
+| batch | `POST .../staged/[operationId]/files` `{files: {path: base64}}` | Checks every file against the manifest by size and SHA-256 first; one bad file refuses the whole batch and writes nothing. Stores the new objects in R2 (the operation's own, keyed by SHA-256 under `native-import/<client>/<case>/<operation>/`), then their rows in D1. Files already accepted are left alone. |
+| status | `GET .../staged/[operationId]` | Progress, the first 512 missing paths, `candidateId` once linked. |
+| complete | `POST .../staged/[operationId]/complete` `{}` | Refuses `incomplete` while any file is missing. Otherwise runs bounded **steps** of the stepped stager (below) and answers `202 {kind: "staging", phase, steps, done, total}` until the last, then the same attempt claim, coverage and link as the one-request import. Call it again until it answers something else. A repeat after the link answers the linked candidate without reading a file. |
+| sweep | `POST .../staged/[operationId]/sweep` `{}`, `POST .../staged/sweep` `{}` | One bounded step of deleting a finished or abandoned import's staged objects (below). The second form is the drain: it takes the session of the case that is due next; call it until `operationId` is null. |
+
+Objects are written before rows, so a row always has its object; a crash leaves at worst an object with no row, which the resumed batch finds present and leaves alone. Rows are written once (insert-once, no update, no delete, `OR REPLACE` refused by trigger). A resumed import asks `status`, sends only what is missing, and completes: the `resultsVersion` and `candidateId` are functions of the package bytes, so they equal those of an uninterrupted import (tested at every R2 put and every D1 row batch of the poc package).
+
+## Stepped completion
+
+`complete` does not pass the package through the one-request stager. The stepped stager (`src/lib/server/runtime/hosted/stepped-stager.ts`) stages the same version, rows and objects in bounded steps, and `native/service.ts` `importStepped` links as `importPackage` does (the same attempt claim, `requestSha256`, coverage and link). Progress is in the client's D1: `native_import_stage_run` (one row per operation: epoch, phase, cursor, lease) and `native_import_stage_fact` (what a step derived, write-once). A composition with no stepped stager keeps the old path: the whole verified package to `stager.stage` in one request.
+
+| Phase | One step does |
+| --- | --- |
+| plan | Reads the manifest, datasets and asset index (not the previews), runs `inspectPackage`, `preparePackage`, the submission and folder checks and the quota preflight, and writes at most `rowsPerStep` file-asset facts, with a persisted cursor. |
+| originals-a | Reads and verifies a slice of the selected originals once and derives each fact by the stager's own rule. |
+| validate-a | Validates with those facts and builds the exact-required-file-set coverage; writes at most `rowsPerStep` per-ref links, with a persisted cursor. Each fact stores only its own ref and warning fingerprints, not a copy of every alias. |
+| originals-b | Derives the facts again by the storage rule with those links (`readOriginalFacts`), in slices. |
+| begin | Compares the two derivations, validates, projects, takes the quota and writes the version row and the first file rows, in one batch with the run's move. |
+| rows | Writes the remaining file rows and the read-model rows, a batch at a time, each moving the cursor. |
+| objects | Copies each package file from its staged object to its content key (`writeOnce`). |
+| verify | Heads every object against its row, then stores the version (the same seal batch). |
+| readback | Reads the stored previews back, a slice at a time. |
+| originals-d | Derives the facts a last time, after storage. |
+| final | Reads the stored non-preview files back, validates once more, checks the read model digest and the version head, audits, and answers. |
+
+A step claims a lease (`lease_id`, `lease_until_ms`) and commits in a batch whose first statement is a guard on that lease, the epoch, the phase, the cursor it read and an unexpired lease: a step that lost its lease, or ran twice, writes nothing and answers `busy` (409). A killed step leaves the last commit intact; its lease holds until it lapses (`leaseMs`, 60 s by default), then the next `complete` resumes from the stored cursor. A refusal restarts the run at `plan` in a new epoch (earlier facts are kept and ignored), so the same operation can be retried once the cause is fixed, as the one-request import's can. A run that reached `done` and has no candidate (the request died between the last step and the link, or the link failed) is not reused either: the next `complete` restarts it at `plan` in a new epoch, so the originals and the stored package are verified again before a link. The stored version is found and read back, not written again.
+
+**What a step holds.** The non-preview files (at most 514 of them, the manifest, 512 datasets and the asset index, refused before any is read; at most `structuredBytes`, 16 MiB by default, refused `over-budget` before any is read; validating copies and parses them to several times their size, so this is a share of the 128 MB, unmeasured on workerd) and one slice of originals (at most `originalsPerStep` reads and `bytesPerStep` bytes). A preview is never held: its size, SHA-256 and `%PDF-` header were recorded in the ledger (`native_import_staged_file.pdf`) when it was uploaded and checked, and the validator takes those facts (`held`) instead of the bytes. Held previews give the same diagnostics, identity and read model as the bytes (`tests/case-package/held-previews.test.ts`).
+
+**Bounds.** A step stops starting units at `originalsPerStep` originals, `bytesPerStep` bytes, `objectsPerStep` objects, `rowsPerStep` rows or `wallMsPerStep` wall time, always doing at least one unit. A request runs `stepsPerRequest` steps or until `wallMsPerRequest`. `stepCost(bounds, rowsPerBatch, {assets, links})` and `stagedCompleteCost` count actual parsed asset and per-ref link rows, not package files. Both counts are capped at **20,000** (`STAGED_WORK_CAP`), more than six times v5's 2,997 originals and attachments. Without parsed counts the functions budget for that ceiling. Fact-write batches are bounded by `rowsPerStep`; fact-read pages by the parsed asset count (at most 500 rows a query). Page-read cost is added to row-write cost, not hidden by a maximum, and identity checks are included. The verified asset index is read and parsed first; excess aliases refuse `over-budget` before any dataset, fact or original read. Invalid counts passed to the cost functions fail before any work. Every fact reader checks its count cap before its first query and refuses excess rows rather than paging indefinitely. `stagedCompleteCost` adds the request's link, which loads the structure a second time, and `complete` refuses before a step when the ceiling cost is over the plan. Defaults (Workers Paid): 40 originals, 24 MiB, 100 objects, 2,000 rows, 20 s a step, 4 steps or 25 s a request. They are unmeasured on workerd.
+
+**Original reads.** The one-request stager reads each original in four passes. The stepped one reads it in three (a, b, d): the stager's storage-side derivation (`createResultsStaging`'s own `readOriginalFacts`) and the independent one run over the same folder with nothing written between them, so they are one pass here. Each pass is reserved against the case's verification window (`maxVerifyObjectsPerCaseWindow`) as it runs; a window that cannot take a step answers `busy`.
+
+**A package the intake cannot hold.** The client intake finalizes one file per submission revision (`file_count = 1`), and the stager selects every file asset's original from that one revision. A package with more than one original therefore cannot link on this base, stepped or not (`original-link-required`); the tests import the poc package with every document pointing at the one original a revision can hold, and a preview each. The originals phases are bounded for many originals and are tested against `readOriginalFacts` slice by slice, but no many-original package has been linked.
+
+## Cleanup of staged objects
+
+Each import's staged objects are its own: `native-import/<client>/<case>/<operation>/<sha256>`. Two imports of the same bytes write two objects, so a sweep of one cannot touch what another accepted (fix round 1; round 2 shared objects by content across a case and checked other sessions' needs before deleting, which raced a live upload).
+
+A finished import (a candidate exists for the operation) or an abandoned one (opened more than `sessionTtlMs`, seven days, ago, with no acceptance and no stage step since) is swept in bounded steps of at most `sweepObjects` (100) deletes over a listing of the operation's prefix, so an object written before its row (a batch killed between its R2 puts and its D1 rows) is found and deleted too. The open writes its session row before its manifest, so no object exists without a session. The `native_import_cleanup` row is written first, in one statement that holds the operation is still due, and is the tombstone: `put` accepts no row once it exists (the insert holds `NOT EXISTS` on it), and a writer that lost that race deletes what it wrote and answers `session-expired`; a repeated `open` checks it before and after storing the manifest. The row also holds the listing position; a step moves it only from where it read it, so a killed or doubled step is simply repeated. Only keys under `native-import/` can be deleted; a candidate's package objects (`pkg/`) and the originals (`orig/`) are never named. After a sweep, `put` and `complete` of an abandoned session answer `session-expired` (410); a finished one still answers its candidate.
+
+**The drain.** `POST .../staged/sweep` runs one step for the case's session that is due next: a sweep under way, then a finished import, then the oldest abandoned one. `open` runs one drain step before it checks the cap (best effort, skipped when the plan's request budget could not afford it). The Worker has no `scheduled` handler, so nothing drains on a timer; the operator (or a driver) calls the drain until it answers `operationId: null`.
+
+**The cap.** A client's sessions not yet swept may hold `maxStagedBytes` (default 4 GiB, `STAGED_BYTES_PER_CLIENT`) together: each session's listed files plus its manifest, reserved when the session row is written, in the same statement, and released when its sweep is done. An open past the cap writes nothing and answers `staging-quota`.
+
+**Outstanding writers (fix round 2).** Before either `open` or a file batch starts R2 puts, it atomically records a unique `writer-start` fact in epoch 0, only if the cleanup tombstone is absent. A matching immutable `writer-end` fact is recorded only after all started puts have settled, including rejected puts. The tombstone fences new reservations. Cleanup waits for every reservation to settle **before its first listing**; its cursor update also holds this condition in SQL, so no late write can land behind the cursor or after quota release. The drain skips blocked sessions so other imports can drain, but their capacity remains held. These facts use the existing staging migration; there is no schema or migration-pin change.
+
+A reservation has **no time-based expiry**: an HTTP put may outlive the idle TTL, and an elapsed clock does not prove it cannot still write. Its `writer-start` fact records when it began (`{"at": <ISO time>}`). The settlement is an idempotent insert, so (fix round 3) the service retries a failed settlement write twice more after 50 ms and 100 ms. If the R2 puts themselves failed, their error is the one the request returns; if only the settlement keeps failing, the request fails visibly with that error. A reservation left open (a killed isolate, or a settlement that failed every attempt) keeps its whole session share reserved and its objects in R2, and the next `open` of the client at its cap answers `staging-quota`. There is no automatic force-release and no HTTP endpoint for it.
+
+**Staff runbook: settle a stuck writer.** Do this only when the session's writer started more than `WRITER_RECOVERY_GRACE_MS` (one hour; a batch is at most 12 MiB and 32 files, so a live request is long over) ago, and the operation's sweep is under way: call the targeted `POST .../staged/<operationId>/sweep` for it first and check that it answers `sweeping` (it writes the tombstone). The drain `POST .../staged/sweep` does not do this: it skips a session with an open writer and answers `operationId: null`. Then run against the client's D1, with the three ids and `:cutoff` set to the ISO time one hour before now (earlier is safer):
+
+```sql
+INSERT INTO native_import_stage_fact (client_id, case_id, operation_id, epoch, pass, key, value)
+SELECT w.client_id, w.case_id, w.operation_id, 0, 'writer-end', w.key, '{"recovered":true}' FROM native_import_stage_fact w
+WHERE w.client_id = :client AND w.case_id = :case AND w.operation_id = :operation AND w.epoch = 0 AND w.pass = 'writer-start' AND json_extract(w.value, '$.at') < :cutoff
+  AND EXISTS (SELECT 1 FROM native_import_cleanup c WHERE c.client_id = w.client_id AND c.case_id = w.case_id AND c.operation_id = w.operation_id AND c.state = 'sweeping' AND c.after_key = '')
+  AND NOT EXISTS (SELECT 1 FROM native_import_stage_fact e WHERE e.client_id = w.client_id AND e.case_id = w.case_id AND e.operation_id = w.operation_id AND e.epoch = 0 AND e.pass = 'writer-end' AND e.key = w.key)
+RETURNING key;
+```
+
+It is the statement `StagingLedger.recoverWriters` runs (tested in `staged-scale-fix3.test.ts`). **What it does and does not prove.** The tombstone fences every new writer, and `after_key = ''` proves the sweep has deleted nothing yet. It does **not** prove the stuck writer has stopped: an elapsed hour is not proof of termination. If that writer is somehow still alive and lands its bytes after the sweep's listing has passed, those bytes (at most one batch, 12 MiB and 32 files) stay in R2 outside the quota, which the sweep has by then released. So after the sweep answers `done`, wait at least one more grace period, list `native-import/<client>/<case>/<operation>/` in R2, and delete anything still there. The writer's own later settlement is a no-op, because the insert-once trigger refuses a second `writer-end` for the same key. A start with no recorded time (written before fix round 3) never matches; settle it by hand with the same insert only after confirming from the Worker's logs that no request for that operation is still running; `opened_at` does not tell you when a later writer began. After the insert, call the targeted sweep until it answers `done`: it deletes every object it lists under the operation's prefix and releases the quota. Check `held` drops by the session's share and R2 lists no `native-import/<operation>/` object.
+
+## Request budget
+
+The import and staging routes are composed for Workers Paid: `WORKERS_PAID_REQUEST = {d1: 900, external: 4500, subrequests: 9000}` (`import-composition.ts`; `services.ts` uses it, the other routes have budgets of their own). Cloudflare's Workers limits page (developers.cloudflare.com/workers/platform/limits/, read 27 October 2026) gives 10,000 subrequests per invocation on Paid, defines a subrequest as "any request a Worker makes using the Fetch API or to Cloudflare services like R2, KV, or D1" (so R2 and D1 binding calls count), and lists a separate "subrequests to internal services" row, 10,000 by default. D1's limits page (developers.cloudflare.com/d1/platform/limits/) gives 1,000 queries per invocation on Paid, a batch counting as one. `d1` keeps 10% of 1,000; `external` counts the identity provider's session checks (fetches); `subrequests` is the one pool of 10,000 that D1 queries, R2 calls and fetches share, 10% kept. A staged batch and a `complete` request are held to all three before they write. `WORKERS_FREE_REQUEST` (45 and 45) stays for the tests and any Free composition.
+
+## Per-request bounds
+
+A batch carries at most 32 files and `min(12 MiB, ¾ × (maxRequestBytes − framing))` raw bytes (`stagedBounds`), so the base64 body fits the import budget's `maxRequestBytes`. Its cost is at most `stagedBatchCost(files, rowsPerBatch)`: D1 `14 + ceil(files / rowsPerBatch)`, R2 `1 + 3 × files`, external calls R2 `+ 10` (including the writer reservation and settlement). The tests hold the counted calls to that bound. When the deployment composes a `requestBudget` (Workers Free: 45 and 45) a batch over it is refused `over-budget`. A listed file larger than one batch can carry is refused when the import is opened, not part-way.
+
+## The reviewed ceiling
+
+| Bound | Was | Now | Why |
+| --- | ---: | ---: | --- |
+| files in a package, `LIMITS.packageFiles`, manifest `maxItems`, `nativeImportBudget.maxFiles` | 1,024 | 8,192 | A v5-sized export lists about 40 datasets and indexes plus a preview per document and per extracted attachment: 1,689 + 1,308, about 3,050 files. 8,192 is 2.7 times that. The costs that grow with it (manifest size, one D1 row and one R2 object per file, one read per file at completion) are bounded in batches. |
+| `manifestBytes` | 1 MiB | 4 MiB | 8,191 entries of about 300 bytes is 2.4 MiB. |
+| `packageBytes` | 512 MiB | 2 GiB | Covers the whole 1.85 GB v5 export even if every byte were a package file. |
+| zip `archiveEntries`, `archiveTotalBytes` | 1,024, 512 MiB | 8,192, 2 GiB | The zip transport of the same layout. |
+| `fileBytes`, per-file 64 MiB; `originalBytes` 8 GiB | | unchanged | |
+
+The ceiling is a safety limit. The deployment's `storageBudgets` and `importBudget` still decide what one client may import and must be set to a stated policy before a real export (a deployment value, not a code default).
+
+## Known limits
+
+- Corrections (`correct`) are still refused whenever a request budget is composed, as they read and stage a whole package in one request.
+- The stepped stager's bounds, its per-step call counts and its memory are unmeasured on workerd; only the node:sqlite and in-memory R2 doubles ran.
+- A file larger than one batch (12 MiB raw at most) cannot be sent.
+- Memory per batch request (the body, its text, the decoded bytes) and the real call counts on D1 and R2 are unmeasured on workerd.
+
+## Checks
+
+```sh
+scripts/agent-tools/receipt --name staged-import -- bun run --bun vitest run --config tests/results-review/native/vitest.config.ts
+scripts/agent-tools/receipt --name staging-migration -- bun run --bun vitest run --config tests/hosted-foundation/native-runtime-migration/vitest.config.ts
+scripts/agent-tools/receipt --name stepped-import -- bun run --bun test tests/results-review/native/stepped-import.test.ts tests/results-review/native/staged-cleanup.test.ts tests/case-package/held-previews.test.ts
+```
+
+`CLEARCASE_POC_DOCUMENTS=1689` (and optionally `CLEARCASE_POC_DIR`) runs the decisive test on the full 1,689-document poc corpus (about 1.8 GB, generated outside `/tmp` and the checkout); the default generates 60 documents once under `~/.cache/clearcase-rx27`.
+
+## U14: the real-export run on sandbox B
+
+What the orchestrator runs on B, in order. It stops where the owner signs off and publishes: nobody but the owner does that, and nothing below signs off, publishes or uses an owner identity. Local proof of every step is `tests/hosted-foundation/end-to-end/real-export.test.ts`: the real `hostedServices` behind the real routes, over the assembled native schema with 0005 to 0008 on node:sqlite and an in-memory R2. Clerk, the compiled PDF pins and the Browser Rendering SDK are doubles, so it proves no provider, memory or latency. It runs 126 synthetic documents by default and 1,689 with `CLEARCASE_U14_DOCUMENTS=1689`.
+
+**1. Migrations.** B runs 0001, 0002 and 0004. Apply 0005 to 0008 in order, one increment at a time. For each `mode` in `evidence-0005`, `import-staging-0006`, `intake-file-sets-0007` and `pdf-sessions-0008`:
+
+```sh
+bun scripts/hosted-native-runtime-migration.ts prepare <new-stage>/<mode> <mode>
+bun scripts/hosted-native-runtime-migration.ts verify <new-stage>/<mode> <mode>
+wrangler d1 time-travel info cc-sbx-b-20261025-r1-db        # record the bookmark before each apply
+wrangler d1 migrations apply cc-sbx-b-20261025-r1-db --remote --config <new-stage>/<mode>/client-b.wrangler.json
+```
+
+`tests/hosted-foundation/native-runtime-migration/pdf-sessions-migration.test.ts` upgrades a copy of B's schema, holding rows, through all four and checks that every earlier table, row, trigger and index survives. If an apply fails, restore the bookmark and stop.
+
+**2. Settings.** These are client B's planner policy, compiled by `bun scripts/hosted-native-runtime-config.ts prepare`. The values that must change from B's settings at b5866e59:
+
+| Setting | B now | U14 | Why |
+| --- | ---: | ---: | --- |
+| `storageQuotas.maxUploadsPerCase` | 20 | 4,096 | B's earlier uploads plus 1,753 v5 originals (`v5-sized-quotas.test.ts`). |
+| `storageQuotas.maxOriginalBytesPerCase` / `PerClient` | 16 / 64 MiB | 8 / 16 GiB | The v5 folder holds 3.03 GiB. |
+| `storageBudgets.maxRowsPerBatch` | 3 | 100 | At 3, `complete` refuses a 126-document package as over the request plan. |
+| `storageBudgets.maxDocuments` | 1,000 | 4,096 | 1,689 documents. |
+| `storageBudgets.maxVerifyObjects` / `maxVerifyBytes` and the case window | 256 / 32 MiB, 1,024 / 128 MiB an hour | 8,192 / 256 MiB, 1,048,576 / 16 GiB an hour | Every evidence build request verifies the package again, and the originals step reads each original once. |
+| `storageBudgets.maxOriginalBytes` = `maxBufferedObjectBytes` | 2 MiB | the orchestrator's choice | An original is verified whole in memory on a 128 MB Worker. Of the 1,753 v5 originals, 117 are over 2 MiB, 35 over 16 MiB and 17 over 32 MiB. Intake refuses an original over the limit, so the import cannot cover it. |
+| `pdfEvidenceBudget` | absent | `NATIVE_PDF_EVIDENCE_CEILINGS` | Without it, every build answers 503 `renderer-unavailable`. A PDF over its `maxFileBytes` (16 MiB) seals as a failed preview, and that blocks sign-off. |
+| `browserAllocation` | B's | B's render plus 122,000 ms × `maxSessionsPerClientPerDay`, plus one browser | The planner refuses an allocation the PDF sessions do not fit (`pdf-evidence-budget.test.ts`). |
+
+The package and import budgets (`maxPackageFiles`, `maxPackageFileBytes`, `maxPackageBytes`, `importBudget`, `storageQuotas.maxPackageBytesPerCase`) are set from the real export's measured file count and largest file before the import. A package file of up to `maxFileBytes` now fits one JSON body (the controller's strict parser takes strings that long).
+
+**3. Intake.** The client uploads the case folder as one file set: `POST /client/intake/[caseId]/sets`, then a declare and a `PUT` per file, then `POST .../sets/[setId]/seal` until it answers 200. The revision id is `subrev-<setId>`.
+
+**4. Staged import.** `POST /operator/results/[caseId]/imports/staged` with the manifest, `POST .../[operationId]/files` in batches planned by `stagedBounds`, then `POST .../[operationId]/complete` until it answers `linked`. Record the `candidateId`.
+
+**5. Evidence.** `POST /operator/publication/[caseId]/evidence` with `{"candidateId": "..."}`, repeated while it answers 202 (`building` or `rendering`). One PDF session per client runs at a time, and each holds its lease for up to 122 s, so space the calls by that much while it answers `rendering` with `render-admission-refused`. A 200 `complete` gives the generation and root. A 409 `leased` means another request holds the run. `{"restart": true}` begins the next generation and is the only way to replace a sealed run. At 1,689 synthetic documents the build took 53 requests.
+
+**6. Readiness.** `GET /operator/publication/[caseId]/readiness?candidateId=...` must answer 200 with `format: clearcase.readiness/2`, the generation and root from step 5, and no blocker other than the META disagreement (`required-section`, `meta:disagrees`), which the owner's acknowledgement clears. A 503 means the run is unsealed, older or does not cover the link: rebuild it with `restart`. Page the warnings with `&kind=warning` for the owner.
+
+Stop here. The owner signs off (acknowledgements grouped by code, including `ASSET_MISSING_AT_BUILD` and `V5_META_COUNT_DISAGREEMENT`) and publishes.

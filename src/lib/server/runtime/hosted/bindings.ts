@@ -1,3 +1,4 @@
+import type { SessionKV } from '../../../auth/app-session.ts';
 import type { ClientId } from '../contracts.ts';
 import { id } from '../ids.ts';
 
@@ -17,6 +18,7 @@ export interface R2 {
 	get(key: string): Promise<{ size: number; arrayBuffer(): Promise<ArrayBuffer> } | null>;
 }
 export interface Bindings {
+	SESSIONS: SessionKV | null;
 	DB: D1 | null;
 	BUCKET: R2 | null;
 	ASSETS: boolean;
@@ -33,6 +35,7 @@ export function bindings(env: Readonly<Record<string, unknown>>): Bindings {
 	const client = text(env.CLEARCASE_CLIENT_ID, /^[a-z0-9][a-z0-9-]{0,62}$/);
 	const runId = text(env.CLEARCASE_GATE_RUN, /^[A-Za-z0-9._-]{1,64}$/), fixtureSha256 = text(env.CLEARCASE_GATE_FIXTURE, /^[0-9a-f]{64}$/);
 	return {
+		SESSIONS: has(env.SESSIONS, 'get', 'put') ? (env.SESSIONS as SessionKV) : null,
 		DB: has(env.DB, 'prepare', 'batch') ? (env.DB as D1) : null,
 		BUCKET: has(env.BUCKET, 'get') ? (env.BUCKET as R2) : null,
 		ASSETS: has(env.ASSETS, 'fetch'),

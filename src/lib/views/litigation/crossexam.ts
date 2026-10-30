@@ -1,4 +1,9 @@
 import type { SeedView } from '../../case-package/browser.ts';
+import { citedRefs } from '../../components/cite.ts';
+import type { VersionedRow, VersionedSeed } from '../../local-case/registers.server.ts';
+import type { crossexamPure } from './register.server.ts';
+
+export const CX_SEED = 'lit-crossexam-seed';
 
 export const CX_FIELDS = ['witness', 'topic', 'put', 'docs'] as const;
 export type CxField = (typeof CX_FIELDS)[number];
@@ -61,4 +66,19 @@ export function mapV5Crossexam(seeds: readonly { seedId: string; record: Readonl
 	}
 	for (const s of seeds) if (!seen.has(s.seedId)) overlays.push({ seedId: s.seedId, fields: { deleted: true } });
 	return { overlays, userRows };
+}
+
+/** A Delete button's value: the row or seed id and the version the page showed. */
+export const deleteValue = (id: string, version: string) => `${id} ${version}`;
+
+/** The Cross-examination shard (ticket 04): the view without the seed overlays and the user's rows. */
+export type CrossexamShard = ReturnType<typeof crossexamPure>;
+
+/** The Cross-examination page data from its shard, the versioned seed views and user rows, and the add form's id. */
+export function crossexamMerge(shard: CrossexamShard, work: { seeds: readonly VersionedSeed[]; rows: readonly VersionedRow[] }, addId: string) {
+	const seedVersions = new Map(work.seeds.map((x) => [x.seedId, x.version]));
+	const rowVersions = new Map(work.rows.map((r) => [r.rowId, r.version]));
+	const rows = crossexamRows(work.seeds, work.rows).map((r) => ({ ...r, del: 'rowId' in r.target ? deleteValue(r.target.rowId, rowVersions.get(r.target.rowId)!) : deleteValue(r.target.seedId, seedVersions.get(r.target.seedId)!) }));
+	const shown = new Set(citedRefs(rows.filter((r) => r.authored).map((r) => r.put)));
+	return { rows, tip: shard.tip, known: shard.knownSeedRefs.filter((r) => shown.has(r)), addId };
 }

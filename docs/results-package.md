@@ -1,6 +1,6 @@
 # Results package contract (formatVersion 1)
 
-GRS-10 (CC-02). A results package is the versioned, inspectable output of processing one case: datasets, an index of the originals they cite, and identities that bind both. This page is the contract. GRS-12 (CC-03) builds the local app on the library exports named in [Library API](#library-api), and GRS-11 (CC-23) gates it. Words follow [GLOSSARY.md](../GLOSSARY.md).
+GRS-10 (CC-02). A results package is the versioned, inspectable output of processing one case: datasets, an index of the originals they cite, and identities that bind both. This page is the contract. Producers targeting hosted publication should also follow the [processing contract](processing-contract.md). GRS-12 (CC-03) builds the local app on the library exports named in [Library API](#library-api), and GRS-11 (CC-23) gates it. Words follow [GLOSSARY.md](../GLOSSARY.md).
 
 The v5 sample (1,689 documents) converts to 37 files: 35 datasets, `assets.json` and `manifest.json`, 6.2 MB in total (largest file 1.8 MB). Originals are never copied into a package. They stay in the operator's case folder and are matched by relative path, sha256 and size.
 
@@ -48,7 +48,7 @@ The manifest is closed: an unknown top-level or nested field is `PKG_MANIFEST_IN
 | `parent` | the `resultsVersion` this one derives from (Markdown round trip, re-run), or `null` |
 | `producer` | `{name, version}` of the converter |
 | `created` | deterministic, from the input (v5: `META.builtAt`, local time without zone), never the clock |
-| `files[]` | sorted by path: `{path, role: dataset\|assets, key, kind, schema, required, count, sha256, size}` (dataset entries carry all of them) |
+| `files[]` | sorted by path: `{path, role: dataset\|assets\|preview, key, kind, schema, required, count, sha256, size}` (dataset entries carry all of them) |
 | `extensions` | optional `{ "x-…": any }` |
 
 **Version policy.** `format` and `formatVersion` are checked before any shape check. Any other `formatVersion` (2, `"1"`, a missing field, an old `schemaVersion: "1.0"`) gives exactly one actionable error, `VER_UNSUPPORTED`, and no candidate. A change that an older reader could misread is a new `formatVersion`. Datasets version independently: `schema` is `name@major`. A reader that does not know a dataset's schema rejects the package when the dataset is `required` (`DS_SCHEMA_UNSUPPORTED`) and otherwise keeps it bounded, preserved and unrendered (`DS_UNKNOWN_SCHEMA`, warning). Diagnostic codes are stable; a severity may only be raised in a new `formatVersion`.
@@ -58,7 +58,7 @@ The manifest is closed: an unknown top-level or nested field is `PKG_MANIFEST_IN
 | Identity | Definition | Covers | Excludes |
 | --- | --- | --- | --- |
 | `inputRevision.id` | `'sha256:' + sha256(compactJcs(sorted [{role, sha256, size}]))`, sorted by role, sha256, size | the exact input bytes | file names |
-| `resultsVersion` | `'sha256:' + sha256(compactJcs({format, formatVersion, caseId, inputRevisionId, files}))`, `files` sorted by path as `{path, role, key, kind, sha256, size}` with absent optional fields omitted | every byte of every dataset and of the asset index, hence every original's sha256 | case label, `created`, producer, parent |
+| `resultsVersion` | `'sha256:' + sha256(compactJcs({format, formatVersion, caseId, inputRevisionId, files}))`, `files` sorted by path as `{path, role, key, kind, sha256, size}` with absent optional fields omitted | every byte of every dataset, the asset index and each file preview, hence every original's sha256 | case label, `created`, producer, parent |
 | `manifestSha256` | sha256 of the exact `manifest.json` bytes | label, created, producer, parent, source names | n/a |
 
 - A renamed HTML, another output directory, concurrency, `TZ`/`LANG`, an unrelated file in the case folder and a producer patch release do not change `resultsVersion`. One changed narrative character or one changed original byte does. Only the adapter's major mapping id (`clearcase-v5-adapter@0`) enters dataset bytes; the full producer version is in `manifest.producer`.
@@ -169,6 +169,7 @@ The demotion rule guards every generation: before writing, the adapter checks ea
 
 - Keys are register refs or `<parentRef>.a<ordinal>` (1-based) for attachments still inside their container; the ordinal keeps repeated member names distinct (v5 has 49 duplicates within one parent). A register ref can never take the `.aN` form, so it cannot overwrite an attachment key.
 - **Package files** (GRS-45) are the files the bundle views link outside the register: each bundle's PDF and index PDF, each item's extract and source parts, the CaseLines source and every discovery and supplementary schedule file. Each is a `file` or `missing` asset under the key `P-<first 16 hex digits of sha256(path)>`, where `path` is the decoded locator path. A ref has at most eight digits, so a package-file key is never a ref. The converter skips register paths (also after case and NFC folding), folders and locators that do not decode, and fingerprints the rest under the same escape, reserved, bound and sha256 rules as a register original. A package-file key that is not the digest of its path, an `embedded` one and one with a `parentRef` are `ID_REF_INVALID`. Package files are not documents: they raise no `ASSET_ORPHAN` and no text-status diagnostics, and they are not candidates for fingerprint re-anchoring. The originals site serves them at `/o/<resultsVersion>/<key>` like any verified original.
+- A `file` asset may carry `preview: {path, sha256, size, originalSha256}`. It identifies a PDF package file, not a case-folder original: `originalSha256` must equal the asset's `sha256`, and `path`, `sha256` and `size` must match a manifest entry with role `preview`. Its bytes are subject to the same package path, size and hash checks as other listed files; the PDF header is checked, but faithful conversion and rendering require separate evidence. Every preview entry must be referenced by a file asset and may not occupy a dataset or asset index path. Several assets may share one preview only when they bind the same original sha256 and the same preview bytes. A preview is not permitted on `embedded` or `missing` assets. The member is omitted when absent, preserving existing canonical bytes and resultsVersion.
 - `file`: an original in the case folder, at a literal (not percent-encoded) `/`-separated path relative to the case folder, identified by sha256 + size. `file` with `parentRef`: an extracted attachment with its own bytes (newer-export chronology rows with a `pr` field). `embedded`: an attachment inside its parent (v5 lists 1,308 names under e-mails; `member` is untrusted display text, never a path). `missing`: the converter found no original (`ASSET_MISSING_AT_BUILD`, warning).
 - Parents must exist (`ASSET_PARENT_UNKNOWN`), chains are acyclic and at most 4 deep (`ASSET_PARENT_CYCLE`), and a parent should be a container type (`ASSET_PARENT_NOT_CONTAINER`, warning).
 - **Paths.** Non-empty, no leading `/` or `\`, no drive letter (`C:` or the URL form `C|`), no backslash, no control character, no empty, `.` or `..` segment; at most 1,024 UTF-8 bytes, 255 bytes per segment and 32 segments. Absolute, UNC, drive and `..` paths are `ASSET_PATH_TRAVERSAL`; other violations `ASSET_PATH_INVALID`; anything under `.clearcase/` is `ASSET_PATH_RESERVED`. Two refs naming the same path are aliases (`ASSET_SHARED_PATH`, info); two different paths that collide after case and NFC folding are `ASSET_AMBIGUOUS_MAPPING` (error). The same rules apply to package paths (`PKG_PATH_*`).
@@ -253,14 +254,14 @@ User notes, registers, selections and preparation material (the v5 browser store
 
 ## Bounds
 
-All bounds are in `limits.ts` (`LIMITS`); callers may lower them per import (`options.limits`). Each has at least 10 times headroom over the v5 sample.
+All bounds are in `limits.ts` (`LIMITS`); callers may lower them per import (`options.limits`). Each has at least 10 times headroom over the v5 sample. The file, manifest and byte bounds were raised on 27 October 2026 for a v5-sized export with a PDF preview per document and per extracted attachment (about 3,050 files); see [the chunked import](acceptance/native-staged-import.md#the-reviewed-ceiling).
 
 | Bound | Value | v5 sample |
 | --- | --: | --: |
-| `manifest.json` | 1 MiB | 12 KB |
+| `manifest.json` | 4 MiB | 12 KB |
 | any listed file | 64 MiB | 1.8 MB |
-| all listed files | 512 MiB | 6.2 MB |
-| files in a package (incl. manifest) / datasets | 1,024 / 512 | 36 / 34 |
+| all listed files | 2 GiB | 6.2 MB |
+| files in a package (incl. manifest) / datasets | 8,192 / 512 | 36 / 34 |
 | JSON nesting | 32 containers | 9 |
 | string | 1 Mi UTF-16 units | 4,000 |
 | keys per object / items per array / values per file | 100,000 / 1,000,000 / 20,000,000 | 481 / 1,745 / — |
@@ -271,7 +272,7 @@ All bounds are in `limits.ts` (`LIMITS`); callers may lower them per import (`op
 | listed diagnostics per code | 2,000 (rest counted, all fingerprinted) | 910 |
 | original / unique referenced originals | 8 GiB / 32 GiB | 1.85 GB in total |
 | validation deadline | 120 s | about 1.3 s warm |
-| zip: entries / per entry / expanded total / ratio above 1 MiB | 1,024 / 64 MiB / 512 MiB / 100:1 | — |
+| zip: entries / per entry / expanded total / ratio above 1 MiB | 8,192 / 64 MiB / 2 GiB / 100:1 | — |
 
 Exceeding a bound is an error with an actionable message, before activation and, for originals, before hashing.
 
@@ -362,6 +363,10 @@ Budget on puk (decision 8, fixed from the GRS-9 baseline before implementation):
 | `PKG_VERSION_MISMATCH` | error | integrity | resultsVersion is not the digest of the listed content |
 | `PKG_UNPROCESSABLE` | error | structural | the package could not be processed (unexpected failure while reading or validating) |
 | `PKG_ROLE_INVALID` | error | structural | missing or duplicate asset index |
+| `PKG_PREVIEW_UNREFERENCED` | error | structural | preview is not referenced by a file asset |
+| `PKG_PREVIEW_INVALID` | error | structural | preview does not have a PDF header |
+| `PKG_PREVIEW_PATH_INVALID` | error | structural | preview occupies a dataset or asset index path |
+| `PKG_PREVIEW_BINDING_MISMATCH` | error | integrity | preview binding does not match its manifest entry or original |
 | `JSON_BAD_UTF8` | error | structural | file is not valid UTF-8 or has a byte order mark |
 | `JSON_MALFORMED` | error | structural | malformed JSON |
 | `JSON_DUPLICATE_KEY` | error | structural | duplicate key in a JSON object |

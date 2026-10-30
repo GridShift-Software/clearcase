@@ -126,11 +126,32 @@ describe('page notes persist through user work and stay on their own original', 
   it('answers a stale delete 409 and a delete of another original’s note 404, keeping both rows', async () => {
     const { w, work, rows } = await fixture();
     const made = (await (await send(w, work, 'POST', { operationId: op(), page: 1, body: 'keep' })).json()) as { note: { rowId: string; version: string } };
-    expect((await send(w, work, 'DELETE', { operationId: op(), rowId: made.note.rowId, version: 'v-old' })).status).toBe(409);
-    expect((await send(w, work, 'DELETE', { operationId: op(), rowId: made.note.rowId, version: made.note.version }, { assetId: 'a2' })).status).toBe(404);
+    expect((await send(w, work, 'DELETE', { operationId: op(), rowId: made.note.rowId, version: 'v-old', confirm: made.note.rowId })).status).toBe(409);
+    expect((await send(w, work, 'DELETE', { operationId: op(), rowId: made.note.rowId, version: made.note.version, confirm: made.note.rowId }, { assetId: 'a2' })).status).toBe(404);
     expect(rows.size).toBe(1);
-    expect((await send(w, work, 'DELETE', { operationId: op(), rowId: made.note.rowId, version: made.note.version })).status).toBe(200);
+    expect((await send(w, work, 'DELETE', { operationId: op(), rowId: made.note.rowId, version: made.note.version, confirm: made.note.rowId })).status).toBe(200);
     expect(rows.size).toBe(0);
+  });
+
+  it.each([['without a confirmation', {}], ['confirmed for another note', { confirm: 'row-other' }], ['with a non-text confirmation', { confirm: true }]])('refuses a delete %s with 400 and keeps the row', async (_label, confirmation) => {
+    const { w, work, rows } = await fixture();
+    const made = (await (await send(w, work, 'POST', { operationId: op(), page: 1, body: 'keep' })).json()) as { note: { rowId: string; version: string } };
+    const operationId = op();
+    const refused = await send(w, work, 'DELETE', { operationId, rowId: made.note.rowId, version: made.note.version, ...confirmation });
+    expect(refused.status).toBe(400);
+    expect(rows.size).toBe(1);
+    // The refusal used nothing up: the same operation, now confirmed, deletes the row.
+    expect((await send(w, work, 'DELETE', { operationId, rowId: made.note.rowId, version: made.note.version, confirm: made.note.rowId })).status).toBe(200);
+    expect(rows.size).toBe(0);
+  });
+
+  it('answers a confirmed delete for an original the caller cannot read 404, as for any absent original', async () => {
+    const { w, work, rows } = await fixture();
+    const made = (await (await send(w, work, 'POST', { operationId: op(), page: 1, body: 'keep' })).json()) as { note: { rowId: string; version: string } };
+    w.who.grants.delete('case-a');
+    expect((await send(w, work, 'DELETE', { operationId: op(), rowId: made.note.rowId, version: made.note.version, confirm: made.note.rowId })).status).toBe(404);
+    expect((await send(w, work, 'DELETE', { operationId: op(), rowId: made.note.rowId, version: made.note.version })).status).toBe(404);
+    expect(rows.size).toBe(1);
   });
 
   it('answers 503, not an empty list, when user work is not connected, and never keeps the note anywhere else', async () => {
@@ -150,7 +171,15 @@ describe('page notes persist through user work and stay on their own original', 
 });
 
 describe('the viewer page load', () => {
-  const run = (w: World, work: AsyncUserWork, caseId = 'case-a', assetId = 'a1') => load({ params: params(caseId, assetId), locals: { assets: w.assets, userWork: work } } as never).catch((e: unknown) => (isHttpError(e) ? { status: e.status } : Promise.reject(e)));
+  const run = (w: World, work: AsyncUserWork, caseId = 'case-a', assetId = 'a1') => load({ params: params(caseId, assetId), url: new URL('https://case.test/view'), locals: { assets: w.assets, userWork: work } } as never).catch((e: unknown) => (isHttpError(e) ? { status: e.status } : Promise.reject(e)));
+
+  it('passes the requested page from the URL to the viewer, including invalid values', async () => {
+    const { w, work } = await fixture();
+    for (const page of ['2', '0', '-1', '1.5', '41']) {
+      const result = await load({ params: params('case-a', 'a1'), url: new URL(`https://case.test/view?page=${page}`), locals: { assets: w.assets, userWork: work } } as never);
+      expect(result.requestedPage).toBe(page);
+    }
+  });
 
   it('offers the PDF viewer with only case/asset links: no object key, hash or storage id leaves the server', async () => {
     const { w, work } = await fixture();

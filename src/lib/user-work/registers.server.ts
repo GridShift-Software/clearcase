@@ -13,7 +13,7 @@ const text = (v: unknown) => (typeof v === 'string' ? v : v === null || v === un
 const order = (a: StoredRow, b: StoredRow) => a.seq - b.seq || (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0) || (a.rowId < b.rowId ? -1 : a.rowId > b.rowId ? 1 : 0);
 const seqOf = (r: RegisterRow): number | null => (typeof r.fields.seq === 'number' && Number.isFinite(r.fields.seq) ? r.fields.seq : null);
 
-export const versionOf = (r: RegisterRow): string => createHash('sha256').update(JSON.stringify([r.fields, r.anchor, r.updatedAt])).digest('hex').slice(0, 32);
+export const versionOf = (r: RegisterRow & { version?: string }): string => r.version ?? createHash('sha256').update(JSON.stringify([r.fields, r.anchor, r.updatedAt])).digest('hex').slice(0, 32);
 
 function stored(def: RegisterDef, r: RegisterRow): StoredRow {
 	const values = Object.fromEntries(def.fields.map((x) => [x.k, text(r.fields[x.k])]));

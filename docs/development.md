@@ -1,6 +1,6 @@
 # Developing the local ClearCase app
 
-The local pilot (GRS-12, CC-03): an operator imports a results package for a case folder, reads its validation report, previews and activates it, and follows a citation from the chronology or overview to the original, which opens safely or downloads. This page is the developer contract for the app and for the M2 view owners who extend it. The package contract is [results-package.md](results-package.md); words follow [GLOSSARY.md](../GLOSSARY.md).
+The local pilot (GRS-12, CC-03): an operator imports a results package for a case folder, reads its validation report, previews and activates it, and follows a citation from the chronology or overview to the original, which opens safely or downloads. This page is the developer contract for the app and for the M2 view owners who extend it. The package contract is [results-package.md](results-package.md); hosted producers should also follow the [processing contract](processing-contract.md). Words follow [GLOSSARY.md](../GLOSSARY.md).
 
 ## Stack decision
 
@@ -87,6 +87,12 @@ The second variable, `CLEARCASE_HOSTED_PROFILE`, is a test variable read at buil
 | `bun run --bun test:hosted` | Bun sends every request; workerd answers | Against the running server, at HEAD: the request, render and action smoke legs of `tests/hosted-foundation/runtime/smoke.ts`, then the import-boundary negative test (`guard-mutations.ts`). Writes `.local/hosted/test-<sha>-<profile>.json` and exits 0 only when every leg passes |
 
 A Node or Bun server pass is not hosted evidence; only these workerd runs are. No Cloudflare account, token, login or deploy is involved: every binding in `deploy/client/wrangler.toml` is `remote = false`, and its database id is a placeholder. The client a deployment serves comes from its `CLEARCASE_CLIENT_ID` var, never from a request.
+
+### Native original metadata migration
+
+The current native runtime needs the complete `NATIVE_MIGRATION_SEQUENCE` in [runtime-migration.ts](../deploy/native-alpha/runtime-migration.ts), including on a fresh database. `assembleNativeSchema` emits the historical `0001` baseline; its bytes stay pinned. Apply that baseline, then the sequence in order. The CLI and fresh-install fixture consume the same sequence. Its source-migration completeness check fails if any migration under `src/lib` is absent or duplicated.
+
+After the existing `0008` PDF-session packet, `original-metadata-0009` adds nullable ETag and delivery-family columns. `workspace-0010` adds shard publication/admission, intake notification and bundle definitions. Prepare a packet offline with `bun scripts/hosted-native-runtime-migration.ts prepare .local/native-workspace workspace-0010` and verify it with the same command using `verify` instead of `prepare`. This stages SQL and its checked invocation; it does not contact a provider or apply a migration. Apply the required increments before running the current artifact. Staging applies its own migration sequence; do not replay native packets on that database.
 
 ### Test doubles and the GRS-138 feature map
 

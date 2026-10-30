@@ -32,6 +32,15 @@ export async function readCase(services: RequestServices, raw: string | undefine
   return { caseId, info: info! };
 }
 
+/**
+ * Whether the page shows its write controls, asked after the page's authorized read: the request's case snapshot says the
+ * signed-in person's grant writes user work, at no further query. A runtime without that snapshot keeps the controls; every
+ * write is authorized on its own either way, so this only spares a viewer controls that would be refused.
+ */
+export async function canWriteWork(services: RequestServices, caseId: CaseId): Promise<boolean> {
+  return services.canWriteWork ? services.canWriteWork({ caseId }) : true;
+}
+
 export type Current = { kind: 'current'; resultsVersion: ResultsVersion } | { kind: 'status'; status: ResultsStatus };
 const UNAVAILABLE = 'The published results cannot be shown right now. Try again shortly.';
 
@@ -40,6 +49,10 @@ export async function currentVersion(services: RequestServices, info: CaseInfo):
   const p = info.publication;
   if (p.kind !== 'published') return { kind: 'status', status: { kind: p.kind === 'none' ? 'pending' : 'withdrawn' } };
   const scope = { caseId: info.caseId, resultsVersion: p.resultsVersion };
+  if (services.caseRead) {
+    const memo = await services.caseRead({ caseId: info.caseId });
+    if (memo.published?.shardManifestSha256) return memo.published.versionId === p.resultsVersion ? { kind: 'current', resultsVersion: p.resultsVersion } : { kind: 'status', status: { kind: 'unavailable', reason: UNAVAILABLE } };
+  }
   const active = await part(services.store.activeVersionId({ caseId: info.caseId }));
   if (active.state === 'unavailable' || active.value !== p.resultsVersion) return { kind: 'status', status: { kind: 'unavailable', reason: UNAVAILABLE } };
   const check = await part(publishedReadiness(services.store, scope));

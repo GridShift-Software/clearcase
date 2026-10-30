@@ -59,6 +59,14 @@ export const capabilityOf = (mediaType: string): Capability => def(mediaType).ca
 export const isContainer = (mediaType: string): boolean => def(mediaType).container;
 export const serveModeOf = (mediaType: string): ServeMode => def(mediaType).serve;
 
+export type OriginalMediaFamily = 'pdf' | 'image' | 'email-text' | 'download';
+/** Delivery metadata shared by intake and bulk originals. */
+export function originalMediaFamily(mediaType: string): OriginalMediaFamily {
+  if (mediaType === 'application/pdf') return 'pdf';
+  const mode = serveModeOf(mediaType);
+  return mode === 'text-sandboxed' ? 'email-text' : mode === 'inline-isolated' ? 'image' : 'download';
+}
+
 export function textStatusConsistent(mediaType: string, s: TextStatus): boolean {
   const cap = capabilityOf(mediaType);
   if (s === 'pending') return true;

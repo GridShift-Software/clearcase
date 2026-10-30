@@ -3,14 +3,17 @@
 // Every write is one guarded D1 batch: the first statement fails the batch unless the case's user-work revision is the
 // one the write read and the database is bound to this deployment's client and schema version, so a competing writer
 // can never be overwritten. The same batch records the operation in uw_operation with its request digest, result and
-// audit event. Success is returned only after the injected AuditSink acknowledges that event; an unacknowledged event
-// leaves the write durable and the operation retryable under the same operationId, which appends the identical event.
+// audit event, and every fresh change commits its audit event in that same batch through AuditSink.atomic: a sink that
+// cannot prepare it for this binding refuses the change with nothing written. The exceptions append after the batch
+// and recover by replay under the same operationId: a restore (recovery's guarded binding is not the sink's session
+// object), snapshots, table definitions and ledgers written unaudited before GRS-266.
 // A failed batch is never taken as success or failure on its own: the ledger and revision are read back to decide.
 import type * as C from '../../server/runtime/contracts.ts';
 import type { D1, D1Statement } from '../../server/runtime/hosted/bindings.ts';
 import { contractError, isDenial } from '../../server/runtime/errors.ts';
 import { id, sha256 } from '../../server/runtime/ids.ts';
 import { viewSeeds } from '../../case-package/user-work.ts';
+import { PAGE_NOTE_STORE } from '../../viewer/hosted/page-notes.ts';
 import {
   AnchorCheck, BUILTINS, NoteRowCheck, OverlayCheck, RegisterRowCheck, TargetCheck, body, builtin, canonical, cells, definition,
   fields, invalid, isBuiltin, isReserved, operationId, parsed, rowIdOf, sha256Hex, storeName, tableKey,
@@ -84,10 +87,13 @@ function compare(expected: C.Expected, current: { version: string } | null | und
   return !current ? 'gone' : current.version !== expected.version ? 'stale' : null;
 }
 const sameJson = (a: unknown, b: unknown) => canonical(a) === canonical(b);
+/** A top-level register field a read may select rows by; never a JSON path of the caller's own. */
+const FIELD = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 
 type Ledger = { request_sha256: string; result_json: string; event_json: string; audited_at: string | null };
 type Plan<T> = { kind: 'stale' | 'gone' } | { kind: 'written'; value: T; statements: D1Statement[]; collision?: () => Promise<Error | null>; beforeCommit?: () => Promise<void> };
-type Step = { revision: C.CaseRevision; version: C.WorkVersion; next: C.CaseRevision; at: string; event: C.AuditEvent };
+/** `audited` is the time the change's own audit commits in its batch, or null when it is appended after the batch. */
+type Step = { revision: C.CaseRevision; version: C.WorkVersion; next: C.CaseRevision; at: string; event: C.AuditEvent; audited: string | null };
 type NoteDb = { note_id: string; target_json: string; body: string; body_sha256: string; created_at: string; version: string };
 type RegisterDb = { row_id: string; store: string; anchor_json: string | null; fields_json: string; fields_sha256: string; created_at: string; updated_at: string; version: string };
 type OverlayDb = { dataset_key: string; seed_id: string; base_seed_sha256: string; fields_json: string; version: string };
@@ -101,16 +107,18 @@ async function revisionOf(db: D1, caseId: C.CaseId): Promise<C.CaseRevision> {
   const row = await db.prepare('SELECT revision FROM uw_case WHERE case_id = ?').bind(caseId).first<{ revision: string }>().catch(() => { throw contractError('storage-unavailable', true); });
   return row ? id('case-revision', row.revision) : INITIAL_REVISION;
 }
-/** The binding gate: uw_binding must name this client and schema version. A success is kept for this factory only. */
+/** The binding gate: uw_binding must name this client and schema version. A success is kept for this factory only;
+ * concurrent callers share one check, and a failed check is asked again by the next caller. */
 function bindingGate(db: D1 | null, config: D1UserWorkConfig): () => Promise<D1> {
-  let passed = false;
+  let checked: Promise<D1> | null = null;
   return async () => {
     if (!db) throw contractError('storage-unavailable');
-    if (passed) return db;
-    const row = await db.prepare('SELECT client_id, schema_version FROM uw_binding WHERE singleton = 1').first<{ client_id: string; schema_version: number }>().catch(() => { throw contractError('storage-unavailable', true); });
-    if (!row || row.client_id !== config.clientId || Number(row.schema_version) !== USER_WORK_SCHEMA_VERSION) throw contractError('storage-unavailable');
-    passed = true;
-    return db;
+    checked ??= (async () => {
+      const row = await db.prepare('SELECT client_id, schema_version FROM uw_binding WHERE singleton = 1').first<{ client_id: string; schema_version: number }>().catch(() => { throw contractError('storage-unavailable', true); });
+      if (!row || row.client_id !== config.clientId || Number(row.schema_version) !== USER_WORK_SCHEMA_VERSION) throw contractError('storage-unavailable');
+      return db;
+    })().catch((e: unknown) => { checked = null; throw e; });
+    return checked;
   };
 }
 
@@ -145,10 +153,14 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
     await standing();
   }
   /** Revocation, then the case grant, on every operation. */
-  async function authorize(scope: C.Scope, operation: 'read' | 'write-user-work'): Promise<{ db: D1; caseId: C.CaseId }> {
+  async function authorize(scope: C.Scope, operation: 'read' | 'write-user-work', inlineBinding = false): Promise<{ db: D1; caseId: C.CaseId }> {
     const caseId = caseOf(scope);
     await standing();
     await identity.authorize({ caseId, operation });
+    if (inlineBinding) {
+      if (!options.db) throw contractError('storage-unavailable');
+      return { db: options.db, caseId };
+    }
     return { db: await gate(), caseId };
   }
   const read = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof Error && 'code' in e) throw e; throw contractError('storage-unavailable', true); } };
@@ -169,13 +181,32 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       COALESCE((SELECT revision FROM uw_case WHERE case_id = ?), 'revision-0') = ?
       AND EXISTS (SELECT 1 FROM uw_binding WHERE singleton = 1 AND client_id = ? AND schema_version = ?))`).bind(caseId, revision, config.clientId, USER_WORK_SCHEMA_VERSION);
 
+  /** The event's insert for the change batch. Every change refuses, writing nothing, when the sink cannot prepare one
+   * for this binding, except a restore: recovery restores through a guarded binding that is not the sink's session
+   * object, so a restore appends after its batch (acknowledged and replayed under its operationId, behind its audited
+   * pre-restore snapshot). A refusal the sink makes at commit (a full or unbound log) fails the batch: not written. */
+  async function auditInBatch(db: D1, event: C.AuditEvent, required: boolean): Promise<readonly D1Statement[]> {
+    try {
+      if (!audit.atomic) throw contractError('audit-unavailable', false);
+      const statements = await audit.atomic({ db, event });
+      if (!Array.isArray(statements) || !statements.length) throw contractError('audit-unavailable');
+      return statements;
+    } catch (e) {
+      if (required) throw failure('audit-unavailable', 'not-written', !(e instanceof Error && 'retryable' in e && e.retryable === false));
+      return [];
+    }
+  }
+
   async function change<T>(scope: C.Scope & { operationId: string }, kind: string, payload: unknown, expectedRevision: C.CaseRevision | undefined, plan: (db: D1, caseId: C.CaseId, s: Step) => Promise<Plan<T>>): Promise<C.Written<T>> {
-    const { db, caseId } = await authorize(scope, 'write-user-work');
+    const { db, caseId } = await authorize(scope, 'write-user-work', true);
     const op = operationId(scope.operationId);
     const request = await sha256Hex(canonical({ kind, caseId, payload, principal: principalKey() }));
     const eventId = `uw:${await sha256Hex(canonical([config.clientId, caseId, op]))}`;
+    const atomicNote = kind === 'note-add' || kind === 'note-delete';
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      const prior = await read(() => ledger(db, caseId, op));
+      // The binding gate and both reads come after the authorization above, and nothing is decided until all three
+      // answer: one round trip, not three. A missing or foreign binding refuses; the batch's guard checks it again.
+      const [, prior, revision] = await Promise.all([gate(), read(() => ledger(db, caseId, op)), revisionOf(db, caseId)]);
       if (prior) {
         // Historical context is irrelevant to replay, but today's session and case grant are not.
         await authorize(scope, 'write-user-work');
@@ -183,24 +214,27 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
         await authorize(scope, 'write-user-work');
         return result;
       }
-      const revision = await revisionOf(db, caseId);
       if (expectedRevision !== undefined && revision !== expectedRevision) return { kind: 'stale' };
       const version = token(), when = at();
       const event: C.AuditEvent = { eventId, actor: actor(), action: `user-work.${kind}`, object: { kind: 'case', id: caseId, caseId }, version, outcome: 'succeeded', at: when };
-      const step: Step = { revision, version, next: nextRevision(), at: when, event };
+      const auditStatements = await auditInBatch(db, event, kind !== 'restore');
+      const atomic = auditStatements.length > 0;
+      const step: Step = { revision, version, next: nextRevision(), at: when, event, audited: atomic ? when : null };
       const planned = await plan(db, caseId, step);
       if (planned.kind !== 'written') return { kind: planned.kind };
       const result: C.Written<T> = { kind: 'written', value: planned.value, version: step.version, caseRevision: step.next };
-      const row: Ledger = { request_sha256: request, result_json: JSON.stringify(result), event_json: JSON.stringify(event), audited_at: null };
+      const row: Ledger = { request_sha256: request, result_json: JSON.stringify(result), event_json: JSON.stringify(event), audited_at: step.audited };
       const statements = [
         guardStatement(db, caseId, revision),
-        db.prepare('INSERT INTO uw_operation (case_id, operation_id, request_sha256, result_json, prior_revision, revision, event_json, created_at, audited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)')
-          .bind(caseId, op, request, row.result_json, revision, step.next, row.event_json, step.at),
+        db.prepare('INSERT INTO uw_operation (case_id, operation_id, request_sha256, result_json, prior_revision, revision, event_json, created_at, audited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .bind(caseId, op, request, row.result_json, revision, step.next, row.event_json, step.at, row.audited_at),
         db.prepare('INSERT INTO uw_case (case_id, revision, updated_at) VALUES (?, ?, ?) ON CONFLICT (case_id) DO UPDATE SET revision = excluded.revision, updated_at = excluded.updated_at').bind(caseId, step.next, step.at),
         ...planned.statements,
+        ...auditStatements,
       ];
       if (statements.length > limits.maxStatementsPerBatch) invalid();
       if (planned.beforeCommit) await planned.beforeCommit();
+      else if (atomicNote) await authorize(scope, 'write-user-work');
       try { await db.batch(statements); }
       catch (e) {
         // Decide from durable state, never from the error: the batch may have committed before its response was lost.
@@ -214,9 +248,12 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
         }
         if (current !== revision) { if (expectedRevision !== undefined) return { kind: 'stale' }; continue; }
         if (isConstraintFailure(e) && planned.collision) { const refusal = await read(planned.collision); if (refusal) throw refusal; }
+        if (atomic && e instanceof Error && /native_audit/i.test(e.message)) throw failure('audit-unavailable', 'not-written', true);
         throw failure('storage-unavailable', 'not-written', true);
       }
-      return finish<T>(db, caseId, op, row, request);
+      const completed = await finish<T>(db, caseId, op, row, request);
+      if (atomicNote) await authorize(scope, 'write-user-work');
+      return completed;
     }
     throw failure('storage-unavailable', 'not-written', true);
   }
@@ -235,13 +272,22 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
     ? db.prepare('SELECT row_id, store, anchor_json, fields_json, fields_sha256, created_at, updated_at, version FROM uw_register_row WHERE case_id = ? ORDER BY rowid').bind(caseId)
     : db.prepare('SELECT row_id, store, anchor_json, fields_json, fields_sha256, created_at, updated_at, version FROM uw_register_row WHERE case_id = ? AND store = ? ORDER BY rowid').bind(caseId, name)).all<RegisterDb>()).results.map(registerOf)));
   const definitions = (db: D1) => read(async () => (await db.prepare('SELECT definition_json FROM uw_table_definition ORDER BY rowid').all<{ definition_json: string }>()).results.map((r) => JSON.parse(r.definition_json) as C.UserWorkTable));
+  /** Definitions read by this request, by name. A definition is never changed or removed once stored, so a later
+   * read in the same request (the table read before a write) reuses it. A missing definition is never kept. */
+  const knownDefinitions = new Map<string, { owner: string; definition_json: string }>();
+  function ownedOf(name: string, row: { owner: string; definition_json: string } | null | undefined, owner?: string) {
+    if (typeof name !== 'string') invalid();
+    if (isReserved(name)) throw contractError('table-built-in');
+    if (!row) invalid();
+    knownDefinitions.set(name, row!);
+    if (owner !== undefined && row!.owner !== owner) throw contractError('table-conflict');
+    return JSON.parse(row!.definition_json) as C.UserWorkTable;
+  }
   async function owned(db: D1, name: string, owner?: string) {
     if (typeof name !== 'string') invalid();
     if (isReserved(name)) throw contractError('table-built-in');
-    const row = await read(() => db.prepare('SELECT owner, definition_json FROM uw_table_definition WHERE name = ?').bind(name).first<{ owner: string; definition_json: string }>());
-    if (!row) invalid();
-    if (owner !== undefined && row!.owner !== owner) throw contractError('table-conflict');
-    return JSON.parse(row!.definition_json) as C.UserWorkTable;
+    const row = knownDefinitions.get(name) ?? await read(() => db.prepare('SELECT owner, definition_json FROM uw_table_definition WHERE name = ?').bind(name).first<{ owner: string; definition_json: string }>());
+    return ownedOf(name, row, owner);
   }
   const tableRow = (db: D1, table: string, key: string) => read(() => db.prepare('SELECT case_id, version FROM uw_table_row WHERE table_name = ? AND row_key = ?').bind(table, key).first<{ case_id: string; version: string }>());
   /** After a constraint failure: a key another case holds is a collision, never an overwrite. */
@@ -295,8 +341,9 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
 
   const work: D1UserWork = {
     async anchorFor(a) {
-      const { caseId } = await authorize(a, 'read');
-      const row = await store.documentRow({ caseId, resultsVersion: a.resultsVersion, ref: a.ref });
+      // The binding gate runs beside the row read, after the case grant; a failure of either refuses.
+      const { caseId } = await authorize(a, 'read', true);
+      const [row] = await Promise.all([store.documentRow({ caseId, resultsVersion: a.resultsVersion, ref: a.ref }), gate()]);
       if (!row) throw contractError('not-found');
       return { caseId, resultsVersion: a.resultsVersion, refAtCreation: a.ref, sha256: row.state.original ? sha256(row.state.original.sha256) : null };
     },
@@ -311,14 +358,23 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       return { status: refs.length === 0 ? 'missing' : refs.length === 1 ? 'exact' : 'ambiguous', refs };
     },
     async notesFor(a) {
-      const { db, caseId } = await authorize(a, 'read');
+      const { db, caseId } = await authorize(a, 'read', true);
       if (a.target !== null && !TargetCheck.Check(a.target)) invalid();
-      const notes = await notesOf(db, caseId);
+      if (a.target?.kind === 'document' && a.target.anchor.caseId !== caseId) throw contractError('forbidden');
+      const document = a.target?.kind === 'document' ? a.target.anchor : null;
+      // The binding and rows share one read, including the empty case. A missing/wrong binding never looks like zero notes.
+      const rows = await read(() => db.prepare(`SELECT n.note_id, n.target_json, n.body, n.body_sha256, n.created_at, n.version
+        FROM uw_binding b LEFT JOIN uw_note n ON n.case_id = ?${document ? " AND n.target_kind = 'document' AND n.anchor_results_version = ? AND n.anchor_ref = ?" : ''}
+        WHERE b.singleton = 1 AND b.client_id = ? AND b.schema_version = ? ORDER BY n.rowid`)
+        .bind(caseId, ...(document ? [document.resultsVersion, document.refAtCreation] : []), config.clientId, USER_WORK_SCHEMA_VERSION).all<NoteDb>());
+      if (!rows.results.length) throw contractError('storage-unavailable');
+      const notes = await Promise.all(rows.results.filter(n => n.note_id !== null).map(noteOf));
       return a.target === null ? notes : notes.filter((n) => sameJson(n.target, a.target));
     },
     async summary(a) {
-      const notes = await work.notesFor({ caseId: a.caseId, target: null });
-      const result: C.HostedNoteSummary = { total: notes.length, here: 0, exact: 0, ambiguous: 0, missing: 0, unanchored: 0, byRef: [], detached: [] };
+      // The notes and the page notes (counted apart: they belong to an original's bytes, not to a version) are one read.
+      const { notes, rows } = await work.readNoteWork({ caseId: a.caseId, target: null, store: PAGE_NOTE_STORE });
+      const result: C.HostedNoteSummary = { total: notes.length, here: 0, exact: 0, ambiguous: 0, missing: 0, unanchored: 0, byRef: [], detached: [], pageNotes: rows.length };
       for (const note of notes) {
         const match = note.target.kind === 'document' && a.resultsVersion ? await work.resolve({ anchor: note.target.anchor, into: { caseId: a.caseId, resultsVersion: a.resultsVersion } }) : { status: note.target.kind === 'case' ? 'here' as const : 'unanchored' as const, refs: [] as string[] };
         result[match.status]++;
@@ -344,7 +400,7 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
         const note: C.HostedNote = { id: crypto.randomUUID(), body: text, createdAt: s.at, target, status: 'here', candidates: [], intact: true };
         return { kind: 'written', value: note, statements: [await noteInsert(db, caseId, note, s.version)], beforeCommit: async () => { await authorize(a, 'write-user-work'); } };
       });
-      await authorize(a, 'write-user-work');
+      // change() rechecks current authority before commit and before releasing either a fresh result or a replay.
       return result;
     },
     async deleteNote(a) {
@@ -384,8 +440,76 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
     },
     async listRows(a) {
       storeName(a.store);
-      const { db, caseId } = await authorize(a, 'read');
-      return registerRowsOf(db, caseId, a.store);
+      const { db, caseId } = await authorize(a, 'read', true);
+      // The binding and rows share one read, as in notesFor: a missing or foreign binding never looks like an empty store.
+      const rows = await read(async () => (await db.prepare(`SELECT r.row_id, r.store, r.anchor_json, r.fields_json, r.fields_sha256, r.created_at, r.updated_at, r.version
+        FROM uw_binding b LEFT JOIN uw_register_row r ON r.case_id = ? AND r.store = ?
+        WHERE b.singleton = 1 AND b.client_id = ? AND b.schema_version = ? ORDER BY r.rowid`)
+        .bind(caseId, a.store, config.clientId, USER_WORK_SCHEMA_VERSION).all<RegisterDb>()).results);
+      if (!rows.length) throw contractError('storage-unavailable');
+      return read(() => Promise.all(rows.filter((r) => r.row_id !== null).map(registerOf)));
+    },
+    async readViewWork(a) {
+      const caseId = caseOf(a), name = a.store, datasetKey = a.datasetKey;
+      storeName(name);
+      if (datasetKey !== undefined) storeName(datasetKey);
+      await standing();
+      await identity.authorize({ caseId, operation: 'read' });
+      const db = options.db;
+      if (!db) throw contractError('storage-unavailable');
+      // Binding and both stores are one atomic read, including on a fresh request. Do not call gate() first:
+      // an absent or foreign binding yields no row, rather than an apparently empty register.
+      return read(async () => {
+        const snapshot = await db.prepare(`SELECT
+          (SELECT json_group_array(json(item)) FROM (
+            SELECT json_object('row_id',row_id,'store',store,'anchor_json',anchor_json,'fields_json',fields_json,
+              'fields_sha256',fields_sha256,'created_at',created_at,'updated_at',updated_at,'version',version) AS item
+            FROM uw_register_row WHERE case_id = ? AND store = ? ORDER BY rowid
+          )) AS rows_json,
+          (SELECT json_group_array(json(item)) FROM (
+            SELECT json_object('dataset_key',dataset_key,'seed_id',seed_id,'base_seed_sha256',base_seed_sha256,
+              'fields_json',fields_json,'version',version) AS item
+            FROM uw_seed_overlay WHERE case_id = ? AND dataset_key = ? ORDER BY rowid
+          )) AS overlays_json
+          FROM uw_binding WHERE singleton = 1 AND client_id = ? AND schema_version = ?`)
+          .bind(caseId, name, caseId, datasetKey ?? null, config.clientId, USER_WORK_SCHEMA_VERSION)
+          .first<{ rows_json: string; overlays_json: string }>();
+        if (!snapshot) throw contractError('storage-unavailable');
+        return {
+          rows: await Promise.all((JSON.parse(snapshot.rows_json) as RegisterDb[]).map(registerOf)),
+          overlays: (JSON.parse(snapshot.overlays_json) as OverlayDb[]).map((o) => overlayOf(caseId, o)),
+        };
+      });
+    },
+    async readNoteWork(a) {
+      storeName(a.store);
+      if (a.rowsWhere !== undefined && (!FIELD.test(a.rowsWhere?.field ?? '') || typeof a.rowsWhere.equals !== 'string')) invalid();
+      const { db, caseId } = await authorize(a, 'read', true);
+      if (a.target !== null && !TargetCheck.Check(a.target)) invalid();
+      if (a.target?.kind === 'document' && a.target.anchor.caseId !== caseId) throw contractError('forbidden');
+      const document = a.target?.kind === 'document' ? a.target.anchor : null, where = a.rowsWhere;
+      // Binding, notes and rows are one read, as readViewWork: an absent or foreign binding yields no row, never empty lists.
+      return read(async () => {
+        const snapshot = await db.prepare(`SELECT
+          (SELECT json_group_array(json(item)) FROM (
+            SELECT json_object('note_id',note_id,'target_json',target_json,'body',body,'body_sha256',body_sha256,'created_at',created_at,'version',version) AS item
+            FROM uw_note WHERE case_id = ?${document ? " AND target_kind = 'document' AND anchor_results_version = ? AND anchor_ref = ?" : ''} ORDER BY rowid
+          )) AS notes_json,
+          (SELECT json_group_array(json(item)) FROM (
+            SELECT json_object('row_id',row_id,'store',store,'anchor_json',anchor_json,'fields_json',fields_json,
+              'fields_sha256',fields_sha256,'created_at',created_at,'updated_at',updated_at,'version',version) AS item
+            FROM uw_register_row WHERE case_id = ? AND store = ?${where ? ' AND CASE WHEN json_valid(fields_json) THEN json_extract(fields_json, ?) END = ?' : ''} ORDER BY rowid
+          )) AS rows_json
+          FROM uw_binding WHERE singleton = 1 AND client_id = ? AND schema_version = ?`)
+          .bind(caseId, ...(document ? [document.resultsVersion, document.refAtCreation] : []), caseId, a.store, ...(where ? [`$.${where.field}`, where.equals] : []), config.clientId, USER_WORK_SCHEMA_VERSION)
+          .first<{ notes_json: string; rows_json: string }>();
+        if (!snapshot) throw contractError('storage-unavailable');
+        const notes = await Promise.all((JSON.parse(snapshot.notes_json) as NoteDb[]).map(noteOf));
+        return {
+          notes: a.target === null ? notes : notes.filter((n) => sameJson(n.target, a.target)),
+          rows: await Promise.all((JSON.parse(snapshot.rows_json) as RegisterDb[]).map(registerOf)),
+        };
+      });
     },
     async putRow(a) {
       const caseId = caseOf(a);
@@ -440,18 +564,34 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
       return read(async () => (await db.prepare('SELECT DISTINCT store FROM uw_register_row WHERE case_id = ? ORDER BY store').bind(caseId).all<{ store: string }>()).results.map((r) => r.store));
     },
     async listTableRows(a) {
-      const { db, caseId } = await authorize(a, 'read');
-      const t = await owned(db, a.table);
-      return read(async () => (await db.prepare('SELECT cells_json, version FROM uw_table_row WHERE case_id = ? AND table_name = ? ORDER BY row_key').bind(caseId, t.name).all<{ cells_json: string; version: string }>()).results
-        .map((r) => ({ cells: JSON.parse(r.cells_json) as Record<string, C.TableCell>, version: id('row-version', r.version) })));
+      const { db, caseId } = await authorize(a, 'read', true);
+      // Binding, definition and rows are one read. No binding row refuses as storage; then the name and definition
+      // are checked as owned() checks them, and only an owned table's rows are returned.
+      const rows = await read(async () => (await db.prepare(`SELECT d.owner, d.definition_json, r.cells_json, r.version
+        FROM uw_binding b LEFT JOIN uw_table_definition d ON d.name = ?
+        LEFT JOIN uw_table_row r ON d.name IS NOT NULL AND r.case_id = ? AND r.table_name = d.name
+        WHERE b.singleton = 1 AND b.client_id = ? AND b.schema_version = ? ORDER BY r.row_key`)
+        .bind(typeof a.table === 'string' ? a.table : null, caseId, config.clientId, USER_WORK_SCHEMA_VERSION)
+        .all<{ owner: string | null; definition_json: string | null; cells_json: string | null; version: string | null }>()).results);
+      if (!rows.length) throw contractError('storage-unavailable');
+      const first = rows[0]!;
+      ownedOf(a.table, first.definition_json === null ? null : { owner: first.owner!, definition_json: first.definition_json });
+      return rows.filter((r) => r.cells_json !== null)
+        .map((r) => ({ cells: JSON.parse(r.cells_json!) as Record<string, C.TableCell>, version: id('row-version', r.version!) }));
     },
     async putTableRow(a) {
+      // A rejection is observed here at once; the commit below still waits for it and fails with its reason.
+      a.commitAfter?.catch(() => undefined);
       const caseId = caseOf(a);
       return change<void>(a, 'table-row-put', { table: a.table, owner: a.owner, row: a.row, expected: a.expected }, undefined, async (db, _, s) => {
         const t = await owned(db, a.table, a.owner), row = cells(t, a.row, caseId), key = tableKey(t, row), current = await tableRow(db, t.name, key);
         if (current && current.case_id !== caseId) throw contractError('restore-key-collision');
         const conflict = compare(a.expected, current); if (conflict) return { kind: conflict };
-        return { kind: 'written', value: undefined, statements: [putTableStatement(db, caseId, t.name, key, row, s.version, !!current)], collision: collisionOf(db, caseId, t.name, [key]) };
+        const commitAfter = a.commitAfter;
+        // The object write can outlast the authority checked before it: once it is stored, authorize again, so a grant
+        // or session lost during the wait refuses the row with nothing committed.
+        return { kind: 'written', value: undefined, statements: [putTableStatement(db, caseId, t.name, key, row, s.version, !!current)], collision: collisionOf(db, caseId, t.name, [key]),
+          ...(commitAfter ? { beforeCommit: async () => { await commitAfter; await authorize(a, 'write-user-work'); } } : {}) };
       });
     },
     async putTableRows(a) {
@@ -506,8 +646,8 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
             await authorizeDefinition(t);
             newDefinitions.push(t);
             known.set(t.name, t);
-            statements.push(db.prepare('INSERT INTO uw_table_definition (name, owner, definition_json, event_json, created_at, audited_at) VALUES (?, ?, ?, ?, ?, NULL)')
-              .bind(t.name, t.owner, canonical(t), JSON.stringify(s.event), s.at)); // acknowledged with the restore's own event
+            statements.push(db.prepare('INSERT INTO uw_table_definition (name, owner, definition_json, event_json, created_at, audited_at) VALUES (?, ?, ?, ?, ?, ?)')
+              .bind(t.name, t.owner, canonical(t), JSON.stringify(s.event), s.at, s.audited)); // acknowledged with the restore's own event
           }
           const { rows, ...metadata } = table;
           if (!sameJson(t, metadata)) throw contractError('table-conflict');
@@ -668,6 +808,8 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
     seedViews: wrap(work.seedViews, caseScope, 'read'),
     putSeedOverlay: wrap(work.putSeedOverlay, caseScope, 'write'),
     listRows: wrap(work.listRows, caseScope, 'read'),
+    readViewWork: wrap(work.readViewWork, caseScope, 'read'),
+    readNoteWork: wrap(work.readNoteWork, caseScope, 'read'),
     putRow: wrap(work.putRow, caseScope, 'write'),
     deleteRow: wrap(work.deleteRow, caseScope, 'write'),
     tables: wrap(work.tables, () => null, 'read'),

@@ -7,7 +7,14 @@
 	import { infoTone } from '$lib/views/analysis/tone';
 	import '$lib/views/analysis/analysis.css';
 	import TableScroll from '$lib/components/TableScroll.svelte';
+	import { writeAccess } from '$lib/components/write-access';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+	const access = writeAccess();
+	// The hosted route names the version each tick rests on (`none` for an item never ticked), so a stale page cannot overwrite
+	// newer work, and each tick carries an operation id that a retry of the same tick keeps. The local route sends neither.
+	const versions = $derived((data as { versions?: Record<string, string> }).versions);
+	const opIds: Record<string, string> = {};
+	const opFor = (key: string, done: boolean) => (opIds[`${key}:${done}:${versions?.[key] ?? ''}`] ??= crypto.randomUUID());
 	type Failure = { key: string; done: boolean; message: string };
 	let choice = $state<Record<string, boolean>>({});
 	let failures = $state<Record<string, { done: boolean; message: string }>>({});
@@ -45,11 +52,13 @@
 		const body = new FormData();
 		body.set('key', key);
 		if (done) body.set('done', 'true');
+		if (versions) { body.set('version', versions[key] ?? 'none'); body.set('operationId', opFor(key, done)); }
 		return fetch(action, { method: 'POST', body, headers: { accept: 'application/json', 'x-sveltekit-action': 'true' } }).catch(() => {});
 	};
 	const submit: SubmitFunction = ({ formData, action, cancel }) => {
 		const key = String(formData.get('key'));
 		const done = formData.get('done') === 'true';
+		if (versions) { formData.set('version', versions[key] ?? 'none'); formData.set('operationId', opFor(key, done)); }
 		choice[key] = done;
 		delete failures[key];
 		if (key in inflight) { queued[key] = done; cancel(); return; }
@@ -57,7 +66,7 @@
 		return async ({ result, update }) => {
 			// once the operator has left, the answer has no page to show it on, and `update` would act on the new page
 			if (alive) {
-				if (result.type === 'success') await update({ reset: false });
+				if (result.type === 'success') { delete opIds[`${key}:${done}:${versions?.[key] ?? ''}`]; await update({ reset: false }); }
 				else if (result.type === 'failure') failures[key] = { done, message: String(result.data?.message ?? 'Not saved.') };
 				else if (result.type === 'error') failures[key] = { done, message: result.status ? `Not saved: ClearCase answered ${result.status}. Your choice is kept; retry.` : 'Not saved: ClearCase could not be reached. Your choice is kept; retry when it is running.' };
 				else await update();
@@ -86,6 +95,7 @@
 					<form method="POST" action="?/toggle" use:enhance={submit} class="no-print retry">
 						<input type="hidden" name="key" value={pr.key} />
 						<input type="hidden" name="done" value={String(pr.done)} />
+						{#if versions}<input type="hidden" name="version" value={versions[pr.key] ?? 'none'} />{/if}
 						{#if !hydrated}{#each problems as f (f.key)}<input type="hidden" name="pending" value={JSON.stringify(f)} />{/each}{/if}
 						<button class="info-retry" aria-label="Retry: {itemOf(pr.key)}">Retry</button>
 					</form>
@@ -103,13 +113,18 @@
 					{#each data.rows as r (r.key)}
 						<tr data-key={r.key} aria-busy={busy(r.key) ? 'true' : null} class:saving={busy(r.key)}>
 							<td>
+								{#if !access.canWrite}
+								<input type="checkbox" aria-label="Done: {r.item}" checked={shown(r)} disabled />
+								{:else}
 								<form method="POST" action="?/toggle" use:enhance={submit} use:own={r.key}>
 									<input type="hidden" name="key" value={r.key} />
+									{#if versions}<input type="hidden" name="version" value={versions[r.key] ?? 'none'} />{/if}
 									{#if !hydrated}{#each problems as f (f.key)}<input type="hidden" name="pending" value={JSON.stringify(f)} />{/each}{/if}
 									<input type="checkbox" name="done" value="true" aria-label="Done: {r.item}" checked={shown(r)}
 										onchange={(e) => e.currentTarget.form?.requestSubmit()} />
 									<noscript><button>Save</button></noscript>
 								</form>
+								{/if}
 							</td>
 							<td data-label="Item" class:struck={shown(r)}>{r.item}{#if busy(r.key)}<span class="row-state" data-state="saving">Saving…</span>{:else if unsaved(r.key)}<span class="row-state an-danger" data-state="unsaved">Not saved</span>{/if}</td>
 							<td data-label="Status"><span class="badge {infoTone(r.status)}">{r.status}</span></td>

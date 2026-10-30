@@ -1,14 +1,21 @@
-import type { RequestEvent } from '@sveltejs/kit';
+import { redirect, type RequestEvent } from '@sveltejs/kit';
 import type { ResultsStatus } from '$lib/server/runtime/contracts';
 import { currentVersion, overviewOf, part, readCase, type OverviewData } from '$lib/views/hosted/case.server';
 import { notesHref, originalHref } from '$lib/views/hosted/paths';
+import { versionBase } from '$lib/views/hosted/payloads.server';
 
 // The case shell works from the stable case identity alone: the authorized case read comes first, then originals and
 // the user's own work load whether or not a results version is published, and neither waits on one. Results show only
 // for the current published version (src/lib/views/hosted/case.server.ts). A fault in one part shows as that part
-// unavailable; a refusal of authority fails the whole page.
+// unavailable; a refusal of authority fails the whole page. A published version served from shards has its own pages, so
+// the case page sends the reader to its overview.
 export async function load({ locals, params }: RequestEvent) {
 	const { caseId, info } = await readCase(locals, (params as Record<string, string | undefined>).caseId);
+	if (info.publication.kind === 'published') {
+		const current = await part(locals.store.publication({ caseId }));
+		const rv = info.publication.resultsVersion;
+		if (current.state === 'available' && current.value?.versionId === rv && current.value.shardManifestSha256 && current.value.shards) redirect(303, `${versionBase(caseId)}/${encodeURIComponent(rv)}/overview`);
+	}
 	const label = info.caseLabel ?? info.caseId;
 	const resultsPart = async (): Promise<{ results: ResultsStatus | null; overview: OverviewData | null }> => {
 		const current = await currentVersion(locals, info);

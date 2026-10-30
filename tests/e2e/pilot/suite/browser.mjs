@@ -22,13 +22,15 @@ const KEYS = {
 	Enter: { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' },
 	Space: { key: ' ', code: 'Space', windowsVirtualKeyCode: 32, text: ' ' },
 	Backspace: { key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 },
+	Escape: { key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 },
+	k: { key: 'k', code: 'KeyK', windowsVirtualKeyCode: 75 },
 };
 
 export async function openPage(b, opts = {}) {
 	const p = await newPage(b, { initScript: INIT, ...opts });
-	p.key = async (name, { shift = false } = {}) => {
+	p.key = async (name, { shift = false, ctrl = false } = {}) => {
 		const k = KEYS[name];
-		const modifiers = shift ? 8 : 0;
+		const modifiers = (shift ? 8 : 0) | (ctrl ? 2 : 0);
 		await p.s('Input.dispatchKeyEvent', { type: 'keyDown', modifiers, ...k });
 		await p.s('Input.dispatchKeyEvent', { type: 'keyUp', modifiers, key: k.key, code: k.code, windowsVirtualKeyCode: k.windowsVirtualKeyCode });
 	};
@@ -46,8 +48,8 @@ export async function openPage(b, opts = {}) {
 	};
 	p.active = () => p.evaluate(`(() => { const e = document.activeElement; return e ? { tag: e.tagName, id: e.id || null, cls: e.className || null, heading: e.hasAttribute('data-page-heading'), text: (e.textContent || '').trim().slice(0, 80), href: e.getAttribute('href') } : null; })()`);
 	/** Navigate (full load) and wait until the page hydrated and `ready` holds. */
-	p.goto = async (url, ready = 'true', timeout = 20000) => {
-		const r = await p.navigate(url);
+	p.goto = async (url, ready = 'true', timeout = 20000, options) => {
+		const r = await p.navigate(url, options);
 		if (r.errorText) throw new Error(`navigate ${url}: ${r.errorText}`);
 		await p.waitFor(`(window.__ccMounted >= 1) && !!document.querySelector('main#main') && (${ready})`, timeout);
 	};

@@ -109,7 +109,7 @@ describe('the native Wrangler config is compared key by key with its native targ
 	test.each([
 		['a KV namespace', '"kv_namespaces": [{ "binding": "KV", "id": "x" }]', /config\.kv_namespaces is not a key/],
 		['a named environment', '"env": { "staging": {} }', /config\.env is not a key/],
-		['a singular route', '"route": "a.sandbox.gridshift.co.za/*"', /config\.route is not a key/],
+		['a singular route', '"route": "sbx-a.clearcase.co.za/*"', /config\.route is not a key/],
 		['a service binding', '"services": [{ "binding": "S", "service": "x" }]', /config\.services is not a key/],
 		['a build command (executable config)', '"build": { "command": "curl x | sh" }', /config\.build is not a key/],
 		['a define (executable config)', '"define": { "X": "1" }', /config\.define is not a key/],
@@ -125,18 +125,18 @@ describe('the native Wrangler config is compared key by key with its native targ
 		['previews', '"previews": {}', /config\.previews is not a key/],
 	])('a config with %s is refused', (_what, add, reason) => refusedWith(check(wrangler('client-a').replace('  "send_metrics": false,\n', `  "send_metrics": false,\n  ${add},\n`)), reason));
 
-	const route = '{ "pattern": "a.sandbox.gridshift.co.za", "zone_id": "db7c322907320aba562d64015ee7d673", "custom_domain": true }';
+	const route = '{ "pattern": "sbx-a.clearcase.co.za", "zone_id": "1c82369e826ebe0afded65c295198fcd", "custom_domain": true }';
 	test.each([
-		['a second route covering the zone', `${route}, { "pattern": "*.gridshift.co.za/*", "zone_id": "db7c322907320aba562d64015ee7d673" }`, /routes is .*not exactly client-a's one custom domain/],
-		['a zone route instead of a custom domain', '{ "pattern": "a.sandbox.gridshift.co.za/*", "zone_id": "db7c322907320aba562d64015ee7d673" }', /custom_domain is missing/],
+		['a second route covering the zone', `${route}, { "pattern": "*.clearcase.co.za/*", "zone_id": "1c82369e826ebe0afded65c295198fcd" }`, /routes is .*not exactly client-a's one custom domain/],
+		['a zone route instead of a custom domain', '{ "pattern": "sbx-a.clearcase.co.za/*", "zone_id": "1c82369e826ebe0afded65c295198fcd" }', /custom_domain is missing/],
 		['custom_domain false', route.replace('"custom_domain": true', '"custom_domain": false'), /custom_domain is false, not true/],
-		['zone_name instead of zone_id', route.replace('"zone_id": "db7c322907320aba562d64015ee7d673"', '"zone_name": "gridshift.co.za"'), /zone_name is not a key/],
+		['zone_name instead of zone_id', route.replace('"zone_id": "1c82369e826ebe0afded65c295198fcd"', '"zone_name": "clearcase.co.za"'), /zone_name is not a key/],
 		['enabled on the custom domain', route.replace(' }', ', "enabled": true }'), /enabled is not a key/],
 		['previews_enabled on the custom domain', route.replace(' }', ', "previews_enabled": false }'), /previews_enabled is not a key/],
-		['a wildcard hostname', route.replace('"a.sandbox', '"*.sandbox'), /custom-domain hostname is "\*\.sandbox\.gridshift\.co\.za"/],
-		['an upper-case hostname', route.replace('"a.sandbox', '"A.sandbox'), /custom-domain hostname is "A\.sandbox/],
-		['a trailing dot', route.replace('co.za"', 'co.za."'), /custom-domain hostname is "a\.sandbox\.gridshift\.co\.za\."/],
-		['another zone', route.replace('db7c322907320aba562d64015ee7d673', 'f'.repeat(32)), /zone_id is "f{32}"/],
+		['a wildcard hostname', route.replace('"sbx-a.', '"*.'), /custom-domain hostname is "\*\.clearcase\.co\.za"/],
+		['an upper-case hostname', route.replace('"sbx-a.', '"SBX-A.'), /custom-domain hostname is "SBX-A\./],
+		['a trailing dot', route.replace('co.za"', 'co.za."'), /custom-domain hostname is "sbx-a\.clearcase\.co\.za\."/],
+		['another zone', route.replace('1c82369e826ebe0afded65c295198fcd', 'f'.repeat(32)), /zone_id is "f{32}"/],
 		['no route at all', '', /routes is \[\], not exactly client-a's one custom domain/],
 	])('%s is refused', (_what, routes, reason) => {
 		const text = wrangler('client-a').replace(route, routes);
@@ -173,8 +173,8 @@ describe('the native Wrangler config is compared key by key with its native targ
 		['D1 name', '"database_name": "cc-sbx-a-20261023-db"', '"database_name": "cc-sbx-b-20261023-db"', 'cc-sbx-b-20261023-db belongs to client-b'],
 		['D1 id', '"database_id": "00000000-0000-4000-8000-0000000a0107"', '"database_id": "00000000-0000-4000-8000-0000000b0107"', '00000000-0000-4000-8000-0000000b0107 belongs to client-b'],
 		['R2 bucket', '"bucket_name": "cc-sbx-a-20261023-files"', '"bucket_name": "cc-sbx-b-20261023-files"', 'cc-sbx-b-20261023-files belongs to client-b'],
-		['hostname in a var, in other case', '"CLEARCASE_CLIENT_ID": "client-a" }', '"CLEARCASE_CLIENT_ID": "client-a", "NOTE": "B.SANDBOX.GRIDSHIFT.CO.ZA" }', 'B.SANDBOX.GRIDSHIFT.CO.ZA belongs to client-b'],
-		['hostname as a key', '"CLEARCASE_CLIENT_ID": "client-a" }', '"CLEARCASE_CLIENT_ID": "client-a", "b.sandbox.gridshift.co.za": "x" }', 'b.sandbox.gridshift.co.za belongs to client-b'],
+		['hostname in a var, in other case', '"CLEARCASE_CLIENT_ID": "client-a" }', '"CLEARCASE_CLIENT_ID": "client-a", "NOTE": "SBX-B.CLEARCASE.CO.ZA" }', 'SBX-B.CLEARCASE.CO.ZA belongs to client-b'],
+		['hostname as a key', '"CLEARCASE_CLIENT_ID": "client-a" }', '"CLEARCASE_CLIENT_ID": "client-a", "sbx-b.clearcase.co.za": "x" }', 'sbx-b.clearcase.co.za belongs to client-b'],
 	])("client B's %s in client A's native config is refused, naming client B", (_what, from, to, reason) => {
 		const text = wrangler('client-a').replace(from, to);
 		expect(text).not.toBe(wrangler('client-a'));
@@ -183,7 +183,7 @@ describe('the native Wrangler config is compared key by key with its native targ
 
 	test("an approved native client's identifiers are foreign even when its target is not in the directory", () => {
 		const onlyA = targets.filter((t) => t.client === 'client-a');
-		expect(nativeOwners(onlyA).get('b.sandbox.gridshift.co.za')).toBe('client-b');
+		expect(nativeOwners(onlyA).get('sbx-b.clearcase.co.za')).toBe('client-b');
 		refusedWith(check(wrangler('client-a').replace('"bucket_name": "cc-sbx-a-20261023-files"', '"bucket_name": "cc-sbx-b-20261023-files"'), onlyA), 'cc-sbx-b-20261023-files belongs to client-b');
 	});
 
@@ -222,8 +222,8 @@ describe('the native target is the desired exact scoped target, bound to the app
 		['another account', (t: any) => (t.accountId = 'f'.repeat(32)), /accountId "f{32}" is not the approved native account/],
 		['another zone', (t: any) => (t.zone.id = 'f'.repeat(32)), /zone .* is not exactly the approved zone/],
 		["client B's Worker", (t: any) => (t.worker = 'cc-sbx-b-20261023'), /worker "cc-sbx-b-20261023" is not the approved cc-sbx-a-20261023/],
-		['a wildcard hostname', (t: any) => (t.customDomain.hostname = '*.sandbox.gridshift.co.za'), /customDomain hostname .* is not the approved exact a\.sandbox\.gridshift\.co\.za/],
-		['an upper-case hostname', (t: any) => (t.customDomain.hostname = 'A.sandbox.gridshift.co.za'), /customDomain hostname/],
+		['a wildcard hostname', (t: any) => (t.customDomain.hostname = '*.clearcase.co.za'), /customDomain hostname .* is not the approved exact sbx-a\.clearcase\.co\.za/],
+		['an upper-case hostname', (t: any) => (t.customDomain.hostname = 'SBX-A.clearcase.co.za'), /customDomain hostname/],
 		['a custom-domain ID (observed, not desired)', (t: any) => (t.customDomain.id = '0'.repeat(32)), /customDomain .* is not exactly \{ hostname, zoneId \}/],
 		['workers.dev on', (t: any) => (t.workersDev = true), /workersDev is true, not false/],
 		['Preview URLs on', (t: any) => (t.previewUrls = true), /previewUrls is true, not false/],
@@ -261,7 +261,7 @@ describe('the native stage binds the checked config, the artifact and the migrat
 			migrations: a.runtime.migrationsSha256,
 			upload: expect.objectContaining({ mode: 'prebundled-no-bundle', bundler: 'none', additionalModules: false, hostImports: [], invocation: ['wrangler', 'deploy', '--config', 'wrangler.jsonc'] }),
 			runtime: { profile: 'production', sourceSha: a.runtime.sourceSha },
-			desired: { accountId: a.accountId, worker: a.worker, zoneId: a.zone.id, hostname: 'a.sandbox.gridshift.co.za', d1Id: a.d1.id, r2Bucket: a.r2.bucket },
+			desired: { accountId: a.accountId, worker: a.worker, zoneId: a.zone.id, hostname: 'sbx-a.clearcase.co.za', d1Id: a.d1.id, r2Bucket: a.r2.bucket },
 			policy: { workersDev: false, previewUrls: false, d1Jurisdiction: 'eu', r2Jurisdiction: 'eu', r2PublicAccess: false, remoteMigrations: 'not-applied-by-stage' },
 			state: 'STAGED-UNVERIFIED',
 			fundedAdmission: false,

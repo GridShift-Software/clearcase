@@ -1,4 +1,5 @@
-import { error } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
+import { deleteStep } from '$lib/components/confirm-delete';
 import { actionCase, guarded, type Say } from '$lib/local-case/answer.server';
 import { app, originals } from '$lib/local-case/app.server';
 import { documentRow, resolveRefs } from '$lib/local-case/documents.server';
@@ -54,7 +55,8 @@ export const load: PageServerLoad = async ({ params, parent, url }) => {
 		children: d ? a.store.childDocuments(version.id, d.ref).map((c) => c.ref) : [],
 		related: refs.map((r) => ({ ref: r, exists: existing.has(r) })),
 		parent: parentRef ? { ref: parentRef, exists: existing.has(parentRef) } : null,
-		notes: a.userWork.notesFor(version.caseId, version.id, r.ref),
+		notes: a.userWork.notesFor(version.caseId, version.id, r.ref).map((note) => ({ ...note, version: undefined as string | undefined })),
+		operationId: crypto.randomUUID(),
 	};
 };
 
@@ -77,7 +79,10 @@ export const actions: Actions = {
 	},
 	delnote: async ({ request, params }) => {
 		const { caseId } = actionCase(params);
-		const id = String((await request.formData()).get('id') ?? '');
+		const form = await request.formData(), id = String(form.get('id') ?? '');
+		// a Delete not confirmed for this note deletes nothing: the page asks, or after Cancel does not (GRS-280)
+		const step = deleteStep(form, id);
+		if (step !== 'confirm') return fail(400, { op: 'delete' as const, confirm: step === 'ask' ? id : null });
 		const w = await guarded('delete', null, () => inTurn(app().userWork, caseId, NOTES, () => app().userWork.deleteNote(caseId, id)), SAY);
 		return w.ok ? { deleted: true } : w.failure;
 	},

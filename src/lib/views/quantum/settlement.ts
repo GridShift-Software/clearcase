@@ -1,6 +1,8 @@
 import { fmtR } from '../../components/format.ts';
 import { settlement } from '../../calculations/interest.ts';
-import { centsText, divRound, parseAmount, parseBounded, TOO_LARGE, withinCap, type Parsed } from '../../calculations/money.ts';
+import { centsText, divRound, importedUnits, parseAmount, parseBounded, TOO_LARGE, withinCap, type Parsed } from '../../calculations/money.ts';
+import type { settlementPure } from './data.server.ts';
+import { totals, type PaymentsWork } from './payments.ts';
 
 export const MAX_PROBABILITY = 100;
 export const MAX_YEARS = 100;
@@ -59,5 +61,20 @@ export function settleOutcome(i: SettleInputs): SettleOutcome {
 			{ label: 'Optimistic (p+15)', value: R(s.optimistic.cents), sub: '' },
 		],
 		floor: `a rational settlement sits around the base risk-adjusted present value of ${R(s.base.cents)} (claim ${R(claim.value)} discounted for a ${pv}% recovery probability over ${y.value.value} year(s) at ${d.value.value}%, net of ${R(cost.value)} costs). Below this, litigation is preferable; a premium above it reflects certainty and time saved.`,
+	};
+}
+
+/** The Settlement shard (ticket 04): the view without the payments it nets off the claim. */
+export type SettlementShard = ReturnType<typeof settlementPure>;
+
+export function settlementMerge(shard: SettlementShard, work: PaymentsWork) {
+	const pays = work.payments;
+	const t = totals(importedUnits(shard.importedClaim) ?? 0n, pays);
+	return {
+		subtitle: shard.subtitle,
+		narrative: shard.narrative,
+		defaults: shard.defaults,
+		claim: claimPrefill(t.net),
+		payments: { count: pays.length, counted: pays.length - t.uncounted, gross: String(t.gross), paid: String(t.paid), excess: t.paid > t.gross ? String(t.paid - t.gross) : null, claimDate: shard.claimDate },
 	};
 }

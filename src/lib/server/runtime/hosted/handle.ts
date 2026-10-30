@@ -1,3 +1,4 @@
+import { APP_COOKIE, appCookieValue } from '../../../auth/app-session.ts';
 import type { Handle, HandleServerError } from '@sveltejs/kit/hooks';
 import type { RequestServices } from '../contracts.ts';
 
@@ -33,32 +34,119 @@ export function withFormActions(csp: string, origins: readonly string[]): string
 }
 
 /**
+ * A request's renewed session: the credential its identity is read from instead, and the cookies its answer sets. With no
+ * credential the request keeps its own identity and only the cookies are set (a refused renewal clears its spent hold).
+ */
+export type Refreshed = { credential?: Request; setCookies: readonly string[]; outage?: true; spent?: true };
+/**
+ * A signed-in handshake return on a sign-in page (flow.ts handshakeAnswer): the handshake's own answer, and the credential
+ * the page's route reads the identity from when it answers in its place.
+ */
+export type SignedInReturn = { response: Response; credential: Request };
+/** Where a page-data request is handed for a full page load, and the cookies its answer sets. */
+export type Handoff = { location: string; setCookies: readonly string[] };
+
+/** The header that marks a fetch's 401 as one a page load through the identity handshake would renew (views/hosted/reauth.ts). */
+export const REAUTH_HEADER = 'x-clearcase-reauth';
+
+// Kit's page-data request: the page's path with `/__data.json` appended and its own query parameters added.
+const DATA_SUFFIX = '/__data.json', INVALIDATED = 'x-sveltekit-invalidated', TRAILING_SLASH = 'x-sveltekit-trailing-slash';
+/** The page a `__data.json` request loads data for, as Kit resolves it (respond.js), or null for any other request. */
+export function dataRequestPage(url: string): URL | null {
+	const page = new URL(url);
+	if (!page.pathname.endsWith(DATA_SUFFIX)) return null;
+	page.pathname = page.pathname.slice(0, -DATA_SUFFIX.length) + (page.searchParams.get(TRAILING_SLASH) === '1' ? '/' : '') || '/';
+	page.searchParams.delete(TRAILING_SLASH);
+	page.searchParams.delete(INVALIDATED);
+	return page;
+}
+/**
+ * Kit's answer to a page-data request that redirects (its `redirect_json_response`: a 200 JSON `{"type":"redirect"}`
+ * node), built here so the cookies it sets survive: Kit rebuilds a 30x a hook returns for a data request without them.
+ * The client follows a location on another origin as a full page load.
+ */
+function dataRedirect(location: string, setCookies: readonly string[]): Response {
+	const response = new Response(JSON.stringify({ type: 'redirect', status: 303, location }), { status: 200, headers: { 'content-type': 'application/json', ...SECURITY } });
+	for (const c of setCookies) response.headers.append('set-cookie', c);
+	return response;
+}
+
+/**
  * The hosted `handle`. It builds the six request services, refuses a protected request with 503 before resolving any
  * route when they are not ready, keeps SvelteKit's Origin check for form posts (and refuses a cross-origin write
  * itself first), and adds the security headers to every answer. `formActionsFor` names, per path, the origins a page's
  * form may additionally be redirected to (the production sign-in pages); without it every CSP stays the app's own.
+ * `handshakeFor` answers a GET before any route, or hands back a signed-in return (SignedInReturn): its route then runs
+ * with that credential's identity and no refresh, and its redirect carries the handshake's cookies too.
+ * `refreshFor` may renew an expired session of a request the handshake let through (any method, after the Origin
+ * check): its identity is then read from the renewed credential and its answer sets the renewed cookies. A refresh
+ * that fails is no refresh, so the request meets the identity it presented. `handoffFor` may hand a page-data GET that was
+ * not renewed (and not for an outage), or whose renewal left its hold spent, to a full page load through the identity handshake: its answer is then a data
+ * redirect there, with the refresh's cookies and its own, and no route runs.
  * The local pilot keeps its own hooks.
  */
-export function createHandle(servicesFor: (request: Request) => Promise<Readiness>, handshakeFor?: (request: Request) => Promise<Response | null>, formActionsFor?: (path: string) => readonly string[]): Handle {
+export function createHandle(servicesFor: (request: Request, credential?: Request) => Promise<Readiness>, handshakeFor?: (request: Request) => Promise<Response | SignedInReturn | null>, formActionsFor?: (path: string) => readonly string[], refreshFor?: (request: Request) => Promise<Refreshed | null>, handoffFor?: (request: Request, page: URL) => Promise<Handoff | null>): Handle {
 	return async ({ event, resolve }) => {
 		const path = event.url.pathname;
 		if (LOCAL_ONLY(path)) return plain(404, 'Not found');
 		if (!['GET', 'HEAD', 'OPTIONS'].includes(event.request.method) && event.request.headers.get('origin') !== event.url.origin) return plain(403, 'Forbidden');
+		const secured = (response: Response) => {
+			const headers = new Headers(response.headers);
+			for (const [name, value] of Object.entries(SECURITY)) headers.set(name, value);
+			return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+		};
+		let signedIn: SignedInReturn | null = null;
 		if (handshakeFor && event.request.method === 'GET' && !PUBLIC(path) && path !== '/sign-out') {
-			let response: Response | null;
-			try { response = await handshakeFor(event.request); }
+			let answer: Response | SignedInReturn | null;
+			try { answer = await handshakeFor(event.request); }
 			catch { return plain(503, 'ClearCase is unavailable: the identity handshake is unavailable'); }
-			if (response) {
-				const headers = new Headers(response.headers);
-				for (const [name, value] of Object.entries(SECURITY)) headers.set(name, value);
-				return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
-			}
+			if (answer instanceof Response) return secured(answer);
+			signedIn = answer;
 		}
-		const readiness = await servicesFor(event.request);
+		let refreshed: Refreshed | null = null;
+		if (!signedIn && refreshFor && !PUBLIC(path) && path !== '/sign-out') {
+			try { refreshed = await refreshFor(event.request); }
+			catch { refreshed = null; }
+		}
+		// a renewal that left the hold spent is handed off too, so a later save has a fresh refresh token (round 4b)
+		const page = handoffFor && event.request.method === 'GET' && (!refreshed?.credential || refreshed.spent) && !refreshed?.outage ? dataRequestPage(event.request.url) : null;
+		if (page) {
+			let handoff: Handoff | null;
+			try { handoff = await handoffFor!(event.request, page); }
+			catch { handoff = null; }
+			if (handoff) return dataRedirect(handoff.location, [...(refreshed?.setCookies ?? []), ...handoff.setCookies]);
+		}
+		const readiness = await servicesFor(event.request, signedIn?.credential ?? refreshed?.credential);
 		Object.assign(event.locals, readiness.services);
+		if (!readiness.ready && signedIn) return secured(signedIn.response);
 		if (!readiness.ready && !PUBLIC(path)) return plain(503, `ClearCase is unavailable: ${readiness.reason}`, { 'retry-after': '2' });
 		const response = await resolve(event);
+		// A signed-in return keeps its route's answer only when that is a redirect: a page rendered here would sit at the URL
+		// that carries the handshake token, so anything else is the handshake's own redirect to the clean URL (GRS-266).
+		if (signedIn) {
+			if (response.status < 300 || response.status > 399 || !response.headers.has('location')) return secured(signedIn.response);
+			// a cookie the route set or cleared itself keeps the route's directive: the bootstrap proof it spent minting (GRS-279)
+			const own = new Set(response.headers.getSetCookie().map((c) => c.slice(0, c.indexOf('='))));
+			for (const c of signedIn.response.headers.getSetCookie()) if (!own.has(c.slice(0, c.indexOf('=')))) response.headers.append('set-cookie', c);
+		}
 		for (const [name, value] of Object.entries(SECURITY)) response.headers.set(name, value);
+		// A fetch refused for a session only the handshake renews (expired, its hold spent or refused) cannot follow it, so
+		// its 401 says so and the page reloads through it (views/hosted/reauth.ts); nothing redirects (heavy review M4).
+		if (response.status === 401 && handoffFor && event.request.headers.get('sec-fetch-mode') !== 'navigate' && !dataRequestPage(event.request.url)) {
+			let handoff: Handoff | null;
+			try { handoff = await handoffFor(event.request, new URL(event.request.url)); }
+			catch { handoff = null; }
+			if (handoff) response.headers.set(REAUTH_HEADER, '1');
+		}
+		for (const c of refreshed?.setCookies ?? []) {
+			if (c.startsWith(`${APP_COOKIE}=`) && (
+				path === '/sign-out' || path === '/sign-in' || path === '/sign-in/operator' ||
+				event.locals.identity.kind !== 'verified' ||
+				response.headers.getSetCookie().some((cookie) => cookie.startsWith(`${APP_COOKIE}=`)) ||
+				(event.cookies && typeof event.cookies.get === 'function' && event.cookies.get(APP_COOKIE) !== appCookieValue(event.request))
+			)) continue;
+			response.headers.append('set-cookie', c);
+		}
 		const csp = formActionsFor ? response.headers.get('content-security-policy') : null;
 		if (csp) response.headers.set('content-security-policy', withFormActions(csp, formActionsFor!(path)));
 		return response;

@@ -23,12 +23,14 @@ const REPO = 'GridShift-Software/clearcase';
 const SHA = 'a'.repeat(40);
 type Case = { name: string; github: Record<string, Value> };
 const context = (event_name: string, ref: string, event: Record<string, Value>, repository = REPO): Case['github'] => ({
-	repository, repository_owner: repository.split('/')[0]!, event_name, ref, sha: SHA, actor: 'someone', event: { repository: { full_name: repository, fork: repository !== REPO }, ...event },
+	repository, repository_owner: repository.split('/')[0]!, event_name, ref, sha: SHA, actor: 'someone',
+	base_ref: ((event.pull_request as { base?: { ref?: string } } | undefined)?.base?.ref ?? '') as string,
+	event: { repository: { full_name: repository, fork: repository !== REPO }, ...event },
 });
-const pullRequest = (head: string | null, extra: Record<string, Value> = {}): Record<string, Value> => ({
+const pullRequest = (head: string | null, extra: Record<string, Value> = {}, base = 'dev'): Record<string, Value> => ({
 	action: 'synchronize', number: 7,
 	pull_request: {
-		number: 7, user: { login: 'someone', type: 'User' }, base: { ref: 'dev', repo: { full_name: REPO, fork: false } },
+		number: 7, user: { login: 'someone', type: 'User' }, base: { ref: base, repo: { full_name: REPO, fork: false } },
 		head: { ref: 'feature/x', sha: SHA, repo: head === null ? null : { full_name: head, fork: head !== REPO } }, ...extra,
 	},
 });
@@ -110,6 +112,38 @@ describe('workflow admission', () => {
 	it.each(ADMITTED)('CI starts and runs its check job for $name', ({ github }) => {
 		expect(starts(ci.on, github)).toBe(true);
 		expect(runs(ci.jobs.check!.if, { github, needs: {} })).toBe(true);
+	});
+});
+
+// GRS-244: a pull request whose base is a sprint/ branch runs check-lite and not check; every other base, dev above all,
+// runs check and not check-lite. Staging is deployed by the merger running scripts/deploy-staging.sh, not by a workflow:
+// pc1's admission hook refuses every push but one to dev (docs/ci-runner.md), so a push-triggered deploy job would never run.
+const SPRINT = 'sprint/hosted-demo-20261105';
+const sprintPull = on('a pull request from a branch of this repository into the sprint branch', 'pull_request', 'refs/pull/9/merge', pullRequest(REPO, {}, SPRINT));
+const sprintFork = on('a pull request from a fork into the sprint branch', 'pull_request', 'refs/pull/9/merge', pullRequest(FORK, {}, SPRINT));
+const sprintOther = on('a pull request into another sprint/ branch', 'pull_request', 'refs/pull/9/merge', pullRequest(REPO, {}, 'sprint/other'));
+const sprintPush = on('a push to the sprint branch', 'push', `refs/heads/${SPRINT}`, { ref: `refs/heads/${SPRINT}` });
+const lite = ci.jobs['check-lite']!, full = ci.jobs.check!;
+const decides = (job: Job, c: Case) => runs(job.if, { github: c.github, needs: {} });
+describe('sprint pull requests', () => {
+	it.each([sprintPull, sprintOther])('run check-lite and skip check for $name', (c) => {
+		expect(starts(ci.on, c.github)).toBe(true);
+		expect(decides(lite, c)).toBe(true);
+		expect(decides(full, c)).toBe(false);
+	});
+	it.each(ADMITTED)('run check and skip check-lite for $name', (c) => {
+		expect(decides(full, c)).toBe(true);
+		expect(decides(lite, c)).toBe(false);
+	});
+	it('run neither job for a fork\'s pull request into the sprint branch', () => {
+		expect(decides(full, sprintFork)).toBe(false);
+		expect(decides(lite, sprintFork)).toBe(false);
+	});
+	it('run neither job for a push to the sprint branch', () => {
+		expect(starts(ci.on, sprintPush.github)).toBe(false);
+	});
+	it('puts no repository secret into any workflow, so no job hands a Cloudflare token to the runner', () => {
+		expect(workflows.filter(({ doc }) => /\$\{\{\s*secrets\./.test(JSON.stringify(doc))).map(({ file }) => file)).toEqual([]);
 	});
 });
 

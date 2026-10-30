@@ -452,12 +452,91 @@
       "approvedOn": "2026-10-21"
     },
     {
+      "id": "IDR-092",
+      "view": "chronology",
+      "field": [
+        "table.table_1.row.*.preview",
+        "table.table_1.col.preview",
+        "control.row:button:Preview"
+      ],
+      "when": {
+        "v5": "<absent>"
+      },
+      "type": "improvement",
+      "source": "GRS-255",
+      "reason": "The Chronology list has a Preview column of per-row Preview buttons that open the document in the split viewer beside the list (GRS-255, kept by GRS-271); v5 has no such column or button.",
+      "productVisible": true,
+      "author": "GRS-275 round 2 worker",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-093",
+      "view": "chronology",
+      "field": "table.table_1.columns",
+      "when": {
+        "v5": {
+          "re": "^date \\| ref \\| title_subject \\| sender \\| excerpt \\| also_in \\| type \\| bundle \\| amount \\| status \\| doc$"
+        },
+        "app": {
+          "re": "^preview \\| date \\| ref \\| title_subject \\| sender \\| excerpt \\| also_in \\| type \\| bundle \\| amount \\| status \\| doc$"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-255",
+      "reason": "The same Preview column is the first column of the list (GRS-255, GRS-271), so the column order starts with it; v5's list starts at the date. Both complete sequences are pinned: any other column added, dropped or moved still fails parity.",
+      "productVisible": true,
+      "author": "GRS-275 round 2 worker",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-094",
+      "view": "chronology",
+      "field": [
+        "list.select.all_years.count",
+        "list.select.all_years.item.*",
+        "control.select:All years"
+      ],
+      "when": {
+        "v5": "<absent>"
+      },
+      "type": "improvement",
+      "source": "GRS-255",
+      "reason": "The Chronology filter bar has an All years select, one option per year of the register, that narrows the list by year (GRS-255); v5 has no year filter.",
+      "productVisible": true,
+      "author": "GRS-275 round 2 worker",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-096",
+      "view": "overview",
+      "field": [
+        "control.link:Documents indexed",
+        "control.link:Amount due (to date)",
+        "control.link:Invoices",
+        "control.link:Contradiction flags"
+      ],
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      },
+      "type": "improvement",
+      "source": "GRS-254",
+      "reason": "The four primary overview tiles (documents, amount due, invoices, contradiction flags) are links to the view that holds their detail (GRS-254); in v5 they are plain tiles.",
+      "productVisible": true,
+      "author": "GRS-275 round 2 worker",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
       "id": "IDR-074",
       "view": "overview",
       "field": [],
       "type": "data-correction-deferred-to-pipeline",
       "source": "S-meta-counts",
-      "reason": "The imported build metadata counts for documents without text and for e-mails disagree with the rows. ClearCase recounts both from the register rows and shows the metadata figure beside the count only where it differs, as the source claim; correcting the imported metadata is deferred to the document pipeline. IDR-049 is a defect-fix because it types the shown count it covers, which the app corrects; this entry types the defect, whose imported source stays wrong. Parity sees the change: IDR-049. Evidence: src/routes/v/[vid]/overview/+page.svelte:47.",
+      "reason": "The imported build metadata counts for documents without text and for e-mails disagree with the rows. ClearCase recounts both from the register rows and shows the metadata figure beside the count only where it differs, as the source claim; correcting the imported metadata is deferred to the document pipeline. IDR-049 is a defect-fix because it types the shown count it covers, which the app corrects; this entry types the defect, whose imported source stays wrong. Parity sees the change: IDR-049. Evidence: src/routes/v/[vid]/overview/+page.svelte:49.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": "Vaperizer2",
@@ -493,7 +572,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-_shell-2",
-      "reason": "v5 global search sets only the query and keeps stale Advanced Search filters, so it can return filtered or empty results. ClearCase has no separate global search box: search runs only through the Advanced Search form, whose filters are exactly those in its address, so no stale filter applies (as S-search-2). Evidence: src/lib/views/evidence/search.ts:18.",
+      "reason": "v5 global search sets only the query and keeps stale Advanced Search filters, so it can return filtered or empty results. ClearCase has no separate global search box: search runs only through the Advanced Search form, whose filters are exactly those in its address, so no stale filter applies (as S-search-2). Evidence: src/lib/views/evidence/search.ts:33.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": "Vaperizer2",
@@ -505,7 +584,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-_shell-3",
-      "reason": "v5 has no URL routing, so reload, Back and a deep link always land on the Overview. In ClearCase each navigation entry is a real link to its own route, so reload, Back and deep links return to the same view, and the current view is marked for navigation. Evidence: src/lib/components/ViewNav.svelte:36.",
+      "reason": "v5 has no URL routing, so reload, Back and a deep link always land on the Overview. In ClearCase each navigation entry is a real link to its own route, so reload, Back and deep links return to the same view, and the current view is marked for navigation. Evidence: src/lib/components/ViewNav.svelte:41.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": "Vaperizer2",
@@ -517,7 +596,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-_shell-4",
-      "reason": "v5 opens originals in a modal with no focus trap, no focus return and no backdrop close. ClearCase has no modal: the document page offers Open and Download links that open the original in a separate browsing context, so there is no overlay to trap or restore focus in. Evidence: src/lib/components/OriginalOpen.svelte:32.",
+      "reason": "v5 opens originals in a modal with no focus trap, no focus return and no backdrop close. ClearCase has no modal: the document page offers Open and Download links that open the original in a separate browsing context, so there is no overlay to trap or restore focus in. Evidence: src/lib/components/OriginalOpen.svelte:33.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": "Vaperizer2",
@@ -553,7 +632,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-_shell-7",
-      "reason": "v5 opens its fallback panel only for previewable extensions, so mail files go straight to a new tab. ClearCase decides from the verified original on the document page and shows an explicit state for each case: viewer, inline, plain text, download only, parent route or missing. Evidence: src/lib/components/OriginalOpen.svelte:10.",
+      "reason": "v5 opens its fallback panel only for previewable extensions, so mail files go straight to a new tab. ClearCase decides from the verified original on the document page and shows an explicit state for each case: viewer, inline, plain text, download only, parent route or missing. Evidence: src/lib/components/OriginalOpen.svelte:11.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": "Vaperizer2",
@@ -565,7 +644,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-_shell-8",
-      "reason": "v5 derives the file extension from the link text, so a suffix such as a page anchor defeats the viewer check. ClearCase never inspects a link: the server decides the presentation from the verified original, and the page anchor is appended to the viewer link only afterwards. Evidence: src/lib/components/OriginalOpen.svelte:31.",
+      "reason": "v5 derives the file extension from the link text, so a suffix such as a page anchor defeats the viewer check. ClearCase never inspects a link: the server decides the presentation from the verified original, and the page anchor is appended to the viewer link only afterwards. Evidence: src/lib/components/OriginalOpen.svelte:32.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": "Vaperizer2",
@@ -577,7 +656,7 @@
       "field": [],
       "type": "data-correction-deferred-to-pipeline",
       "source": "S-overview-2",
-      "reason": "The imported build metadata count of documents without text disagrees with the rows whose text status is none. ClearCase counts the register rows for the tile and shows the metadata figure beside it as the source claim; correcting the imported metadata is deferred to the document pipeline. Parity sees the change: IDR-049. Evidence: src/routes/v/[vid]/overview/+page.svelte:47.",
+      "reason": "The imported build metadata count of documents without text disagrees with the rows whose text status is none. ClearCase counts the register rows for the tile and shows the metadata figure beside it as the source claim; correcting the imported metadata is deferred to the document pipeline. Parity sees the change: IDR-049. Evidence: src/routes/v/[vid]/overview/+page.svelte:49.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": "Vaperizer2",
@@ -589,7 +668,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-overview-4",
-      "reason": "v5 hard-codes the case title in its renderer. ClearCase takes the page subtitle from the imported view-content, else the matter title, else the case name, so no case title is in code. Evidence: src/routes/v/[vid]/overview/+page.svelte:25.",
+      "reason": "v5 hard-codes the case title in its renderer. ClearCase takes the page subtitle from the imported view-content, else the matter title, else the case name, so no case title is in code. Evidence: src/routes/v/[vid]/overview/+page.svelte:27.",
       "productVisible": false,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,
@@ -626,7 +705,7 @@
       "type": "known-gap",
       "source": "S-chronology-3",
       "owner": "GRS-12",
-      "reason": "v5 always appends an ellipsis to the excerpt preview, even when the excerpt is shorter than the cut. ClearCase copies this: the preview is the first part of the excerpt followed by an ellipsis whenever the excerpt is non-empty; fixing it would need an app change. Evidence: src/lib/local-case/chronology.ts:44.",
+      "reason": "v5 always appends an ellipsis to the excerpt preview, even when the excerpt is shorter than the cut. ClearCase copies this: the preview is the first part of the excerpt followed by an ellipsis whenever the excerpt is non-empty; fixing it would need an app change. Evidence: src/lib/local-case/chronology.ts:71.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": "Vaperizer2",
@@ -639,7 +718,7 @@
       "type": "known-gap",
       "source": "S-chronology-4",
       "owner": "GRS-12",
-      "reason": "v5 says sorted by date in the subtitle whatever sort is chosen. ClearCase keeps the same fixed subtitle wording; there is no page to reset because the whole filtered list renders incrementally. Making the subtitle follow the chosen sort would need an app change. Evidence: src/routes/v/[vid]/chronology/+page.svelte:50.",
+      "reason": "v5 says sorted by date in the subtitle whatever sort is chosen. ClearCase keeps the same fixed subtitle wording; there is no page to reset because the whole filtered list renders incrementally. Making the subtitle follow the chosen sort would need an app change. Evidence: src/routes/v/[vid]/chronology/+page.svelte:123.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": "Vaperizer2",
@@ -652,7 +731,7 @@
       "type": "known-gap",
       "source": "S-chronology-5",
       "owner": "GRS-12",
-      "reason": "v5 offers an ocr text-status option that no row can match. ClearCase offers the same whole vocabulary as v5 does, including ocr, so choosing it shows no rows; removing or labelling the empty option would need an app change. Evidence: src/lib/local-case/chronology.ts:36.",
+      "reason": "v5 offers an ocr text-status option that no row can match. ClearCase offers the same whole vocabulary as v5 does, including ocr, so choosing it shows no rows; removing or labelling the empty option would need an app change. Evidence: src/lib/local-case/chronology.ts:61.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": "Vaperizer2",
@@ -665,7 +744,7 @@
       "type": "known-gap",
       "source": "S-chronology-6",
       "owner": "GRS-12",
-      "reason": "v5 compares refs as plain strings, so refs of different digit widths sort lexically. ClearCase compares refs the same way; rescan refs are zero-padded to the case width so they do not misorder, but a natural numeric ref sort would need an app change. Evidence: src/lib/local-case/chronology.ts:27.",
+      "reason": "v5 compares refs as plain strings, so refs of different digit widths sort lexically. ClearCase compares refs the same way; rescan refs are zero-padded to the case width so they do not misorder, but a natural numeric ref sort would need an app change. Evidence: src/lib/local-case/chronology.ts:31.",
       "productVisible": false,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

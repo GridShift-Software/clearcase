@@ -38,19 +38,20 @@ export interface ClerkIdentityConfig {
 	/** When set, a session token must carry exactly this audience (Clerk session tokens carry none by default), else null. */
 	readonly audience: string | null;
 }
-declare const checkedStaffDevBrowser: unique symbol;
+declare const checkedDevBrowser: unique symbol;
 /**
- * A `__clerk_db_jwt` value whose tie verified for one app, client and staff instance (flow.ts tiedDevBrowser, the only
- * place that makes one), the only dev browser the staff portal takes, and only in that scope.
+ * A `__clerk_db_jwt` value whose tie to one instance verified for one app, client and that instance (flow.ts
+ * tiedDevBrowser, the only place that makes one), the only dev browser that instance's portal takes, and only in that scope.
  */
-export interface StaffDevBrowser {
-	readonly [checkedStaffDevBrowser]: true;
-	readonly instance: 'staff';
+export interface TiedDevBrowser<K extends InstanceKind = InstanceKind> {
+	readonly [checkedDevBrowser]: true;
+	readonly instance: K;
 	readonly value: string;
 	readonly appOrigin: string;
 	readonly clientId: ClientId;
 	readonly issuer: string;
 }
+export type StaffDevBrowser = TiedDevBrowser<'staff'>;
 export type ConfigResult = { ok: true; config: ClerkIdentityConfig } | { ok: false; reason: string };
 
 /** The variables a deployment sets; secrets are Worker secrets, the rest plain vars. */
@@ -93,6 +94,18 @@ export function frontendApiHost(publishableKey: unknown): string | null {
 	}
 	const host = decoded.endsWith('$') ? decoded.slice(0, -1) : '';
 	return HOST.test(host) && host.length <= 253 ? host : null;
+}
+
+/**
+ * The accounts-portal host Clerk serves an instance's sign-in page from, for a Frontend API host of Clerk's two shapes
+ * (development `<slug>.clerk.accounts.dev` -> `<slug>.accounts.dev`; production `clerk.<domain>` -> `accounts.<domain>`),
+ * or null for any other host, which this module cannot judge (GRS-267).
+ */
+export function accountsPortalHost(frontendApi: string): string | null {
+	const dev = /^(.+)\.clerk\.accounts\.dev$/.exec(frontendApi);
+	if (dev) return `${dev[1]}.accounts.dev`;
+	const prod = /^clerk\.(.+)$/.exec(frontendApi);
+	return prod ? `accounts.${prod[1]}` : null;
 }
 
 /**
@@ -173,6 +186,12 @@ export function readClerkIdentityConfig(env: Readonly<Record<string, unknown>>, 
 	if (staffSignInUrl === null && rawStaffSignIn !== undefined && rawStaffSignIn !== '') missing.push(CLERK_ENV.staffSignInUrl);
 	const rawAud = env[CLERK_ENV.audience], audience = rawAud === undefined || rawAud === '' ? null : typeof rawAud === 'string' && AUDIENCE.test(rawAud) ? rawAud : null;
 	if (audience === null && rawAud !== undefined && rawAud !== '') missing.push(CLERK_ENV.audience);
+	// A sign-in page of another instance than its publishable key names is a half-finished switch of Clerk instance
+	// (GRS-267), so it fails closed like a missing value.
+	for (const [kind, given, name] of [['client', signInUrl, CLERK_ENV.signInUrl], ['staff', staffSignInUrl, CLERK_ENV.staffSignInUrl]] as const) {
+		const host = frontendApiHost(env[CLERK_ENV[kind].publishableKey]), portal = host === null ? null : accountsPortalHost(host);
+		if (portal !== null && given !== null && new URL(given).hostname !== portal) missing.push(`${name} (host differs from ${CLERK_ENV[kind].publishableKey}'s instance)`);
+	}
 	const mfa = env[CLERK_ENV.mfaRequired];
 	if (mfa !== undefined && mfa !== 'true' && mfa !== 'false') missing.push(CLERK_ENV.mfaRequired);
 	if (clientInstance && staffInstance && (clientInstance.issuer === staffInstance.issuer || clientInstance.publishableKey === staffInstance.publishableKey || clientInstance.secretKey === staffInstance.secretKey))
@@ -183,40 +202,38 @@ export function readClerkIdentityConfig(env: Readonly<Record<string, unknown>>, 
 
 /**
  * What the public sign-in page may show: the sign-in URL of the client instance (default) or of the staff instance for the
- * per-client operator route, never a key. Null when unconfigured or when the return target is not on this origin.
+ * per-client operator route, never a key. Null when unconfigured.
  *
  * `devBrowser` is the browser's `__clerk_db_jwt` on this origin. A development instance keeps one Clerk client per dev
  * browser, so a portal on another origin signs in this browser's client only when handed it, as @clerk/backend's
  * redirectToSignIn does; without it the portal signs in a client of its own and the handshake here stays signed out. The
- * cookie name is shared by both instances on this origin and the cookie does not show which one minted it, so the staff
- * portal takes only a `StaffDevBrowser` checked for this app, client and staff instance (flow.ts tiedDevBrowser: the dev
- * browser a staff-signed handshake this browser started here set), never a plain string or another app's value. The
- * value is transport only: the session that comes back is verified as any other.
+ * cookie name is shared by both instances on this origin, the cookie does not show which one minted it, and a link or a
+ * sibling origin can plant one, so each portal takes only a `TiedDevBrowser` checked for this app, client and its own
+ * instance (flow.ts tiedDevBrowser: the dev browser a handshake of that instance this browser started here set), never a
+ * plain string or another app's or instance's value (GRS-279). The value is transport only: the session that comes back
+ * is verified as any other.
  *
- * The staff portal returns to the operator route, carrying the target as `returnTo`, not to the target itself: only that
- * route takes the staff handshake for a browser with no staff session yet, and it sends the verified session on.
+ * Each portal returns to its own sign-in page on this origin, exactly and with no query: an instance that allows only
+ * exact redirect URLs then needs one entry per client origin, and the sign-in page takes the handshake and sends the
+ * verified session on to the target the sign-in POST kept in its attempt cookie (flow.ts signInReturnCookie).
  */
-export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, returnTo: string, kind: InstanceKind = 'client', devBrowser: string | StaffDevBrowser | null = null): { href: string } | null {
+export function clerkSignInTarget(env: Readonly<Record<string, unknown>>, kind: InstanceKind = 'client', devBrowser: string | TiedDevBrowser | null = null): { href: string } | null {
 	const read = readClerkIdentityConfig(env, { keys: 'optional' });
 	const signInUrl = read.ok ? (kind === 'client' ? read.config.signInUrl : read.config.staffSignInUrl) : null;
 	if (!read.ok || signInUrl === null) return null;
-	const target = new URL(signInUrl), back = new URL(returnTo, read.config.appOrigin);
-	if (back.origin !== read.config.appOrigin) return null;
-	if (kind === 'staff') {
-		const operator = new URL(STAFF_SIGN_IN_PAGE, read.config.appOrigin);
-		if (!isSignInFlowPage(back.pathname)) operator.searchParams.set('returnTo', `${back.pathname}${back.search}`);
-		target.searchParams.set('redirect_url', operator.href);
-	} else target.searchParams.set('redirect_url', back.href);
-	const staffScoped = typeof devBrowser === 'object' && devBrowser?.instance === 'staff' && devBrowser.appOrigin === read.config.appOrigin && devBrowser.clientId === read.config.clientId && devBrowser.issuer === read.config.staff.issuer;
-	const value = kind === 'client' ? (typeof devBrowser === 'string' ? devBrowser : null) : staffScoped ? devBrowser.value : null;
+	const target = new URL(signInUrl);
+	target.searchParams.set('redirect_url', new URL(SIGN_IN_PAGE[kind], read.config.appOrigin).href);
+	const scoped = typeof devBrowser === 'object' && devBrowser?.instance === kind && devBrowser.appOrigin === read.config.appOrigin && devBrowser.clientId === read.config.clientId && devBrowser.issuer === read.config[kind].issuer;
+	const value = scoped ? devBrowser.value : null;
 	const development = read.config[kind].publishableKey.startsWith('pk_test_');
 	if (development && value !== null && DEV_BROWSER.test(value) && target.origin !== read.config.appOrigin) target.searchParams.set('__clerk_db_jwt', value);
 	return { href: target.href };
 }
 
-// The sign-in page of each instance: its form posts to itself and is redirected (303) to that instance's portal.
-const STAFF_SIGN_IN_PAGE = '/sign-in/operator';
-const SIGN_IN_PAGES: Readonly<Record<string, InstanceKind>> = { '/sign-in': 'client', [STAFF_SIGN_IN_PAGE]: 'staff' };
+// The sign-in page of each instance: its form posts to itself and is redirected (303) to that instance's portal, which
+// returns to it.
+export const SIGN_IN_PAGE: Readonly<Record<InstanceKind, string>> = { client: '/sign-in', staff: '/sign-in/operator' };
+const SIGN_IN_PAGES: Readonly<Record<string, InstanceKind>> = { [SIGN_IN_PAGE.client]: 'client', [SIGN_IN_PAGE.staff]: 'staff' };
 const SIGN_IN_FLOW = /^\/sign-(?:in|out)(?:\/|$)/;
 
 /**

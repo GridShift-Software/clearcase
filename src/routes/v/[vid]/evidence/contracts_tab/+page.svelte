@@ -31,7 +31,7 @@
 		{#each c.groups as g, gi (gi)}
 			<section class="card group" aria-labelledby="group-{gi}" data-group={gi}>
 				<h2 id="group-{gi}" class="chead">{g.key} <span class="tag">({g.items.length})</span></h2>
-				<TableScroll label={g.key}><table class="tbl">
+				<TableScroll label={g.key}><table class="tbl" data-open-col>
 					<thead><tr><th>Ref</th><th>Date</th><th>Contract</th><th>Signed</th><th>Text</th><th>Doc</th></tr></thead>
 					<tbody>
 						{#each g.items as x, i (i)}
@@ -40,7 +40,7 @@
 								<td><div>{cleanName(x.title)}</div>{#if x.note}<div class="ex">{x.note}</div>{/if}</td>
 								<td><span class="badge chip-{signedChip(x) === '—' ? 'none' : signedChip(x)}" title="Read from the title and note; not a verified execution status">{signedChip(x)}</span></td>
 								<td>{statusLabel(x.text_status)}</td>
-								<td>{#if files.get(x.ref)}<a class="doc" href={docPath(vid, x.ref)}>{docLabel(files.get(x.ref))}</a>{:else}<span class="cite-broken" title="not in this results version">not found</span>{/if}</td>
+								<td>{#if files.get(x.ref)}<a class="doc" href={docPath(vid, x.ref, null, data.base)}>{docLabel(files.get(x.ref))}</a>{:else}<span class="cite-broken" title="not in this results version">not found</span>{/if}</td>
 							</tr>
 						{/each}
 					</tbody>

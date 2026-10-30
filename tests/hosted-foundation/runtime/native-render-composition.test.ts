@@ -153,7 +153,7 @@ describe('hostedServices native renderer wiring (unit-only composition: real con
   const w = world(); worlds.push(w);
   for (const path of ['tenancy/migrations/0001_tenant_case_grants.sql', 'tenancy/migrations/0002_tenant_grant_operations.sql',
    'publication/hosted/migrations/0001_publication_ledger.sql', 'publication/hosted/migrations/0002_atomic_publication.sql',
-   'publication/hosted/migrations/0003_provenance_generation.sql', 'audit/migrations/0001_native_audit.sql']) {
+   'publication/hosted/migrations/0003_provenance_generation.sql', 'publication/hosted/migrations/0004_publication_evidence.sql', 'audit/migrations/0001_native_audit.sql']) {
    w.db.sqlite.exec(readFileSync(`src/lib/${path}`, 'utf8'));
   }
   // Every session is a distinct object so a session can never be mistaken for the raw primary binding.
@@ -232,7 +232,7 @@ describe('hostedServices native renderer wiring (unit-only composition: real con
   expect(options.appOrigin).toBe(CONFIGURED_ORIGIN);   // not the hostile request's URL, Host, Origin or body
   expect(options.clientId).toBe(ids.clientA);
   expect(options.pins).toBe(inventory);
-  expect(options.pins?.files).toHaveLength(191);
+  expect(options.pins?.files).toHaveLength(198);
   expect(options.budget).toEqual(RENDER);
   expect(Object.keys(options.budget!).sort()).toEqual(['maxCanvasPixels', 'maxFileBytes', 'maxPages', 'maxRunMs', 'maxRunsPerCasePerDay', 'maxRunsPerClientPerDay']);
   expect(typeof options.now).toBe('function');

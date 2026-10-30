@@ -8,6 +8,7 @@ import { createRedirect } from '@clerk/backend/internal';
 import { signInFormActionOrigins } from '../../../src/lib/auth/clerk/config.ts';
 import { clerkBrowserHandshakeFromEnv, type HandshakeOutcome } from '../../../src/lib/auth/clerk/browser.ts';
 import { craftedInstance } from './synthetic.ts';
+import { bindingStarted, clientTie } from './started-here.ts';
 
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
 vi.mock('cloudflare:workers', () => workers);
@@ -46,7 +47,7 @@ const apply = (jar: Jar, o: HandshakeOutcome): Jar => {
 const handshake = (env = workers.env) => {
 	const made = clerkBrowserHandshakeFromEnv(env);
 	if (!made.ok) throw new Error(made.reason);
-	return made.handshake;
+	return bindingStarted(made.handshake, env);
 };
 /** The jar after the browser's GET of `path` came back from an instance's Frontend API with a handshake signed by `signer`. */
 const handedBack = async (jar: Jar, path: string, signer: typeof B, dvb: string, env = workers.env) =>
@@ -67,8 +68,8 @@ const anonymous = { kind: 'anonymous', principal: null, sessionId: null };
 const locals = { runtime: { testIdentity: null }, identity: anonymous } as unknown as App.Locals;
 const outcome = async (f: () => unknown) => { try { return { value: (await f()) as { href?: string } }; } catch (e) { return { thrown: e as { status?: number; location?: string } }; } };
 const operatorUrl = new URL(`${ORIGIN}/sign-in/operator?returnTo=${encodeURIComponent('/cases/case-1')}`);
-const operatorPost = (cookie: string) => outcome(() => operator.actions.default!({ locals, url: operatorUrl, request: new Request(operatorUrl, { method: 'POST', headers: cookie ? { cookie } : {} }), cookies: { delete: () => {} } } as never));
-const callback = `${ORIGIN}/sign-in/operator?returnTo=${encodeURIComponent('/cases/case-1')}`;
+const operatorPost = (cookie: string) => outcome(() => operator.actions.default!({ locals, url: operatorUrl, request: new Request(operatorUrl, { method: 'POST', headers: cookie ? { cookie } : {} }), cookies: { delete: () => {}, set: () => {} } } as never));
+const callback = `${ORIGIN}/sign-in/operator`;
 const plainStaff = `${STAFF_SIGN_IN}?redirect_url=${encodeURIComponent(callback)}`;
 const forwarded = async (cookie: string) => {
 	const r = await operatorPost(cookie);
@@ -137,7 +138,7 @@ describe('the operator sign-in forwards nothing it cannot tie to the staff insta
 	});
 	it('sends no dev browser for a repeated, malformed or mismatched cookie beside the staff tie', async () => {
 		const jar = await staffJar();
-		const tie = [...jar].filter(([n]) => !n.startsWith('__clerk_') && n !== '__client_uat');
+		const tie = [...jar].filter(([n]) => !n.startsWith('__clerk_') && n !== '__client_uat' && n !== '__Host-clearcase_reauth');
 		expect(tie).toHaveLength(1);
 		const [tieName, tieValue] = tie[0]!;
 		for (const cookie of [
@@ -153,10 +154,11 @@ describe('the operator sign-in forwards nothing it cannot tie to the staff insta
 	});
 });
 
-describe('the client sign-in is unchanged', () => {
-	it('still hands the client portal the plain dev browser, and never the staff tie', async () => {
-		const sdk = createRedirect({ publishableKey: A.publishableKey, baseUrl: ORIGIN, signInUrl: CLIENT_SIGN_IN, devBrowserToken: CLIENT_DVB, redirectAdapter: (u: string) => u }).redirectToSignIn({ returnBackUrl: `${ORIGIN}/cases` });
-		const r = await outcome(() => client.actions.default!({ locals, url: new URL(`${ORIGIN}/sign-in`), request: new Request(`${ORIGIN}/sign-in`, { method: 'POST', headers: { cookie: `__clerk_db_jwt=${CLIENT_DVB}` } }), cookies: { delete: () => {} } } as never));
-		expect(r.thrown).toMatchObject({ status: 303, location: sdk });
+describe('the client sign-in', () => {
+	it('hands the client portal only the dev browser tied to the client instance (GRS-279)', async () => {
+		const sdk = createRedirect({ publishableKey: A.publishableKey, baseUrl: ORIGIN, signInUrl: CLIENT_SIGN_IN, devBrowserToken: CLIENT_DVB, redirectAdapter: (u: string) => u }).redirectToSignIn({ returnBackUrl: `${ORIGIN}/sign-in` });
+		const post = (cookie: string) => outcome(() => client.actions.default!({ locals, url: new URL(`${ORIGIN}/sign-in`), request: new Request(`${ORIGIN}/sign-in`, { method: 'POST', headers: { cookie } }), cookies: { delete: () => {}, set: () => {} } } as never));
+		expect((await post(`__clerk_db_jwt=${CLIENT_DVB}; ${await clientTie(configured(), CLIENT_DVB)}`)).thrown).toMatchObject({ status: 303, location: sdk });
+		expect((await post(`__clerk_db_jwt=${CLIENT_DVB}`)).thrown).toMatchObject({ status: 303, location: `${CLIENT_SIGN_IN}?redirect_url=${encodeURIComponent(`${ORIGIN}/sign-in`)}` });
 	});
 });

@@ -62,6 +62,8 @@ export function d1(db: DatabaseSync, fault: Fault = {}): D1 & { statements: stri
       try {
         const out = all.map((s) => (s as unknown as { exec(): unknown }).exec());
         db.exec('COMMIT');
+        // The map-backed audit double publishes events only after the SQL transaction commits.
+        for (const s of all) (s as unknown as { afterCommit?: () => void }).afterCommit?.();
         if (fault.batchAfterCommit) { fault.batchAfterCommit = false; if (fault.readsAfterBatchFailure) readsBroken = true; throw new Error('D1_ERROR: network connection lost'); }
         return out;
       } catch (e) { if (db.isTransaction) db.exec('ROLLBACK'); throw e; }
@@ -97,11 +99,20 @@ export function authority() {
   };
 }
 
+/** `sink` without AuditSink.atomic: a change appends its event after its batch and recovers an unacknowledged one by
+ * replay. Production's request sink is atomic; this is the path for a sink without it and for historical ledgers. */
+export const appendOnly = (sink: C.AuditSink): C.AuditSink => ({ append: (event) => sink.append(event) });
+
 /** An AuditSink double that stores events by id; the same id with different bytes is refused, as GRS-116 does. */
 export function auditLog() {
   const events = new Map<string, C.AuditEvent>();
   const state = { down: false, failAfterStore: false, appends: 0 };
   const sink: C.AuditSink = {
+    async atomic({ db: binding, event }) {
+      if (state.down) throw contractError('audit-unavailable', true);
+      const statement = binding.prepare('INSERT INTO uw_batch_guard (token) SELECT NULL WHERE 0');
+      return [Object.assign(statement, { afterCommit: () => { events.set(event.eventId, structuredClone(event)); } })];
+    },
     async append(event) {
       state.appends++;
       if (state.down) throw contractError('audit-unavailable', true);

@@ -23,7 +23,7 @@ beforeAll(async () => {
 	root = await tempRoot('ssr');
 	const [port, originalsPort] = [await freePort(), await freePort()];
 	Object.assign(process.env, { CLEARCASE_DATA_DIR: path.join(root, 'data'), PORT: String(port), ORIGINALS_PORT: String(originalsPort), CLEARCASE_USERWORK_BACKUP_DELAY_MS: '60000' });
-	vite = await createServer({ root: ROOT, configFile: path.join(ROOT, 'vite.config.ts'), logLevel: 'silent', appType: 'custom', server: { middlewareMode: true, hmr: false, ws: false, watch: null } });
+	vite = await createServer({ root: ROOT, cacheDir: path.join(root, 'vite-cache'), configFile: path.join(ROOT, 'vite.config.ts'), logLevel: 'silent', appType: 'custom', server: { middlewareMode: true, hmr: false, ws: false, watch: null } });
 	http = httpServer(vite.middlewares);
 	await new Promise<void>((r) => http.listen(port, '127.0.0.1', r));
 	origin = `http://127.0.0.1:${port}`;
@@ -197,7 +197,7 @@ describe('hooks.server.ts: loopback clients only, and a disk-full diagnostic', (
 		const { handle } = (await (vite.environments.ssr as RunnableDevEnvironment).runner.import('/src/hooks.server.ts')) as Hooks;
 		let resolved = false;
 		const res = await handle({ event: event(addr), resolve: async (e) => {
-			expect(Object.keys(e.locals).sort()).toEqual(['assets', 'audit', 'identity', 'runtime', 'store', 'userWork']);
+			expect(Object.keys(e.locals).sort()).toEqual(['assets', 'audit', 'identity', 'runtime', 'shards', 'store', 'userWork']);
 			resolved = true; return new Response('routed');
 		} });
 		return { status: res.status, resolved, text: await res.text() };

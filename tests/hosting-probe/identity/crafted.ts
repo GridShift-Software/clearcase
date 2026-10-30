@@ -94,8 +94,6 @@ export async function craftedWorld(opts: WorldOptions = {}) {
 }
 
 async function world(node: { path: string; version: string }, runDir: string, logs: string, opts: WorldOptions) {
-	const [clientPort, staffPort] = await freePorts(2);
-	const origin = { client: `http://127.0.0.1:${clientPort}`, staff: `http://127.0.0.1:${staffPort}` };
 	if (!(opts.reuseBuild && existsSync(path.join(HERE, '.svelte-kit/cloudflare/_worker.js')))) build(node, runDir, 'crafted');
 	const env = appEnv(node, runDir);
 	const persist = path.join(runDir, 'persist');
@@ -114,8 +112,13 @@ async function world(node: { path: string; version: string }, runDir: string, lo
 		['STAFF_SK', 'sk_test_synthetic-placeholder-not-a-key'],
 		['STAFF_JWT_KEY', staff.jwtKey],
 	]);
+	// The status listener must already own its port before Worker ports are chosen: port=0 may reuse a released one.
+	const [clientPort, staffPort] = await freePorts(2).catch(async (e) => { await status.close(); throw e; });
+	const origin = { client: `http://127.0.0.1:${clientPort}`, staff: `http://127.0.0.1:${staffPort}` };
 	const serveConfig = { persist, logs, apiUrl: status.url, mfaRequired: opts.mfaRequired ?? false, jwtKeys: true, client: { port: clientPort, origin: origin.client }, staff: { port: staffPort, origin: origin.staff } };
-	let serve: ChildProcess = await startServe(node, env, serveConfig, secrets, logs);
+	let serve: ChildProcess;
+	try { serve = await startServe(node, env, serveConfig, secrets, logs); }
+	catch (e) { await status.close(); throw e; }
 	const now = () => Math.floor(Date.now() / 1000);
 	/** A Clerk-shaped v2 session token for `sub`, valid for 60 s, unless `over` changes a claim (undefined deletes it). */
 	const token = (who: Issuer, sub: string, over: Claims = {}, azp = who === client ? origin.client : origin.staff) => {

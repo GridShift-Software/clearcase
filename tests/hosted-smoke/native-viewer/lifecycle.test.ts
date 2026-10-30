@@ -25,6 +25,9 @@ const settle = async () => { await new Promise((r) => setTimeout(r, 0)); flushSy
 const draft = () => document.querySelector('textarea')!;
 const type = (text: string) => { draft().value = text; draft().dispatchEvent(new Event('input', { bubbles: true })); flushSync(); };
 const submit = () => { document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); flushSync(); };
+const press = (label: string) => { [...document.querySelectorAll('button')].find((b) => !b.hidden && b.textContent === label)!.click(); flushSync(); };
+/** Delete, then Confirm delete, as a person deletes a page note. */
+const confirmDelete = () => { press('Delete'); press('Confirm delete'); };
 const reply = (body = 'saved') => new Response(JSON.stringify({ note: note('saved', body) }), { status: 201 });
 function start(open = vi.fn(async () => reader())) {
   (window as any).clearcasePdfReader = { open };
@@ -38,6 +41,42 @@ beforeEach(() => {
     vi.stubGlobal(key, dom.window[key]);
 });
 afterEach(async () => { if (component) await unmount(component); component = null; dom.window.close(); vi.unstubAllGlobals(); });
+
+it('opens a requested page and restores it on a fresh load', async () => {
+  const r = reader(); (window as any).clearcasePdfReader = { open: vi.fn(async () => r) };
+  component = mount(Harness, { target: document.body, props: { initial: { ...data(), requestedPage: '2' } } });
+  flushSync(); await settle();
+  expect(r.draw).toHaveBeenLastCalledWith(2, 1.2);
+  expect(document.querySelector<HTMLInputElement>('input[type=number]')!.value).toBe('2');
+  component.navigate({ ...data(), requestedPage: '2' }); flushSync(); await settle();
+  expect(r.draw).toHaveBeenLastCalledWith(2, 1.2);
+});
+
+it.each(['0', '-1', '1.5', '4', 'abc', ''])('shows an explicit error for invalid requested page %s', async (requestedPage) => {
+  const r = reader(); (window as any).clearcasePdfReader = { open: vi.fn(async () => r) };
+  component = mount(Harness, { target: document.body, props: { initial: { ...data(), requestedPage } } });
+  flushSync(); await settle();
+  expect(r.draw).toHaveBeenLastCalledWith(1, 1.2);
+  expect(document.querySelector<HTMLInputElement>('input[type=number]')!.value).toBe('1');
+  expect(document.querySelector('[role=alert]')?.textContent).toContain('3 pages');
+});
+
+it('uses a valid page field value for drawing and page notes', async () => {
+  const r = reader(); start(vi.fn(async () => r)); await settle();
+  const input = document.querySelector<HTMLInputElement>('input[type=number]')!;
+  input.value = '3'; input.dispatchEvent(new Event('change', { bubbles: true })); flushSync(); await settle();
+  expect(r.draw).toHaveBeenLastCalledWith(3, 1.2);
+  expect(document.body.textContent).toContain('Note on page 3');
+});
+
+it('rejects an impossible page field value with feedback and restores the current page', async () => {
+  const r = reader(); r.pages = 1; start(vi.fn(async () => r)); await settle();
+  const input = document.querySelector<HTMLInputElement>('input[type=number]')!;
+  input.value = '2'; input.dispatchEvent(new Event('change', { bubbles: true })); flushSync();
+  expect(input.value).toBe('1');
+  expect(document.querySelector('[role=alert]')?.textContent).toContain('1 page');
+  expect(r.draw).toHaveBeenLastCalledWith(1, 1.2);
+});
 
 it.each([['B', 'case-a'], ['A', 'case-b']])('replaces reader, notes, draft, page and zoom on navigation to %s in %s', async (asset, caseId) => {
   const old = reader(), fresh = reader(), open = vi.fn().mockResolvedValueOnce(old).mockResolvedValueOnce(fresh);
@@ -147,7 +186,7 @@ it('does not merge a response whose JSON body settles after navigation', async (
 
 it('aborts a pending delete and ignores its completion after navigation', async () => {
   start(); await settle(); const held = deferred<Response>(), fetcher = vi.fn(() => held.promise); vi.stubGlobal('fetch', fetcher);
-  [...document.querySelectorAll('button')].find((b) => b.textContent === 'Delete')!.click();
+  confirmDelete();
   component.navigate(data('B')); flushSync(); await settle(); held.resolve(new Response('{}')); await settle();
   expect(document.body.textContent).toContain('remark-B');
   expect((fetcher.mock.calls as any)[0][1].signal.aborted).toBe(true);
@@ -156,16 +195,33 @@ it('aborts a pending delete and ignores its completion after navigation', async 
 it('retries a failed delete with the same operation and keeps the note until success', async () => {
   start(); await settle(); const fetcher = vi.fn().mockResolvedValueOnce(new Response('{}', { status: 503 })).mockResolvedValueOnce(new Response('{}'));
   vi.stubGlobal('fetch', fetcher);
-  const remove = () => [...document.querySelectorAll('button')].find((b) => b.textContent === 'Delete')!.click();
-  remove(); await settle(); expect(document.body.textContent).toContain('remark-A');
-  remove(); await settle(); expect(document.body.textContent).not.toContain('remark-A');
+  confirmDelete(); await settle(); expect(document.body.textContent).toContain('remark-A');
+  confirmDelete(); await settle(); expect(document.body.textContent).not.toContain('remark-A');
   expect(JSON.parse(fetcher.mock.calls[0]![1].body).operationId).toBe(JSON.parse(fetcher.mock.calls[1]![1].body).operationId);
+});
+
+it('asks before deleting a page note: Cancel sends nothing and keeps the draft, Confirm sends the delete confirmed for that note', async () => {
+  start(); await settle(); const fetcher = vi.fn(async () => new Response('{"removed":true}')); vi.stubGlobal('fetch', fetcher);
+  type('unrelated draft');
+  press('Delete'); await settle();
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(document.querySelector('[data-confirming="note-A"]')?.getAttribute('aria-label')).toBe('Delete this note?');
+  expect(document.activeElement?.textContent).toBe('Confirm delete');
+  press('Cancel'); await settle();
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(document.querySelector('[data-confirming]')).toBeNull();
+  expect(document.body.textContent).toContain('remark-A'); expect(draft().value).toBe('unrelated draft');
+  confirmDelete(); await settle();
+  expect(fetcher).toHaveBeenCalledOnce();
+  expect(JSON.parse((fetcher.mock.calls as any)[0][1].body)).toEqual({ rowId: 'note-A', version: 'v1', operationId: expect.stringMatching(/^note-/), confirm: 'note-A' });
+  expect(document.body.textContent).not.toContain('remark-A'); expect(draft().value).toBe('unrelated draft');
 });
 
 it('does not reuse a failed operation after changing its page or body', async () => {
   start(); await settle(); const fetcher = vi.fn(async (_url: RequestInfo | URL, _init: RequestInit & { body: string }) => new Response('{}', { status: 503 })); vi.stubGlobal('fetch', fetcher);
   type('first'); submit(); await settle(); type('second'); submit(); await settle();
-  [...document.querySelectorAll('button')].find((b) => b.textContent === 'Next')!.click(); submit(); await settle();
+  // GRS-288: a note goes only to a drawn page, so page 2 draws before the third save.
+  [...document.querySelectorAll('button')].find((b) => b.textContent === 'Next')!.click(); await settle(); submit(); await settle();
   const bodies = fetcher.mock.calls.map(([, init]) => JSON.parse(init.body));
   expect(new Set(bodies.map((b) => b.operationId)).size).toBe(3); expect(bodies[2].page).toBe(2);
 });

@@ -28,7 +28,7 @@ const EXPECT = {
 const PROBE = (allowed) => `(() => { const all = [...document.querySelectorAll('*')];
 	return { onAttrs: all.filter((e) => [...e.attributes].some((x) => /^on/i.test(x.name))).map((e) => e.tagName).slice(0, 5),
 		inlineScriptsNoNonce: [...document.scripts].filter((s) => !s.src && !s.nonce && s.type !== 'application/json').length,
-		injected: [...document.querySelectorAll('body img, body svg, body iframe, body object, body embed, body style, base, body script:not([src]):not([nonce]), body meta, body link')].map((e) => e.tagName).slice(0, 5),
+		injected: [...document.querySelectorAll('body img, body svg:not(button.nav-toggle > svg), body iframe, body object, body embed, body style, base, body script:not([src]):not([nonce]), body meta, body link')].map((e) => e.tagName).slice(0, 5),
 		badHrefs: [...document.querySelectorAll('a[href], area[href], form[action], [src]')].map((x) => x.getAttribute('href') ?? x.getAttribute('action') ?? x.getAttribute('src') ?? '')
 			.filter((h) => /^\\s*(javascript|data|vbscript):/i.test(h) || (/^[a-z][a-z0-9+.-]*:/i.test(h) && !${J(allowed)}.some((o) => h.startsWith(o)))),
 		literalScriptText: document.body.innerText.includes('<script>'), title: document.title }; })()`;

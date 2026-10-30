@@ -1,0 +1,69 @@
+// The staging Worker for the hosted-demo sprint (GRS-245, ticket 02). Runbook: docs/sprint/runbooks/02-staging.md.
+// Deploy with scripts/deploy-staging.sh and previews with scripts/preview.sh, never by hand. Paths are relative to this
+// file. Resources: EU D1 clearcase-staging-db, EU R2 clearcase-staging-files, KV clearcase-staging-sessions. Secrets
+// (CLERK_CLIENT_SECRET_KEY, CLERK_CLIENT_JWT_KEY, CLERK_STAFF_SECRET_KEY, CLERK_STAFF_JWT_KEY) are set out of band with
+// `wrangler secret put` and `wrangler preview base-config secret put`; no value lives in this file. A download over 100 MB
+// is a presigned R2 URL, signed with the var R2_S3_ACCOUNT_ID (this account, not a secret) and the secrets
+// R2_S3_ACCESS_KEY_ID and R2_S3_SECRET_ACCESS_KEY (GRS-281).
+//
+// The shape follows sandbox B (cc-sbx-b-20261023 at d8d4b4bf): same Clerk apps, compatibility, London placement and
+// CLEARCASE_NATIVE_CONFIG budgets, with staging's own resources. Unlike B, Wrangler bundles the build output itself
+// (`.assetsignore` keeps _worker.js out of the assets) and there is no BROWSER binding (native render checks are frozen).
+// CLEARCASE_APP_ORIGIN is staging's one origin setting (GRS-278), the only origin the Worker serves: every other origin of
+// it, workers.dev included, answers 403. The native-config hostnames and `routes` follow it; move all three with
+// `bun deploy/staging/origin.ts set <origin>`, never by hand. The runtime refuses a CLEARCASE_NATIVE_CONFIG whose hostname
+// differs from CLEARCASE_APP_ORIGIN, so previews get both per preview from scripts/preview.sh (--var), and the `previews`
+// block leaves them out. `workers_dev` stays true for the way back to workers.dev and because Preview URLs live there.
+// `preview_urls` must be true: it is the Worker's workers.dev `previews_enabled`, and false answers every Preview URL with
+// error 1042.
+// The Clerk values (the CLERK_*_PUBLISHABLE_KEY and CLERK_*_SIGN_IN_URL vars, and the issuers inside CLEARCASE_NATIVE_CONFIG)
+// belong to one instance profile in clerk-instances/; scripts/clerk-instance.sh --use <mode> rewrites them together (GRS-267).
+// auditLimits.maxRows is a lifetime count of protected audit events, and every authorised page read is one: a rehearsal
+// day of the ten journeys wrote 10,000. At the bound every protected action answers 503 (GRS-270). 1,000,000 rows is about
+// 1 GB of D1; tests/hosted-foundation/audit/staging-capacity.test.ts holds the sizing.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "clearcase-staging",
+  "account_id": "fb4c31b91c5d89b7a54afbdc34823170",
+  "main": "../../.svelte-kit/cloudflare/_worker.js",
+  "compatibility_date": "2026-10-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "send_metrics": false,
+  "workers_dev": true,
+  "preview_urls": true,
+  "routes": [{ "pattern": "clearcase-staging.gridshift.co.za", "custom_domain": true }],
+  "placement": { "region": "aws:eu-west-2" },
+  "assets": { "directory": "../../.svelte-kit/cloudflare", "binding": "ASSETS" },
+  "vars": {
+    "CLEARCASE_INSTANCE_ROLE": "client",
+    "CLEARCASE_CLIENT_ID": "staging",
+    "R2_S3_ACCOUNT_ID": "fb4c31b91c5d89b7a54afbdc34823170",
+    "CLEARCASE_APP_ORIGIN": "https://clearcase-staging.gridshift.co.za",
+    "CLERK_CLIENT_PUBLISHABLE_KEY": "pk_test_b3V0Z29pbmctd2FscnVzLTEwMjAuY2xlcmsuYWNjb3VudHMuZGV2JA",
+    "CLERK_STAFF_PUBLISHABLE_KEY": "pk_test_cmVuZXdlZC1tb3RoLTEyOTQuY2xlcmsuYWNjb3VudHMuZGV2JA",
+    "AUTH_MFA_REQUIRED": "false",
+    "CLERK_CLIENT_SIGN_IN_URL": "https://outgoing-walrus-1020.accounts.dev/sign-in",
+    "CLERK_STAFF_SIGN_IN_URL": "https://renewed-moth-1294.accounts.dev/sign-in",
+    "CLEARCASE_NATIVE_CONFIG": "{\"schema\":\"clearcase.native-runtime/1\",\"deployment\":{\"clientId\":\"staging\",\"hostname\":\"clearcase-staging.gridshift.co.za\",\"worker\":\"clearcase-staging\",\"d1DatabaseId\":\"126f680e-4c4b-4b48-98bf-5a5e82c7b1ba\",\"d1DatabaseName\":\"clearcase-staging-db\",\"r2Bucket\":\"clearcase-staging-files\"},\"manifest\":{\"staffIssuer\":\"https://renewed-moth-1294.clerk.accounts.dev\",\"clients\":[{\"clientId\":\"staging\",\"hostname\":\"clearcase-staging.gridshift.co.za\",\"worker\":\"clearcase-staging\",\"d1DatabaseId\":\"126f680e-4c4b-4b48-98bf-5a5e82c7b1ba\",\"d1DatabaseName\":\"clearcase-staging-db\",\"r2Bucket\":\"clearcase-staging-files\",\"clientIssuer\":\"https://outgoing-walrus-1020.clerk.accounts.dev\"}]},\"auditLimits\":{\"maxEventBytes\":4096,\"maxRows\":1000000,\"maxReadRows\":1000,\"maxDenialRows\":1000,\"maxDenialsPerActor\":10,\"maxPageRows\":100,\"maxPagesPerRequest\":10},\"storageBudgets\":{\"maxPackageFiles\":64,\"maxPackageFileBytes\":2097152,\"maxPackageBytes\":8388608,\"maxDocuments\":4096,\"maxRowsPerBatch\":100,\"maxBufferedObjectBytes\":16777216,\"maxOriginalBytes\":16777216,\"maxVerifyObjects\":8192,\"maxVerifyBytes\":536870912,\"maxVerifyObjectsPerCaseWindow\":1048576,\"maxVerifyBytesPerCaseWindow\":17179869184,\"verifyWindowSeconds\":3600},\"storageQuotas\":{\"maxUploadsPerCase\":4096,\"maxOriginalBytesPerCase\":8589934592,\"maxOriginalBytesPerClient\":17179869184,\"maxPutAttemptsPerUpload\":3,\"maxVersionsPerCase\":10,\"maxPackageBytesPerCase\":33554432,\"maxPackageBytesPerClient\":134217728,\"maxStagingAttemptsPerCase\":20},\"userWorkLimits\":{\"maxStatementsPerBatch\":20,\"maxSnapshotBytes\":1048576},\"intakeBudget\":{\"maxFileBytes\":16777216,\"maxMetadataBytes\":4096},\"importBudget\":{\"maxRequestBytes\":16777216,\"maxFiles\":64,\"maxFileBytes\":2097152,\"maxPackageBytes\":8388608},\"nativeRenderBudget\":{\"maxFileBytes\":2097152,\"maxPages\":8,\"maxCanvasPixels\":2000000,\"maxRunMs\":20000,\"maxRunsPerCasePerDay\":3,\"maxRunsPerClientPerDay\":3},\"pdfEvidenceBudget\":{\"maxFileBytes\":16777216,\"maxCheckedPagesPerFile\":256,\"maxPagePixels\":16777216,\"maxDocumentMs\":20000,\"maxSessionMs\":60000,\"maxDocumentsPerStep\":90,\"maxRendersPerSession\":32,\"maxSessionBytes\":268435456,\"maxSessionsPerClientPerDay\":24}}"
+  },
+  "d1_databases": [{ "binding": "DB", "database_name": "clearcase-staging-db", "database_id": "126f680e-4c4b-4b48-98bf-5a5e82c7b1ba", "migrations_dir": "migrations" }],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "clearcase-staging-files", "jurisdiction": "eu" }],
+  "kv_namespaces": [{ "binding": "SESSIONS", "id": "46d612ce2eb844edacd735cfeb257344" }],
+  // A top-level-only binding is undefined inside a preview, so previews repeat every binding and the shared vars.
+  "previews": {
+    "placement": { "region": "aws:eu-west-2" },
+    "vars": {
+      "CLEARCASE_INSTANCE_ROLE": "client",
+      "CLEARCASE_CLIENT_ID": "staging",
+      "R2_S3_ACCOUNT_ID": "fb4c31b91c5d89b7a54afbdc34823170",
+      "CLERK_CLIENT_PUBLISHABLE_KEY": "pk_test_b3V0Z29pbmctd2FscnVzLTEwMjAuY2xlcmsuYWNjb3VudHMuZGV2JA",
+      "CLERK_STAFF_PUBLISHABLE_KEY": "pk_test_cmVuZXdlZC1tb3RoLTEyOTQuY2xlcmsuYWNjb3VudHMuZGV2JA",
+      "AUTH_MFA_REQUIRED": "false",
+      "CLERK_CLIENT_SIGN_IN_URL": "https://outgoing-walrus-1020.accounts.dev/sign-in",
+      "CLERK_STAFF_SIGN_IN_URL": "https://renewed-moth-1294.accounts.dev/sign-in"
+    },
+    "d1_databases": [{ "binding": "DB", "database_name": "clearcase-staging-db", "database_id": "126f680e-4c4b-4b48-98bf-5a5e82c7b1ba", "migrations_dir": "migrations" }],
+    "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "clearcase-staging-files", "jurisdiction": "eu" }],
+    "kv_namespaces": [{ "binding": "SESSIONS", "id": "46d612ce2eb844edacd735cfeb257344" }]
+  }
+}

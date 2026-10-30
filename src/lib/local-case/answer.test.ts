@@ -1,6 +1,6 @@
 import { error, isHttpError } from '@sveltejs/kit';
 import { describe, expect, it } from 'vitest';
-import { actionCase, answer, guarded } from './answer.server.ts';
+import { actionCase, answer, guarded, type Work } from './answer.server.ts';
 import { UserWorkError } from './user-work.server.ts';
 
 const say = { busy: 'Busy: kept, try again.', refused: (e: UserWorkError) => `Not saved: ${e.message}`, failed: 'Not saved: the app failed. Kept.' };
@@ -28,6 +28,11 @@ describe('answer()', () => {
 });
 
 describe('guarded()', () => {
+	it('passes an injected work implementation without opening the local app', async () => {
+		const work = { addNote: async () => ({ id: 'synthetic-note' }) } as unknown as Work;
+		const result = await guarded('note', null, async w => (await w.addNote('case', 'version', 'ref', 'Synthetic')).id, say, {}, work);
+		expect(result).toEqual({ ok: true, value: 'synthetic-note' });
+	});
 	it('answers with the value, or with the failure answer', async () => {
 		expect(await guarded('add', values, async () => 7, say)).toEqual({ ok: true, value: 7 });
 		const r = await guarded('add', values, async () => { throw new UserWorkError('no'); }, say);

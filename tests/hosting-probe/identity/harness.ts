@@ -121,7 +121,7 @@ export type ServeConfig = {
 /** What serve.mjs receives as argv[2]: the config with each app's own store directory (persistOf) added to the app. */
 export type ServeArgs = Omit<ServeConfig, 'client' | 'staff'> & { client: ServeConfig['client'] & { persist: string }; staff: ServeConfig['staff'] & { persist: string } };
 
-/** `n` distinct free loopback ports (all held open together, then released), so two worktrees or two runs never share one. */
+/** `n` distinct loopback ports, held open together while selected, then released. Callers must bind promptly afterward. */
 export async function freePorts(n: number): Promise<number[]> {
 	const servers = await Promise.all(Array.from({ length: n }, () => new Promise<ReturnType<typeof createServer>>((resolve, reject) => {
 		const s = createServer();

@@ -1,3 +1,4 @@
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // The first-party browser contract of the Clerk identity (GRS-113), as the hosting hook will call it: the handshake that
 // puts a session cookie on THIS origin, the identity switch between client and staff, safe return targets and sign-out.
 // SYNTHETIC keys, a synthetic Frontend API host and a loopback Backend API. The unit contract only: no real Clerk
@@ -5,9 +6,9 @@
 import { createHash } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { clerkBrowserHandshakeFromEnv, clerkCookieClears, handshakeResponse, planSignIn, safeReturnTo, signOutClerkSession, type HandshakeOutcome } from '../../../src/lib/auth/clerk/browser.ts';
-import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
+import { bindingStarted, clientTie, consumed, startedBound } from './started-here.ts';
 
 const ORIGIN = 'https://client-a.clearcase.test';
 const A = craftedInstance('client-a.clerk.test'), B = craftedInstance('staff-b.clerk.test'), C = craftedInstance('client-c.clerk.test');
@@ -29,7 +30,7 @@ const env = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
 function handshake(extra: Record<string, unknown> = {}) {
 	const made = clerkBrowserHandshakeFromEnv(env(extra));
 	if (!made.ok) throw new Error(made.reason);
-	return made.handshake;
+	return bindingStarted(made.handshake, env(extra));
 }
 const doc = { 'sec-fetch-dest': 'document', accept: 'text/html' };
 const page = (path: string, cookie?: string, headers: Record<string, string> = {}) => new Request(`${ORIGIN}${path}`, { headers: { ...doc, ...(cookie ? { cookie } : {}), ...headers } });
@@ -44,10 +45,11 @@ const redirectOf = (o: HandshakeOutcome) => {
 describe('the handshake that returns a session cookie to this origin', () => {
 	it('sends a browser with no session to its own Clerk instance handshake and back to the same page, never with a nonce format', async () => {
 		const calls = status.calls.length, fetched = vi.spyOn(globalThis, 'fetch');
-		const o = redirectOf(await handshake().handle(page('/cases?tab=1')));
+		const o = startedBound(redirectOf(await handshake().handle(page('/cases?tab=1'))));
 		const to = new URL(o.location);
 		expect(`${to.origin}${to.pathname}`).toBe('https://client-a.clerk.test/v1/client/handshake');
-		expect(to.searchParams.get('redirect_url')).toBe(`${ORIGIN}/cases?tab=1`);
+		// marked, so a return the browser kept no cookies of stops (heavy review M2)
+		expect(to.searchParams.get('redirect_url')).toBe(`${ORIGIN}/cases?tab=1&__clearcase_reauth=1`);
 		expect(to.searchParams.has('format')).toBe(false);
 		expect(o.location).not.toContain(A.secretKey);
 		expect(o.setCookies.every((c) => /^__clerk_redirect_count=\d+; Path=\/; /.test(c) && /HttpOnly/.test(c) && /Secure/.test(c) && !/Domain=/i.test(c))).toBe(true);
@@ -57,7 +59,7 @@ describe('the handshake that returns a session cookie to this origin', () => {
 	it('applies the cookies of a verified handshake token host-only, and the session it sets signs the user in at this origin', async () => {
 		const session = tokenA();
 		const handshakeToken = A.sign({ iss: A.iss, handshake: [`__session=${session}; Path=/; Max-Age=60; Domain=.attacker.example.test; SameSite=None; Secure`, '__client_uat=1700000000; Path=/; Domain=.attacker.example.test'] });
-		const o = redirectOf(await handshake().handle(page(`/cases?__clerk_handshake=${handshakeToken}`, '__client_uat=1699999999')));
+		const o = consumed(redirectOf(await handshake().handle(page(`/cases?__clerk_handshake=${handshakeToken}`, '__client_uat=1699999999'))));
 		expect(o.location).toBe(`${ORIGIN}/cases`);
 		const jar = o.setCookies.map((c) => c.split(';')[0]).join('; ');
 		expect(jar).toBe(`__session=${session}; __client_uat=1700000000`);
@@ -95,11 +97,12 @@ describe('the handshake that returns a session cookie to this origin', () => {
 		expect(await handshake().handle(new Request(`${ORIGIN}/cases`, { method: 'POST', headers: doc }))).toEqual({ kind: 'continue' });
 		expect(await handshake().handle(new Request('https://attacker.example.test/cases', { headers: doc }))).toMatchObject({ kind: 'refuse' });
 		expect(await handshake().handle(page('/cases', undefined, { 'x-forwarded-host': 'attacker.example.test', 'x-forwarded-proto': 'https' }))).toMatchObject({ kind: 'redirect' });
-		const o = redirectOf(await handshake().handle(page('/cases', undefined, { 'x-forwarded-host': 'attacker.example.test' })));
-		expect(new URL(o.location).searchParams.get('redirect_url')).toBe(`${ORIGIN}/cases`);
+		const o = startedBound(redirectOf(await handshake().handle(page('/cases', undefined, { 'x-forwarded-host': 'attacker.example.test' }))));
+		expect(new URL(o.location).searchParams.get('redirect_url')).toBe(`${ORIGIN}/cases?__clearcase_reauth=1`);
 	});
 	it('continues without a redirect for a browser that holds a live session', async () => {
-		expect(await handshake().handle(page('/cases', `__clerk_db_jwt=abc; __client_uat=1700000000; __session=${tokenA()}`))).toEqual({ kind: 'continue' });
+		// with the dev browser its own client handshake tied here (GRS-279, client-signin-tie.test.ts)
+		expect(await handshake().handle(page('/cases', `__clerk_db_jwt=abc; ${await clientTie(env(), 'abc')}; __client_uat=1700000000; __session=${tokenA()}`))).toEqual({ kind: 'continue' });
 	});
 	it('picks the staff instance for the operator route and for a stale staff session, the client instance otherwise', async () => {
 		const host = async (r: Request) => new URL(redirectOf(await handshake().handle(r)).location).host;
@@ -204,13 +207,15 @@ describe('the cookies a real development handshake returns', () => {
 	};
 	const SESSION_CATEGORY = { cat: 'cl_B7d4PD111AAA' };
 
-	it('signs the browser in from the real directive set, storing the session and never the refresh token', async () => {
+	it('signs the browser in from the real directive set, storing the session and the instance refresh token HttpOnly', async () => {
 		const session = tokenA();
-		const o = redirectOf(await handshake().handle(page(`/cases?__clerk_handshake=${A.sign({ handshake: real(session) })}`)));
+		const o = consumed(redirectOf(await handshake().handle(page(`/cases?__clerk_handshake=${A.sign({ handshake: real(session) })}`))));
 		expect(o.location).toBe(`${ORIGIN}/cases`);
 		const names = o.setCookies.map((c) => c.split('=')[0]);
-		expect(names).toEqual(['__client_uat', '__client_uat', '__session', '__clerk_db_jwt']);
-		expect(o.setCookies.join('\n')).not.toContain(REFRESH);
+		// the dev browser of a client handshake this browser started is tied to the client instance (GRS-279)
+		expect(names).toEqual(['__client_uat', '__client_uat', '__session', '__clerk_db_jwt', '__Host-clearcase_dvb', '__Host-clearcase_refresh']);
+		expect(o.setCookies.slice(0, 5).join('\n')).not.toContain(REFRESH);
+		expect(o.setCookies[5]).toMatch(new RegExp(`^__Host-clearcase_refresh=${session}~${REFRESH.replace(/[+/=]/g, '\\$&')}; Path=/; Max-Age=\\d+; SameSite=Lax; HttpOnly; Secure$`));
 		for (const c of o.setCookies) expect(c).not.toMatch(/Domain=/i);
 		expect(o.setCookies[2]).toMatch(/^__session=[^;]+; Path=\/; Max-Age=60; SameSite=Lax; HttpOnly; Secure$/);
 		const jar = o.setCookies.slice(1).map((c) => c.split(';')[0]).join('; ');
@@ -221,7 +226,7 @@ describe('the cookies a real development handshake returns', () => {
 		const o = redirectOf(await handshake().handle(page(`/cases?__clerk_handshake=${A.sign({ handshake: real(session) }, SESSION_CATEGORY)}`)));
 		expect(o.setCookies.some((c) => c.startsWith(`__session=${session};`))).toBe(true);
 		expect(await identityOf(`__session=${session}`)).toMatchObject({ kind: 'verified', principal: { kind: 'client', subject: 'user_a1' } });
-		expect(await handshake().handle(page('/cases', `__clerk_db_jwt=dvb_synthetic0123456789abcdef; __client_uat=1761400000; __session=${session}`))).toEqual({ kind: 'continue' });
+		expect(await handshake().handle(page('/cases', `__clerk_db_jwt=dvb_synthetic0123456789abcdef; ${await clientTie(env(), 'dvb_synthetic0123456789abcdef')}; __client_uat=1761400000; __session=${session}`))).toEqual({ kind: 'continue' });
 	});
 	it.each([
 		['an M2M token', 'cl_B7d4PD333AAA'], ['a JWT template token', 'cl_B7d4PD222AAA'], ['the ignore category', 'cl_I7d4PD111III'],
@@ -260,7 +265,8 @@ describe('the instance a returning handshake belongs to', () => {
 		if (!made.ok) throw new Error(made.reason);
 		return made.provider.authenticate({ request: new Request(`${ORIGIN}/cases`, { headers: { cookie: jar } }) });
 	};
-	const jarOf = (o: HandshakeOutcome) => redirectOf(o).setCookies.map((c) => c.split(';')[0]).join('; ');
+	// the cookies a browser keeps from the answer: a directive that expires one (Max-Age=0) sets nothing
+	const jarOf = (o: HandshakeOutcome) => redirectOf(o).setCookies.filter((c) => !/;\s*Max-Age=0(;|$)/i.test(c)).map((c) => c.split(';')[0]).join('; ');
 
 	it('applies a staff-signed handshake on /cases for a browser with no session, as a staff session', async () => {
 		const o = await handshake().handle(page(`/cases?__clerk_handshake=${B.sign({ handshake: [`__session=${staffSession()}; Path=/`, '__client_uat=1761400000; Path=/'] })}`));

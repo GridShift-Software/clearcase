@@ -1,4 +1,5 @@
 import Type, { type Static } from 'typebox';
+import { LIMITS } from './limits.ts';
 import { ASSET_KEY_PATTERN, REF_PATTERN } from './refs.ts';
 
 export const FORMAT = 'clearcase.results-package';
@@ -26,7 +27,7 @@ const Kind = Type.Union([Type.Literal('generated'), Type.Literal('authored')]);
 
 export const ManifestFile = Type.Object({
   path: RelPath,
-  role: Type.Union([Type.Literal('dataset'), Type.Literal('assets')]),
+  role: Type.Union([Type.Literal('dataset'), Type.Literal('assets'), Type.Literal('preview')]),
   key: Type.Optional(DatasetKey),
   kind: Type.Optional(Kind),
   schema: Type.Optional(Type.String({ pattern: SCHEMA_ID })),
@@ -58,7 +59,7 @@ export const Manifest = Type.Object({
   producer: Type.Object({ name: Slug, version: ShortText }, { additionalProperties: false }),
   /** deterministic: from the input (v5: META.builtAt), never the clock */
   created: DateTime,
-  files: Type.Array(ManifestFile, { minItems: 1, maxItems: 1023 }),
+  files: Type.Array(ManifestFile, { minItems: 1, maxItems: LIMITS.packageFiles - 1 }),
   extensions: Type.Optional(Type.Record(Type.String({ pattern: '^x-[a-z0-9][a-z0-9-]{0,62}$' }), Type.Unknown(), { additionalProperties: false })),
 }, { additionalProperties: false });
 export type Manifest = Static<typeof Manifest>;
@@ -95,6 +96,8 @@ export const AssetFile = Type.Object({
   size: Size,
   mediaType: MediaType,
   textStatus: TextStatus,
+  /** PDF package file derived from this exact original. */
+  preview: Type.Optional(Type.Object({ path: RelPath, sha256: Sha256, size: Size, originalSha256: Sha256 }, { additionalProperties: false })),
   /** an extracted attachment stored as its own file */
   parentRef: Type.Optional(Ref),
 }, { additionalProperties: false });

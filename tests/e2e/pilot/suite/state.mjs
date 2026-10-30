@@ -95,18 +95,26 @@ export async function bfcache(ctx) {
 	const out = {};
 	try {
 		const leaveAndBack = async (between) => {
-			await p.goto(`${A.v(rv)}/doc/OD-002`, docReady('OD-002'));
+			await p.goto(`${A.v(rv)}/doc/OD-002`, docReady('OD-002'), 20000, { acceptBeforeUnload: true });
 			await p.type('#note-body', 'typed, not saved');
 			await p.evaluate(`window.__bfMarker = 'kept'; true`);
 			const doc = await p.evaluate('window.__ccDoc');
 			const n0 = notUsed.length;
-			await p.goto(`${A.origin}/import`, `!!document.querySelector('#import-form')`);
+			const marked = b.mark();
+			await p.goto(`${A.origin}/import`, `!!document.querySelector('#import-form')`, 20000, { acceptBeforeUnload: true });
+			const prompted = b.since(marked).dialogs.filter((d) => d.type === 'beforeunload' && d.accepted).length === 1;
 			await between?.();
+			const returning = b.mark();
+			// A changed version requests a reload after Back. The draft guard asks before that reload discards the restored
+			// input; this scenario explicitly accepts it, then still requires the current server notes to appear.
+			if (between) b.acceptBeforeUnload.add(p.sessionId);
 			await p.evaluate('history.back(); true');
 			await p.waitFor(`location.pathname.endsWith('/doc/OD-002') && document.readyState === 'complete' && !!document.querySelector('#note-body')`, 15000);
 			await sleep(1500);
 			await p.waitFor(`document.readyState === 'complete' && ${docReady('OD-002')}`, 15000);
-			return { notRestored: notUsed.slice(n0), ...(await p.evaluate(`({ marker: window.__bfMarker ?? null, sameDocument: window.__ccDoc === ${J(doc)}, typed: document.querySelector('#note-body').value, nav: performance.getEntriesByType('navigation')[0]?.type ?? null,
+			const refreshPrompted = b.since(returning).dialogs.filter((d) => d.type === 'beforeunload' && d.accepted).length === 1;
+			b.acceptBeforeUnload.delete(p.sessionId);
+			return { prompted, refreshPrompted, notRestored: notUsed.slice(n0), ...(await p.evaluate(`({ marker: window.__bfMarker ?? null, sameDocument: window.__ccDoc === ${J(doc)}, typed: document.querySelector('#note-body').value, nav: performance.getEntriesByType('navigation')[0]?.type ?? null,
 				notes: [...document.querySelectorAll('#notes li[data-note] .wrap')].map((s) => s.textContent) })`)) };
 		};
 		out.unchanged = await leaveAndBack();
@@ -115,12 +123,12 @@ export async function bfcache(ctx) {
 		out.changed = await leaveAndBack(async () => { const r = await A.c.form(`${vpath(rv)}/doc/OD-002?/note`, { body: note }); out.noteStatus = r.status; });
 		out.changed.restoredThenReloaded = out.changed.nav === 'reload';
 		out.note = note;
-	} finally { off(); await p.close(); }
+	} finally { b.acceptBeforeUnload.delete(p.sessionId); off(); await p.close(); }
 	const u = out.unchanged, c = out.changed;
 	// restored: no reload, typed text kept. Not restored: recorded with Chromium's reasons; Back shows the current page.
 	const unchangedOk = u.restored ? u.sameDocument && u.typed === 'typed, not saved' : u.notRestored.length > 0 && u.typed === '';
 	const changedOk = out.noteStatus === 200 && c.notes.includes(out.note) && c.marker === null && (u.restored ? c.nav === 'reload' : true);
-	return { pass: unchangedOk && changedOk, evidence: out };
+	return { pass: u.prompted && c.prompted && !u.refreshPrompted && c.refreshPrompted && unchangedOk && changedOk, evidence: out };
 }
 
 /** S4: a note typed through the document page's form (progressive enhancement, no reload) shows in the list and persists. */

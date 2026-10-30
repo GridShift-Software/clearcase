@@ -9,6 +9,7 @@ import { canonical, definition } from '../../../src/lib/user-work/hosted/validat
 import { auditConfig, requestAuditSink } from '../../../src/lib/audit/index.ts';
 import { provisionAuditBinding } from '../../../src/lib/audit/trusted.ts';
 import { readFileSync } from 'node:fs';
+import { historicalNote } from './helpers.ts';
 
 const NOW = () => new Date('2026-10-25T00:00:00.000Z');
 const costs: C.TableDefinition = { name: 'costs', owner: 'feature-costs', scope: 'case', description: 'Trusted costs', columns: [{ name: 'case_id', type: 'TEXT', notNull: true }, { name: 'id', type: 'TEXT' }], primaryKey: ['id'] };
@@ -66,7 +67,12 @@ it('replays analysis Notes and seed removals after withdrawal, but validates fre
       ? make().addNote({ caseId: CASE, target: { kind: 'analysis', resultsVersion: RV1, section: 'overview' }, body: 'Analysis', expected: { kind: 'absent' }, operationId })
       : make().registers.seeds({ caseId: CASE, datasetKey: 'parties', resultsVersion: RV1 }).remove({ seedId: 'p1', expected: id('row-version', `seed:${'d'.repeat(64)}`), operationId });
     audit.state.down = true;
-    await expect(request()).rejects.toMatchObject({ code: 'audit-unavailable', outcome: 'written-unaudited' });
+    await expect(request()).rejects.toMatchObject({ code: 'audit-unavailable', outcome: 'not-written' });
+    // Sprint 16 (notes) and GRS-266 (every other change): with an atomic sink a fresh change rolls back on audit
+    // failure. Commit once before testing historical context on replay.
+    expect(db.prepare('SELECT count(*) AS n FROM uw_operation').get()).toEqual({ n: 0 });
+    audit.state.down = false;
+    written<unknown>(await request());
     reader.state.withdrawn.add(RV1); reader.state.published = null; audit.state.down = false;
     expect(written<unknown>(await request()).kind).toBe('written');
     expect(db.prepare('SELECT audited_at FROM uw_operation').get()).toEqual({ audited_at: NOW().toISOString() });
@@ -81,7 +87,10 @@ it('retries under a new current session of the same principal, never a revoked s
   const request = { caseId: CASE, operationId: 'retry', expected: { kind: 'absent' as const }, target, body: 'Same actor' };
   audit.state.down = true;
   await expect(make().addNote(request)).rejects.toMatchObject({ code: 'audit-unavailable' });
-  audit.state.down = false; reader.state.withdrawn.add(RV1); auth.revoke('session-editor');
+  expect(db.prepare('SELECT count(*) AS n FROM uw_note').get()).toEqual({ n: 0 });
+  audit.state.down = false;
+  written(await make().addNote(request));
+  reader.state.withdrawn.add(RV1); auth.revoke('session-editor');
   await expect(make().addNote(request)).rejects.toMatchObject({ code: 'invalid-session' });
   auth.grant('other', CASE, 'editor');
   await expect(make({ identity: auth.identity('other') }).addNote(request)).rejects.toMatchObject({ code: 'invalid' });
@@ -163,12 +172,13 @@ it('rechecks the session after an awaited definition authority and fresh Note co
   }
 });
 
-it('acknowledges the original event through the real request audit facade from a later current session', async () => {
+it('acknowledges a historical unaudited event through the real facade from a later current session', async () => {
   const { make, auth, db, audit } = setup();
   db.exec(readFileSync(new URL('../../../src/lib/audit/migrations/0001_native_audit.sql', import.meta.url), 'utf8'));
   const config = auditConfig({ clientId: CLIENT, trustedIssuers: [ISSUER], limits: { maxEventBytes: 2048, maxRows: 100, maxReadRows: 100, maxDenialRows: 10, maxDenialsPerActor: 5, maxPageRows: 50, maxPagesPerRequest: 5 } });
   await provisionAuditBinding({ db: d1(db), config, now: NOW });
   const request = { caseId: CASE, target: { kind: 'case' as const }, body: 'Durable', expected: { kind: 'absent' as const }, operationId: 'cross-session' };
+  await historicalNote(db, auth.identity(), request);
   audit.state.down = true;
   await expect(make().addNote(request)).rejects.toMatchObject({ code: 'audit-unavailable' });
   auth.revoke('session-editor');
@@ -184,9 +194,10 @@ it('acknowledges the original event through the real request audit facade from a
   expect(original.actor.sessionId).toBe('session-editor');
 });
 
-it('does not release a durable replay result when its current session is revoked during audit acknowledgement', async () => {
+it('does not release a historical replay result when its session is revoked during audit acknowledgement', async () => {
   const { make, auth, audit, db } = setup();
   const request = { caseId: CASE, target: { kind: 'case' as const }, body: 'Private result', expected: { kind: 'absent' as const }, operationId: 'release' };
+  await historicalNote(db, auth.identity(), request);
   audit.state.down = true;
   await expect(make().addNote(request)).rejects.toMatchObject({ code: 'audit-unavailable' });
   audit.state.down = false;

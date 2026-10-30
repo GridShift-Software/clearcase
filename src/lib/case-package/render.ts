@@ -30,9 +30,9 @@ export function isSafeAppHref(href: unknown): href is string {
   return true;
 }
 
-export function documentRoute(resultsVersion: string, ref: string, page?: number | null): string {
-  const base = `/v/${encodeURIComponent(resultsVersion)}/doc/${encodeURIComponent(ref)}`;
-  return page ? `${base}?page=${page}` : base;
+export function documentRoute(resultsVersion: string, ref: string, page?: number | null, base = '/v'): string {
+  const path = `${base}/${encodeURIComponent(resultsVersion)}/doc/${encodeURIComponent(ref)}`;
+  return page ? `${path}?page=${page}` : path;
 }
 
 export interface RenderNarrativeOptions {

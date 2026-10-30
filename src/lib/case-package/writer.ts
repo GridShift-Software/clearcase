@@ -26,6 +26,8 @@ export interface PackageSpec {
   parent?: string | null;
   datasets: DatasetSpec[];
   assets: Record<string, Asset>;
+  /** Package-relative PDF preview bytes. Their metadata must match the asset entries. */
+  previews?: ReadonlyMap<string, Uint8Array>;
   extensions?: Record<string, unknown>;
 }
 
@@ -44,6 +46,11 @@ export function buildPackage(spec: PackageSpec): { manifest: Manifest; files: Ma
   const assetsBytes = canonicalBytes({ index: ASSET_INDEX, root: 'case-folder', assets: spec.assets });
   files.set('assets.json', assetsBytes);
   entries.push({ path: 'assets.json', role: 'assets', count: Object.keys(spec.assets).length, sha256: sha256Hex(assetsBytes), size: assetsBytes.byteLength });
+  for (const [p, bytes] of spec.previews ?? []) {
+    if (files.has(p) || p === 'manifest.json') throw new Error(`duplicate package path: ${p}`);
+    files.set(p, new Uint8Array(bytes));
+    entries.push({ path: p, role: 'preview', sha256: sha256Hex(bytes), size: bytes.byteLength });
+  }
   entries.sort((a, b) => (a.path < b.path ? -1 : 1));
   const irId = inputRevisionId(spec.sources);
   const manifest: Manifest = {

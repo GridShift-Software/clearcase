@@ -7,6 +7,7 @@ import { guard } from './d1.ts';
 import { originalKey } from './keys.ts';
 import { writerAccess } from './mutation.ts';
 import { verifiedRead, writeOnce } from './objects.ts';
+import { originalMediaFamily } from '../../case-package/media.ts';
 
 export interface DeclaredOriginal { caseId: CaseId; operationId: string; assetId: string; filename: string; mediaType: string; size: number; sha256: string }
 export type IntakeRefusal = 'over-budget' | 'over-quota' | 'unknown-case' | 'not-declared' | 'operation-reused' | 'invalid-declaration' | 'digest-mismatch' | 'conflicting-object' | 'asset-bound-to-another-original';
@@ -102,7 +103,7 @@ export function createOriginalIntake(ctx: StorageContext): OriginalIntake {
           // the upload is still this declaration and was stored by this operation, the original's size agrees, and the asset is free or already this original
           guard(s.db, "EXISTS (SELECT 1 FROM rs_original_upload WHERE case_id = ? AND operation_id = ? AND sha256 = ? AND size = ? AND state IN ('stored', 'finalized')) AND NOT EXISTS (SELECT 1 FROM rs_original WHERE sha256 = ? AND size <> ?) AND NOT EXISTS (SELECT 1 FROM rs_case_original WHERE case_id = ? AND asset_id = ? AND sha256 <> ?)",
             a.caseId, a.operationId, u.sha256, u.size, u.sha256, u.size, a.caseId, u.asset_id, u.sha256),
-          s.db.prepare('INSERT INTO rs_original (sha256, size, object_key) VALUES (?, ?, ?) ON CONFLICT (sha256) DO NOTHING').bind(u.sha256, u.size, key),
+          s.db.prepare('INSERT INTO rs_original (sha256, size, object_key, etag, media_family) VALUES (?, ?, ?, ?, ?) ON CONFLICT (sha256) DO UPDATE SET etag = excluded.etag, media_family = COALESCE(rs_original.media_family, excluded.media_family)').bind(u.sha256, u.size, key, read.etag, originalMediaFamily(u.media_type)),
           s.db.prepare('INSERT INTO rs_case_original (case_id, asset_id, sha256, filename, media_type, finalized_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (case_id, asset_id) DO NOTHING').bind(a.caseId, u.asset_id, u.sha256, u.filename, u.media_type, at),
           s.db.prepare("UPDATE rs_original_upload SET state = 'finalized' WHERE case_id = ? AND operation_id = ?").bind(a.caseId, a.operationId),
         ]);

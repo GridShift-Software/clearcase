@@ -1,16 +1,19 @@
 // The user's own notes on a case, through AsyncUserWork only: a note on the case itself, or an annotation on a document
 // of the case's current published version. Each write carries the operation id the form was rendered with, so a
 // resubmitted form is one write, and a delete carries the version the user saw. A stale or vanished target answers 409
-// with the user's text kept and the server's current version, so nothing typed is lost and nothing is overwritten. No
-// state is kept in the browser or in memory here: a note exists once AsyncUserWork answers `written`.
+// with the user's text kept and the server's current version, so nothing typed is lost and nothing is overwritten. A
+// delete runs only once confirmed for that note (GRS-280). No state is kept in the browser or in memory here: a note
+// exists once AsyncUserWork answers `written`.
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import type { CaseId, CaseInfo, HostedNote, NoteTarget, RequestServices, ResultsVersion, Versioned } from './types.ts';
 import { refuse } from '../../server/runtime/hosted/http.ts';
 import { codeOf, isDenial } from '../../server/runtime/errors.ts';
 import { id } from '../../server/runtime/ids.ts';
-import { currentVersion, part, readCase } from './case.server.ts';
+import { canWriteWork, currentVersion, part, readCase } from './case.server.ts';
 import { caseHref, chronologyHref, notesHref } from './paths.ts';
+import { deleteStep } from '../../components/confirm-delete.ts';
 import type { NoteItem, NoteRefusal } from './model.ts';
+import { PAGE_NOTE_STORE, pageNotes, type PageNotes } from './page-note-items.ts';
 
 export type { NoteItem, NoteRefusal };
 
@@ -26,16 +29,21 @@ const newest = (a: NoteItem, b: NoteItem) => (a.createdAt < b.createdAt ? 1 : a.
 
 export async function loadNotes(services: RequestServices, raw: string | undefined) {
   const { caseId, info } = await readCase(services, raw);
-  const [notes, current] = await Promise.all([part(services.userWork.notesFor({ caseId, target: null })), currentVersion(services, info)]);
+  // The case's notes and the page notes written in its originals' viewer, in one read: neither is shown without the other.
+  const [work, current, canWrite] = await Promise.all([part(services.userWork.readNoteWork({ caseId, target: null, store: PAGE_NOTE_STORE })), currentVersion(services, info), canWriteWork(services, caseId)]);
   const resultsVersion = current.kind === 'current' ? current.resultsVersion : null;
   return {
     caseId, label: info.caseLabel ?? info.caseId, caseHref: caseHref(caseId), notesHref: notesHref(caseId),
     chronologyHref: resultsVersion ? chronologyHref(caseId, resultsVersion) : null,
     /** annotations attach to documents of this version only; null while results are pending, withdrawn or unavailable */
     resultsVersion,
-    notes: notes.state === 'available' ? { state: 'available' as const, items: notes.value.map(item).sort(newest) } : { state: 'unavailable' as const, items: [] as NoteItem[] },
+    notes: work.state === 'available' ? { state: 'available' as const, items: work.value.notes.map(item).sort(newest) } : { state: 'unavailable' as const, items: [] as NoteItem[] },
+    /** read only here: each links to its original's viewer, where it is changed or deleted */
+    pageNotes: work.state === 'available' ? pageNotes(caseId, work.value.rows) : ({ items: [], unreadable: 0 } satisfies PageNotes),
     /** a fresh operation id per rendered form; a resubmission of the same form repeats, never duplicates, the write */
     operationId: crypto.randomUUID(),
+    /** false for a viewer: the page shows the notes without the add and delete forms */
+    canWrite,
   };
 }
 
@@ -83,6 +91,8 @@ export async function deleteNote({ locals, params, request }: RequestEvent) {
   const f = await request.formData();
   const noteId = text(f, 'id'), version = text(f, 'version'), operationId = text(f, 'operationId');
   if (!TOKEN.test(noteId) || !TOKEN.test(version) || !OPERATION.test(operationId)) return fail(400, { op: 'delete', message: 'This form is out of date. Reload the page and try again.' } satisfies NoteRefusal);
+  const step = deleteStep(f, noteId);
+  if (step !== 'confirm') return fail(400, { op: 'delete', confirm: step === 'ask' ? noteId : null } satisfies NoteRefusal);
   try {
     const written = await locals.userWork.deleteNote({ caseId, id: noteId, expected: { kind: 'match', version: id('row-version', version) }, operationId });
     if (written.kind !== 'written') {

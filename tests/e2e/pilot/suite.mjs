@@ -28,6 +28,7 @@ const sec = await import('./suite/security.mjs');
 const state = await import('./suite/state.mjs');
 const hostile = await import('./suite/hostile.mjs');
 const shell = await import('./suite/shell.mjs');
+const drawer = await import('./suite/drawer.mjs');
 
 const ROOT = resolve(process.env.E2E_ROOT ?? join(import.meta.dirname, '..', '..', '..'));
 const BUILD = resolve(process.env.E2E_BUILD_DIR ?? join(ROOT, 'build'));
@@ -94,7 +95,8 @@ try {
 	await step('BA-04', "date basis column hidden while no row has a basis ('undated' in the Date column); with supplied date_type/date_source, 'unknown', 'undated' and the supplied values", () => flow.dateBasis(ctx));
 	await step('BA-09', 'source routes: e-mail original direct, attachments through the parent; an original deleted before import, or after activation, is unavailable, has no link and is 410; restoring it brings the links back', () => flow.sourceRoutes(ctx));
 	await step('EXPORT-NAME', "chronology export: the download (Browser.downloadWillBegin) is named by the package's view-content chronology.exportFileName with no note; a package without view-content (viewCode: false) downloads chronology.csv with the fixed note beside the export button", () => shell.exportName(ctx));
-	await step('NARROW', 'narrow shell: at 320, 390 and 640 px (at most 40rem) the navigation stacks above main (not sticky, bounded and scrolling), main starts at the left edge and spans the viewport, the top bar wraps, and no page scrolls sideways (overview, a document, the chronology, an unavailable view; also for a case whose 64-character id has no break opportunity at 320 and 390 px); at 390 px Tab reaches every nav link inside the nav and the viewport; at 641 and 1280 px two columns and a sticky navigation', () => shell.narrowShell(ctx));
+	await step('NARROW', 'case shell: at 320, 390 and 640 px (at most 40rem) the sidebar is a closed drawer (not rendered; the top bar toggle has aria-expanded false), the top bar wraps, main starts at the left edge in the first screen and spans the viewport, and no page scrolls sideways (overview, a document, the chronology, an unavailable view; also for a case whose 64-character id has no break opportunity at 320 and 390 px); the open drawer is a fixed panel with a backdrop, inert top bar and main, closing by Escape and by the backdrop with focus on the toggle; at 390 px Tab through the open drawer reaches every nav link inside the nav and the viewport; at 641 and 1280 px a 240 px sticky sidebar beside two columns and a sticky top bar (one 56 px row at 1280), Tab reaching every sidebar link; no header.top inside a case', () => shell.narrowShell(ctx));
+	await step('DRAWER', 'the open drawer at 390 px is modal: Tab and Shift+Tab wrap inside it, the top bar and main are inert, Escape and the backdrop return focus to the toggle, Ctrl+K closes it and then focuses the search box (and still does when it is closed, at 390 and 1280 px)', () => drawer.drawerFocus(ctx));
 	await step('S4', 'a note added through the document page form appears without a reload, renders as text and persists', () => state.notesUi(ctx));
 	await step('S28', 'viewer containment: script in the sandboxed pdf.js frame cannot navigate, open popups, read originals, set cookies or reach the wrapper', () => sec.s28(ctx));
 	await step('S29', '/_pdfjs allowlist: inherited keys and malformed escapes 404 with CSP; listed files 200', () => sec.s29(ctx));

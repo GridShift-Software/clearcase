@@ -14,6 +14,7 @@ import { SqliteD1, MemoryR2 } from './doubles.ts';
 import { createOriginalIntake } from '../../../src/lib/storage/cloud/intake.ts';
 import { createIntakeController } from '../../../src/lib/submissions/controller.ts';
 import { d1SubmissionRepository } from '../../../src/lib/submissions/repository.ts';
+import { fileSetDigest } from '../../../src/lib/submissions/file-set.ts';
 
 const utf8 = (s: string) => new TextEncoder().encode(s);
 export const pdf = (tag: string) => utf8(`%PDF-1.4\n% SYNTHETIC ONLY ${tag}\n%%EOF\n`);
@@ -187,8 +188,8 @@ export const submissionOp = (caseId: string, ref: string) => `opn24-${caseId}-${
  * at the final mark, so the upload stays `reserved` (the original is bound by GRS-115 but the submission is not final).
  * Its own allow-all upload grant and writer; fixture plumbing only.
  */
-export async function submit(dep: Dep, caseId: string, uploads: readonly Submitted[], o: { commit?: boolean } = {}) {
-  const writer = { bindings: { db: dep.db, bucket: dep.bucket }, clientId: ids.clientA, budgets: BUDGETS, quotas: QUOTAS, authorize: async () => {}, now: caseNow };
+export async function submit(dep: Dep, caseId: string, uploads: readonly Submitted[], o: { commit?: boolean; quotas?: typeof QUOTAS } = {}) {
+  const writer = { bindings: { db: dep.db, bucket: dep.bucket }, clientId: ids.clientA, budgets: BUDGETS, quotas: o.quotas ?? QUOTAS, authorize: async () => {}, now: caseNow };
   const repository = d1SubmissionRepository(dep.db);
   const ports = {
     clientId: ids.clientA, budget: { maxMetadataBytes: 4096, maxFileBytes: BUDGETS.maxOriginalBytes }, authorizeUpload: async () => {}, now: caseNow,
@@ -211,4 +212,45 @@ export async function submit(dep: Dep, caseId: string, uploads: readonly Submitt
     out.push({ operationId, status: p.status });
   }
   return out;
+}
+
+// ---- U16: one submission revision holding a set of files, through the real intake's set routes ----
+
+/** The id the set fixture uses for the set itself and for each of its files (the intake's own id format). */
+export const setOp = (caseId: string, ref: string) => `set24-${caseId}-${ref}`.padEnd(16, '0');
+/**
+ * Opens a set, declares and stores each file through the REAL client intake controller over the real repository and the real
+ * GRS-115 original intake, then seals it in steps. Returns the set's revision id. `seal: false` leaves the set open (stored,
+ * not sealed); `sealCalls` stops after that many seal calls, so a small `sealStep` can leave it sealing. `quotas` replaces the generous fixture quotas. Its own allow-all upload grant and writer; fixture plumbing only.
+ */
+export async function submitSet(dep: Dep, caseId: string, setRef: string, uploads: readonly Submitted[], o: { seal?: boolean; sealStep?: { files: number; bytes: number; ms: number }; sealCalls?: number; quotas?: typeof QUOTAS } = {}) {
+  const writer = { bindings: { db: dep.db, bucket: dep.bucket }, clientId: ids.clientA, budgets: BUDGETS, quotas: o.quotas ?? QUOTAS, authorize: async () => {}, now: caseNow };
+  const controller = createIntakeController({
+    clientId: ids.clientA, budget: { maxMetadataBytes: 4096, maxFileBytes: BUDGETS.maxOriginalBytes }, authorizeUpload: async () => {}, now: caseNow,
+    originals: createOriginalIntake(writer as never), repository: d1SubmissionRepository(dep.db), ...(o.sealStep ? { sealStep: o.sealStep } : {}),
+  } as never);
+  const identity = grantedIdentity(ids.clientA, [caseId]).identity;
+  const origin = 'https://client-a.example', setId = setOp(caseId, setRef);
+  const call = async (method: 'POST' | 'PUT', tail: string, params: Record<string, string>, body: BodyInit, type: string, handler: (r: never) => Promise<Response>) => {
+    const url = new URL(`${origin}/client/intake/${caseId}/sets${tail}`);
+    const r = await handler({ request: new Request(url, { method, headers: { origin, 'content-type': type }, body }), url, params: { caseId, ...params }, identity } as never);
+    if (r.status >= 300) throw new Error(`fixture ${method} ${tail} failed: ${r.status} ${await r.text()}`);
+    return r;
+  };
+  const total = uploads.reduce((n, u) => n + u.bytes.byteLength, 0);
+  await call('POST', '', {}, JSON.stringify({ setId, fileCount: uploads.length, totalBytes: total }), 'application/json', controller.openSet);
+  for (const u of uploads) {
+    const operationId = setOp(caseId, `${setRef}-${u.ref}`);
+    await call('POST', `/${setId}/files`, { setId }, JSON.stringify({ operationId, path: u.path, size: u.bytes.byteLength, sha256: shaOf(u.bytes), mediaType: 'application/pdf' }), 'application/json', controller.declareSetFile);
+    await call('PUT', `/${setId}/files/${operationId}`, { setId, operationId }, new Uint8Array(u.bytes) as Uint8Array<ArrayBuffer>, 'application/pdf', controller.uploadSetFile);
+  }
+  if (o.seal !== false) {
+    const digest = await fileSetDigest(uploads.map((u) => ({ path: u.path.normalize('NFC'), size: u.bytes.byteLength, sha256: shaOf(u.bytes) })));
+    for (let i = 0; ; i++) {
+      const r = await call('POST', `/${setId}/seal`, { setId }, JSON.stringify({ filesSha256: digest }), 'application/json', controller.sealSet);
+      if (r.status !== 202 || i + 1 === o.sealCalls) break;
+      if (i > 10_000) throw new Error('fixture seal did not finish');
+    }
+  }
+  return `subrev-${setId}`;
 }

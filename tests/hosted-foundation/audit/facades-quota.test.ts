@@ -13,12 +13,12 @@ const others = (w: ReturnType<typeof world>) => w.rows().filter((r) => r.action 
 const reserved = (id: string) => event({ eventId: id, action: 'audit.read', object: { kind: 'audit-log', id: 'case', caseId: null } });
 
 describe('owned facades', () => {
-  it('hands a request route only append, a reader only query, and the grant port append and find', async () => {
+  it('hands a request route append and atomic, a reader only query, and the grant port append and find', async () => {
     const w = world(); await w.ready;
     const common = { db: w.d1, config: w.config, requester: viewer, now: NOW };
     const sink = requestAuditSink(common), reader = publicAuditReader({ ...common, gate: gate() }), port = trustedGrantAuditPort(common);
     const surface = (o: object) => { const names = new Set<string>(); for (let p: object | null = o; p; p = Object.getPrototypeOf(p)) Object.getOwnPropertyNames(p).forEach((n) => names.add(n)); return [...names].filter((n) => !['constructor', '__proto__', 'hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable', 'toLocaleString', 'toString', 'valueOf', '__defineGetter__', '__defineSetter__', '__lookupGetter__', '__lookupSetter__'].includes(n)).sort(); };
-    expect(surface(sink)).toEqual(['append']);
+    expect(surface(sink)).toEqual(['append', 'atomic']);
     expect(surface(reader)).toEqual(['query']);
     expect(surface(port)).toEqual(['append', 'find']);
     expect([sink, reader, port].map(Object.isFrozen)).toEqual([true, true, true]);

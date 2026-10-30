@@ -1,6 +1,9 @@
 /// <reference types="node" />
 // The file-checking owner explicitly needs Node types, including in native-alpha's types:[] private check.
 // Separate first-deployment profile. Does not relax native/1's custom-domain policy.
+// One Worker serves ONE origin: CLEARCASE_APP_ORIGIN, the manifest hostname and Clerk's fixed sign-in callbacks all name it, and the runtime
+// refuses any pair that differs. `origin` is the single switch between the two pinned sets. Under 'custom-domain' a client Worker's workers.dev and preview
+// URLs are off, so no second origin serves it; the rollback is a redeploy with 'workers-dev', which turns workers.dev back on before the domain is detached.
 // No provider/process/environment access. Only prepare/read touch files; plan is deterministic.
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -9,6 +12,7 @@ import { types } from 'node:util';
 import ts from 'typescript';
 import { checkNativeArtifact, nativeWalk, readRegular } from '../probes/target.ts';
 import { CLERK_ENV } from '../../src/lib/auth/clerk/config.ts';
+import { APPROVED_NATIVE_SCOPE } from './controls.ts';
 import { NATIVE_BROWSER_BINDING, NATIVE_STAGED, parseNativeJson } from './pipeline.ts';
 import {
 	NATIVE_RUNTIME_CONFIG_MAX_BYTES, NATIVE_RUNTIME_CONFIG_VAR, NATIVE_RUNTIME_SECRET_NAMES, nativeRuntimeConfigDiagnostic, planNativeRuntimeConfig,
@@ -19,6 +23,10 @@ import { validateBuildStamp } from '../../src/lib/server/runtime/build.ts';
 export const WORKERS_DEV_BOOTSTRAP_SCHEMA = 'clearcase.workers-dev-bootstrap/1';
 export type BootstrapSlot = 'client-a' | 'client-b' | 'staff';
 export type BootstrapClientSlot = Exclude<BootstrapSlot, 'staff'>;
+/** Which pinned hostname set the planned runtime configuration must name. Absent means 'workers-dev'. */
+export type BootstrapOrigin = 'workers-dev' | 'custom-domain';
+/** Cloudflare's `placement` key, restricted to the two forms that need no probed host: Smart Placement or an explicit cloud region hint. */
+export type BootstrapPlacement = { mode: 'smart' } | { region: string };
 export type BootstrapSettings = {
 	pins: { source: string; artifact: string; entry: string };
 	compatibilityDate: string;
@@ -28,6 +36,10 @@ export type BootstrapSettings = {
 	/** Explicit, absent by default: the INPUT of planNativeRuntimeConfig (never a vars map). Its validated public vars are merged into the matching
 	 * client configs; every planned tuple must be this bootstrap's own, and the planned renderers must equal browserClients. */
 	runtimeConfig?: unknown;
+	/** Explicit, absent by default (= 'workers-dev'): the one origin set the planned hostnames and app origins must equal. */
+	origin?: BootstrapOrigin;
+	/** Explicit, absent by default (= no `placement` key): written into the client configs only. A region hint runs the Worker's fetch handler near that cloud region. */
+	placement?: BootstrapPlacement;
 };
 const ACCOUNT = 'fb4c31b91c5d89b7a54afbdc34823170';
 /** The account's workers.dev subdomain: public provider metadata observed from the account API and every live URL, pinned beside ACCOUNT. */
@@ -37,6 +49,16 @@ const CLIENTS = {
 	'client-a': { worker: 'cc-sbx-a-20261023', database: 'cc-sbx-a-20261023-db', uuid: 'cd257736-7bf3-49f6-8544-ac58c2207802', bucket: 'cc-sbx-a-20261023-files' },
 	'client-b': { worker: 'cc-sbx-b-20261023', database: 'cc-sbx-b-20261025-r1-db', uuid: '7c340891-9fcc-4398-8128-68abe726f130', bucket: 'cc-sbx-b-20261023-files' },
 } as const;
+/** The custom-domain hostname of a slot: this module owns no hostname text, it reads the reviewed scope and checks it names the same Worker. */
+function customHostname(slot: BootstrapClientSlot): string {
+	const approved = APPROVED_NATIVE_SCOPE.clients.find((c) => c.client === slot);
+	if (!approved || approved.worker !== CLIENTS[slot].worker || approved.hostname.includes('*') || !approved.hostname.endsWith(`.${APPROVED_NATIVE_SCOPE.zone.name}`))
+		throw new Error(`${slot}: the approved custom-domain scope does not name this Worker inside the approved zone`);
+	return approved.hostname;
+}
+/** The one hostname a client Worker may serve under each origin. Anything else, a wildcard or another zone included, never equals it. */
+export const bootstrapHostname = (slot: BootstrapClientSlot, origin: BootstrapOrigin = 'workers-dev') =>
+	origin === 'custom-domain' ? customHostname(slot) : `${CLIENTS[slot].worker}.${WORKERS_DEV_SUBDOMAIN}.workers.dev`;
 const MANIFEST = 'bootstrap.json';
 const sha = (bytes: string | Uint8Array) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
@@ -76,8 +98,19 @@ function strings(value: unknown, max: number): string[] | null {
 	}
 	return captured;
 }
+/** Exactly `{mode:'smart'}` or `{region:'<aws|gcp|azure>:<region>'}`. `host` and `hostname` hints probe an external service and stay refused. */
+function placementOf(value: unknown): BootstrapPlacement {
+	const refuse = () => new Error("placement must be exactly {mode:'smart'} or {region:'<aws|gcp|azure>:<region>'}; host and hostname hints, extra keys and accessors are refused");
+	let captured: Record<string, unknown>;
+	try { captured = capture(value, [], 'placement', ['mode', 'region']); } catch { throw refuse(); }
+	const keys = Object.keys(captured);
+	if (keys.length !== 1) throw refuse();
+	if (keys[0] === 'mode' && captured.mode === 'smart') return { mode: 'smart' };
+	if (keys[0] === 'region' && typeof captured.region === 'string' && /^(aws|gcp|azure):[a-z0-9]+(-[a-z0-9]+)*$/.test(captured.region)) return { region: captured.region };
+	throw refuse();
+}
 function settings(value: unknown) {
-	const top = capture(value, ['pins', 'compatibilityDate', 'compatibilityFlags'], 'settings', ['browserClients', 'runtimeConfig']);
+	const top = capture(value, ['pins', 'compatibilityDate', 'compatibilityFlags'], 'settings', ['browserClients', 'runtimeConfig', 'origin', 'placement']);
 	const pins = capture(top.pins, ['source', 'artifact', 'entry'], 'external pins');
 	if (typeof pins.source !== 'string' || !/^[0-9a-f]{40}$/.test(pins.source)) throw new Error('external source pin must be a full Git SHA');
 	for (const k of ['artifact', 'entry']) if (typeof pins[k] !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(pins[k] as string)) throw new Error(`external ${k} pin must be sha256:<64 lowercase hex>`);
@@ -92,11 +125,18 @@ function settings(value: unknown) {
 		if (JSON.stringify(clients) !== JSON.stringify(SLOTS.filter((c) => clients.includes(c)))) throw new Error('browserClients must list each client at most once, in client-a, client-b order');
 		browserClients = clients as BootstrapClientSlot[];
 	}
+	let origin: BootstrapOrigin | undefined;
+	if (Object.hasOwn(top, 'origin')) {
+		if (top.origin !== 'workers-dev' && top.origin !== 'custom-domain') throw new Error("origin must be exactly 'workers-dev' or 'custom-domain'");
+		origin = top.origin;
+	}
+	let placement: BootstrapPlacement | undefined;
+	if (Object.hasOwn(top, 'placement')) placement = placementOf(top.placement);
 	// The planner snapshots its own input here, inside planning, so before any file is read; nothing later touches the caller's object.
-	const runtime = Object.hasOwn(top, 'runtimeConfig') ? runtimeConfig(top.runtimeConfig, browserClients ?? []) : null;
+	const runtime = Object.hasOwn(top, 'runtimeConfig') ? runtimeConfig(top.runtimeConfig, browserClients ?? [], origin ?? 'workers-dev') : null;
 	const resolved: BootstrapSettings = {
 		pins: { source: pins.source, artifact: pins.artifact as string, entry: pins.entry as string }, compatibilityDate: date, compatibilityFlags: ['nodejs_compat'],
-		...(browserClients ? { browserClients } : {}),
+		...(browserClients ? { browserClients } : {}), ...(origin ? { origin } : {}), ...(placement ? { placement } : {}),
 	};
 	return { settings: resolved, runtime };
 }
@@ -116,7 +156,7 @@ const deny = (why: string): never => { throw new Error(`runtimeConfig: ${why}`);
 
 /** One planner result, checked against this bootstrap's own targets. Only fixed text is thrown: the planner's issued diagnostic or a static
  * label, never an input value, key, hostname or thrown value. Plain `unknown` in; frozen derived records out. */
-function runtimeConfig(input: unknown, browserClients: readonly BootstrapClientSlot[]): RuntimePlan {
+function runtimeConfig(input: unknown, browserClients: readonly BootstrapClientSlot[], origin: BootstrapOrigin): RuntimePlan {
 	let plan: NativeRuntimeConfigPlan;
 	try {
 		plan = planNativeRuntimeConfig(input);
@@ -143,7 +183,9 @@ function runtimeConfig(input: unknown, browserClients: readonly BootstrapClientS
 		if (!deployment || !sameList(Object.keys(deployment), TUPLE_KEYS) || TUPLE_KEYS.some((key) => deployment![key] !== expected[key]) || file.worker !== target.worker)
 			deny('a planned deployment tuple is not this bootstrap target');
 		// workers.dev serves <worker>.<account subdomain>.workers.dev: the subdomain is this account's pinned one, never the caller's.
-		if (file.hostname !== `${target.worker}.${WORKERS_DEV_SUBDOMAIN}.workers.dev`) deny('a planned hostname is not this Worker on the pinned workers.dev account subdomain');
+		// The custom domain is this client's own single label under the approved zone; every other hostname, a wildcard included, refuses.
+		if (origin === 'custom-domain' && (file.hostname.includes('*') || !file.hostname.endsWith(`.${APPROVED_NATIVE_SCOPE.zone.name}`))) deny('a planned hostname is a wildcard or outside the approved custom-domain zone');
+		if (file.hostname !== bootstrapHostname(slot as BootstrapClientSlot, origin)) deny(origin === 'custom-domain' ? 'a planned hostname is not this client on its own custom domain' : 'a planned hostname is not this Worker on the pinned workers.dev account subdomain');
 		const record = plan.manifest.clients.find((c) => c.clientId === slot);
 		if (!record || record.browserBinding !== file.bindings.browser) deny('the planner manifest disagrees with the planned client file');
 		clients.set(slot as BootstrapClientSlot, freeze({ vars: { ...file.vars }, requiredSecretNames: [...file.secrets], renders: file.bindings.browser !== null, fileSha256: record!.sha256 }));
@@ -173,12 +215,14 @@ export function planWorkersDevBootstrap(value: unknown) {
 			main: NATIVE_STAGED.entry, no_bundle: true, find_additional_modules: false, minify: false,
 			compatibility_date: s.compatibilityDate, compatibility_flags: s.compatibilityFlags,
 			// Workers Free enforces its own CPU ceiling and rejects even a 10ms custom limit.
-			send_metrics: false, workers_dev: true, preview_urls: false, routes: [],
+			send_metrics: false, workers_dev: !(client && s.origin === 'custom-domain'), preview_urls: false, routes: [],
 			assets: { directory: NATIVE_STAGED.assets, binding: 'ASSETS' },
 			// Role and client id come first and are locked: the planned CLEARCASE_CLIENT_ID is checked equal, so the merge never moves them.
 			vars: { CLEARCASE_INSTANCE_ROLE: client ? 'client' : 'staff', CLEARCASE_CLIENT_ID: client ? slot : '', ...planned?.vars },
 			// No migrations, secrets, service bindings or raw config escape hatch. Staff has no client stores.
 			...(client ? {
+				// Placement moves only the fetch handler, so it belongs on the Workers that call D1 and R2. Staff has no stores.
+				...(s.placement ? { placement: s.placement } : {}),
 				d1_databases: [{ binding: 'DB', database_name: client.database, database_id: client.uuid }],
 				r2_buckets: [{ binding: 'BUCKET', bucket_name: client.bucket, jurisdiction: 'eu' }],
 				// Controlled capability, not service proof or a budget: only the exact binding, never remote/proxy/env variants.

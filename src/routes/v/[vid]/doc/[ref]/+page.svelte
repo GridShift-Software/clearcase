@@ -1,15 +1,24 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { enhance } from '$app/forms';
+	import { onMount, tick, untrack } from 'svelte';
+	import { applyAction, enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import type { SubmitFunction } from '$app/forms';
+	import { postNote } from '$lib/components/post-note';
 	import CitationLink from '$lib/components/CitationLink.svelte';
+	import ConfirmDelete from '$lib/components/ConfirmDelete.svelte';
+	import { deleteStep } from '$lib/components/confirm-delete';
 	import DateValue from '$lib/components/DateValue.svelte';
+	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
 	import OriginalOpen from '$lib/components/OriginalOpen.svelte';
+	import PageNoteText from '$lib/views/hosted/PageNoteText.svelte';
+	import type { DocumentPageNote } from '$lib/views/hosted/page-note-items';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import { writeAccess } from '$lib/components/write-access';
 	import { money } from '$lib/components/format';
 	import { displayFilename } from '$lib/case-package/browser';
 	import { docPath } from '$lib/local-case/model';
 	let { data, form } = $props();
+	const access = writeAccess();
 	const f = $derived(data.fields);
 	const vid = $derived(data.version.id);
 	const title = $derived(f.subject || f.filename);
@@ -19,16 +28,81 @@
 	] as [string, string][]);
 	let ready = $state(false);
 	onMount(() => { ready = true; });
+	// What the page says about the original in one phrase: it is stored, it is not supplied, or it is inside its parent message.
+	const availability = $derived(
+		data.state.file === 'present' && data.state.original && !data.onDisk ? 'available'
+		: data.state.self?.route === 'parent' || data.state.flags.includes('embedded') ? 'embedded'
+		: 'missing'
+	);
+	// OriginalOpen owns the Open control; the journeys' hook goes on it from outside.
+	let original = $state<HTMLElement>();
+	$effect(() => {
+		void data.links;
+		void tick().then(() => original?.querySelector('#open-original')?.setAttribute('data-testid', 'open-original'));
+	});
 	let noteBusy = $state(false);
 	const noteRefused = $derived(!!form && 'body' in form);
+	// The composer's text is the page's own (GRS-284): a refused save's answer seeds it, and a saved note or Leave clears it.
+	let body = $state(untrack(() => (form && 'body' in form ? String(form.body) : '')));
+	let draftOperationId = $state<string | null>(untrack(() => form && 'body' in form && 'operationId' in form ? String(form.operationId) : null));
+	const operationId = $derived(draftOperationId ?? (form && 'operationId' in form ? String(form.operationId) : data.operationId));
+	function captureDraft() { draftOperationId ??= operationId; }
+	function discardDraft() { body = ''; draftOperationId = null; }
 	let noteError = $state<string | null>(null);
-	const submitNote: SubmitFunction = () => {
+	const submitNote: SubmitFunction = async (submission) => {
+		submission.cancel();
+		if (noteBusy) return;
+		captureDraft();
+		const submitted = draftOperationId;
 		noteBusy = true;
 		noteError = null;
-		return async ({ result, update }) => {
-			noteBusy = false;
+		try {
+			const result = await postNote(submission);
+			if (draftOperationId !== submitted) return;
 			if (result.type === 'error') { noteError = result.status && (result.error as { message?: string } | undefined)?.message || `The note was not saved: ${result.status ? `the app answered ${result.status}.` : 'the app did not answer.'} Your text is kept; try again.`; return; }
-			await update({ reset: result.type === 'success' });
+			// A saved note clears the text here, not by a form reset, which would bring back a refused draft the server rendered.
+			if (result.type === 'success') discardDraft();
+			// A save that answers with its note (hosted) shows it at once and reloads the page's data behind it.
+			if (result.type === 'success' && result.data && 'note' in result.data) {
+				await applyAction(result);
+				saved = { note: result.data.note as Note, data };
+				void invalidateAll();
+				return;
+			}
+			if (result.type === 'success') await invalidateAll();
+			await applyAction(result);
+		} catch {
+			noteError = 'The note may not have been saved. Your text is kept; try again.';
+		} finally {
+			noteBusy = false;
+		}
+	};
+	type Note = (typeof data.notes)[number];
+	// Hosted only: the page notes written on this document's original in its viewer, shown read only.
+	const pageNotes = $derived((data as { pageNotes?: DocumentPageNote[] }).pageNotes ?? []);
+	const pageNotesUnreadable = $derived((data as { pageNotesUnreadable?: number }).pageNotesUnreadable ?? 0);
+	// The saved note shows only over the data it was saved on: any completed reload replaces `data` and retires it, so a
+	// note another tab deleted meanwhile is not shown again. Raw, so `data` keeps its identity for the comparison.
+	let saved = $state.raw<{ note: Note; data: typeof data } | null>(null);
+	const notes = $derived(saved && saved.data === data && !data.notes.some((n) => n.id === saved!.note.id) ? [...data.notes, saved.note] : data.notes);
+	// the note whose Delete awaits Confirm; without JavaScript the server's answer names it
+	let confirming = $state<string | null>(untrack(() => (form && 'confirm' in form && typeof form.confirm === 'string' ? form.confirm : null)));
+	let deleting = $state<string | null>(null);
+	let deleteError = $state<string | null>(null);
+	const removeNote: SubmitFunction = ({ formData, cancel }) => {
+		const id = String(formData.get('id'));
+		const step = deleteStep(formData, id);
+		if (step !== 'confirm') { cancel(); confirming = step === 'ask' ? id : null; return; }
+		confirming = null;
+		deleting = id;
+		deleteError = null;
+		return async ({ result, update }) => {
+			try {
+				if (result.type === 'error') deleteError = `The note was not deleted: ${result.status ? `the app answered ${result.status}.` : 'the app did not answer.'} Try again.`;
+				else await update();
+			} catch {
+				deleteError = 'The deletion could not be confirmed. Your draft is kept; try again.';
+			} finally { deleting = null; }
 		};
 	};
 </script>
@@ -44,7 +118,14 @@
 	</tbody></table></section>
 
 	{#if data.source !== 'results'}<p class="card" id="doc-source" data-source={data.source}>This document comes from the document-row provider <code>{data.source.replace(/^provider:/, '')}</code>, not from the imported results.</p>{/if}
-	<OriginalOpen state={data.state} links={data.links} onDisk={data.onDisk} page={data.page} parentHref={data.parent?.exists ? docPath(vid, data.parent.ref) : null} />
+	<div bind:this={original} data-testid="original-metadata" data-original-availability={availability}>
+		<p class="note" id="original-availability">
+			{#if availability === 'available'}Original available.
+			{:else if availability === 'embedded'}Original inside the parent message{#if data.parent?.exists}: <a href={docPath(vid, data.parent.ref, null, data.base)}>{data.parent.ref}</a>{/if}.
+			{:else}Original not supplied.{/if}
+		</p>
+		<OriginalOpen state={data.state} links={data.links} onDisk={data.onDisk} page={data.page} parentHref={data.parent?.exists ? docPath(vid, data.parent.ref, null, data.base) : null} />
+	</div>
 
 	{#if data.attachments.length || f.attachmentNames.length}
 		<section class="card" aria-labelledby="att-heading" id="attachments"><h2 id="att-heading">Attachments</h2>
@@ -52,7 +133,7 @@
 				<ul>{#each data.attachments as x (x.key)}
 					<li data-attachment={x.key} data-route={x.route}>
 						<code>{x.key}</code> {x.member ? displayFilename(x.member) : ''} <small>({x.mediaType})</small>:
-						{#if x.route === 'direct'}{#if x.hasDocument}<a href={docPath(vid, x.key)}>its own original</a>{:else if x.links?.download}<a href={x.links.download} rel="noopener noreferrer" download>download its own original</a>{:else}its own original{/if}
+						{#if x.route === 'direct'}{#if x.hasDocument}<a href={docPath(vid, x.key, null, data.base)}>its own original</a>{:else if x.links?.download}<a href={x.links.download} rel="noopener noreferrer" download>download its own original</a>{:else}its own original{/if}
 						{:else if x.route === 'parent'}inside this {x.via === data.ref ? 'message' : `container ${x.via}`}; {#if data.links.open || data.links.download}open <a href={data.links.open ?? data.links.download} rel="noopener noreferrer" target="_blank">the parent original</a> to reach it{:else}<span class="unresolved" data-parent="unavailable">the parent original is unavailable{data.onDisk ? ` (${data.onDisk})` : ''}, so this attachment cannot be reached now</span>{/if}
 						{:else}<span class="unresolved">unavailable ({x.reason})</span>{/if}
 					</li>
@@ -73,21 +154,32 @@
 	{/if}
 
 	<section class="card" aria-labelledby="notes-heading"><h2 id="notes-heading">My notes</h2>
+		{#if deleteError}<p class="error" role="alert" data-op="delete">{deleteError}</p>{/if}
 		<ul id="notes">
-			{#each data.notes as n (n.id)}
+			{#each notes as n (n.id)}
 				<li data-note={n.id} data-anchor={n.status}><span class="wrap">{n.body}</span> <small>({n.createdAt}{n.status === 'exact' ? `, written on ${n.refAtCreation} in an earlier version and re-attached by its original's fingerprint` : ''})</small>
 					{#if n.status === 'ambiguous'}<strong class="warning-inline">This note was written on {n.refAtCreation} in another version; its original's bytes are shared by {n.candidates.join(', ')} here, so it is shown on each.</strong>{/if}
 					{#if !n.intact}<strong class="unresolved" data-note-integrity="mismatch">this note was altered on disk since it was saved</strong>{/if}
-					{#if n.status === 'here'}<form method="POST" action="?/delnote" use:enhance><input type="hidden" name="id" value={n.id} /><button aria-label="Delete note" disabled={noteRefused}>Delete</button></form>{/if}
+					{#if n.status === 'here' && access.canWrite}<form method="POST" action="?/delnote" use:enhance={removeNote}><input type="hidden" name="id" value={n.id} /><input type="hidden" name="version" value={n.version ?? ''} /><input type="hidden" name="operationId" value={`${data.operationId}.d.${n.id}`} /><ConfirmDelete bind:pending={confirming} target={n.id} question="Delete this note?" aria-label="Delete note" disabled={noteRefused || deleting === n.id} /></form>{/if}
 				</li>
-			{:else}<li>No notes.</li>{/each}
+			{/each}
+			{#each pageNotes as p (p.rowId)}
+				<li data-page-note={p.rowId}><PageNoteText note={p} elsewhere={!p.here} /></li>
+			{/each}
+			{#if pageNotesUnreadable}<li data-page-notes-unreadable>{pageNotesUnreadable} stored {pageNotesUnreadable === 1 ? 'page note could' : 'page notes could'} not be read, so {pageNotesUnreadable === 1 ? 'it is' : 'they are'} not shown.</li>{/if}
+			{#if !notes.length && !pageNotes.length && !pageNotesUnreadable}<li>No notes.</li>{/if}
 		</ul>
-		{#if data.source === 'results'}
+		{#if !access.canWrite}
+			<!-- a viewer reads the notes; adding and deleting them is an editor's -->
+		{:else if data.source === 'results'}
 			<form method="POST" action="?/note" use:enhance={submitNote} id="note-form">
-				<label for="note-body">Add a note</label><br /><textarea name="body" rows="3" cols="80" id="note-body" readonly={noteBusy} value={form && 'body' in form ? String(form.body) : ''}></textarea><br /><button id="note-add" class="primary" disabled={noteBusy}>Add note</button>
+				<input type="hidden" name="operationId" value={operationId} />
+				<label for="note-body">Add a note</label><br /><textarea name="body" rows="3" cols="80" id="note-body" data-testid="note-body" maxlength="20000" required readonly={noteBusy} oninput={captureDraft} bind:value={body}></textarea><br /><button id="note-add" data-testid="note-add" class="primary" disabled={noteBusy}>Add note</button>
+				{#if noteBusy}<span role="status">Saving note…</span>{:else if form && 'saved' in form && form.saved}<span role="status">Note saved.</span>{/if}
 				{#if noteError ?? form?.message}<span class="error" role="alert">{noteError ?? form?.message}</span>{/if}
 				{#if noteRefused}<p class="note" id="note-delete-off">Delete is off until this note is saved: add it again, or reload the page to discard it.</p>{/if}
 			</form>
+			<LeaveGuard unsaved={body.trim() !== ''} what="Your note is not saved." discard={discardDraft} />
 		{:else}
 			<p id="note-unavailable">Notes are not available on this document: it has no imported original to anchor a note to, so a note would be lost when a new results version is imported.</p>
 		{/if}

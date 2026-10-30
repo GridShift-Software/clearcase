@@ -8,6 +8,7 @@ import {setPublicationComposition} from '../../../publication/hosted/composition
 import {setReadinessComposition,type PublicationReadinessPorts} from '../../../publication/hosted/readiness.ts';
 import {setRecoveryComposition,type NativeRecoveryBinding} from '../../../recovery/hosted/composition.ts';
 import {setPrivatePreviewComposition,type PrivatePreviewReader} from './private-preview.ts';
+import {setEvidenceBuildComposition,type EvidenceBuildPorts} from '../../../publication/hosted/evidence-build.ts';
 
 export interface NativeRequestCompositions {
  readonly intake: IntakePorts | null;
@@ -18,6 +19,8 @@ export interface NativeRequestCompositions {
  readonly recovery?:NativeRecoveryBinding|null;
  /** The operator's private candidate preview of this request; absent means the preview route answers 503. */
  readonly preview?:PrivatePreviewReader|null;
+ /** The operator's evidence build of this request (U14); absent means the evidence route answers 503. */
+ readonly evidence?:EvidenceBuildPorts|null;
 }
 // Object identity, not path, cookie, session id or the last request. Unknown requests always fail closed.
 const requests=new WeakMap<Request,NativeRequestCompositions>();
@@ -41,6 +44,7 @@ export function installNativeCompositions():void {
  setReadinessComposition(({request})=>requests.get(request)?.publication??null);
  setRecoveryComposition(({request})=>requests.get(request)?.recovery??null);
  setPrivatePreviewComposition(({request})=>requests.get(request)?.preview??null);
+ setEvidenceBuildComposition(({request})=>requests.get(request)?.evidence??null);
  setOperatorDownloadComposition(({request,platform})=>{
   const ports=requests.get(request)?.downloads;
   if(!ports)return null;

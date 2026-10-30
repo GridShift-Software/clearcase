@@ -2,6 +2,7 @@
 // session before it clears cookies, and signing in as the other identity signs the first out or refuses ambiguity.
 // SYNTHETIC keys and a loopback Backend API. Route-handler unit evidence only: no browser, no hook, no real Clerk.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SIGN_IN_RETURN_PREFIX } from '../../../src/lib/auth/clerk/flow.ts';
 import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
 
@@ -33,7 +34,13 @@ async function locals(token: string | null) {
 	return { runtime: { testIdentity: null }, identity } as unknown as App.Locals;
 }
 const outcome = async (f: () => unknown) => { try { return { value: await f() }; } catch (e) { return { thrown: e as { status?: number; location?: string; body?: { code?: string } } }; } };
-const jar = () => { const deleted: string[] = []; return { deleted, cookies: { delete: (name: string) => deleted.push(name) } }; };
+const jar = () => {
+	const deleted: string[] = [], all: string[] = [], set = new Map<string, string>();
+	// `all`: every delete, at any scope; `deleted`: the host-only ones (sign-out also deletes the owned session names on
+	// each parent Domain). A refusal or an outage must delete nothing at all, so it asserts on `all`.
+	const remove = (name: string, o?: { domain?: string }) => void (all.push(o?.domain === undefined ? name : `${name}@${o.domain}`), o?.domain === undefined && deleted.push(name));
+	return { deleted, all, set, cookies: { delete: remove, set: (name: string, value: string) => set.set(name, value) } };
+};
 const post = (cookie: string) => new Request(`${ORIGIN}/sign-out`, { method: 'POST', headers: { cookie } });
 
 describe('/sign-out with a Clerk session', () => {
@@ -43,7 +50,7 @@ describe('/sign-out with a Clerk session', () => {
 		const r = await outcome(() => signOut.actions.default!({ locals: l, request: post('__session=x; __client_uat=1; theme=dark'), url: new URL(ORIGIN), cookies: c.cookies } as never));
 		expect(r.thrown).toMatchObject({ status: 303, location: '/sign-in' });
 		expect(status.calls.filter((x) => x.includes('POST /v1/sessions/sess_so1/revoke auth'))).toHaveLength(1);
-		expect(c.deleted.sort()).toEqual(['__client_uat', '__session', 'clearcase_session']);
+		expect(c.deleted.sort()).toEqual(['__Host-clearcase_boot', '__client_uat', '__session', 'clearcase_session']);
 	});
 	it('revokes a staff session at the staff instance', async () => {
 		status.set('sess_so2', 'user_b1');
@@ -58,7 +65,7 @@ describe('/sign-out with a Clerk session', () => {
 		try {
 			const r = await outcome(() => signOut.actions.default!({ locals: l, request: post('__session=x'), url: new URL(ORIGIN), cookies: c.cookies } as never));
 			expect(r.thrown).toMatchObject({ status: 503, body: { code: 'identity-unavailable' } });
-			expect(c.deleted).toEqual([]);
+			expect(c.all).toEqual([]);
 		} finally {
 			status.outage(false);
 		}
@@ -83,11 +90,15 @@ describe('/sign-in as one browser session per origin', () => {
 		expect(c.deleted.sort()).toEqual(['__session', '__session_AbCd1234']);
 	});
 	it('sends an anonymous browser straight to the client instance, returning to a safe path only', async () => {
-		const l = await locals(null);
+		const l = await locals(null), verified = await locals(A.token({ sub: 'user_a1', sid: 'sess_a1', azp: ORIGIN }));
 		for (const [returnTo, back] of [['/cases/case-a1', '/cases/case-a1'], ['//attacker.example.test', '/cases'], ['https://attacker.example.test', '/cases']] as const) {
-			const url = new URL(`${ORIGIN}/sign-in?returnTo=${encodeURIComponent(returnTo)}`);
-			const r = await outcome(() => signIn.actions.default!({ locals: l, request: new Request(url, { method: 'POST' }), url, cookies: jar().cookies } as never));
-			expect(new URL(r.thrown!.location!).searchParams.get('redirect_url'), returnTo).toBe(`${ORIGIN}${back}`);
+			const url = new URL(`${ORIGIN}/sign-in?returnTo=${encodeURIComponent(returnTo)}`), c = jar();
+			const r = await outcome(() => signIn.actions.default!({ locals: l, request: new Request(url, { method: 'POST' }), url, cookies: c.cookies } as never));
+			expect(new URL(r.thrown!.location!).searchParams.get('redirect_url'), returnTo).toBe(`${ORIGIN}/sign-in`);
+			const callback = new URL(`${ORIGIN}/sign-in`), state = [...c.set].filter(([n]) => n.startsWith(SIGN_IN_RETURN_PREFIX.client));
+			expect(state).toHaveLength(1);
+			const returned = await outcome(() => signIn.load({ locals: verified, url: callback, request: new Request(callback, { headers: { cookie: state.map(([n, v]) => `${n}=${v}`).join('; ') } }), cookies: jar().cookies } as never));
+			expect(returned.thrown, returnTo).toMatchObject({ status: 303, location: back });
 		}
 	});
 });

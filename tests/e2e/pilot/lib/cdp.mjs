@@ -98,6 +98,7 @@ async function launchOnce({ profileRoot, extra, chrome }) {
 	b.profileDir = dir;
 	b.downloadDir = dl;
 	b.events = { dialogs: [], requests: [], downloads: [], titles: [], console: [], targets: [] };
+	b.acceptBeforeUnload = new Set();
 	b.sessions = new Map(); // sessionId -> targetInfo (live sessions only)
 	b.contexts = []; // { sessionId, ctx } from Runtime.executionContextCreated (all frames of every attached target)
 	// a death from now on is the browser's: Chromium exited, or a page, frame or worker of it crashed
@@ -141,10 +142,12 @@ async function launchOnce({ profileRoot, extra, chrome }) {
 				if (ti.title) b.events.titles.push({ at: Date.now(), title: ti.title, url: ti.url, type: ti.type });
 				break;
 			}
-			case 'Page.javascriptDialogOpening':
-				b.events.dialogs.push({ at: Date.now(), message: m.params.message, type: m.params.type, url: m.params.url, target: t?.url, ttype: t?.type });
-				b.send('Page.handleJavaScriptDialog', { accept: false }, s).catch(() => {});
+			case 'Page.javascriptDialogOpening': {
+				const accept = m.params.type === 'beforeunload' && b.acceptBeforeUnload.delete(s);
+				b.events.dialogs.push({ at: Date.now(), message: m.params.message, type: m.params.type, url: m.params.url, target: t?.url, ttype: t?.type, accepted: accept });
+				b.send('Page.handleJavaScriptDialog', { accept }, s).catch(() => {});
 				break;
+			}
 			case 'Network.requestWillBeSent':
 				b.events.requests.push({ at: Date.now(), url: m.params.request.url, method: m.params.request.method, type: m.params.type, target: t?.url, ttype: t?.type, initiator: m.params.initiator?.type });
 				break;
@@ -283,12 +286,17 @@ export async function newPage(b, { fresh = false, initScript } = {}) {
 			await sleep(15);
 		}
 	};
-	const navigate = async (url, { waitLoad = true, timeout = 20000 } = {}) => {
+	const navigate = async (url, { waitLoad = true, timeout = 20000, acceptBeforeUnload = false } = {}) => {
 		const loaded = b.once((x) => x.sessionId === sessionId && (x.method === 'Page.loadEventFired' || x.method === 'Page.navigatedWithinDocument'), timeout);
-		const r = await s('Page.navigate', { url });
-		if (!r.errorText && waitLoad) await loaded.catch(() => {});
-		if (b.fatal) throw b.fatal;
-		return r;
+		if (acceptBeforeUnload) b.acceptBeforeUnload.add(sessionId);
+		try {
+			const r = await s('Page.navigate', { url });
+			if (!r.errorText && waitLoad) await loaded.catch(() => {});
+			if (b.fatal) throw b.fatal;
+			return r;
+		} finally {
+			b.acceptBeforeUnload.delete(sessionId);
+		}
 	};
 	const close = async () => {
 		await b.send('Target.closeTarget', { targetId }).catch(() => {});

@@ -13,6 +13,7 @@ const dir = (d: string) => path.join(import.meta.dirname, '../../../src/lib', d)
 const MIGRATIONS = [
   ...readdirSync(dir('storage/cloud/migrations')).filter((f) => f.endsWith('.sql')).sort().map((f) => path.join(dir('storage/cloud/migrations'), f)),
   path.join(dir('submissions/migrations'), '0001_submissions_intake.sql'),
+  path.join(dir('submissions/migrations'), '0002_submissions_file_sets.sql'),
 ];
 const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 
@@ -22,6 +23,8 @@ export class SqliteD1 implements CloudD1 {
   failNext: RegExp | null = null;
   constructor() {
     this.sqlite.exec('PRAGMA foreign_keys = ON');
+    // Cloudflare D1 refuses a LIKE or GLOB pattern over 50 bytes ("pattern too complex"); node:sqlite allows 50,000.
+    this.sqlite.limits.likePatternLength = 50;
     for (const m of MIGRATIONS) this.sqlite.exec(readFileSync(m, 'utf8'));
   }
   prepare(sql: string): CloudD1Statement {
@@ -77,6 +80,11 @@ export class MemoryR2 implements CloudR2 {
     const o = { bytes: new Uint8Array(value), sha256: options.sha256, version: ++this.seq };
     this.objects.set(key, o);
     return this.head_(key, o);
+  }
+  async delete(key: string): Promise<void> { this.objects.delete(key); }
+  async list(o: { prefix: string; startAfter?: string; limit: number }) {
+    const keys = [...this.objects.keys()].filter((k) => k.startsWith(o.prefix) && (o.startAfter === undefined || k > o.startAfter)).sort();
+    return { objects: keys.slice(0, o.limit).map((key) => ({ key })), truncated: keys.length > o.limit };
   }
   /** A credential holder's change at rest: other bytes under the key, with no checksum update. */
   tamper(key: string, edit: (b: Uint8Array) => Uint8Array) {

@@ -1,0 +1,109 @@
+// Ticket 03 review M1: the overview's "Go to" links and the Quantum page's charging-calculation link follow the route
+// base, so the same page components keep hosted readers under /cases/<caseId>/v/... instead of sending them to /v/....
+import path from 'node:path';
+import { render } from 'svelte/server';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { buildCase } from '../e2e/pilot/lib/fixtures';
+import type { LocalCase } from '../../src/lib/local-case/service.server';
+import { cleanup, tempRoot } from '../../src/lib/local-case/test-support';
+import OverviewPage from '../../src/routes/v/[vid]/overview/+page.svelte';
+import QuantumPage from '../../src/routes/v/[vid]/quantum/quantum_tab/+page.svelte';
+
+vi.mock('$app/navigation', () => ({ goto: () => Promise.resolve(), invalidateAll: () => Promise.resolve() }));
+vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
+
+type J = Record<string, any>;
+type Loader = { load: (e: unknown) => Promise<unknown> };
+const HOSTED = '/cases/c1/v';
+let root: string, lc: LocalCase, rv: string, caseId: string;
+const env = { ...process.env };
+
+beforeAll(async () => {
+	root = await tempRoot('hosted-base-links');
+	Object.assign(process.env, { CLEARCASE_DATA_DIR: path.join(root, 'data'), PORT: '1', CLEARCASE_USERWORK_BACKUP_DELAY_MS: '60000' });
+	const { app } = await import('../../src/lib/local-case/app.server');
+	lc = app();
+	const lock = lc.storage.acquireInstanceLock();
+	if (!lock.ok) throw new Error(lock.reason);
+	await lc.startup();
+	const c = await buildCase(path.join(root, 'case'), { caseId: 'hosted-links' });
+	const imp = await lc.importPackage(c.caseDir, c.pkgDir);
+	expect(imp.kind).toBe('stored');
+	rv = c.resultsVersion;
+	caseId = lc.store.getVersion(rv)!.case_id;
+}, 180_000);
+afterAll(async () => {
+	const g = globalThis as { __clearcase?: { app: LocalCase } };
+	g.__clearcase?.app.shutdown();
+	delete g.__clearcase;
+	process.env = env;
+	if (root) await cleanup(root);
+});
+
+const version = () => ({ id: rv, caseId, titleName: 'Invented case', caseName: 'Invented case' });
+const loaders: Record<string, () => Promise<unknown>> = {
+	overview: () => import('../../src/routes/v/[vid]/overview/+page.server'),
+	'quantum/quantum_tab': () => import('../../src/routes/v/[vid]/quantum/quantum_tab/+page.server'),
+};
+async function page(route: string, Page: never, base: string) {
+	const mod = (await loaders[route]()) as Loader;
+	const data = (await mod.load({ params: { vid: rv }, url: new URL(`http://127.0.0.1/v/${rv}/${route}`), parent: async () => ({ version: version(), base }) })) as J;
+	// The version layout sets the base context that CitationLink reads; the local freshness widget is left out, because its
+	// rescan link is local-only slot data and the hosted overview fills that slot itself (06's overview-slots.server.ts).
+	const html = render(Page, { props: { data: { ...data, version: version(), base }, form: null } as never, context: new Map([['clearcase:base', () => base]]) }).body;
+	return html.replace(/<p id="freshness-scan">[\s\S]*?<\/p>/, '');
+}
+const hrefs = (html: string) => [...html.matchAll(/href="([^"]*)"/g)].map((m) => m[1].replaceAll('&amp;', '&'));
+
+describe('page links follow the route base', () => {
+	it.each([
+		['overview', OverviewPage, '/chronology'],
+		['quantum/quantum_tab', QuantumPage, '/chronology?'],
+	] as const)('%s keeps every case link under a hosted base', async (route, Page, expected) => {
+		const local = hrefs(await page(route, Page as never, '/v'));
+		const hosted = hrefs(await page(route, Page as never, HOSTED));
+		const enc = encodeURIComponent(rv);
+		expect(local.some((h) => h.startsWith(`/v/${enc}${expected}`)), `local ${route} links to ${expected}`).toBe(true);
+		expect(hosted.some((h) => h.startsWith(`${HOSTED}/${enc}${expected}`)), `hosted ${route} links to ${expected}`).toBe(true);
+		expect(hosted.filter((h) => h.startsWith('/v/')), `hosted ${route} links that leave the base`).toEqual([]);
+	});
+});
+
+// Ticket 10 review: the four primary KPI tiles are links to the view that holds their figures, under either base.
+describe('the overview KPI tiles are links', () => {
+	const TILES = [['kpi-docs', 'Documents indexed', '/evidence/documents'], ['kpi-due', 'Amount due (to date)', '/quantum/quantum_tab'], ['kpi-inv', 'Invoices', '/quantum/invoice_ledger_tab'], ['kpi-contra', 'Contradiction flags', '/analysis/contradictions_tab']] as const;
+	it.each([['/v'], [HOSTED]])('under %s each tile heading holds an anchor with a visible label and its destination', async (base) => {
+		const html = await page('overview', OverviewPage as never, base);
+		for (const [id, label, route] of TILES) {
+			const h2 = new RegExp(`<h2 id="${id}">([\\s\\S]*?)</h2>`).exec(html)?.[1] ?? '';
+			const a = /^<a class="kpi-link" href="([^"]*)">([^<]*)<\/a>$/.exec(h2);
+			expect(a, `${id} heading is one anchor`).not.toBeNull();
+			expect(a![2]).toBe(label);
+			expect(a![1]).toBe(`${base}/${encodeURIComponent(rv)}${route}`);
+		}
+		// the fifth tile is a plain card: it has no destination of its own
+		expect(/<h2 id="kpi-scan">([^<]*)<\/h2>/.exec(html)?.[1]).toBe('Without extracted text');
+	});
+});
+
+// GRS-276: a client's overview shows no pipeline internals and no link to a view hosted never serves; the local one keeps them.
+describe('the overview inside the hosted shell', () => {
+	const render276 = async (hosted: boolean) => {
+		const mod = (await loaders.overview!()) as Loader;
+		const data = (await mod.load({ params: { vid: rv }, url: new URL(`http://127.0.0.1/v/${rv}/overview`), parent: async () => ({ version: version(), base: HOSTED }) })) as J;
+		const overview = { ...data.overview, diagnostics: { ASSET_DUPLICATE_CONTENT: 67 } };
+		const context = new Map<string, unknown>([['clearcase:base', () => HOSTED], ...(hosted ? [['clearcase:hosted', () => true] as const] : [])]);
+		return render(OverviewPage as never, { props: { data: { ...data, overview, version: version(), base: HOSTED }, form: null } as never, context }).body;
+	};
+	it('hides the producing adapter line, the validation totals and the Rescan & Update link', async () => {
+		const local = await render276(false);
+		expect(local).toMatch(/produced .* by .* from .* input/);
+		expect(local).toContain('Validation totals for this version');
+		expect(local).toContain('Rescan');
+		const onHosted = await render276(true);
+		expect(onHosted).not.toMatch(/produced .* by .* from .* input|Results version|Validation totals|ASSET_DUPLICATE_CONTENT|Rescan|rescan_tab/);
+		// the other quick links stay
+		expect(onHosted).toContain('class="quick"');
+		expect(onHosted).toContain(`${HOSTED}/${encodeURIComponent(rv)}/chronology`);
+	});
+});

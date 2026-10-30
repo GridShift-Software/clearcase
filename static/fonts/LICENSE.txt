@@ -1,5 +1,0 @@
-Schibsted Grotesk (variable, wght 400-900) and Instrument Serif (regular) are licensed under the SIL Open Font
-License 1.1 (https://openfontlicense.org). The files were fetched from fonts.gstatic.com through the Google Fonts CSS
-API (latin and latin-ext subsets) and are served from this folder so the app works offline.
-Schibsted Grotesk: https://github.com/schibsted/schibsted-grotesk
-Instrument Serif: https://github.com/Instrument/instrument-serif

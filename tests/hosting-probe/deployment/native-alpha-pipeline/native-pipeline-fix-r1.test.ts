@@ -319,7 +319,7 @@ describe('L2: duplicate JSON keys are refused (a bounded strict parse, never con
 	test.each([
 		['a top-level key repeated with the same value', '"workers_dev": false,', '"workers_dev": false, "workers_dev": false,'],
 		['a top-level key repeated with another value (last wins in JSON.parse)', '"workers_dev": false,', '"workers_dev": true, "workers_dev": false,'],
-		['a nested key repeated', '"zone_id": "db7c322907320aba562d64015ee7d673",', '"zone_id": "f", "zone_id": "db7c322907320aba562d64015ee7d673",'],
+		['a nested key repeated', '"zone_id": "1c82369e826ebe0afded65c295198fcd",', '"zone_id": "f", "zone_id": "1c82369e826ebe0afded65c295198fcd",'],
 	])('a Wrangler config with %s is refused', (_what, from, to) => {
 		const text = config().replace(from, to);
 		expect(text).not.toBe(config());

@@ -19,7 +19,7 @@
 </section>
 
 <style>
-	.results-state { border: 1px solid #ccc; border-radius: 4px; padding: 0.75rem 1rem; margin: 1rem 0; }
-	h2 { margin: 0 0 0.5rem; font-size: 1.1rem; }
-	p { margin: 0.25rem 0; }
+	.results-state { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); box-shadow: var(--shadow-sm); padding: 20px; margin: 16px 0; }
+	h2 { margin: 0 0 8px; font-size: 14px; line-height: 1.5; }
+	p { margin: 4px 0; color: var(--ink-2); }
 </style>

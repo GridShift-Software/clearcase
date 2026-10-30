@@ -8,6 +8,7 @@ import type { OriginalMapping } from './originals.ts';
 import { checkRelPath, foldPath, isReservedPath } from './paths.ts';
 import type { Asset, FileAsset } from './schema.ts';
 import { decodeUtf8Strict, escapePointer, isObject, parseStrictJson } from './strict-json.ts';
+import type { HeldFile } from './source.ts';
 import { validateSnapshot, type ValidatedPackage } from './validate.ts';
 
 export interface HostedValidationInput {
@@ -15,26 +16,38 @@ export interface HostedValidationInput {
   /** Only caller-verified, case-scoped D1/R2 facts; never request/package claims. */
   originals: OriginalFacts;
   limits?: Partial<Limits>;
+  /**
+   * Previews carried as the facts their storage check produced, not as bytes, so a stepped import need not hold them. A held
+   * path must not also be in `files`. The candidate lists these paths but holds no bytes for them.
+   */
+  held?: ReadonlyMap<string, HeldFile>;
 }
 export interface HostedValidation {
   result: ImportResult;
   /** Uncapped canonical ORIG_CASE_MISMATCH identities, for exact original lineage. */
   caseMismatch: readonly { ref: string; fingerprint: string }[];
+  /**
+   * Every indexed asset some citation of the package resolves to: the cited ref itself and each asset on its `parentRef` chain, by the
+   * same rule `CITE_TARGET_NO_ORIGINAL` applies. Uncapped, from all structured and inline citations; empty when validation stopped early.
+   */
+  cited: ReadonlySet<string>;
 }
 
-export function validateHostedPackage({ files, originals, limits }: HostedValidationInput): HostedValidation {
+export function validateHostedPackage({ files, originals, limits, held }: HostedValidationInput): HostedValidation {
   const L = withLimits(limits);
   const sink = new DiagSink(L.diagnosticsPerCode);
   let pkg: ValidatedPackage | null = null;
   const mapping = new Map<string, OriginalMapping>();
   const unavailable = new Set<string>();
   const caseMismatch: { ref: string; fingerprint: string }[] = [];
+  const cited = new Set<string>();
   try {
-    const snap = snapshotMemory(files, L, sink);
+    const snap = snapshotMemory(files, L, sink, held);
     if (snap) pkg = validateSnapshot(snap, sink, L);
     if (pkg && sink.errors === 0) {
       applyOriginalFacts(pkg.assets, originals, L, sink, mapping, unavailable, caseMismatch);
       flagCitedUnavailable(pkg, unavailable, sink);
+      for (const ref of citedAssets(pkg)) cited.add(ref);
     }
   } catch (e) {
     pkg = null;
@@ -51,6 +64,7 @@ export function validateHostedPackage({ files, originals, limits }: HostedValida
     failed.add('PKG_UNPROCESSABLE', `unexpected failure: ${String((e as Error)?.message ?? 'error').slice(0, 200)}`);
     result = { ...summarise(failed), verdict: 'reject', candidate: null };
     caseMismatch.length = 0;
+    cited.clear();
   }
   for (const d of result.diagnostics) Object.freeze(d);
   Object.freeze(result.diagnostics);
@@ -60,12 +74,13 @@ export function validateHostedPackage({ files, originals, limits }: HostedValida
   return Object.freeze({
     result: Object.freeze(result),
     caseMismatch: Object.freeze(caseMismatch.sort((a, b) => a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0).map((x) => Object.freeze(x))),
+    cited: Object.freeze(cited) as ReadonlySet<string>,
   });
 }
 
 // Match source.ts's memory transport, without importing its filesystem/ZIP capabilities.
 // Presence and bounds precede copying; only manifest-listed bytes enter the snapshot.
-function snapshotMemory(input: ReadonlyMap<string, Uint8Array>, L: Limits, sink: DiagSink) {
+function snapshotMemory(input: ReadonlyMap<string, Uint8Array>, L: Limits, sink: DiagSink, held?: ReadonlyMap<string, HeldFile>) {
   const present = new Map<string, number>();
   const all = new Map<string, Uint8Array>();
   let total = 0;
@@ -76,6 +91,15 @@ function snapshotMemory(input: ReadonlyMap<string, Uint8Array>, L: Limits, sink:
     present.set(p, b.byteLength);
     all.set(p, b);
     total += b.byteLength;
+    if (present.size > L.packageFiles) { sink.add('PKG_TOO_MANY_FILES', `more than ${L.packageFiles} files`); return null; }
+    if (total > L.packageBytes) { sink.add('PKG_TOO_LARGE', `more than ${L.packageBytes} bytes`); return null; }
+  }
+  for (const [p, h] of held ?? []) {
+    if (all.has(p)) { sink.add('PKG_SOURCE_INVALID', 'a held file must not also be supplied as bytes', { subject: String(p).slice(0, 200) }); return null; }
+    const v = checkRelPath(p);
+    if (!v.ok) { sink.add(v.traversal ? 'PKG_PATH_TRAVERSAL' : 'PKG_PATH_INVALID', v.reason, { subject: String(p).slice(0, 200) }); continue; }
+    present.set(p, h.size);
+    total += h.size;
     if (present.size > L.packageFiles) { sink.add('PKG_TOO_MANY_FILES', `more than ${L.packageFiles} files`); return null; }
     if (total > L.packageBytes) { sink.add('PKG_TOO_LARGE', `more than ${L.packageBytes} bytes`); return null; }
   }
@@ -91,7 +115,7 @@ function snapshotMemory(input: ReadonlyMap<string, Uint8Array>, L: Limits, sink:
     } catch { /* validateSnapshot diagnoses malformed JSON. */ }
     for (const p of new Set(listed)) if (p !== 'manifest.json') copy(p, L.fileBytes);
   }
-  return { files, present, transport: 'memory' as const };
+  return { files, present, transport: 'memory' as const, ...(held ? { held } : {}) };
 }
 
 function assetAt(ref: string, a: FileAsset): At {
@@ -155,11 +179,7 @@ function applyOriginalFacts(
 
 // Keep import.ts's citation/root policy, including embedded descendants and deduplication.
 function flagCitedUnavailable(pkg: ValidatedPackage, unavailable: Set<string>, sink: DiagSink): void {
-  const rootOf = (ref: string): string => {
-    let r = ref;
-    for (let d = 0; d <= 4; d++) { const a: Asset | undefined = pkg.assets[r]; if (!a?.parentRef) return r; r = a.parentRef; }
-    return r;
-  };
+  const rootOf = (ref: string): string => chainOf(pkg, ref).at(-1)!;
   const seen = new Set<string>();
   for (const c of pkg.citations) {
     if (seen.has(c.ref) || !pkg.assets[c.ref]) continue;
@@ -168,6 +188,20 @@ function flagCitedUnavailable(pkg: ValidatedPackage, unavailable: Set<string>, s
       sink.add('CITE_TARGET_NO_ORIGINAL', `${c.ref} is cited but its original is unavailable`, { subject: c.ref });
     }
   }
+}
+
+/** The ref and the assets above it through `parentRef`, nearest first, as far as the citation/root policy follows them (four levels). */
+function chainOf(pkg: ValidatedPackage, ref: string): string[] {
+  const chain = [ref];
+  let r = ref;
+  for (let d = 0; d <= 4; d++) { const a: Asset | undefined = pkg.assets[r]; if (!a?.parentRef) return chain; r = a.parentRef; chain.push(r); }
+  return chain;
+}
+/** Every indexed asset a citation resolves to: the cited asset and the assets its bytes come from. */
+function citedAssets(pkg: ValidatedPackage): Set<string> {
+  const out = new Set<string>();
+  for (const c of pkg.citations) if (pkg.assets[c.ref]) for (const r of chainOf(pkg, c.ref)) if (pkg.assets[r]) out.add(r);
+  return out;
 }
 
 function summarise(sink: DiagSink) {

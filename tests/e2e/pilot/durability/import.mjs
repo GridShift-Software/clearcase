@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { row } from '../lib/fixtures.ts';
 import { editManifestOnly, editPackage, resealFiles } from '../../../case-package/fixtures/build.ts';
 import { writePackageDir } from '../../../../src/lib/case-package/writer.ts';
+import { LIMITS } from '../../../../src/lib/case-package/limits.ts';
 
 const MAIN_COUNT_SQL = 'SELECT (SELECT count(*) FROM version) AS versions, (SELECT count(*) FROM package_file) AS files';
 
@@ -79,26 +80,26 @@ export default async function importScenarios(ctx) {
 			nestedFoldersNever500: out.nestedFolders.status === 303 && out.nestedFolders.verdict !== undefined, alive: await alive(s) }, out);
 	});
 
-	await S('S35', 'size gates: a 2 MiB manifest and a 100 MiB (sparse) listed file are rejected PKG_TOO_LARGE before being read (server read_bytes/rchar delta)', async () => {
+	await S('S35', 'size gates: a manifest one MiB over the manifest ceiling and a 100 MiB (sparse) listed file are rejected PKG_TOO_LARGE before being read (server read_bytes/rchar delta)', async () => {
 		const base = sub('s35');
 		const data = join(base, 'data');
 		const s = await pool.up(data, { name: 's35' });
 		const bigManifest = join(base, 'pkg-big-manifest');
 		cpSync(c1.pkgDir, bigManifest, { recursive: true });
 		const m = readFileSync(join(bigManifest, 'manifest.json'), 'utf8');
-		writeFileSync(join(bigManifest, 'manifest.json'), m.replace(/\}\s*$/, ' '.repeat(2 * L.MiB) + '}'));
+		writeFileSync(join(bigManifest, 'manifest.json'), m.replace(/\}\s*$/, ' '.repeat(LIMITS.manifestBytes + L.MiB) + '}'));
 		const bigFile = join(base, 'pkg-big-file');
 		cpSync(c1.pkgDir, bigFile, { recursive: true });
 		L.sparse(join(bigFile, 'datasets', 'chronology.json'), 100 * L.MiB);
 		const out = {};
-		for (const [k, pk] of [['manifest2MiB', bigManifest], ['file100MiB', bigFile]]) {
+		for (const [k, pk] of [['manifestOver', bigManifest], ['file100MiB', bigFile]]) {
 			const r0 = rchar(s.pid);
 			const imp = await s.c.importPkg(c1.caseDir, pk);
 			const read = rchar(s.pid) - r0;
 			const rep = await s.c.report(imp.importId);
 			out[k] = { verdict: rep.verdict, codes: rep.codes, rcharDelta: read, ms: Math.round(imp.ms) };
 		}
-		return verdict({ manifestRejected: out.manifest2MiB.verdict === 'reject' && out.manifest2MiB.codes.PKG_TOO_LARGE === 'error', manifestUnread: out.manifest2MiB.rcharDelta < 1 * L.MiB,
+		return verdict({ manifestRejected: out.manifestOver.verdict === 'reject' && out.manifestOver.codes.PKG_TOO_LARGE === 'error', manifestUnread: out.manifestOver.rcharDelta < 1 * L.MiB,
 			fileRejected: out.file100MiB.verdict === 'reject' && out.file100MiB.codes.PKG_TOO_LARGE === 'error', fileUnread: out.file100MiB.rcharDelta < 16 * L.MiB, nothingStored: L.q1(data, MAIN_COUNT_SQL).versions === 0 }, out);
 	});
 

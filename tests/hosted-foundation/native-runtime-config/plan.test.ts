@@ -11,7 +11,7 @@ import { intakeBudget } from '../../../src/lib/submissions/budget.ts';
 import { nativeImportBudget } from '../../../src/lib/results-review/native/budget.ts';
 import { userWorkConfig } from '../../../src/lib/user-work/hosted/index.ts';
 import { resolveExactDeployment, validateClientManifest } from '../../../src/lib/tenancy/manifest.ts';
-import { NATIVE_RUNTIME_CONFIG_MANIFEST, NATIVE_RUNTIME_CONFIG_SCHEMA, NATIVE_RUNTIME_CONFIG_VAR, NATIVE_RUNTIME_SECRET_NAMES, NATIVE_RUNTIME_SETTINGS_SCHEMA, planNativeRuntimeConfig } from '../../../deploy/native-alpha/runtime-config.ts';
+import { NATIVE_RUNTIME_CONFIG_MANIFEST, NATIVE_RUNTIME_CONFIG_MAX_BYTES, NATIVE_RUNTIME_CONFIG_SCHEMA, NATIVE_RUNTIME_CONFIG_VAR, NATIVE_RUNTIME_SECRET_NAMES, NATIVE_RUNTIME_SETTINGS_SCHEMA, planNativeRuntimeConfig } from '../../../deploy/native-alpha/runtime-config.ts';
 import { exampleInput } from './example-input.ts';
 import { instances, nativeConfigOf, runtimeEnv } from './harness.ts';
 
@@ -48,7 +48,7 @@ describe('emitted vars, secret names and manifest', () => {
 		for (const entry of manifest.clients) {
 			const text = plan.files.get(entry.file)!;
 			expect(entry).toMatchObject({ bytes: Buffer.byteLength(text), sha256: sha(text) });
-			expect(entry.nativeConfigBytes).toBeLessThan(5120);
+			expect(entry.nativeConfigBytes).toBeLessThanOrEqual(NATIVE_RUNTIME_CONFIG_MAX_BYTES);
 		}
 		expect(plan.files.get(NATIVE_RUNTIME_CONFIG_MANIFEST)).toBe(plan.manifestText);
 	});

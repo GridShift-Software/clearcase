@@ -10,14 +10,14 @@ function unavailableStore(): CaseReader {
     activeVersionId: storage, previousVersion: storage, trustedFor: storage, stateRevision: storage,
     packageFile: storage, packageFilePaths: storage, datasetOf: storage, datasetKeys: storage, viewContentOf: storage,
     seeds: storage, documentRows: storage, documentRow: storage, documentCounts: storage, existingRefs: storage,
-    childDocuments: storage, fingerprints: storage, anyDateBasis: storage, listJson: storage, activeDocumentRows: storage,
+    childDocuments: storage, fingerprints: storage, anyDateBasis: storage, listJson: storage, activeDocumentRows: storage, publication: storage,
     providers: { register: () => { throw contractError('storage-unavailable', true); }, list: () => { throw contractError('storage-unavailable', true); } },
   };
 }
 function unavailableWork(): AsyncUserWork {
   return {
     anchorFor: storage, resolve: storage, notesFor: storage, summary: storage, addNote: storage, deleteNote: storage,
-    seedRows: storage, overlays: storage, seedViews: storage, putSeedOverlay: storage, listRows: storage, putRow: storage,
+    seedRows: storage, overlays: storage, seedViews: storage, putSeedOverlay: storage, listRows: storage, readViewWork: storage, readNoteWork: storage, putRow: storage,
     deleteRow: storage, tables: storage, defineTable: storage, registerStores: storage, listTableRows: storage,
     putTableRow: storage, putTableRows: storage, deleteTableRow: storage, exportAll: storage, importAll: storage,
     snapshots: { put: rejectUnavailable('snapshot-failed'), get: storage },
@@ -32,6 +32,6 @@ export function createUnavailableServices(a: { clientId: ClientId; now: () => Da
   return {
     identity: { kind: 'anonymous', principal: null, sessionId: null, clientId: a.clientId, checkRevocation: rejectUnavailable('identity-unavailable'), authorize: rejectUnavailable('identity-unavailable') },
     store: unavailableStore(), assets: { originals: asset, availability: asset, metadata: asset, links: asset, get: asset },
-    userWork: unavailableWork(), audit: { append: rejectUnavailable('audit-unavailable') }, runtime,
+    userWork: unavailableWork(), audit: { append: rejectUnavailable('audit-unavailable') }, runtime, shards: { read: storage },
   };
 }

@@ -22,11 +22,12 @@ beforeAll(async () => {
 	root = await tempRoot('court-save-limit');
 	const [port, originalsPort] = [await freePort(), await freePort()];
 	Object.assign(process.env, { CLEARCASE_DATA_DIR: path.join(root, 'data'), PORT: String(port), ORIGINALS_PORT: String(originalsPort), CLEARCASE_USERWORK_BACKUP_DELAY_MS: '60000' });
-	vite = await createServer({ root: ROOT, configFile: path.join(ROOT, 'vite.config.ts'), logLevel: 'silent', appType: 'custom', server: { middlewareMode: true, hmr: false, ws: false, watch: null } });
+	vite = await createServer({ root: ROOT, cacheDir: path.join(root, 'vite-cache'), configFile: path.join(ROOT, 'vite.config.ts'), logLevel: 'error', appType: 'custom', server: { middlewareMode: true, hmr: false, ws: false, watch: null } });
 	http = httpServer(vite.middlewares);
 	await new Promise<void>((r) => http.listen(port, '127.0.0.1', r));
 	origin = `http://127.0.0.1:${port}`;
-	expect((await fetch(`${origin}/api/health`)).status).toBe(200); // runs the server init (initApp)
+	const health = await fetch(`${origin}/api/health`);
+	expect(health.status, `Initial health response: ${await health.text()}`).toBe(200); // runs the server init (initApp)
 	const { app } = (await (vite.environments.ssr as RunnableDevEnvironment).runner.import('/src/lib/local-case/app.server.ts')) as { app: () => LocalCase };
 	lc = app();
 	const c = await buildCase(path.join(root, 'c'));

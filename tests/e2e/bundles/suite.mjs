@@ -950,7 +950,7 @@ try {
 		const dialogs = b.since(mk).dialogs.length;
 		return { pass: posted === 200 && /^Not removed: .*busy/.test(mid.c1) && !mid.c2 && mid.alerts === 1 && J(rowsMid) === J(['C1', 'C2']) && J(after.rows) === J(['C2']) && !after.error && customRows().length === 0 && dialogs === 0, evidence: { posted, mid, rowsMid, after, dialogs } };
 	});
-	await S('CB-BUILD-RACE', 'court_bundle_tab', 'builder: Create Bundle pressed while Save is pending does not revoke the PDF being saved; the saved bundle\'s Bundle PDF link still loads a PDF (IDR-366)', async () => {
+	await S('CB-BUILD-RACE', 'court_bundle_tab', 'builder: Create Bundle pressed while Save is pending (with a changed name) does not change what is saved; the saved bundle\'s stored PDF link still loads a PDF, the first output\'s own bytes (IDR-366, GRS-264)', async () => {
 		await p.go(B, 'court_bundle_tab');
 		await p.click('#cb-build');
 		await p.waitFor(`document.getElementById('cbbfile')`, 30000);
@@ -960,65 +960,124 @@ try {
 		await p.click('#cbbrun');
 		await p.waitFor(`document.getElementById('cbbdownload')`, 60000);
 		const first = await p.evaluate(`document.getElementById('cbbdownload').getAttribute('href')`);
+		await p.downloads();
+		await p.evaluate(`document.getElementById('cbbdownload').click()`);
+		await sleep(300);
+		const firstPdf = Buffer.from((await p.downloads())[0].base64, 'base64');
 		await withBusyStore(A.dataDir, 2500, async () => {
 			await p.click('#cbbsave');
 			await p.waitFor(`document.querySelector('#cbbout .saving')`, 5000);
+			// a different name makes the second output differ from the one being saved
+			await p.type('#cbbname', 'Other Title');
 			await p.click('#cbbrun');
 			await p.waitFor(`document.getElementById('cbbdownload')?.getAttribute('href') !== ${J(first)}`, 60000);
 		});
 		await p.waitFor(`!document.querySelector('#cbbout .saving')`, 30000);
 		await p.click('#cb-builder-back');
-		await p.waitFor(`document.querySelector('#cb-list tr:has(.badge.b-info) a[href^="blob:"]')`, 30000);
-		// the CSP forbids fetch of a blob: URL (connect-src 'self'), so load it as the preview does: in a frame (frame-src blob:)
-		const link = await p.evaluate(`new Promise((ok) => {
-			const href = document.querySelector('#cb-list tr:has(.badge.b-info) a[href^="blob:"]').getAttribute('href');
-			const f = document.createElement('iframe');
-			const done = () => { let d = null; try { d = f.contentDocument; } catch { /* an error page */ }
-				ok({ href, same: href === ${J(first)}, type: d?.contentType ?? null, url: d?.URL ?? null }); f.remove(); };
-			f.addEventListener('load', () => setTimeout(done, 300), { once: true });
-			setTimeout(done, 10000);
-			f.src = href; f.style.width = '300px'; f.style.height = '300px'; document.body.append(f);
-		})`);
-		return { pass: link.same && link.type === 'application/pdf' && /^blob:/.test(link.url ?? ''), evidence: { first, link } };
+		// GRS-264: a saved bundle links to its stored PDF on the server, not to the session blob URL
+		const ROW = '#cb-list tr:has(.badge.b-info)';
+		await p.waitFor(`document.querySelector(${J(ROW + ' a[href*="/assembled?id="]')})`, 30000);
+		const link = await p.evaluate(`(async () => {
+			const rows = [...document.querySelectorAll(${J(ROW)})];
+			const a = rows[0].querySelector('a[href*="/assembled?id="]');
+			const r = await fetch(a.href);
+			const bytes = new Uint8Array(await r.arrayBuffer());
+			let bin = '';
+			for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+			return { rows: rows.length, name: rows[0].cells[1].querySelector('b')?.textContent ?? null, blobLinks: rows.flatMap((x) => [...x.querySelectorAll('a[href^="blob:"]')]).length, href: a.getAttribute('href'), status: r.status, type: r.headers.get('content-type'), magic: bin.slice(0, 5), bytes: bytes.length, base64: btoa(bin) };
+		})()`);
+		const stored = Buffer.from(link.base64, 'base64');
+		const { base64: _, ...shown } = link;
+		const own = { sameBytes: stored.equals(firstPdf), firstBytes: firstPdf.length, text: (await pdfText(stored)).includes('SYNTHETIC RACE'), second: (await pdfText(stored)).includes('OTHER TITLE') };
+		return { pass: link.rows === 1 && link.name === 'SYNTHETIC RACE' && link.blobLinks === 0 && link.status === 200 && /^application\/pdf/.test(link.type ?? '') && link.magic === '%PDF-' && link.bytes > 1000 && own.sameBytes && own.text && !own.second, evidence: { first, link: shown, own } };
 	});
-	await S('CB-BUILD-RELOAD', 'court_bundle_tab', 'GRS-160: a builder Save stored just before the server dies, while the page reloads its data: the builder leaves Saving…, enables Save again and the page shows the reload error; after the restart the saved bundle is listed and can be removed', async () => {
-		const q = await page(b, A.origin);
-		let orig = '';
+	await S('CB-BUILD-SAVE', 'court_bundle_tab', 'GRS-264: a builder Save shows the stored bundle list from the save\'s answer, with no reload of the page data: a refused save (busy store) and a lost one (server killed) leave the list and the unsaved header as they were, leave Saving… and keep Retry enabled; Retry after the restart saves; another tab\'s new bundle appears in stored order, saving the same output again lists it once, and a bundle the other tab deleted stays gone (it replaces CB-BUILD-RELOAD, whose reload no longer happens)', async () => {
+		const q = await page(b, A.origin), o = await page(b, A.origin);
+		const mine = () => customRows().filter((r) => r.name === 'SYN RELOAD');
+		const listed = () => q.evaluate(`[...document.querySelectorAll('#cb-list tbody tr')].filter((r) => r.querySelector('.badge.b-info')).map((r) => r.cells[1].querySelector('b')?.textContent ?? '')`);
+		const state = () => q.evaluate(`({ saving: !!document.querySelector('#cbbout .saving'), saveDisabled: document.getElementById('cbbsave')?.disabled ?? null, error: document.getElementById('cbb-save-error')?.textContent.replace(/\\s+/g, ' ').trim() ?? '', alert: document.getElementById('cbb-save-error')?.getAttribute('role') ?? null, retryDisabled: document.querySelector('#cbb-save-error button')?.disabled ?? null, judge: document.getElementById('cbh_judge')?.value ?? null })`);
+		const saveAndWait = async (match) => {
+			const mk = b.mark();
+			await q.click('#cbbsave');
+			await q.waitFor(`/SYN RELOAD/.test(document.getElementById('cb-bundle-h')?.textContent ?? '') && new URLSearchParams(location.search).get('b') === ${J(match)}`, 30000);
+			return b.since(mk).requests.filter((r) => /__data\.json/.test(r.url)).length;
+		};
 		try {
-			const ev = await reloadDies(q, '', undefined, {
-				prepare: async () => {
-					// an unsaved header field makes the page refuse SvelteKit's fallback load, so the page keeps its state
-					orig = await val(q, 'cbh_judge');
-					await setVal(q, 'cbh_judge', 'SYN TYPED BEFORE BUILDING');
-					await q.click('#cb-build');
-					await q.waitFor(`document.getElementById('cbbfile')`, 30000);
-					await pick(q, ['Alpha_Statement.pdf']);
-					await q.waitFor(`document.querySelectorAll('#cbbfiles tbody tr').length === 1 && !document.getElementById('cbbmsg').textContent`, 30000);
-					await q.type('#cbbname', 'Syn Reload');
-					await q.click('#cbbrun');
-					await q.waitFor(`document.getElementById('cbbdownload')`, 60000);
-				},
-				save: '#cbbsave',
-				settled: `!document.querySelector('#cbbout .saving')`,
+			await q.go(B, 'court_bundle_tab');
+			await q.waitFor(`document.querySelector('main[data-hydrated]')`, 30000);
+			const orig = await val(q, 'cbh_judge');
+			// an unsaved header field makes the page refuse any leave, so a fallback load would show as a prompt or a lost field
+			await setVal(q, 'cbh_judge', 'SYN TYPED BEFORE BUILDING');
+			// a press before the router has started is ignored, so press until the builder opens
+			for (let i = 0; i < 5 && !(await q.evaluate(`!!document.getElementById('cbbfile')`)); i++) { await q.click('#cb-build'); await sleep(1000); }
+			await q.waitFor(`document.getElementById('cbbfile')`, 30000);
+			await pick(q, ['Alpha_Statement.pdf']);
+			await q.waitFor(`document.querySelectorAll('#cbbfiles tbody tr').length === 1 && !document.getElementById('cbbmsg').textContent`, 30000);
+			await q.type('#cbbname', 'Syn Reload');
+			await q.click('#cbbrun');
+			await q.waitFor(`document.getElementById('cbbdownload')`, 60000);
+			const mk = b.mark();
+			// 1. refused: the store is held past the app's busy wait
+			let refused;
+			await withBusyStore(A.dataDir, 12500, async () => {
+				await q.click('#cbbsave');
+				await q.waitFor(`document.getElementById('cbb-save-error')`, 20000);
+				refused = { ...(await state()), stored: mine().length };
 			});
-			const now = await q.evaluate(`({ saving: !!document.querySelector('#cbbout .saving'), saveDisabled: document.getElementById('cbbsave')?.disabled ?? null, error: document.getElementById('cb-reload-error')?.textContent.trim() ?? '', alert: document.getElementById('cb-reload-error')?.getAttribute('role') ?? null })`).catch(() => null);
-			const mine = () => customRows().filter((r) => r.name === 'SYN RELOAD');
-			const stored = mine().length;
-			const after = {};
-			try {
-				// back to the list, and the field typed before building back to what it was, so the page lets this tab go
-				await q.click('#cb-builder-back');
-				await q.waitFor(`document.getElementById('cbh_judge')`, 30000);
-				await setVal(q, 'cbh_judge', orig);
-				await q.go(B, 'court_bundle_tab');
-				after.listed = await q.evaluate(`[...document.querySelectorAll('#cb-list tbody tr')].some((r) => r.textContent.includes('SYN RELOAD'))`);
-				await q.evaluate(`window.confirm = () => true`);
-				await q.click(`[data-delete="${mine()[0]?.no}"]`);
-				await until(() => mine().length === 0, 30000);
-				after.removed = mine().length === 0;
-			} catch (e) { after.error = String(e?.message ?? e).slice(0, 200); }
-			return { pass: ev.kills === 1 && ev.settled && now?.saving === false && now.saveDisabled === false && /could not reload/.test(now.error) && now.alert === 'alert' && stored === 1 && after.listed === true && after.removed === true, evidence: { ...ev, now, stored, after } };
-		} finally { await q.close(); }
+			// 2. lost: the server is killed, the Retry button finds nothing to answer
+			await A.srv.stop('SIGKILL');
+			A.srv = null;
+			await q.click('#cbb-save-error button');
+			await q.waitFor(`/upload failed/.test(document.getElementById('cbb-save-error')?.textContent ?? '') && !document.querySelector('#cbbout .saving')`, 30000);
+			const lost = { ...(await state()), dialogs: b.since(mk).dialogs.map((d) => d.type) };
+			await startA();
+			// 3. another tab creates a bundle after this page loaded; Retry saves and the answer lists both, in stored order
+			await o.go(B, 'court_bundle_tab');
+			await o.waitFor(`document.querySelector('main[data-hydrated]')`, 30000);
+			const other = await o.evaluate(`fetch(location.pathname.replace(/\\/$/, '') + '/assembled', { method: 'POST', headers: { 'content-type': 'application/pdf', 'x-bundle-id': 'oother', 'x-bundle': encodeURIComponent(JSON.stringify({ name: 'SYN OTHER', pages: 1, indexPages: 0, filePages: 1, note: '', rows: [] })) }, body: new Blob(['%PDF-1.4\\nsynthetic other\\n%%EOF']) }).then(async (r) => r.status + ' ' + (await r.text()).slice(0, 200))`);
+			const retryShown = await q.evaluate(`document.querySelector('#cbb-save-error button') !== null`);
+			await q.click('#cbb-save-error button');
+			await q.waitFor(`/SYN RELOAD/.test(document.getElementById('cb-bundle-h')?.textContent ?? '')`, 30000);
+			const no = mine()[0]?.no;
+			await q.click('#cb-all');
+			await q.waitFor(`document.getElementById('cb-list')`, 30000);
+			const afterRetry = await listed();
+			const judge = await val(q, 'cbh_judge');
+			// 4. the same output saved again: one entry, not two
+			await q.click('#cb-build');
+			await q.waitFor(`document.getElementById('cbbsave')`, 30000);
+			const again = await saveAndWait(no);
+			await q.click('#cb-all');
+			await q.waitFor(`document.getElementById('cb-list')`, 30000);
+			const afterAgain = await listed();
+			// 5. the other tab deletes its bundle; a further save of the same output does not bring it back
+			await o.go(B, 'court_bundle_tab');
+			await o.waitFor(`document.querySelector('main[data-hydrated]')`, 30000);
+			await o.evaluate(`window.confirm = () => true`);
+			const otherNo = customRows().find((r) => r.name === 'SYN OTHER')?.no;
+			if (otherNo) { await o.click(`[data-delete="${otherNo}"]`); await until(() => !customRows().some((r) => r.name === 'SYN OTHER'), 30000); }
+			await q.click('#cb-build');
+			await q.waitFor(`document.getElementById('cbbsave')`, 30000);
+			const gone = await saveAndWait(no);
+			await q.click('#cb-all');
+			await q.waitFor(`document.getElementById('cb-list')`, 30000);
+			const afterGone = await listed();
+			const link = await q.evaluate(`[...document.querySelectorAll('#cb-list tbody tr')].filter((r) => r.textContent.includes('SYN RELOAD')).map((r) => [...r.querySelectorAll('a')].map((a) => a.getAttribute('href')))`);
+			// 6. a full reload lists the stored bundle once, and Delete removes it
+			await setVal(q, 'cbh_judge', orig); // the page lets this tab go
+			await q.go(B, 'court_bundle_tab');
+			await q.waitFor(`document.querySelector('main[data-hydrated]')`, 30000);
+			const reloaded = await listed();
+			await q.evaluate(`window.confirm = () => true`);
+			await q.click(`[data-delete="${no}"]`);
+			await until(() => mine().length === 0, 30000);
+			const hasLink = (hrefs) => hrefs.some((h) => /\/assembled\?id=/.test(h ?? ''));
+			// CB-BUILD-RACE leaves its own bundle behind when it fails, so only this scenario's bundles are compared
+			const names = (l) => l.filter((n) => n === 'SYN OTHER' || n === 'SYN RELOAD');
+			const refusedOk = /locked|busy/.test(refused.error) && refused.alert === 'alert' && refused.saving === false && refused.saveDisabled === false && refused.retryDisabled === false && refused.stored === 0;
+			const lostOk = /upload failed/.test(lost.error) && lost.alert === 'alert' && lost.saving === false && lost.saveDisabled === false && lost.retryDisabled === false && lost.dialogs.length === 0;
+			return { pass: refusedOk && lostOk && /^200 /.test(other) && retryShown && judge === 'SYN TYPED BEFORE BUILDING' && J(names(afterRetry)) === J(['SYN OTHER', 'SYN RELOAD']) && again === 0 && J(names(afterAgain)) === J(['SYN OTHER', 'SYN RELOAD']) && gone === 0 && J(names(afterGone)) === J(['SYN RELOAD']) && link.length === 1 && hasLink(link[0]) && J(names(reloaded)) === J(['SYN RELOAD']) && mine().length === 0, evidence: { refused, lost, other, judge, afterRetry, again, afterAgain, gone, afterGone, link, reloaded } };
+		} finally { await o.close(); await q.close(); }
 	});
 	await S('CB-HEADER-NOJS-CONFIRM', 'court_bundle_tab', 'without JavaScript the Court Bundle header offers no confirmation or Add form', async () => {
 		await p.s('Emulation.setScriptExecutionDisabled', { value: true });

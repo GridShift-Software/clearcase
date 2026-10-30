@@ -10,6 +10,7 @@
 	import { deleteStep } from '$lib/components/confirm-delete';
 	import Narrative from '$lib/components/Narrative.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import { writeAccess } from '$lib/components/write-access';
 	import { download, toCSV } from '$lib/components/csv';
 	import { docPath } from '$lib/local-case/model';
 	import { cleanName, dateCell, docLabel, statusLabel } from '$lib/views/evidence/common';
@@ -19,7 +20,12 @@
 	type Values = Record<string, string>;
 	type Result = { op?: 'add' | 'save' | 'delete'; code?: string; values?: Values; editing?: string | null; version?: string | null; message?: string; target?: string; confirm?: string | null; draft?: { values: Values; editing: string | null; version: string | null; failed: string | null } } | null;
 	let { data, form } = $props();
+	const access = writeAccess();
 	const vid = $derived(data.version.id);
+	// the hosted route names each add, so a retry of one submission is one row; the local page sends none
+	const operationId = $derived((data as { operationId?: string }).operationId);
+	// the hosted route names the store's version of each entry for its Delete; the local page names the fields digest
+	const deleteVersions = $derived((data as { deleteVersions?: Record<string, string> }).deleteVersions);
 	const files = $derived(new Map(data.files));
 
 	const blank = (): Values => Object.fromEntries(INPUTS.map((k) => [k, '']));
@@ -176,7 +182,7 @@
 		<section class="card group" aria-labelledby="group-{gi}" data-group={gi}>
 			<h2 id="group-{gi}" class="chead">{g.key} <span class="tag">({g.items.length})</span></h2>
 			{#if g.note}<p class="group-note">{g.note}</p>{/if}
-			<TableScroll label={g.key}><table class="tbl">
+			<TableScroll label={g.key}><table class="tbl" data-open-col>
 				<thead><tr><th>Ref</th><th>Date</th><th>Filing / document</th><th>Type</th><th>Text</th><th>Doc</th></tr></thead>
 				<tbody>
 					{#each g.items as x, i (i)}
@@ -185,7 +191,7 @@
 							<td><div>{cleanName(x.title)}</div>{#if x.note}<div class="ex">{x.note}</div>{/if}</td>
 							<td><span class="badge" title="Imported classification, unverified">{x.doc_type}</span></td>
 							<td>{statusLabel(x.text_status)}</td>
-							<td>{#if files.get(x.ref) === undefined || files.get(x.ref) === null}<span class="cite-broken" title="not in this results version">{x.ref ? 'not found' : ''}</span>{:else}<a class="doc" href={docPath(vid, x.ref)}>{docLabel(files.get(x.ref))}</a>{/if}</td>
+							<td>{#if files.get(x.ref) === undefined || files.get(x.ref) === null}<span class="cite-broken" title="not in this results version">{x.ref ? 'not found' : ''}</span>{:else}<a class="doc" href={docPath(vid, x.ref, null, data.base)}>{docLabel(files.get(x.ref))}</a>{/if}</td>
 						</tr>
 					{/each}
 				</tbody>
@@ -196,8 +202,9 @@
 	<section class="card register" aria-labelledby="register-heading">
 		<h2 id="register-heading">Filing ↔ Replying-affidavit register</h2>
 		<p class="register-intro">{data.content.registerIntro}</p>
+		{#if access.canWrite}
 		<form method="POST" action={editing ? '?/save' : '?/add'} class="register-form" use:enhance={submit} id="register-form" data-mode={editing ? 'edit' : 'add'} aria-busy={busy !== null}>
-			{#if editing}<input type="hidden" name="key" value={editing} /><input type="hidden" name="version" value={version ?? ''} />{/if}
+			{#if operationId}<input type="hidden" name="operationId" value={operationId} />{/if}{#if editing}<input type="hidden" name="key" value={editing} /><input type="hidden" name="version" value={version ?? ''} />{/if}
 			{#if saveError}<input type="hidden" name="failed" value={saveError.code} />{/if}
 			<fieldset class="row" disabled={busy !== null}>
 				<div><label class="fld" for="fl_filing">Filing</label><input class="in" id="fl_filing" name="filing" bind:value={values.filing} /></div>
@@ -218,6 +225,7 @@
 				{#if held}<p class="note" id="register-held">Retry or discard the unsaved entry before you edit another row.</p>{/if}
 			{/if}
 		</form>
+		{/if}
 		{#if deleteError}
 			<div class="error" role="alert" id="register-delete-error" data-key={deleteError.key}>
 				<p id="register-delete-message">{deleteError.message}</p>
@@ -244,8 +252,11 @@
 						<td>{#if e.fields.ref && files.get(e.fields.ref)}<CitationLink resultsVersion={vid} ref={e.fields.ref} label="{e.fields.ref} ↗" />{:else}{e.fields.ref}{/if}</td>
 						<td>{#if e.fields.status}<span class="badge info">{e.fields.status}</span>{/if}</td>
 						<td class="actions">
+							{#if access.canWrite}
+							<input type="hidden" form="register-form" name="deleteVersion.{e.key}" value={deleteVersions?.[e.key] ?? rowVersion(e.fields)} />
 							<form method="GET"><input type="hidden" name="edit" value={e.key} /><button class="ghost" data-edit disabled={busy !== null || held}>Edit</button></form>
 							<ConfirmDelete bind:pending={confirming} target={e.key} question="Delete this entry?" form="register-form" formaction="?/delete" name="delete" class="ghost" data-delete aria-describedby={deleteError?.key === e.key ? 'register-delete-message' : undefined} disabled={busy !== null || e.key === editing} title={e.key === editing ? 'Cancel the edit to delete this row' : undefined} />
+							{/if}
 						</td>
 					</tr>
 				{/each}

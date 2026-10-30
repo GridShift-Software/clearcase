@@ -20,6 +20,8 @@ export interface IntakeBudget {
  * request value. The parent adapts the identity service's capability check to this port.
  */
 export type AuthorizeUpload = (a: { principal: Principal; sessionId: SessionId; clientId: ClientId; caseId: CaseId }) => Promise<void>;
+/** Whether the principal holds an effective upload grant for the case. Advisory and unaudited: it only lets the intake page explain a missing grant; `AuthorizeUpload` still decides every write. */
+export type MayUpload = (a: { principal: Principal; clientId: ClientId; caseId: CaseId }) => Promise<boolean>;
 
 /** One storage step's outcome, structurally GRS-115's `IntakeOutcome`. */
 export type OriginalOutcome = { kind: 'declared' | 'stored' | 'finalized'; repeated: boolean } | { kind: 'refused'; reason: string };
@@ -60,6 +62,23 @@ export interface SubmissionManifest {
 export type Scoped = { clientId: ClientId; caseId: CaseId };
 
 /**
+ * One multi-file submission (U16). open: files are declared and stored one by one; sealing: the file-list digest is fixed and
+ * the revision and its files are recorded, while the originals are finalized in steps; sealed: the revision is final.
+ */
+export type SetState = 'open' | 'sealing' | 'sealed';
+export interface SetDeclaration { clientId: ClientId; caseId: CaseId; setId: string; fileCount: number; totalBytes: number; principal: Pick<Principal, 'issuer' | 'subject'>; at: string }
+export interface SetRecord {
+  clientId: ClientId; caseId: CaseId; setId: string; fileCount: number; totalBytes: number; state: SetState;
+  filesSha256: string | null; openedAt: string; sealedAt: string | null;
+  /** Files declared into the set; of those, the ones whose bytes the original store acknowledged; of those, the finalized ones. */
+  declared: number; stored: number; finalized: number;
+  /** The set's revision sequence, once recorded at the start of the seal. */
+  sequence: number | null;
+}
+export interface SetFile { upload: UploadRecord; pathKey: string }
+export type SetFileRefusal = 'operation-reused' | 'no-set' | 'set-closed' | 'set-full' | 'path-taken';
+
+/**
  * The intake's own durable records (namespace `submissions_*`). Every write is idempotent on its operation id and
  * refuses a different declaration under the same id; `reserveRevision` records the manifest atomically and returns the
  * stored one, `commitRevision` then marks it final, so a retry after an unknown outcome recovers the same revision. A fault rejects; it never reports success.
@@ -77,16 +96,52 @@ export interface SubmissionRepository {
   reserveRevision(a: Scoped & { operationId: string; at: string }): Promise<SubmissionManifest>;
   /** Marks a reserved (or stored: it reserves first) upload final and returns the stored manifest. Idempotent. */
   commitRevision(a: Scoped & { operationId: string; at: string }): Promise<SubmissionManifest>;
+  /** The revision an upload operation or a set produced; a set's revision is recorded at the start of its seal, before it is final. */
   revision(a: Scoped & { operationId: string }): Promise<SubmissionManifest | null>;
+  /** Every one-file upload of the case, oldest first. A set's files are listed through the set, not here. */
   list(a: Scoped): Promise<readonly { upload: UploadRecord; manifest: SubmissionManifest | null }[]>;
+
+  /** Opens a set under an id no upload or other set uses. Idempotent: the same declaration answers `repeated`. */
+  openSet(a: SetDeclaration): Promise<{ kind: 'opened'; repeated: boolean } | { kind: 'set-reused' }>;
+  set(a: Scoped & { setId: string }): Promise<SetRecord | null>;
+  /** Every set of the case, oldest first. */
+  sets(a: Scoped): Promise<readonly SetRecord[]>;
+  /** The set an upload operation belongs to, or null for a one-file upload. */
+  setOf(a: Scoped & { operationId: string }): Promise<string | null>;
+  /** Declares one file of an open set: its upload and its membership in one write. Idempotent on the operation id. */
+  declareSetFile(a: UploadDeclaration & { setId: string; pathKey: string }): Promise<{ kind: 'declared'; repeated: boolean } | { kind: SetFileRefusal }>;
+  /** The set's files in path-key order after `after`, at most `limit`, optionally only those in one upload state. */
+  setFiles(a: Scoped & { setId: string; after: string | null; limit: number; state?: UploadState }): Promise<readonly SetFile[]>;
+  /**
+   * The seal's precommit: fixes the digest and records the revision and every file, and marks each file reserved, in one write,
+   * BEFORE any original is made visible. Idempotent: a retry returns the recorded revision.
+   */
+  reserveSet(a: Scoped & { setId: string; filesSha256: string; at: string }): Promise<SubmissionManifest>;
+  /** Marks reserved files of a sealing set finalized once the original store has finalized their originals. Idempotent. */
+  markSetFilesFinalized(a: Scoped & { setId: string; operationIds: readonly string[] }): Promise<void>;
+  /** Seals a set whose files are all finalized and returns its revision. Idempotent. */
+  commitSet(a: Scoped & { setId: string; at: string }): Promise<SubmissionManifest>;
 }
 
 /** Everything the intake needs, composed by the parent from trusted configuration. A null port answers 503. */
 export interface IntakePorts {
+  readonly notifications?: import('./notifications.ts').IntakeNotifications;
   readonly clientId: ClientId;
   readonly budget: IntakeBudget | null;
   readonly authorizeUpload: AuthorizeUpload | null;
+  /** Optional: absent, the list answer says nothing about upload eligibility and the page keeps its form. */
+  readonly mayUpload?: MayUpload | null;
   readonly originals: OriginalIntakePort | null;
   readonly repository: SubmissionRepository | null;
   now(): Date;
+  /** Bounds of one seal request; defaults to `SEAL_STEP`. Tests lower it to exercise the steps. */
+  readonly sealStep?: SealStep;
+  /** Files per page of a set read; defaults to 500. */
+  readonly setPage?: number;
 }
+
+/**
+ * The work one seal request does after the precommit: at most `files` originals finalized, stopping before `bytes` hashed
+ * or `ms` elapsed (always at least one). Each finalize is about four D1 calls and one whole R2 read in the original store.
+ */
+export interface SealStep { readonly files: number; readonly bytes: number; readonly ms: number }

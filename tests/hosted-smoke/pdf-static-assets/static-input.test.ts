@@ -18,7 +18,7 @@ beforeEach(() => {
   cpSync(join(repo, 'static'), join(root, 'static'), { recursive: true });
   cpSync(join(repo, 'package.json'), join(root, 'package.json'));
   const pkg = join(root, 'node_modules/pdfjs-dist'); mkdirSync(pkg, { recursive: true });
-  for (const path of ['package.json', 'LICENSE', 'build', 'standard_fonts', 'cmaps', 'iccs']) cpSync(join(repo, 'node_modules/pdfjs-dist', path), join(pkg, path), { recursive: true });
+  for (const path of ['package.json', 'LICENSE', 'build', 'standard_fonts', 'cmaps', 'iccs', 'wasm']) cpSync(join(repo, 'node_modules/pdfjs-dist', path), join(pkg, path), { recursive: true });
   const reader = 'src/lib/viewer/hosted/static/pdf-reader.mjs'; mkdirSync(dirname(join(root, reader)), { recursive: true }); cpSync(join(repo, reader), join(root, reader));
 });
 afterEach(() => { for (const input of inputs) input.dispose(); rmSync(scratch, { recursive: true, force: true }); });
@@ -28,9 +28,9 @@ describe('exclusive hosted Kit static input', () => {
     for (const path of ['RAWS/private.pdf', '.local/secret', 'case/original.pdf', 'build/keep', '.svelte-kit/output/keep']) put(join(root, path), 'private sentinel');
     const input = prepare();
     expect(input.assets).toMatch(/\/\.local\/hosted-static-input-[^/]+$/);
-    expect(readdirSync(input.assets).sort()).toEqual(['favicon.svg', 'fonts', 'pdfjs']);
+    expect(readdirSync(input.assets).sort()).toEqual(['favicon.svg', 'pdfjs']);
     expect(readFileSync(join(input.assets, 'favicon.svg'))).toEqual(readFileSync(join(root, 'static/favicon.svg')));
-    expect(input.inventory.files).toHaveLength(191);
+    expect(input.inventory.files).toHaveLength(198);
     for (const file of input.inventory.files) expect(readFileSync(join(input.assets, file.path)).length).toBe(file.bytes);
     input.dispose(); input.dispose();
     expect(existsSync(input.assets)).toBe(false);

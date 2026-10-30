@@ -1,7 +1,7 @@
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // The per-client staff (B) operator sign-in route (GRS-113): staff sign in at the internal Clerk instance THROUGH this
 // client's origin. There is no third Worker or staff host. SYNTHETIC keys; handler unit evidence only.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
 
 const workers = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
@@ -28,7 +28,7 @@ const outcome = async (f: () => unknown) => { try { return { value: await f() };
 describe('/sign-in/operator', () => {
 	it('links to the staff instance sign-in page, returning to this origin, with no key in the page data', async () => {
 		const r = await outcome(() => operator.load({ locals: production, url: new URL(`${ORIGIN}/sign-in/operator`) } as never));
-		expect(r.value).toEqual({ provider: 'clerk-staff', href: `${STAFF_SIGN_IN}?redirect_url=${encodeURIComponent(`${ORIGIN}/sign-in/operator?returnTo=${encodeURIComponent('/cases')}`)}`, options: [] });
+		expect(r.value).toEqual({ provider: 'clerk-staff', href: `${STAFF_SIGN_IN}?redirect_url=${encodeURIComponent(`${ORIGIN}/sign-in/operator`)}`, options: [] });
 		expect(JSON.stringify(r)).not.toContain(B.secretKey);
 	});
 	it('stays 503 without the staff sign-in URL and 404 on the hosted-gate profile, which has no operator sign-in', async () => {
@@ -44,7 +44,7 @@ describe('/sign-in/operator', () => {
 		const token = A.token({ sub: 'user_a1', sid: 'sess_op1', azp: ORIGIN });
 		const identity = await made.provider.authenticate({ request: new Request(`${ORIGIN}/cases`, { headers: { authorization: `Bearer ${token}` } }) });
 		const deleted: string[] = [];
-		const r = await outcome(() => operator.actions.default!({ locals: { ...production, identity } as App.Locals, request: new Request(`${ORIGIN}/sign-in/operator`, { method: 'POST', headers: { cookie: `__session=${token}` } }), url: new URL(`${ORIGIN}/sign-in/operator`), cookies: { delete: (n: string) => deleted.push(n) } } as never));
+		const r = await outcome(() => operator.actions.default!({ locals: { ...production, identity } as App.Locals, request: new Request(`${ORIGIN}/sign-in/operator`, { method: 'POST', headers: { cookie: `__session=${token}` } }), url: new URL(`${ORIGIN}/sign-in/operator`), cookies: { delete: (n: string) => deleted.push(n), set: () => {} } } as never));
 		expect(status.calls.some((c) => c.includes('POST /v1/sessions/sess_op1/revoke'))).toBe(true);
 		expect(deleted).toContain('__session');
 		expect(r.thrown).toMatchObject({ status: 303 });

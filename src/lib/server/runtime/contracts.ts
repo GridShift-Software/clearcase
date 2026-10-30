@@ -19,12 +19,20 @@ export interface ContractError<C extends string> extends Error { readonly code: 
 export interface Principal { readonly issuer: string; readonly subject: string; readonly kind: 'client' | 'staff' }
 export type IdentityState = { kind: 'anonymous'; principal: null; sessionId: null } | { kind: 'verified'; principal: Principal; sessionId: SessionId };
 export type CaseOperation = 'read' | 'read-original' | 'read-preview' | 'write-user-work';
-export type Identity = IdentityState & { readonly clientId: ClientId; checkRevocation(): Promise<void>; authorize(a: Scope & { operation: CaseOperation }): Promise<void> };
+export type Identity = IdentityState & { readonly clientId: ClientId; checkRevocation(): Promise<void>; authorize(a: Scope & { operation: CaseOperation }): Promise<void>;
+  /** authorize() over a list: the cases allowed, each recorded as authorize() records it; refuses as authorize() does. */
+  authorizeCases?(a: { operation: CaseOperation; caseIds: readonly CaseId[] | Promise<readonly CaseId[]> }): Promise<ReadonlySet<CaseId>> };
 export interface IdentityProvider { authenticate(a: { request: Request }): Promise<Identity> }
 export type Publication = { kind: 'none' | 'withdrawn' } | { kind: 'published'; resultsVersion: ResultsVersion };
 /** Why a case shows no results: none published yet, the published version withdrawn, or results that cannot be read now. */
 export type ResultsStatus = { kind: 'pending' } | { kind: 'withdrawn' } | { kind: 'unavailable'; reason: string };
 export interface CaseInfo { caseId: CaseId; caseLabel: string | null; publication: Publication; href: string; documents: number | null }
+/**
+ * The case's publication pointer: the published version, when it moved there (null before published_at was recorded), the
+ * version it replaced, the hex sha256 of the signed shard manifest it is served from, and the shards it serves: every name
+ * its admitted manifest and amendments list, with its bytes (null for a version published without admitted shards).
+ */
+export interface PublicationRecord { versionId: ResultsVersion; publishedAt: string | null; previousVersionId: ResultsVersion | null; shardManifestSha256: string | null; shards: Readonly<Record<string, number>> | null }
 export type VersionInfo = Omit<Version, 'id' | 'case_id' | 'input_revision_id' | 'case_folder' | 'case_root' | 'case_dev' | 'case_ino'> & { id: ResultsVersion; case_id: CaseId; input_revision_id: Id<'input-revision'> };
 export interface DocumentProvider { id: string; owner: string; rows(a: VersionScope): Promise<readonly ProviderRow[]>; revision(a: VersionScope): Promise<string> }
 export interface ProviderRegistry { register(p: DocumentProvider): () => void; list(): readonly Pick<DocumentProvider, 'id' | 'owner'>[] }
@@ -42,6 +50,8 @@ export interface CaseReader {
   fingerprints(a: VersionScope): Promise<readonly { ref: string; sha256: Sha256 }[]>; anyDateBasis(a: VersionScope): Promise<boolean>;
   listJson(a: VersionScope): Promise<{ json: string; etag: string; failed: DocumentRowsResult['failed'] } | null>;
   activeDocumentRows(a: Scope): Promise<DocumentRowsResult & { resultsVersion: ResultsVersion | null }>;
+  /** The live publication of the case, or null when nothing is published (none, withdrawn, or a version that is not stored). */
+  publication(a: Scope): Promise<PublicationRecord | null>;
   readonly providers: ProviderRegistry;
 }
 export type AsyncCaseStore = CaseReader;
@@ -71,7 +81,9 @@ export type Anchor = Omit<DocumentAnchor, 'caseId' | 'resultsVersion' | 'sha256'
 export type NoteTarget = { kind: 'case' } | { kind: 'document'; anchor: Anchor } | { kind: 'analysis'; resultsVersion: ResultsVersion; section: string };
 export type WorkRegisterRow = Omit<RegisterRow, 'anchor'> & { anchor: Anchor | null };
 export type HostedNote = Omit<NoteView, 'refAtCreation' | 'resultsVersion' | 'anchorSha256'> & { target: NoteTarget };
-export type HostedNoteSummary = Omit<NoteSummary, 'detached'> & { detached: HostedNote[] };
+export type HostedNoteSummary = Omit<NoteSummary, 'detached' | 'pageNotes'> & { detached: HostedNote[]; pageNotes: number };
+/** Counts for the hosted overview, with no detached bodies or claim about their integrity. */
+export type OverviewNoteSummary = Omit<HostedNoteSummary, 'detached'>;
 export interface SnapshotStore { put(a: Scope & { snapshot: UserWorkExport; revision: CaseRevision }): Promise<Id<'snapshot'>>; get(a: Scope & { id: Id<'snapshot'> }): Promise<UserWorkExport | null> }
 export type RegisterCommand = { kind: 'add'; fields: Fields } | { kind: 'replace'; rowId: string; fields: Fields } | { kind: 'remove'; rowId: string };
 export interface AsyncRegisterStore {
@@ -90,11 +102,24 @@ export interface AsyncUserWork {
   seedRows(a: VersionScope & { datasetKey?: string }): Promise<readonly SeedRow[]>; overlays(a: Scope & { datasetKey?: string }): Promise<readonly Versioned<SeedOverlay>[]>;
   seedViews(a: VersionScope & { datasetKey?: string }): Promise<readonly Versioned<SeedView>[]>; putSeedOverlay(a: WriteScope & { overlay: SeedOverlay }): Promise<Written<void>>;
   listRows(a: Scope & { store: string }): Promise<readonly Versioned<WorkRegisterRow>[]>;
+  /** One authorized snapshot of a register and optional seed overlays. Imported seeds come from the admitted view shard. */
+  readViewWork(a: Scope & { store: string; datasetKey?: string }): Promise<{ rows: readonly Versioned<WorkRegisterRow>[]; overlays: readonly Versioned<SeedOverlay>[] }>;
+  /**
+   * One authorized snapshot of the case's notes (as notesFor) and of one register's rows, binding included: a page that
+   * lists both costs one read. `rowsWhere` keeps only rows whose field holds that string (a document's page notes by its
+   * original's SHA-256), so a document page never reads the rest of the register.
+   */
+  readNoteWork(a: Scope & { target: NoteTarget | null; store: string; rowsWhere?: { field: string; equals: string } }): Promise<{ notes: readonly Versioned<HostedNote>[]; rows: readonly Versioned<WorkRegisterRow>[] }>;
   putRow(a: WriteScope & { store: string; rowId: string | null; fields: Fields; anchor: Anchor | null }): Promise<Written<AddResult>>;
   deleteRow(a: UpdateScope & { store: string; rowId: string }): Promise<Written<boolean>>;
   tables(): Promise<readonly UserWorkTable[]>; defineTable(a: { definition: TableDefinition }): Promise<void>; registerStores(a: Scope): Promise<readonly string[]>;
   listTableRows(a: Scope & { table: string }): Promise<readonly { cells: Record<string, TableCell>; version: WorkVersion }[]>;
-  putTableRow(a: WriteScope & { table: string; owner: string; row: Record<string, TableCell> }): Promise<Written<void>>;
+  /**
+   * `commitAfter`: the write is authorized and prepared at once, but commits only once this settles fulfilled (an object
+   * the row names is stored). A rejection refuses the write with nothing written and rethrows its reason. It is not part
+   * of the request an operation id is bound to.
+   */
+  putTableRow(a: WriteScope & { table: string; owner: string; row: Record<string, TableCell>; commitAfter?: Promise<unknown> }): Promise<Written<void>>;
   putTableRows(a: CaseWriteScope & { table: string; owner: string; rows: readonly Record<string, TableCell>[] }): Promise<Written<void>>;
   deleteTableRow(a: UpdateScope & { table: string; owner: string; key: Record<string, TableCell> }): Promise<Written<boolean>>;
   exportAll(a: Scope): Promise<UserWorkExport>; importAll(a: CaseWriteScope & { snapshot: UserWorkExport; preRestore: Id<'snapshot'> }): Promise<Written<ImportResult>>;
@@ -111,7 +136,11 @@ export interface SystemAuditActor { readonly kind: 'system'; readonly component:
 export type AuditActor = IdentityState | SystemAuditActor;
 /** An event whose producer is the provisioning system, never a request. Not appendable through AuditSink. */
 export type SystemAuditEvent = Omit<AuditEvent, 'actor'> & { actor: SystemAuditActor };
-export interface AuditSink { append(a: AuditEvent): Promise<{ eventId: string }> }
+export interface AuditSink {
+  append(a: AuditEvent): Promise<{ eventId: string }>;
+  /** Prepare fail-closed audit SQL for the caller's exact D1 session; execute only in the business mutation's batch. */
+  atomic?(a: { db: import('./hosted/bindings.ts').D1; event: AuditEvent }): Promise<readonly import('./hosted/bindings.ts').D1Statement[]>;
+}
 export type Profile = 'production' | 'hosted-gate';
 export interface BuildStamp<P extends Profile> { revision: string; dirty: boolean; exported: boolean; builtAt: string; bun: string; buildId: string; target: 'cloudflare'; profile: P }
 export interface BindingProbe { ok: boolean; bindings: { DB: boolean; BUCKET: boolean; ASSETS: boolean }; probes: { d1: boolean; r2: boolean } }
@@ -125,4 +154,23 @@ export interface TestIdentityDouble {
 }
 export type Runtime = { now(): Date; probe(): Promise<BindingProbe> } & ({ build: Readonly<BuildStamp<'hosted-gate'>>; gate: { runId: string; fixtureSha256: Sha256 }; testIdentity: TestIdentityDouble | null } | { build: Readonly<BuildStamp<'production'>>; gate: null; testIdentity: null });
 
-export interface RequestServices { identity: Identity; store: CaseReader; assets: AssetsAccess; userWork: AsyncUserWork; audit: AuditSink; runtime: Runtime }
+/**
+ * A published version's immutable JSON shards (`views/<rvHex>/<name>` in the client bucket). It does not authorize: the
+ * caller has already authorized the case, checked that `resultsVersion` is its current published version and that the
+ * publication admits `name`. A missing shard is null; storage faults throw `storage-unavailable`.
+ */
+export interface ShardReader {
+  /** `bytes` is the size the publication admitted for `name`: a stored object of another size is `storage-unavailable` and is not cached. */
+  read(a: VersionScope & { name: string; bytes: number }): Promise<Response | null>;
+}
+export interface RequestServices {
+  /** Present only on an explicitly selected overview request snapshot. */
+  overviewNoteSummary?: (a: VersionScope) => Promise<OverviewNoteSummary>;
+  /** The authorized request snapshot; absent on local and legacy adapters. */
+  caseRead?: (a: Scope) => Promise<{ caseId: CaseId; info: CaseInfo | null; published: PublicationRecord | null }>;
+  /** Whether the signed-in person's own grant on the case writes user work, from the request snapshot; absent where caseRead
+   * is. It authorizes nothing and tells only the caller's role, so a page asks it after its own authorized read, and a
+   * write is still authorized on its own: it only spares a viewer controls the server would refuse. */
+  canWriteWork?: (a: Scope) => Promise<boolean>;
+  identity: Identity; store: CaseReader; assets: AssetsAccess; userWork: AsyncUserWork; audit: AuditSink; runtime: Runtime; shards: ShardReader }
+

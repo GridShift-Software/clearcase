@@ -12,7 +12,7 @@
   "send_metrics": false,
   "workers_dev": false,
   "preview_urls": false,
-  "routes": [{ "pattern": "a.sandbox.gridshift.co.za", "zone_id": "db7c322907320aba562d64015ee7d673", "custom_domain": true }],
+  "routes": [{ "pattern": "sbx-a.clearcase.co.za", "zone_id": "1c82369e826ebe0afded65c295198fcd", "custom_domain": true }],
   "limits": { "cpu_ms": 1000 },
   "assets": { "directory": "artifact/public", "binding": "ASSETS" },
   "vars": { "CLEARCASE_CLIENT_ID": "client-a" },

@@ -37,7 +37,8 @@ async function docPage(C, rv, ref, query = '') {
 	const section = /<section class="original(?: [^"]*)?"[^>]*data-original-state="([a-z]+)" data-presentation="([a-z]+)"/.exec(t);
 	return {
 		status: r.status, html: t, state: section?.[1] ?? null, presentation: section?.[2] ?? null,
-		route: /<p[^>]*id="original-state"[^>]*><span class="route" data-route="([a-z]+)">([^<]*)</.exec(t)?.slice(1) ?? null,
+		// Svelte SSR puts block markers (<!--[-->) before a span inside an {#if}, as the hosted/local branch in OriginalOpen does
+		route: /<p[^>]*id="original-state"[^>]*>\s*(?:<!--[^>]*-->\s*)*<span class="route" data-route="([a-z]+)">([^<]*)</.exec(t)?.slice(1) ?? null,
 		path: (() => { const m = /id="original-state"[\s\S]*?<code class="wrap" title="([^"]*)"/.exec(t); return m ? decode(m[1]) : null; })(),
 		shaPrefix: /sha256 ([0-9a-f]{12})…\)/.exec(t)?.[1] ?? null,
 		open: attrById(t, 'open-original', 'href'), openText: /id="open-original">([^<]*)</.exec(t)?.[1] ?? null, download: attrById(t, 'download-original', 'href'),
@@ -598,7 +599,7 @@ export async function checkDates(C, L) {
 	L.note(`rows with a supplied date type or provenance: ${withType}`);
 	const P = C.P;
 	await P.goto(`${C.origin}${vpath(rv)}/chronology`, ready('chronology'), 60000);
-	const g = await P.settled(`(() => { const rows = [...document.querySelectorAll('.grid-table .grid-row[data-ref]')]; const b = rows.map((r) => r.querySelector('[data-date-basis]')).filter(Boolean); const by = {}; for (const x of b) by[x.dataset.dateBasis] = (by[x.dataset.dateBasis] ?? 0) + 1; return { column: [...document.querySelectorAll('.grid-table [role=columnheader]')].some((h) => h.textContent.trim() === 'Date basis'), by, undatedText: rows.filter((r) => r.querySelector('[role=cell]').textContent.trim() === 'undated').length, unknownLabel: b.filter((x) => x.dataset.dateBasis === 'unknown' && x.textContent.trim() === 'unknown' && /basis unknown/.test(x.title)).length }; })()`);
+	const g = await P.settled(`(() => { const rows = [...document.querySelectorAll('.grid-table .grid-row[data-ref]')]; const b = rows.map((r) => r.querySelector('[data-date-basis]')).filter(Boolean); const by = {}; for (const x of b) by[x.dataset.dateBasis] = (by[x.dataset.dateBasis] ?? 0) + 1; return { column: [...document.querySelectorAll('.grid-table [role=columnheader]')].some((h) => h.textContent.trim() === 'Date basis'), by, undatedText: rows.filter((r) => r.querySelectorAll('[role=cell]')[1].textContent.trim() === 'undated').length, unknownLabel: b.filter((x) => x.dataset.dateBasis === 'unknown' && x.textContent.trim() === 'unknown' && /basis unknown/.test(x.title)).length }; })()`);
 	const dated = C.pkg.chronology.length - undated;
 	// the Date basis column is shown only when some row has a supplied basis; the Date column says 'undated' either way
 	const want = withType ? { column: true, by: sortObj({ undated, unknown: dated - withType, supplied: withType }), undatedText: undated, unknownLabel: dated - withType } : { column: false, by: {}, undatedText: undated, unknownLabel: 0 };

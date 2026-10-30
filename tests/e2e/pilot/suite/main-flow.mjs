@@ -180,7 +180,7 @@ export async function s25(ctx) {
 	const r2 = await A.c.get(url, { headers: { 'if-none-match': r1.headers.etag } });
 	const r3 = await A.c.get(url, { headers: { 'if-none-match': '"sha256:0000"' } });
 	const cc = r1.headers['cache-control'] ?? '';
-	const ok = dom.tablesInMain === 0 && dom.tableTag === 'DIV' && dom.rowTag === 'DIV' && dom.contentVisibility === 'auto' && dom.display === 'grid' && dom.gridColumns === (main.chronology.some((r) => r.date_type) ? 9 : 8) &&
+	const ok = dom.tablesInMain === 0 && dom.tableTag === 'DIV' && dom.rowTag === 'DIV' && dom.contentVisibility === 'auto' && dom.display === 'grid' && dom.gridColumns === (main.chronology.some((r) => r.date_type) ? 10 : 9) &&
 		cc === 'private, no-cache' && r1.headers.etag === `"${stored.rm}"` && r2.status === 304 && r3.status === 200 && r1.text === stored.cj && JSON.parse(r1.text).length === main.chronology.length;
 	return { pass: ok, evidence: { dom, cacheControl: cc, etag: r1.headers.etag, readModel: stored.rm, conditional: r2.status, wrongEtag: r3.status, bodyEqualsStored: r1.text === stored.cj } };
 }
@@ -414,7 +414,7 @@ export async function views42(ctx) {
  */
 export async function dateBasis(ctx) {
 	const { A, p, main } = ctx;
-	const basisOf = `[...document.querySelectorAll('[role=row][data-ref]')].map((r) => { const s = r.querySelector('[data-date-basis]'); return { ref: r.dataset.ref, date: r.querySelector('[role=cell]')?.textContent.trim() ?? null, basis: s?.dataset.dateBasis ?? null, text: s?.textContent.trim() ?? null, title: s?.title ?? null }; })`;
+	const basisOf = `[...document.querySelectorAll('[role=row][data-ref]')].map((r) => { const s = r.querySelector('[data-date-basis]'); return { ref: r.dataset.ref, date: r.querySelectorAll('[role=cell]')[1]?.textContent.trim() ?? null, basis: s?.dataset.dateBasis ?? null, text: s?.textContent.trim() ?? null, title: s?.title ?? null }; })`;
 	await p.goto(`${A.v(main.resultsVersion)}/chronology`, `${ready('chronology')} && ${ROWS}.length > 0`);
 	const v1 = await p.evaluate(basisOf);
 	const v1ok = v1.length === main.chronology.length && v1.every((r) => r.basis === null && r.date === (main.chronology.find((x) => x.ref === r.ref).date || 'undated'));

@@ -3,14 +3,21 @@
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import PageHeader from '$lib/components/PageHeader.svelte';
-	import { NOT_SERVED, hrefOf } from '$lib/views/bundles/links';
+	import { writeAccess } from '$lib/components/write-access';
+	import { NOT_SERVED as LOCAL_NOT_SERVED, hrefOf } from '$lib/views/bundles/links';
 	import { postAction } from '$lib/views/bundles/post';
 	import { sizeLabel, uploadUrl } from '$lib/views/bundles/caselines';
 	let { data } = $props();
+	const access = writeAccess();
+ const NOT_SERVED = $derived('hosted' in data && data.hosted ? 'not available on hosted' : LOCAL_NOT_SERVED);
 	const vid = $derived(data.version.id);
 	const c = $derived(data.content);
 	const pagesLabel = $derived(data.pages === null ? '' : data.pages.toLocaleString('en'));
 	const bundleHref = (p: number | null = null) => hrefOf(vid, data.files, data.bundle, p);
+	// A viewer cannot add documents, so imported copy that offers adding is replaced by the read-only line; an editor and the
+	// local pilot keep the imported subtitle as it is.
+	const subtitle = $derived(access.canWrite ? (c.subtitle ?? 'The consolidated court bundle — open, download, search, and add documents')
+		: c.subtitle && !/\badd(?:s|ed|ing)?\b/i.test(c.subtitle) ? c.subtitle : 'The consolidated court bundle — open, download and search');
 
 	let q = $state(page.url.searchParams.get('q') ?? '');
 	const search = () => goto(`?${new URLSearchParams(q.trim() ? { q: q.trim() } : {})}`, { reset: false, replaceState: true });
@@ -58,8 +65,8 @@
 </script>
 
 <main id="main" tabindex="-1" data-ready="caselines_tab" data-hydrated={ready ? '1' : null} data-busy={busy ? '1' : '0'} aria-busy={busy}>
-	<PageHeader heading="CaseLines" section="CaseLines" caseName={data.version.titleName} subtitle={c.subtitle ?? 'The consolidated court bundle — open, download, search, and add documents'} />
-	{#if off}<p class="notice" id="cl-nojs">Search, go to page, linking and adding files need JavaScript, which is off or still loading; nothing on this page can be saved without it.</p>{/if}
+	<PageHeader heading="CaseLines" section="CaseLines" caseName={data.version.titleName} {subtitle} />
+	{#if off}<p class="notice" id="cl-nojs">{#if access.canWrite}Search, go to page, linking and adding files need JavaScript, which is off or still loading; nothing on this page can be saved without it.{:else}Search and go to page need JavaScript, which is off or still loading.{/if}</p>{/if}
 	<div class="cl-hero">
 		<div>{#if c.name}<div class="t">{c.name}</div>{/if}{#if c.note}<div class="m">{c.note}</div>{/if}</div>
 		<div class="sp">
@@ -93,6 +100,7 @@
 	</section>
 
 	<section class="cl-card" aria-labelledby="cl-add-h">
+		{#if access.canWrite}
 		<h2 class="hd" id="cl-add-h">📎 Add documents to CaseLines</h2>
 		<div class="cl-drop" class:drag={dragging} id="cl-drop" role="region" aria-label="Drop files here"
 			ondragenter={(e) => { e.preventDefault(); dragging = true; }} ondragover={(e) => { e.preventDefault(); dragging = true; }}
@@ -103,9 +111,12 @@
 			<button type="button" class="ds-btn" id="cl-link" onclick={link} disabled={off || busy}>Link file (permanent)</button>{#if busy}<span class="saving" id="cl-saving" role="status">Saving…</span>{/if}
 		</div>
 		{#if linkError}<p class="error" role="alert" id="cl-error">{linkError} <button type="button" class="ds-btn" id="cl-retry" disabled={off || linking} onclick={link}>Retry</button></p>{/if}
-		<div class="cl-hint">Linked files are remembered for this case and open through the document page when they are in the verified index. Files added for this session can only be downloaded while this page stays open; to keep one, save it into the case folder and link it by path.</div>
+		{:else}
+		<h2 class="hd" id="cl-add-h">📎 Additional documents</h2>
+		{/if}
+		<div class="cl-hint">Linked files are remembered for this case and open through the document page when they are in the verified index.{#if access.canWrite} Files added for this session can only be downloaded while this page stays open; to keep one, save it into the case folder and link it by path.{/if}</div>
 		<ul class="cl-doclist" id="cl-docs">
-			{#each data.links as l (l.rowId)}<li data-row={l.rowId}><span class="nm" title={l.name}>📄 {l.name} <span class="dim">(linked)</span></span>{#if l.ref}<a href={hrefOf(vid, data.files, { ref: l.ref, page: null })}>Open</a>{#if data.downloads[l.ref]}<a href={data.downloads[l.ref]} rel="noopener noreferrer" download>Download</a>{/if}{:else}<span class="not-served">{NOT_SERVED}</span>{/if}<button type="button" class="rm" disabled={off} onclick={() => unlink(l.rowId)}>Remove</button>{#if removeErrors[l.rowId]}<span class="error" role="alert" data-remove-error={l.rowId}>{removeErrors[l.rowId]} <button type="button" class="ds-btn" onclick={() => unlink(l.rowId)}>Retry</button></span>{/if}</li>{/each}
+			{#each data.links as l (l.rowId)}<li data-row={l.rowId}><span class="nm" title={l.name}>📄 {l.name} <span class="dim">(linked)</span></span>{#if l.ref}<a href={hrefOf(vid, data.files, { ref: l.ref, page: null })}>Open</a>{#if data.downloads[l.ref]}<a href={data.downloads[l.ref]} rel="noopener noreferrer" download>Download</a>{/if}{:else}<span class="not-served">{NOT_SERVED}</span>{/if}{#if access.canWrite}<button type="button" class="rm" disabled={off} onclick={() => unlink(l.rowId)}>Remove</button>{/if}{#if removeErrors[l.rowId]}<span class="error" role="alert" data-remove-error={l.rowId}>{removeErrors[l.rowId]}{#if access.canWrite} <button type="button" class="ds-btn" onclick={() => unlink(l.rowId)}>Retry</button>{/if}</span>{/if}</li>{/each}
 			{#each uploads as u (u.id)}<li><span class="nm" title={u.name}>⬆️ {u.name} <span class="dim">(this session · {sizeLabel(u.size)})</span></span><a href={u.url} download={u.name}>Download</a><button type="button" class="rm" disabled={off} onclick={() => removeUpload(u)}>Remove</button></li>{/each}
 			{#if !data.links.length && !uploads.length}<li class="dim">No additional documents yet.</li>{/if}
 		</ul>

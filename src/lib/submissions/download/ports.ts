@@ -6,7 +6,7 @@ import type { SubmissionRepository } from '../ports.ts';
  * The reads the operator download needs from the intake's own durable records. Structurally the intake's
  * `SubmissionRepository`; nothing here writes. The parent passes the same D1 repository over the client's `DB`.
  */
-export type OperatorSubmissionReader = Pick<SubmissionRepository, 'upload' | 'revision' | 'list'>;
+export type OperatorSubmissionReader = Pick<SubmissionRepository, 'upload' | 'revision' | 'list' | 'set' | 'sets' | 'setOf'>;
 
 /**
  * The original bytes, through the assets service (GRS-115/118): `metadata` names the stored size and digest, `get` answers
@@ -25,6 +25,7 @@ export type OperatorAssets = Pick<AssetsAccess, 'metadata' | 'get'>;
  * storage/audit work. It must read current grants on every call, not cache the first decision for the request.
  */
 export interface OperatorDownloadPorts {
+  readonly notifications?: Pick<import('../notifications.ts').IntakeNotifications, 'pending'>;
   readonly clientId: ClientId;
   readonly authorizeOperate: AuthorizeCapability | null;
   readonly repository: OperatorSubmissionReader | null;

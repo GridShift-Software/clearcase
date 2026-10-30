@@ -1,7 +1,7 @@
 import { emptyBuilder, type Builder, type Output } from '../../bundles/builder.ts';
 import type { Doc } from '../../bundles/pdf/index.ts';
 
-export type BuiltOutput = Output & { url: string; saved: string | null };
+export type BuiltOutput = Output & { pdf: Blob; url: string; saved: string | null };
 export const bld = $state<{ b: Builder; msg: string; busy: boolean; prog: string; out: BuiltOutput | null; saving: boolean; saveError: string | null }>({
 	b: emptyBuilder(), msg: '', busy: false, prog: '', out: null, saving: false, saveError: null,
 });

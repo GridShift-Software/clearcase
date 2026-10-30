@@ -2,7 +2,7 @@
 
 [GRS-108](https://linear.app/vaper/issue/GRS-108) asks for a working Clerk integration on Workers and an explicit role, session and asset authorization contract for the design gate. Cloudflare stays pinned (no account, token, login, DNS change or deploy), so this unit runs the **local and Clerk-development legs**: two SvelteKit 3 Workers on native workerd with local D1 and R2, verifying sessions of the real development instances `Clear-Case-Dev-A` (client) and `Clear-Case-Dev-B` (staff).
 
-**Verdict: PASS for the local and Clerk-development legs; HOLD for the rest.** The committed run passed at `a52f8ac8781741aa8922552915836d6a15b8e2fd`; all 12 legs, 34 routes and 251 checks passed, with exact cleanup. `check:evidence` binds the run to every later HEAD whose probe inputs are unchanged. Every acceptance item below that these legs can show passes. What stays HOLD, and who it needs, is listed [at the end](#what-stays-hold). The probe is not the production integration; GRS-113 adopts its contracts.
+**Verdict: PASS for the local and Clerk-development legs; HOLD for the rest.** The committed run passed at `f33bf3e33ad8c3cda522c61fc942b9aa339590db`; all 12 legs, 34 routes and 251 checks passed, with exact cleanup. `check:evidence` binds the run to every later HEAD whose probe inputs are unchanged. Every acceptance item below that these legs can show passes. What stays HOLD, and who it needs, is listed [at the end](#what-stays-hold). The probe is not the production integration; GRS-113 adopts its contracts.
 
 ## Run it
 
@@ -224,8 +224,8 @@ The probe's own checks, all in `tests/hosting-probe/identity/`:
 | --- | --- | --- | --- |
 | `bun run --bun test` | `a0b458af` | 0 | 61 passed: `gates.test.ts` 45 (33 gate cases, 2 default-deny, the grant-to-a-non-staff-user case, 6 process-lifecycle, 3 on `serve.mjs`'s stores, start and a dead Worker), `check.test.ts` 12, `clerk.test.ts` 4 |
 | `bun run --bun test tests/hosting-probe/identity/ tests/ci/test-collection.test.ts`, from the repository root | `a0b458af` | 0 | 63 passed under the root config (the identity files are collected there now) |
-| `bun run --bun probe` (observed through the unchanged launcher and FD reader) | `a52f8ac8781741aa8922552915836d6a15b8e2fd` | 0 | `PROBE PASS`, `evidence: true`, all 12 legs PASS, 34 routes/251 checks; users 8/8, invitations 9/9, sessions ended 14/14, 0 pending; receipt `20261022T234000.225186Z-observed-identity-run-a52` |
-| `bun run --bun check:evidence` | `a52f8ac8781741aa8922552915836d6a15b8e2fd` and this metadata commit | 0 | `CHECK PASS`, inputs `sha256:afcd7f3cbaa9d10e3e608bbd6cff4814c7c4d3ebb9dbce06f39ed68346969737` |
+| `bun run --bun probe` (observed through the unchanged launcher and FD reader) | `f33bf3e33ad8c3cda522c61fc942b9aa339590db` | 0 | `PROBE PASS`, `evidence: true`, all 12 legs PASS, 34 routes/251 checks; users 8/8, invitations 9/9, sessions ended 14/14, 0 pending; receipt `20261030T153808.606540Z-identity-evidence-refresh` |
+| `bun run --bun check:evidence` | `f33bf3e33ad8c3cda522c61fc942b9aa339590db` and this metadata commit | 0 | `CHECK PASS`, inputs `sha256:b6f921d302905527f4aebcd80706882c7ca4eb6e2c82828be2db98b9a3f0d48d` |
 | `bun tests/hosting-probe/identity/check.ts` after `git merge origin/wave/proofs` (`b858213c`, already an ancestor) in a scratch checkout | the commit that adds this page | 0 | `CHECK PASS` |
 
 Receipts are under the worktree's ignored `.local/agent-receipts/`. The repository's `check`, `gate:hosted` and `gate` results are in the ticket's report at the hand-in head.

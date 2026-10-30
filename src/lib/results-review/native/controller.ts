@@ -1,13 +1,16 @@
 import { decodeUtf8Strict, isObject, parseStrictJson, type JsonObject, type JsonValue } from '../../case-package/strict-json.ts';
+import { LIMITS } from '../../case-package/limits.ts';
 import type { CaseId, Identity } from '../../server/runtime/contracts.ts';
 import { codeOf } from '../../server/runtime/errors.ts';
 import { id } from '../../server/runtime/ids.ts';
 import { readAtMost } from '../../submissions/body.ts';
 import { packagePathOk } from './package.ts';
+import { base64Length, decodeBase64Strict } from './staging/base64.ts';
+import type { StagedRefusalCode } from './staging/service.ts';
 import type { AdmittedOperator, NativeResultsImport, RefusalCode } from './service.ts';
 
 /** What one request carries: the request, its URL, the route params and the request's identity (the existing contract). */
-export interface NativeRequest { request: Request; url: URL; params: Partial<Record<'caseId' | 'candidateId', string>>; identity: Identity }
+export interface NativeRequest { request: Request; url: URL; params: Partial<Record<'caseId' | 'candidateId' | 'operationId', string>>; identity: Identity }
 
 const PART = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const OPERATION = /^[A-Za-z0-9][A-Za-z0-9-]{15,63}$/;
@@ -33,6 +36,26 @@ const REFUSAL: Record<RefusalCode, [number, string]> = {
   'base-not-found': [404, 'Not found.'],
   'stager-identity-mismatch': [502, 'The stager reported an identity other than the supplied package\'s.'],
   'over-budget': [413, 'This import is more work than one request on this deployment may do.'],
+};
+
+const STAGED_REFUSAL: Record<StagedRefusalCode, [number, string]> = {
+  'invalid-request': [422, 'The request is not valid.'],
+  'package-invalid': [422, 'The package manifest does not verify.'],
+  'wrong-case': [422, 'The package names another case.'],
+  'too-large': [413, 'The package is larger than this deployment accepts.'],
+  'operation-reused': [409, 'This operation id was already used for a different request.'],
+  'session-not-found': [404, 'No staged import was opened under this operation id.'],
+  'file-not-in-manifest': [422, 'A file is not listed in the manifest.'],
+  'file-mismatch': [422, 'A file does not match the manifest. Nothing from this batch was kept.'],
+  'batch-too-large': [413, 'This batch is more than one request may carry.'],
+  'incomplete': [409, 'The staged import is missing files.'],
+  'over-budget': [413, 'This is more work than one request on this deployment may do.'],
+  'submission-not-found': [404, 'No such finalized submission in this case.'],
+  'submission-not-finalized': [409, 'The submission is not finalized.'],
+  'session-expired': [410, 'The staged files of this import were deleted.'],
+  'not-finished': [409, 'The import has no candidate yet and is still inside its time to live.'],
+  'busy': [409, 'Another request is running a step of this import. Try again shortly.'],
+  'staging-quota': [409, 'Staged imports on this deployment hold all the space they may. Finish or sweep one, then open again.'],
 };
 
 function authorityRefusal(e: unknown, access: 'read' | 'write'): never {
@@ -70,13 +93,17 @@ export function createNativeImportController(service: NativeResultsImport | null
     return fail(503, 'storage-unavailable', 'Storage is unavailable. Try again with the same operation id.');
   });
 
-  /** One bounded JSON object, strictly parsed (duplicate keys, nesting and bad UTF-8 are refused). */
-  async function body(r: NativeRequest, svc: NativeResultsImport, keys: string): Promise<JsonObject> {
+  /**
+   * One bounded JSON object, strictly parsed (duplicate keys, nesting and bad UTF-8 are refused). `stringChars` is the longest string the
+   * body may carry when one holds a whole package file (its text, or a batch's base64): the request bound still caps the body, so a file
+   * the budget admits is never refused by the parser's default 1 Mi-character string limit (U14: a v5 chronology is about 3 MB).
+   */
+  async function body(r: NativeRequest, svc: NativeResultsImport, keys: string, stringChars = 0): Promise<JsonObject> {
     const b = await readAtMost(r.request.body, svc.budget.maxRequestBytes);
     if (b.kind === 'incomplete') return refuse(400, 'incomplete-body', 'The request was interrupted. Send it again.');
     if (b.kind !== 'ok') return refuse(413, 'too-large', 'The request is larger than this deployment accepts.');
     let v: JsonValue;
-    try { v = parseStrictJson(decodeUtf8Strict(b.bytes)); } catch { return refuse(422, 'invalid-request', 'Send one strict JSON object.'); }
+    try { v = parseStrictJson(decodeUtf8Strict(b.bytes), { stringChars: Math.max(LIMITS.stringChars, stringChars) }); } catch { return refuse(422, 'invalid-request', 'Send one strict JSON object.'); }
     if (!isObject(v) || Object.keys(v).sort().join() !== keys) return refuse(422, 'invalid-request', 'The request has missing or unknown fields.');
     return v;
   }
@@ -89,12 +116,96 @@ export function createNativeImportController(service: NativeResultsImport | null
     return json(status, { code: o.code, message, detail: o.detail });
   };
 
+  const staged = (svc: NativeResultsImport) => svc.staged ?? refuse(503, 'import-unavailable', 'The chunked import is not available on this deployment yet.');
+  const stagedResult = (o: { kind: 'refused'; code: StagedRefusalCode; detail: readonly string[] } | { kind: string }, status = 200) => {
+    if (o.kind === 'refused') { const r = o as { code: StagedRefusalCode; detail: readonly string[] }; const [code, message] = STAGED_REFUSAL[r.code]; return json(code, { code: r.code, message, detail: r.detail }); }
+    return json(status, o);
+  };
+  const operationParam = (r: NativeRequest) => (r.params.operationId && OPERATION.test(r.params.operationId) ? r.params.operationId : refuse(404, 'not-found', 'Not found.'));
+
   return {
+    /**
+     * The chunked import, for packages the one-request import cannot carry. POST .../imports/staged opens it with the manifest;
+     * POST .../imports/staged/[operationId]/files sends a bounded batch of files (path to base64), each checked against the manifest;
+     * GET .../imports/staged/[operationId] says what is still missing; POST .../imports/staged/[operationId]/complete links the
+     * verified package exactly as the one-request import does.
+     */
+    openStaged: (r: NativeRequest) => handle(async () => {
+      const a = await admit(r, 'write', 'application/json');
+      const b = await body(r, a.service, 'manifest,operationId,submissionRevisionId', a.service.budget.maxFileBytes);
+      const operationId = opId(b.operationId);
+      const rev = b.submissionRevisionId;
+      if (typeof rev !== 'string' || !PART.test(rev)) return refuse(422, 'invalid-request', 'The submission revision id is invalid.');
+      if (typeof b.manifest !== 'string' || !b.manifest.isWellFormed()) return refuse(422, 'invalid-request', 'manifest must be the text of manifest.json.');
+      return stagedResult(await staged(a.service).open(a.who, { operationId, submissionRevisionId: rev, manifest: new TextEncoder().encode(b.manifest) }), 201);
+    }),
+
+    putStaged: (r: NativeRequest) => handle(async () => {
+      const a = await admit(r, 'write', 'application/json');
+      const svc = staged(a.service);
+      const operationId = operationParam(r);
+      const b = await body(r, a.service, 'files', 4 * Math.ceil(svc.bounds.maxBatchBytes / 3));
+      if (!isObject(b.files)) return refuse(422, 'invalid-request', 'files must be an object of path to base64.');
+      const entries = Object.entries(b.files);
+      if (entries.length < 1 || entries.length > svc.bounds.maxBatchFiles) return refuse(413, 'too-large', 'A batch carries between one and the stated number of files.');
+      // Sizes first, from the text, so nothing is decoded that the batch may not carry.
+      let total = 0;
+      for (const [path, text] of entries) {
+        const n = typeof text === 'string' ? base64Length(text) : null;
+        if (n === null) return refuse(422, 'invalid-request', 'Every file must be canonical padded base64 text.');
+        if (!packagePathOk(path)) return refuse(422, 'package-invalid', 'A package path is not a safe relative path.');
+        total += n;
+        if (total > svc.bounds.maxBatchBytes) return refuse(413, 'too-large', 'The batch is larger than one request may carry.');
+      }
+      const files = new Map<string, Uint8Array>();
+      for (const [path, text] of entries) {
+        const bytes = decodeBase64Strict(text as string);
+        if (!bytes) return refuse(422, 'invalid-request', 'Every file must be canonical padded base64 text.');
+        files.set(path, bytes);
+      }
+      return stagedResult(await svc.put(a.who, { operationId, files }));
+    }),
+
+    statusStaged: (r: NativeRequest) => handle(async () => {
+      const a = await admit(r, 'read', null);
+      return stagedResult(await staged(a.service).status(a.who, { operationId: operationParam(r) }));
+    }),
+
+    completeStaged: (r: NativeRequest) => handle(async () => {
+      const a = await admit(r, 'write', 'application/json');
+      const svc = staged(a.service);
+      const operationId = operationParam(r);
+      await body(r, a.service, '');
+      const out = await svc.complete(a.who, { operationId });
+      // Still staging: the work is half done and durable; call complete again. Every other answer is final.
+      if (out.kind === 'staging') return json(202, out);
+      // A refusal only the staged steps raise has its own table; the rest are the one-request import's and answer as it does.
+      return out.kind === 'refused' && !(out.code in REFUSAL) ? stagedResult(out as never) : result(out as never);
+    }),
+
+    /** POST .../imports/staged/[operationId]/sweep: one bounded step of deleting a finished or abandoned import's staged objects. */
+    sweepStaged: (r: NativeRequest) => handle(async () => {
+      const a = await admit(r, 'write', 'application/json');
+      const operationId = operationParam(r);
+      await body(r, a.service, '');
+      return stagedResult(await staged(a.service).sweep(a.who, { operationId }));
+    }),
+
+    /**
+     * POST .../imports/staged/sweep: the drain. The same step for the session of the case that is due next: a sweep under way, a finished
+     * import, or one idle past its time to live. Call it until `operationId` is null.
+     */
+    sweepExpiredStaged: (r: NativeRequest) => handle(async () => {
+      const a = await admit(r, 'write', 'application/json');
+      await body(r, a.service, '');
+      return stagedResult(await staged(a.service).sweepExpired(a.who));
+    }),
+
     /** POST /operator/results/[caseId]/imports: one bounded JSON request with the package files as UTF-8 text. */
     importPackage: (r: NativeRequest) => handle(async () => {
       const a = await admit(r, 'write', 'application/json');
       const svc = a.service, budget = svc.budget;
-      const b = await body(r, svc, 'files,operationId,submissionRevisionId');
+      const b = await body(r, svc, 'files,operationId,submissionRevisionId', budget.maxFileBytes);
       const operationId = opId(b.operationId);
       const rev = b.submissionRevisionId;
       if (typeof rev !== 'string' || !PART.test(rev)) return refuse(422, 'invalid-request', 'The submission revision id is invalid.');

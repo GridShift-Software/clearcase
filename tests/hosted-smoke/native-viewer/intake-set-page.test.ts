@@ -1,0 +1,203 @@
+// U16: the real client intake page with several PDFs picked at once. It opens one set, stores each file on its own with its
+// own progress and error, retries only the failed file, then seals the set and shows the sealed state. Only fetch and
+// invalidateAll are doubles; this is UI evidence over jsdom, not browser, route-contract or hosted evidence.
+import { createHash } from 'node:crypto';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { flushSync, mount, unmount } from 'svelte';
+// @ts-expect-error jsdom ships no types and the root pins no @types/jsdom; the suite only constructs windows and types them as any.
+import { JSDOM } from 'jsdom';
+import Page from '../../../deploy/client/routes/client/intake/[caseId]/+page.svelte';
+import { fileSetDigest } from '../../../src/lib/submissions/file-set.ts';
+
+vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(async () => {}) }));
+
+const CASE = 'case-a', SETS = `/client/intake/${CASE}/sets`;
+const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+const pdf = (tag: string) => new TextEncoder().encode(`%PDF-1.4\n% SYNTHETIC ONLY ${tag}\n%%EOF\n`);
+const pdfFile = (name: string) => { const bytes = pdf(name); return { file: new File([bytes], name, { type: 'application/pdf' }), bytes, name }; };
+
+type Sent = { method: string; url: string; body: unknown };
+let dom: any, component: any, sent: Sent[], failPut: Set<string>, sealSteps: number, stored: Set<string>;
+const reply = (status: number, body: object) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+const input = () => document.querySelector('input[type=file]') as HTMLInputElement;
+const pick = (files: File[]) => { Object.defineProperty(input(), 'files', { configurable: true, value: files }); input().dispatchEvent(new Event('change', { bubbles: true })); flushSync(); };
+const submit = () => { document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); flushSync(); };
+const stages = () => Object.fromEntries([...document.querySelectorAll('[data-file]')].map((li) => [li.getAttribute('data-file'), li.getAttribute('data-file-stage')]));
+const setState = () => document.querySelector('[data-set-state]')?.getAttribute('data-set-state');
+const json = (s: Sent) => JSON.parse(s.body as string) as Record<string, unknown>;
+
+beforeEach(() => {
+  dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://client-a.clearcase.test' });
+  for (const key of ['window', 'document', 'Node', 'Element', 'HTMLElement', 'HTMLMediaElement', 'Text', 'Comment', 'Event', 'MutationObserver'])
+    vi.stubGlobal(key, dom.window[key]);
+  sent = []; failPut = new Set(); sealSteps = 0; stored = new Set();
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
+    const method = init.method ?? 'GET';
+    sent.push({ method, url, body: init.body });
+    const set = { setId: 'x', state: 'open', fileCount: 3, totalBytes: 0, declared: 0, stored: stored.size, finalized: 0, filesSha256: null, revision: null };
+    if (method === 'POST' && url === SETS) return reply(201, { set });
+    if (method === 'GET' && url.startsWith(`${SETS}/`)) return reply(200, { set, files: [], next: null });
+    if (method === 'POST' && (url.endsWith('/files') || url.endsWith('/submissions'))) return reply(201, { stage: 'received' });
+    if (method === 'PUT') {
+      const op = url.split('/').pop()!;
+      if (failPut.delete(op)) return reply(503, { code: 'storage-unavailable', message: 'File storage is unavailable. Try again with the same upload.' });
+      stored.add(op);
+      return reply(201, { stage: 'stored' });
+    }
+    if (method === 'POST' && url.endsWith('/seal')) {
+      sealSteps++;
+      return sealSteps < 2 ? reply(202, { set: { ...set, state: 'sealing', finalized: 2 } })
+        : reply(201, { set: { ...set, state: 'sealed', finalized: 3, filesSha256: json(sent.at(-1)!).filesSha256, revision: { revisionId: 'subrev-x', sequence: 4 } } });
+    }
+    return reply(404, { code: 'not-found' });
+  }));
+  component = mount(Page, { target: document.body, props: { data: { caseId: CASE, available: true, canUpload: true, submissions: [], sets: [] } } });
+  flushSync();
+});
+afterEach(async () => { if (component) await unmount(component); component = null; dom.window.close(); vi.unstubAllGlobals(); });
+
+it('opens one set for the picked PDFs, stores each with its own progress, retries only the failed one, then seals it', async () => {
+  const fs = [pdfFile('a.pdf'), pdfFile('b.pdf'), pdfFile('c.pdf')];
+  expect(input().multiple).toBe(true);
+  pick(fs.map((f) => f.file));
+  expect(Object.keys(stages())).toEqual(['a.pdf', 'b.pdf', 'c.pdf']);
+  submit();
+  await vi.waitFor(() => expect(sent.filter((s) => s.method === 'PUT')).toHaveLength(3));
+  const declared = sent.filter((s) => s.method === 'POST' && s.url.endsWith('/files')).map(json);
+  const opOf = Object.fromEntries(declared.map((d) => [d.path, d.operationId as string]));
+  const open = json(sent.find((s) => s.method === 'POST' && s.url === SETS)!);
+  expect(open).toEqual({ setId: expect.stringMatching(/^set-[0-9a-f]{40}$/), fileCount: 3, totalBytes: fs.reduce((n, f) => n + f.bytes.byteLength, 0) });
+  expect(declared.map((d) => [d.path, d.size, d.sha256])).toEqual(fs.map((f) => [f.name, f.bytes.byteLength, sha(f.bytes)]));
+  await vi.waitFor(() => expect(setState()).toBe('sealed'));
+  expect(sent.filter((s) => s.url.endsWith('/seal')).map((s) => json(s).filesSha256)).toEqual(Array(2).fill(await fileSetDigest(fs.map((f) => ({ path: f.name, size: f.bytes.byteLength, sha256: sha(f.bytes) })))));
+  expect(Object.values(opOf)).toHaveLength(3);
+});
+
+it('shows a failed file with its own error, keeps the set open, and retries only that file', async () => {
+  const fs = [pdfFile('a.pdf'), pdfFile('b.pdf'), pdfFile('c.pdf')];
+  pick(fs.map((f) => f.file));
+  // Fail b.pdf's first store: its operation id is only known once declared, so fail by path through the declaration.
+  const realFetch = fetch as unknown as ReturnType<typeof vi.fn>, inner = realFetch.getMockImplementation()! as (url: string, init: RequestInit) => Promise<Response>;
+  let failed = false;
+  realFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
+    if (init.method === 'PUT' && !failed) {
+      const declaredB = sent.filter((s) => s.method === 'POST' && s.url.endsWith('/files')).map(json).find((d) => d.path === 'b.pdf');
+      if (declaredB && url.endsWith(String(declaredB.operationId))) { failed = true; failPut.add(String(declaredB.operationId)); }
+    }
+    return inner(url, init);
+  });
+  submit();
+  await vi.waitFor(() => expect(stages()).toEqual({ 'a.pdf': 'stored', 'b.pdf': 'failed', 'c.pdf': 'stored' }));
+  expect(document.querySelector('[data-file="b.pdf"]')!.textContent).toContain('File storage is unavailable');
+  expect(sent.some((s) => s.url.endsWith('/seal'))).toBe(false);
+  expect(setState()).toBe('open');
+  const putsBefore = sent.filter((s) => s.method === 'PUT').length;
+  const retry = document.querySelector('button[data-retry]') as HTMLButtonElement;
+  expect(retry).toBeTruthy();
+  retry.click(); flushSync();
+  await vi.waitFor(() => expect(setState()).toBe('sealed'));
+  const retried = sent.filter((s) => s.method === 'PUT').slice(putsBefore);
+  expect(retried).toHaveLength(1);
+  expect(new Uint8Array(await new Response(retried[0]!.body as BodyInit).arrayBuffer())).toEqual(fs[1]!.bytes);
+  expect(stages()).toEqual({ 'a.pdf': 'stored', 'b.pdf': 'stored', 'c.pdf': 'stored' });
+  expect(document.querySelector('[data-set-state="sealed"]')!.textContent).toMatch(/Sealed.*3 files.*submission 4/s);
+});
+
+it('keeps one picked file on the single-file route', async () => {
+  const f = pdfFile('only.pdf');
+  pick([f.file]);
+  submit();
+  await vi.waitFor(() => expect(sent.filter((s) => s.method === 'PUT')).toHaveLength(1));
+  const op = (JSON.parse(sent[0]!.body as string) as { operationId: string }).operationId;
+  expect(sent.map((s) => [s.method, s.url])).toEqual([['POST', `/client/intake/${CASE}/submissions`], ['PUT', `/client/intake/${CASE}/submissions/${op}`]]);
+});
+
+// U16 fix 1 (review M2): a send in flight belongs to the files it was started with. The picker is disabled meanwhile, and if
+// a new pick still arrives, the old attempt never writes its set, progress or sealed state onto the new selection.
+it('never shows an earlier selection’s set state on a newer selection', async () => {
+  const realFetch = fetch as unknown as ReturnType<typeof vi.fn>, inner = realFetch.getMockImplementation()! as (url: string, init: RequestInit) => Promise<Response>;
+  let release!: () => void, opened = 0;
+  const held = new Promise<void>((r) => { release = r; });
+  realFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
+    if (init.method === 'POST' && url === SETS && opened++ === 0) { const out = inner(url, init); await held; return out; }
+    return inner(url, init);
+  });
+  pick([pdfFile('old-a.pdf').file, pdfFile('old-b.pdf').file]);
+  submit();
+  await vi.waitFor(() => expect(opened).toBe(1));
+  expect(input().disabled).toBe(true);
+  pick([pdfFile('new-c.pdf').file, pdfFile('new-d.pdf').file]);
+  release();
+  await vi.waitFor(() => expect((document.querySelector('button[type=submit]') as HTMLButtonElement).disabled).toBe(false));
+  expect(stages()).toEqual({ 'new-c.pdf': 'waiting', 'new-d.pdf': 'waiting' });
+  expect(setState()).toBeUndefined();
+  expect(document.querySelector('[role=status]')!.textContent).not.toMatch(/Seal/);
+  expect(sent.filter((s) => s.method === 'PUT' || s.url.endsWith('/seal'))).toEqual([]);
+  // The new selection is then sent and sealed on its own.
+  submit();
+  await vi.waitFor(() => expect(setState()).toBe('sealed'));
+  expect(sent.filter((s) => s.method === 'POST' && s.url.endsWith('/files')).map((s) => json(s).path)).toEqual(['new-c.pdf', 'new-d.pdf']);
+  expect(stages()).toEqual({ 'new-c.pdf': 'stored', 'new-d.pdf': 'stored' });
+});
+
+// U16 fix 2 (re-check M3): a one-file send keeps going after a new pick, as it always has, but its late outcome names the
+// file it sent. It never reads as the outcome of the newer pick, which stays unsent, whether that pick is one file or a set.
+it.each([['finalized', 'one-file'], ['finalized', 'set'], ['refused', 'one-file']] as const)('scopes a late %s one-file outcome to the file it sent, not to a newer %s pick', async (outcome, kind) => {
+  const old = pdfFile('old.pdf'), next = kind === 'set' ? [pdfFile('new-a.pdf'), pdfFile('new-b.pdf')] : [pdfFile('new-a.pdf')];
+  const realFetch = fetch as unknown as ReturnType<typeof vi.fn>, inner = realFetch.getMockImplementation()! as (url: string, init: RequestInit) => Promise<Response>;
+  let release!: () => void, puts = 0;
+  const held = new Promise<void>((r) => { release = r; });
+  realFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
+    if (init.method === 'PUT') {
+      puts++;
+      const out = outcome === 'refused' ? inner(url, init).then(() => reply(503, { code: 'storage-unavailable', message: 'File storage is unavailable. Try again with the same upload.' })) : inner(url, init);
+      await held; return out;
+    }
+    return inner(url, init);
+  });
+  pick([old.file]); submit();
+  await vi.waitFor(() => expect(puts).toBe(1));
+  pick(next.map((f) => f.file));
+  release();
+  const expected = outcome === 'refused' ? 'old.pdf: File storage is unavailable. Try again with the same upload.' : 'Finalized old.pdf. No results yet.';
+  await vi.waitFor(() => expect(document.querySelector('[role=status]')!.textContent).toBe(expected));
+  expect(stages()).toEqual(kind === 'set' ? { 'new-a.pdf': 'waiting', 'new-b.pdf': 'waiting' } : {});
+  expect(setState()).toBeUndefined();
+  expect(sent.map((s) => [s.method, s.url])).toEqual([['POST', `/client/intake/${CASE}/submissions`], ['PUT', `/client/intake/${CASE}/submissions/${json(sent[0]!).operationId}`]]);
+  expect(json(sent[0]!).path).toBe('old.pdf');
+  // The newer pick is then sent on its own.
+  submit();
+  await vi.waitFor(() => expect(sent.some((s) => s.method === 'POST' && (s.url.endsWith('/files') || s.url.endsWith('/submissions')) && json(s).path === 'new-a.pdf')).toBe(true));
+});
+
+// rx27 (live on B): a set-file declare or PUT refused 401 marked x-clearcase-reauth marked the file failed and the queue
+// went on sending into the dead session, so every later file failed too. Now the page reloads once, through the handshake,
+// and sends nothing more; choosing the same files again resumes the set, skipping stored ones.
+it.each(['declare', 'PUT', 'seal'])('reloads the page once for a marked 401 on a set file %s, and sends nothing after it', async (step) => {
+  const assign = vi.fn();
+  vi.stubGlobal('location', { href: `https://client-a.clearcase.test/client/intake/${CASE}`, assign });
+  const fs = ['a.pdf', 'b.pdf', 'c.pdf', 'd.pdf', 'e.pdf', 'f.pdf'].map(pdfFile);
+  const realFetch = fetch as unknown as ReturnType<typeof vi.fn>, inner = realFetch.getMockImplementation()! as (url: string, init: RequestInit) => Promise<Response>;
+  // the session ends after two files' declarations or stores, or at the first seal step
+  let hits = 0, refused = 0;
+  realFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
+    const method = init.method ?? 'GET';
+    const hit = step === 'declare' ? method === 'POST' && url.endsWith('/files') : step === 'PUT' ? method === 'PUT' : url.endsWith('/seal');
+    if (hit && ++hits > (step === 'seal' ? 0 : 2)) {
+      refused++;
+      sent.push({ method, url, body: init.body });
+      return new Response(JSON.stringify({ code: 'unauthenticated', message: 'Sign in to continue.' }), { status: 401, headers: { 'content-type': 'application/json', 'x-clearcase-reauth': '1' } });
+    }
+    return inner(url, init);
+  });
+  pick(fs.map((f) => f.file));
+  submit();
+  await vi.waitFor(() => expect(assign).toHaveBeenCalled());
+  await new Promise((r) => setTimeout(r, 50));
+  expect(assign).toHaveBeenCalledExactlyOnceWith(`https://client-a.clearcase.test/client/intake/${CASE}`);
+  // the uploads already in flight (three at once) may each meet the refusal, but no new file starts after it
+  expect(refused).toBeLessThanOrEqual(3);
+  expect(sent.filter((s) => s.method === 'POST' && s.url.endsWith('/files')).length).toBeLessThan(step === 'seal' ? 7 : 6);
+  expect(document.body.textContent).toMatch(/reloading to sign you in again/);
+  expect(document.body.textContent).not.toMatch(/Sign in to continue/);
+});

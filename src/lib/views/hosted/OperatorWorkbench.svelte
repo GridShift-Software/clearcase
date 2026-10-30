@@ -207,6 +207,9 @@
     let r: Response;
     try { r = await fetch(path, { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', headers: body === undefined ? {} : { 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); }
     catch { throw new Error('Network failure. Outcome is unconfirmed; keep the operation id and retry the unchanged request.'); }
+    // a 401 marked x-clearcase-reauth: only a page load through the handshake renews the session (views/hosted/reauth.ts);
+    // reload this page and retry nothing (heavy review M4)
+    if (r.status === 401 && r.headers.get('x-clearcase-reauth') === '1') { location.assign(location.href); throw new Error('Your session ended while the page was idle. The page is reloading to sign you in again; the request was refused and not sent again, so repeat it once the page has loaded.'); }
     let value;
     try { value = await r.json(); } catch { throw new Error(`HTTP ${r.status}: invalid JSON response. Outcome is unconfirmed.`); }
     if (!r.ok) {
@@ -373,7 +376,8 @@
       {#if chosenSubmission}
         <p>Finalized snapshot SHA-256 (the identity a candidate and its sign-off are pinned to): <code>{chosenSubmission.finalizedSnapshotSha256}</code></p>
         <p>Downloaded manifest SHA-256 (the exact bytes of the manifest download below): <code>{chosenSubmission.manifestSha256}</code></p>
-        <a href={chosenSubmission.manifestHref} download>Download exact manifest</a> · <a href={chosenSubmission.downloadHref} download>Download submitted PDF</a>
+        <a href={chosenSubmission.manifestHref} download>Download exact manifest</a> ·
+        {#if chosenSubmission.downloadHref}<a href={chosenSubmission.downloadHref} download>Download submitted PDF</a>{:else}a set of {chosenSubmission.fileCount} PDFs; the submissions page links each one{/if}
       {/if}
       <label>Already-processed results-package folder <input type="file" multiple webkitdirectory onchange={chooseFolder} /></label>
       <p>Accepted transport: package-relative path → exact UTF-8 text, sent as the existing API's files object. Select the root containing manifest.json, assets.json and datasets/*.json. No ZIP, workspace HTML or processing recipes.</p>
@@ -436,13 +440,13 @@
 </main>
 
 <style>
-  main { max-width: 70rem; margin: 1rem auto; padding: 1rem; font-family: system-ui, sans-serif; }
-  fieldset { margin-block: 1rem; border: 1px solid #8b93a0; border-radius: .4rem; padding: 1rem; min-width: 0; }
-  legend { font-weight: 700; }
+  main { max-width: 70rem; margin: 1rem auto; padding: 1rem; }
+  fieldset { margin-block: 1rem; border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 1rem; min-width: 0; }
+  legend { font-weight: 600; }
   label { display: block; margin-block: .8rem; }
   input:not([type='checkbox']), select, textarea { display: block; width: 100%; box-sizing: border-box; padding: .5rem; }
   button, a { margin: .5rem .5rem .5rem 0; }
   button { padding: .6rem; }
   pre, code { white-space: pre-wrap; overflow-wrap: anywhere; }
-  p[role='alert'] { border-left: .3rem solid #b91c1c; padding-left: .7rem; }
+  p[role='alert'] { border-left: .3rem solid var(--danger); padding-left: .7rem; }
 </style>

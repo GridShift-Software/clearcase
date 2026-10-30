@@ -1,8 +1,9 @@
+import { clerkIdentityProviderFromEnv } from '../../../src/lib/auth/clerk/provider.ts';
 // The Clerk IdentityProvider and its configuration (GRS-113), through the pinned @clerk/backend with SYNTHETIC keys and a
 // loopback session lookup. Unit evidence for our adapter only; never evidence that a real Clerk instance behaves so.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CLERK_ENV, clerkSignInTarget, frontendApiHost, readClerkIdentityConfig } from '../../../src/lib/auth/clerk/config.ts';
-import { clerkIdentityProviderFromEnv, createClerkIdentityProvider, presentedToken, type CaseAuthorizer } from '../../../src/lib/auth/clerk/provider.ts';
+import { createClerkIdentityProvider, presentedToken, type CaseAuthorizer } from '../../../src/lib/auth/clerk/provider.ts';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
 import { id } from '../../../src/lib/server/runtime/ids.ts';
 import { craftedInstance, statusDouble } from './synthetic.ts';
@@ -67,11 +68,11 @@ describe('configuration', () => {
 		if (!r.ok) throw new Error(r.reason);
 		expect(() => createClerkIdentityProvider({ config: r.config, authorizeCase: undefined as unknown as CaseAuthorizer })).toThrow(TypeError);
 	});
-	it('offers a sign-in target only when configured, returning to this origin only', () => {
-		expect(clerkSignInTarget(env(), '/cases')).toBeNull();
+	it('offers a sign-in target only when configured, returning to this origin\'s sign-in page only', () => {
+		expect(clerkSignInTarget(env())).toBeNull();
 		const signIn = 'https://accounts.client-a.clerk.test/sign-in';
-		expect(clerkSignInTarget(env({ CLERK_CLIENT_SIGN_IN_URL: signIn }), '/cases')?.href).toBe(`${signIn}?redirect_url=${encodeURIComponent(`${ORIGIN}/cases`)}`);
-		expect(clerkSignInTarget(env({ CLERK_CLIENT_SIGN_IN_URL: signIn }), 'https://attacker.example.test/x')).toBeNull();
+		expect(clerkSignInTarget(env({ CLERK_CLIENT_SIGN_IN_URL: signIn }))?.href).toBe(`${signIn}?redirect_url=${encodeURIComponent(`${ORIGIN}/sign-in`)}`);
+		expect(clerkSignInTarget(env({ CLERK_CLIENT_SIGN_IN_URL: signIn }), 'staff')).toBeNull();
 	});
 });
 

@@ -1,6 +1,8 @@
 // The hosted case views' page data, shared by the server loads and the pages. Types only.
 import type { ChronologyListRow, OverviewModel, ResultsVersion } from './types.ts';
 import type { ChronologyQuery } from '../../local-case/chronology.ts';
+import type { ShellData } from '../../components/shell.ts';
+import type { ShellShard } from '../payloads/shell.ts';
 
 export interface OverviewData {
   resultsVersion: ResultsVersion; caseName: string; subtitle: string | null; matterTitle: string | null; producer: string; created: string; inputKind: string;
@@ -22,9 +24,23 @@ export interface ChronologyData {
 }
 
 export interface NoteItem { id: string; version: string; body: string; createdAt: string; target: { kind: 'case' } | { kind: 'document'; ref: string; resultsVersion: string } | { kind: 'analysis'; section: string } }
-/** What a refused save hands back to the form: the user's own text, and the server's state where it moved on. */
+/**
+ * What a refused save hands back to the form: the user's own text, and the server's state where it moved on. A Delete
+ * not confirmed for its note carries no message, only `confirm`: the note the page asks about, or null after Cancel.
+ */
 export interface NoteRefusal {
-  op: 'add' | 'delete'; message: string; body?: string; ref?: string; resultsVersion?: string; current?: NoteItem | null; notes?: NoteItem[];
+  op: 'add' | 'delete'; message?: string; confirm?: string | null; body?: string; ref?: string; resultsVersion?: string; current?: NoteItem | null; notes?: NoteItem[];
   /** A valid submitted retry identity is retained; an unknown write outcome must never become a second write. */
   operationId?: string;
+}
+
+/** The hosted version layout's data: the local `[vid]` layout's shape (`version`, `isActive`, `base`, `documents`) and the shell it fills. */
+export interface HostedLayoutData {
+  version: ShellShard['version'];
+  isActive: true;
+  base: string;
+  documents: number;
+  shell: ShellData;
+  /** The signed-in person may write this case's user work; false hides the pages' Add, Edit, Delete, Save and Build controls. */
+  canWrite: boolean;
 }

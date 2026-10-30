@@ -1,6 +1,6 @@
 {
   "schema": "clearcase.identity-probe/1",
-  "sourceSha": "a52f8ac8781741aa8922552915836d6a15b8e2fd",
+  "sourceSha": "f33bf3e33ad8c3cda522c61fc942b9aa339590db",
   "inputs": {
     "paths": [
       "tests/hosting-probe/identity",
@@ -10,13 +10,13 @@
       "deploy/probes/secrets-fd.mjs",
       "deploy/probes/scan.ts"
     ],
-    "digest": "sha256:afcd7f3cbaa9d10e3e608bbd6cff4814c7c4d3ebb9dbce06f39ed68346969737"
+    "digest": "sha256:b6f921d302905527f4aebcd80706882c7ca4eb6e2c82828be2db98b9a3f0d48d"
   },
   "treeClean": true,
-  "servedStamp": "a52f8ac8781741aa8922552915836d6a15b8e2fd",
-  "startedAt": "2026-10-22T23:40:00.494Z",
-  "finishedAt": "2026-10-22T23:45:17.198Z",
-  "runDir": ".local/hosting-probe/identity/2026-10-22T23-40-00-494Z",
+  "servedStamp": "f33bf3e33ad8c3cda522c61fc942b9aa339590db",
+  "startedAt": "2026-10-30T15:38:08.932Z",
+  "finishedAt": "2026-10-30T15:43:35.184Z",
+  "runDir": ".local/hosting-probe/identity/2026-10-30T15-38-08-931Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -37,7 +37,7 @@
     "workerd": "1.20261019.1",
     "wrangler": "4.151.3"
   },
-  "artifact": "sha256:7879a13f5e4c1dd189a4b5f67fc99ed976b22fb0a1b5688ad454dbcb0d8ac925",
+  "artifact": "sha256:625681850ac4354b65da8dc75de12036bc86d878ef8e26cc3b4d0381a27a460e",
   "instances": {
     "client": {
       "name": "Clear-Case-Dev-A",

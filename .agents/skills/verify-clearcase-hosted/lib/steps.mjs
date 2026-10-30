@@ -34,8 +34,10 @@ export const steps = [
 		async run(x) {
 			const { options, form } = await signIn(x, x.page, IDENTITY);
 			await x.page.waitFor(`location.pathname === '/cases' && !!document.querySelector('[data-auth-state=signed-in]')`, 20000);
-			const who = await x.page.evaluate(`document.querySelector('[data-auth-state=signed-in] p')?.textContent.trim()`);
-			must(who === 'Signed in as a-viewer.', `the signed-in banner says ${JSON.stringify(who)}`);
+			// GRS-276: the page shows a human name or none; the double carries only a subject, so no banner and never the id
+			const who = await x.page.evaluate(`document.querySelector('[data-auth-state=signed-in] .cases-who')?.textContent.trim() ?? null`);
+			const shown = await x.page.evaluate(`document.querySelector('[data-auth-state=signed-in]')?.innerText ?? ''`);
+			must(who === null && !shown.includes('a-viewer') && !/user_[A-Za-z0-9]/.test(shown), `the signed-in page shows ${JSON.stringify(shown)}`);
 			const { cookies } = await x.b.send('Network.getCookies', { urls: [x.app] }, x.page.sessionId);
 			const session = cookies.find((c) => c.name === 'clearcase_session');
 			must(session?.httpOnly === true && session.sameSite === 'Lax', `the session cookie is ${JSON.stringify(session)}`);

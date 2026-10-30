@@ -22,7 +22,15 @@ export interface NoteView {
 	candidates: string[];
 	intact: boolean;
 }
-export interface NoteSummary { total: number; here: number; exact: number; ambiguous: number; missing: number; unanchored: number; byRef: { ref: string; n: number; status: AnchorStatus }[]; detached: NoteView[] }
+export interface NoteSummary {
+  total: number; here: number; exact: number; ambiguous: number; missing: number; unanchored: number; byRef: { ref: string; n: number; status: AnchorStatus }[]; detached: NoteView[];
+  /**
+   * Hosted: every page note stored for the case in its originals' viewer (GRS-292), readable or not, on any original. It is
+   * apart from `total` and the anchor counts: a page note belongs to an original's bytes, not to a document of a version.
+   * Absent on the local pilot, which keeps no page notes.
+   */
+  pageNotes?: number;
+}
 
 export interface RegisterRow { rowId: string; store: string; anchor: DocumentAnchor | null; fields: Record<string, RegisterValue>; createdAt: string; updatedAt: string; intact: boolean }
 export type RegisterValue = string | number | boolean | null;

@@ -1,4 +1,4 @@
-import type { CaseId, CaseInfo, Publication, ResultsVersion, VersionInfo } from '../../server/runtime/contracts.ts';
+import type { CaseId, CaseInfo, Publication, PublicationRecord, ResultsVersion, VersionInfo } from '../../server/runtime/contracts.ts';
 import { contractError } from '../../server/runtime/errors.ts';
 import { id, resultsVersion } from '../../server/runtime/ids.ts';
 import type { CloudD1 } from '../../storage/cloud/bindings.ts';
@@ -7,7 +7,8 @@ export const unavailable = (): never => { throw contractError('storage-unavailab
 export const forbidden = () => contractError('forbidden');
 
 type CaseRow = { case_id: string; case_label: string | null; pub_state: 'published' | 'withdrawn' | null; pub_version: string | null; withdrawn: string | null; stored: string | null };
-const CASE_SQL = `SELECT c.case_id, c.case_label, p.state AS pub_state, p.version_id AS pub_version, w.version_id AS withdrawn, v.state AS stored
+// The display label is the case row's own; a case provisioned without one shows the label its published version carries (the join is already there).
+const CASE_SQL = `SELECT c.case_id, COALESCE(c.case_label, v.case_label) AS case_label, p.state AS pub_state, p.version_id AS pub_version, w.version_id AS withdrawn, v.state AS stored
   FROM rs_case c LEFT JOIN rs_publication p ON p.case_id = c.case_id LEFT JOIN rs_version_withdrawal w ON w.version_id = p.version_id
   LEFT JOIN rs_results_version v ON v.version_id = p.version_id AND v.case_id = c.case_id`;
 
@@ -29,6 +30,32 @@ export async function caseRow(db: CloudD1, caseId: CaseId): Promise<CaseInfo | n
   const r = await db.prepare(`${CASE_SQL} WHERE c.case_id = ?`).bind(caseId).first<CaseRow>().catch(unavailable);
   return r ? info(r) : null;
 }
+type PublicationRow = { version_id: string; published_at: string | null; previous_version_id: string | null; shard_manifest_sha256: string | null; admitted_json: string | null };
+/**
+ * The live publication pointer of `caseId` with the shard manifest of its version and the shards it admits, under the same
+ * rule as `caseRow`: one statement, so a page view learns what it may serve with no further query.
+ */
+export async function publicationRow(db: CloudD1, caseId: CaseId): Promise<PublicationRecord | null> {
+  const r = await db.prepare(`SELECT p.version_id, p.published_at, p.previous_version_id, m.manifest_sha256 AS shard_manifest_sha256, m.admitted_json
+    FROM rs_publication p JOIN rs_results_version v ON v.version_id = p.version_id AND v.case_id = p.case_id AND v.state = 'stored'
+    LEFT JOIN rs_shard_manifest m ON m.version_id = p.version_id
+    WHERE p.case_id = ? AND p.state = 'published' AND NOT EXISTS (SELECT 1 FROM rs_version_withdrawal w WHERE w.version_id = p.version_id)`).bind(caseId).first<PublicationRow>().catch(unavailable);
+  if (!r) return null;
+  return { versionId: resultsVersion(r.version_id), publishedAt: r.published_at, previousVersionId: r.previous_version_id ? resultsVersion(r.previous_version_id) : null,
+    shardManifestSha256: r.shard_manifest_sha256, shards: admittedShards(r.admitted_json) };
+}
+
+/** `admitted_json` as name → bytes; anything that is not that shape admits nothing. */
+export function admittedShards(json: string | null): Readonly<Record<string, number>> | null {
+  if (json === null) return null;
+  let v: unknown;
+  try { v = JSON.parse(json); } catch { return null; }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const out: Record<string, number> = Object.create(null);
+  for (const [k, n] of Object.entries(v)) { if (!Number.isSafeInteger(n) || (n as number) < 0) return null; out[k] = n as number; }
+  return out;
+}
+
 /** The exact published version of `caseId`, or a refusal: a candidate, a staging version and a withdrawn one are forbidden alike. */
 export async function requirePublished(db: CloudD1, caseId: CaseId, rv: ResultsVersion): Promise<void> {
   const c = await caseRow(db, caseId);

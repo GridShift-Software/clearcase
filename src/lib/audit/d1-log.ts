@@ -1,5 +1,6 @@
 import type { AuditEvent, AuditSink, CaseId, IdentityState, Principal, SessionId, SystemAuditEvent } from '../server/runtime/contracts.ts';
-import type { D1 } from '../server/runtime/hosted/bindings.ts';
+import type { D1, D1Statement } from '../server/runtime/hosted/bindings.ts';
+import { id } from '../server/runtime/ids.ts';
 import { contractError, isDenial } from '../server/runtime/errors.ts';
 import type { AuditConfig } from './config.ts';
 import { actorKey, canonical, ENVELOPE, envelopeOf, READ_ACTION, sha256Hex, validActor, validCaseId, validEventId, type AuditError, type AuditErrorCode, type ProducerMode, type StoredAuditEvent } from './event.ts';
@@ -34,7 +35,10 @@ export interface PublicAuditPage { events: PublicAuditEvent[]; next: string | nu
 /** The lookup GRS-114's GrantAuditPort needs: the event stored under an id, exactly as persisted, or null. */
 export interface AuditLookup { find(eventId: string): Promise<StoredAuditEvent | null> }
 /** The full internal log: trusted composition only. A route must receive a facade, never this object. */
-export interface AuditLog extends AuditSink, AuditLookup { query(q: AuditQuery): Promise<PublicAuditPage> }
+export interface AuditLog extends AuditSink, AuditLookup {
+  query(q: AuditQuery): Promise<PublicAuditPage>;
+  atomic(a: { db: D1; event: AuditEvent }): Promise<readonly D1Statement[]>;
+}
 type EventClass = 'protected' | 'read' | 'denial';
 
 const error = (code: AuditErrorCode, retryable = false): AuditError => contractError(code, retryable);
@@ -164,7 +168,14 @@ function build(a: Omit<CoreArgs, 'requester'> & { requester: IdentityState | nul
     const count = await db.prepare('SELECT event_count, read_count, denial_count FROM native_audit_binding WHERE singleton = 1 AND client_id = ?').bind(config.clientId).first<Counters>().catch(() => null);
     // A refused read that could not be stored is counted, so the bounded denial record says it is incomplete.
     if (cls === 'denial' && count) await db.prepare('UPDATE native_audit_binding SET denial_unlogged = denial_unlogged + 1 WHERE singleton = 1 AND client_id = ?').bind(config.clientId).run().catch(() => undefined);
-    throw error('audit-unavailable', !(count && exhausted(cls, count)));
+    const spent = !!count && exhausted(cls, count);
+    // A spent protected or read budget refuses every such action until the deployment raises it, and the views can only
+    // call that "busy": name it in the Worker log (GRS-270). A denial past its bound is the designed outcome, not a fault.
+    // The log is a diagnostic: if it throws, the refusal below still stands unchanged.
+    if (spent && cls !== 'denial') {
+      try { console.error('audit-capacity-exhausted', { class: cls, limit: cls === 'protected' ? config.limits.maxRows : config.limits.maxReadRows }); } catch { /* the refusal is what matters */ }
+    }
+    throw error('audit-unavailable', !spent);
   }
 
   async function readEvent(outcome: 'succeeded' | 'denied' | 'failed', scope: AuditScope, allowed: boolean) {
@@ -177,6 +188,22 @@ function build(a: Omit<CoreArgs, 'requester'> & { requester: IdentityState | nul
 
   const log: AuditLog = {
     async append(event) { return write(event, 'protected'); },
+    async atomic(input) {
+      // Prepared statements must execute in the caller's exact primary session, not another database's transaction.
+      if (input.db !== db || mode !== 'request') throw error('audit-unavailable');
+      const env = await envelopeOf(input.event, config);
+      if (!sameActor(env.event.actor) || env.event.action === READ_ACTION) throw error('invalid-event');
+      const e = env.event, key = await actorKey(e.actor);
+      // A failed binding, exhausted capacity or reused event id must FAIL the caller's batch, never silently insert 0.
+      // The table's NOT NULL, binding and append-only triggers make the refusal transactional with the business change.
+      return [db.prepare(`INSERT INTO native_audit_events
+        (event_id, client_id, envelope, class, actor_key, action, object_kind, object_id, case_id, version, outcome, actor_kind, at, canonical, sha256)
+        VALUES (CASE WHEN EXISTS (SELECT 1 FROM native_audit_binding WHERE singleton = 1 AND client_id = ? AND event_count < ?)
+          AND NOT EXISTS (SELECT 1 FROM native_audit_events WHERE event_id = ?) THEN ? ELSE NULL END,
+          ?, ?, 'protected', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(config.clientId, config.limits.maxRows, e.eventId, e.eventId, config.clientId, ENVELOPE, key,
+          e.action, e.object.kind, e.object.id, e.object.caseId, e.version, e.outcome, e.actor.kind, e.at, env.canonical, env.sha256)];
+    },
     async find(eventId) {
       if (!validEventId(eventId)) return null;
       const row = await stored(eventId);
@@ -225,4 +252,35 @@ export function createD1AuditLog(a: Omit<CoreArgs, 'gate'> & { gate: AuditReadGa
   const gate = a.gate;
   if (!gate || typeof gate.caseAudit !== 'function' || typeof gate.administrationAudit !== 'function') throw new TypeError('audit read gate is required');
   return auditCore(a);
+}
+
+/** A best-effort read event: one INSERT, with the database's binding trigger enforcing tenancy. No read-back or quota reads. */
+export async function appendReadAudit(a: { db: D1; config: AuditConfig; requester: IdentityState; event: AuditEvent }): Promise<void> {
+  if (!validActor(a.requester, a.config) || canonical(a.event.actor) !== canonical(a.requester)) throw error('invalid-event');
+  // Session credentials have no place in page-read history.
+  const actor: IdentityState = a.requester.kind === 'verified' ? { ...a.requester, sessionId: id('session', 'redacted') } : a.requester;
+  const env = await envelopeOf({ ...a.event, actor }, a.config);
+  const e = env.event;
+  if (e.action === READ_ACTION) throw error('invalid-event');
+  await a.db.prepare(`INSERT INTO native_audit_events
+    (event_id, client_id, envelope, class, actor_key, action, object_kind, object_id, case_id, version, outcome, actor_kind, at, canonical, sha256)
+    SELECT ?, ?, ?, 'protected', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    WHERE NOT EXISTS (SELECT 1 FROM native_audit_events WHERE client_id = ? AND event_id = ?)
+      AND (SELECT event_count FROM native_audit_binding WHERE singleton = 1 AND client_id = ?) < ?`)
+    .bind(e.eventId, a.config.clientId, ENVELOPE, await actorKey(e.actor), e.action, e.object.kind, e.object.id, e.object.caseId, e.version, e.outcome, e.actor.kind, e.at, env.canonical, env.sha256, a.config.clientId, e.eventId, a.config.clientId, a.config.limits.maxRows).run();
+}
+
+/** Collapse repeated case authorizations; preserve distinct kinds and every asset event. */
+export function requestReadAudit(a: { db: D1; config: AuditConfig; waitUntil?: (work: Promise<void>) => void }) {
+  const recorded = new Set<string>();
+  return (event: AuditEvent): void => {
+    if (event.object.kind === 'case') {
+      const key = JSON.stringify([event.action, event.object.id, event.object.caseId, event.version, event.outcome]);
+      if (recorded.has(key)) return;
+      recorded.add(key);
+    }
+    const pending = new Promise<void>(resolve => setTimeout(resolve, 0))
+      .then(() => appendReadAudit({ db: a.db, config: a.config, requester: event.actor, event })).catch(() => { console.warn('read-audit-unavailable'); });
+    if (a.waitUntil) a.waitUntil(pending);
+  };
 }

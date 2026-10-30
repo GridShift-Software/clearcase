@@ -9,12 +9,12 @@
 	import { deleteStep } from '$lib/components/confirm-delete';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import TableScroll from '$lib/components/TableScroll.svelte';
-	import { now } from '$lib/components/clock';
+	import { writeAccess } from '$lib/components/write-access';
 	import { download } from '$lib/components/csv';
 	import { RELOAD_UNAVAILABLE, reloader } from '$lib/components/reload.svelte';
 	import type { FieldDef } from './defs';
 	import { deadlineCalendar, registerCsv, unsavable, type Entry } from './logic';
-	import type { ShownRow } from './page.server';
+	import type { ShownRow } from './shown';
 
 	type Data = {
 		version: { id: string; titleName: string };
@@ -23,11 +23,19 @@
 		exportRows: { rowId: string; values: Entry }[];
 		exportName: { name: string; note: string | null };
 		icsProductId: string | null;
+		/** The fixed clock of a test run (CLEARCASE_FIXED_NOW) as an instant; null for the real time. The hosted app has none. */
+		fixedNow?: string | null;
+		/** Hosted only: an id for the first save, so a retry of the same entry is one write. */
+		operationId?: string;
 	};
 	type Form = { op?: 'save' | 'delete'; values?: Entry; rowId?: string | null; version?: string | null; message?: string; retry?: boolean; confirm?: string | null } | null;
 	let { data, form }: { data: Data; form: Form } = $props();
+	const access = writeAccess();
 	const reg = $derived(data.register);
 	const vid = $derived(data.version.id);
+	const deadlines = $derived(reg.view === 'deadlines_tab');
+	// the deadlines register's journey hooks (J8): its title, date and note fields
+	const hook = (k: string) => (deadlines && ['title', 'date', 'note'].includes(k) ? `deadline-${k}` : undefined);
 
 	const blank = (): Entry => Object.fromEntries(reg.fields.map((f) => [f.k, f.type === 'select' && f.placeholder === undefined ? f.opts![0]! : '']));
 	const saved = untrack(() => (form?.op === 'save' && form.message ? form : null));
@@ -70,10 +78,15 @@
 		status === 413 ? `${what} was not saved: it is too large to send. Nothing was changed and your input is kept; shorten it, then try again.`
 		: `${what} may not have been saved: ${status ? `the app reported an error (${status})` : 'the app could not be reached'}. Your input is kept; check the list, then try again.`;
 
-	const save: SubmitFunction = ({ cancel }) => {
+	// A retry of the same entry reuses its operation id, so a save whose answer was lost is not written twice; a changed entry gets a new one.
+	let attempt: { sig: string; id: string } | null = null;
+	const operationFor = (sig: string) => (attempt?.sig === sig ? attempt : (attempt = { sig, id: crypto.randomUUID() })).id;
+
+	const save: SubmitFunction = ({ cancel, formData }) => {
 		const why = unsavable(reg, values, editing !== null);
 		if (why !== null) { cancel(); if (why) saveError = { message: why, retry: false }; return; }
 		const sent: Draft = { rowId: editing, version, values: { ...values } };
+		if (data.operationId) formData.set('operationId', operationFor(JSON.stringify(sent)));
 		busy = true;
 		saveError = null;
 		rebaseNote = null;
@@ -82,6 +95,7 @@
 			try {
 				const holds = editing === sent.rowId && reg.fields.every((f) => (values[f.k] ?? '') === (sent.values[f.k] ?? ''));
 				if (result.type === 'success') {
+					attempt = null;
 					await rl.reload();
 					if (holds) reset(sent.rowId ? {} : Object.fromEntries(reg.keepAfterAdd.map((k) => [k, sent.values[k]!])));
 				} else if (result.type === 'redirect') await applyAction(result);
@@ -103,6 +117,9 @@
 		if (id === editing && unsaved && typed) { cancel(); ask = { what: question(), go: () => { reset(); if (submitter instanceof HTMLButtonElement) formElement.requestSubmit(submitter); } }; return; }
 		confirming = null;
 		deleting = id;
+		// the version of the row as shown, so a row changed elsewhere since is not deleted blind
+		const shown = id === editing ? version : (data.rows.find((r) => r.rowId === id)?.version ?? null);
+		if (shown) formData.set('deleteVersion', shown);
 		return async ({ result }) => {
 			try {
 				if (result.type === 'success') {
@@ -195,7 +212,7 @@
 		ask = { what: busy ? 'A save is still in progress; leaving now may not show whether it worked. Leave anyway?' : question(), go: () => { leaving = true; void goto(url).finally(() => { leaving = false; }); }, leave: true };
 	});
 	function exportNow() {
-		if (reg.export.kind === 'ics') download(data.exportName.name, deadlineCalendar(data.exportRows, { now: now(), productId: data.icsProductId }), 'text/calendar;charset=utf-8');
+		if (reg.export.kind === 'ics') download(data.exportName.name, deadlineCalendar(data.exportRows, { now: data.fixedNow ? new Date(data.fixedNow) : new Date(), productId: data.icsProductId }), 'text/calendar;charset=utf-8');
 		else download(data.exportName.name, registerCsv(reg, data.exportRows));
 	}
 </script>
@@ -203,15 +220,19 @@
 <main id="main" tabindex="-1" data-ready={reg.view} data-hydrated={ready ? '' : undefined}>
 	<PageHeader heading={reg.label} section={reg.label} caseName={data.version.titleName} subtitle={reg.subtitle}>
 		{#snippet actions()}
-			<button type="button" id="register-export" onclick={exportNow}>{reg.export.label}</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}
-			<button type="submit" form="register-form" id="register-save" class="primary" disabled={locked}>{editing ? 'Save' : 'Add'}</button>
-			{#if editing}<button type="button" id="register-cancel" onclick={cancelEdit} disabled={locked}>Cancel</button>{/if}
+			<button type="button" id="register-export" data-testid={deadlines ? 'deadline-export' : undefined} onclick={exportNow}>{reg.export.label}</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}
+			{#if access.canWrite}
+				<button type="submit" form="register-form" id="register-save" data-testid={deadlines ? 'deadline-save' : undefined} class="primary" disabled={locked}>{editing ? 'Save' : 'Add'}</button>
+				{#if editing}<button type="button" id="register-cancel" onclick={cancelEdit} disabled={locked}>Cancel</button>{/if}
+			{/if}
 		{/snippet}
 	</PageHeader>
 	{#if rl.lost}<p class="error" role="alert" id="reload-error">{RELOAD_UNAVAILABLE}</p>{/if}
 
+	{#if access.canWrite}
 	<form id="register-form" class="entry" method="POST" action="?/save" enctype="multipart/form-data" use:enhance={submit} data-editing={editing ?? undefined} aria-busy={locked}>
 		{#if editing}<input type="hidden" name="rowId" value={editing} /><input type="hidden" name="version" value={version ?? ''} />{/if}
+		{#if data.operationId}<input type="hidden" name="operationId" value={data.operationId} />{/if}
 		<fieldset class="fields" disabled={locked}>
 			<legend class="visually-hidden">{editing ? 'Edit the entry' : 'New entry'}</legend>
 			{#each reg.fields as f (f.k)}
@@ -223,14 +244,15 @@
 							{#each f.opts ?? [] as o (o)}<option value={o}>{o}</option>{/each}
 						</select>
 					{:else if f.type === 'textarea'}
-						<textarea id="in-{f.k}" name={f.k} bind:value={values[f.k]}></textarea>
+						<textarea id="in-{f.k}" name={f.k} data-testid={hook(f.k)} bind:value={values[f.k]}></textarea>
 					{:else}
-						<input id="in-{f.k}" name={f.k} type={f.type} bind:value={values[f.k]} />
+						<input id="in-{f.k}" name={f.k} type={f.type} data-testid={hook(f.k)} bind:value={values[f.k]} />
 					{/if}
 				</div>
 			{/each}
 		</fieldset>
 	</form>
+	{/if}
 	{#if busy || deleting}<p class="status" role="status" id="register-status">{busy ? (editing ? 'Saving the change…' : 'Saving the entry…') : 'Deleting the entry…'}</p>{/if}
 	{#if saveError}
 		<div class="error" role="alert" id="register-error">
@@ -273,8 +295,12 @@
 						{/each}
 						<td class="row-actions">
 							{#if !r.intact}<span class="altered">this entry was altered on disk since it was saved</span>{/if}
-							<button type="button" data-edit onclick={() => edit(r)} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)}>Edit</button>
-							<ConfirmDelete bind:pending={confirming} target={r.rowId} question="Delete this entry?" form="register-form" formaction="?/delete" name="delete" data-delete aria-describedby={deleteError?.rowId === r.rowId ? 'register-delete-message' : undefined} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)} />
+							{#if access.canWrite}
+								<button type="button" data-edit onclick={() => edit(r)} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)}>Edit</button>
+								<!-- the version of this row as this page shows it, so a confirmation without JavaScript deletes that row or nothing -->
+								{#if confirming === r.rowId}<input type="hidden" form="register-form" name="deleteVersion" value={r.version} />{/if}
+								<ConfirmDelete bind:pending={confirming} target={r.rowId} question="Delete this entry?" form="register-form" formaction="?/delete" name="delete" data-delete aria-describedby={deleteError?.rowId === r.rowId ? 'register-delete-message' : undefined} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)} />
+							{/if}
 						</td>
 					</tr>
 				{/each}

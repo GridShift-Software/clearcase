@@ -9,44 +9,53 @@ import * as pdfjs from './pdf.min.mjs';
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('./pdf-viewer-worker.mjs', import.meta.url).href;
 const base = new URL('./', import.meta.url).href;
 // Every request to the original route costs a round trip of about 300 ms before its first byte, so the reader keeps the
-// sequential ones few: 256 KiB chunks (a file up to 512 KiB is one plain GET), and for a larger file of known size the
-// last MiB, where a file that is not linearized keeps its cross-reference table, starts with the first byte instead of
-// after it. The whole file still streams from the start, as pdf.js does by default.
-export const CHUNK = 1 << 18, TAIL = 1 << 20;
+// sequential ones few: 256 KiB chunks, a file up to 512 KiB is one plain GET, and a larger one reads its first 512 KiB
+// and its last MiB (where a file that is not linearized keeps its cross-reference table) at once. After that pdf.js reads
+// only the ranges a page or its page-count check needs: no stream and no auto-fetch, so an original left open on page 1
+// never reads the whole file (GRS-281).
+export const CHUNK = 1 << 18, HEAD = 2 * CHUNK, TAIL = 1 << 20;
+// The backing store follows devicePixelRatio, as src/lib/local-case/viewer/viewer.mjs does, up to the canvas area pdf.js's
+// own viewer allows on a phone, and never below one pixel per CSS pixel.
+const MAX_CANVAS_PIXELS = 5_242_880;
 
-/** A pdf.js range transport over one same-origin URL: the file streams from byte 0 and its tail is read at once. */
+/** A pdf.js range transport over one same-origin URL: the head and the tail are read at once, then what pdf.js asks for. */
 export class Ranges extends pdfjs.PDFDataRangeTransport {
-	#src; #signal; #fail; #tail;
-	constructor({ src, size, signal, fail }) {
+	#src; #session; #signal; #fail; #held;
+	/** `head`, when the reader already has it, is the file's first HEAD bytes. */
+	constructor({ src, size, head, signal, fail }) {
 		super(size, null);
 		this.#src = src; this.#signal = signal; this.#fail = fail;
-		const start = Math.max(0, Math.floor((size - TAIL) / CHUNK) * CHUNK);
-		this.#tail = { start, bytes: this.#get(start, size) };
-		this.#tail.bytes.catch(() => {});
+		// The asset ticket in `t` lasts 15 minutes. A page turned after that reads through the session instead, which the
+		// route authorizes like any request without a ticket.
+		const session = new URL(src, base);
+		if (session.searchParams.has('t')) { session.searchParams.delete('t'); this.#session = session.href; }
+		const start = Math.max(HEAD, Math.floor((size - TAIL) / CHUNK) * CHUNK);
+		this.#held = [{ begin: 0, end: HEAD, bytes: head ? Promise.resolve(head) : this.#get(0, HEAD) }, { begin: start, end: size, bytes: this.#get(start, size) }];
+		for (const { bytes } of this.#held) bytes.catch(() => {});
 	}
 	async #get(begin, end) {
-		const r = await fetch(this.#src, { headers: { range: `bytes=${begin}-${end - 1}` }, credentials: 'same-origin', signal: this.#signal });
+		const src = this.#src;
+		const r = await fetch(src, { headers: { range: `bytes=${begin}-${end - 1}` }, credentials: 'same-origin', signal: this.#signal });
+		if (r.status === 404 && this.#session && src !== this.#session) { this.#src = this.#session; return this.#get(begin, end); }
 		if (r.status !== 206 || r.headers.get('content-range') !== `bytes ${begin}-${end - 1}/${this.length}`) throw new Error('range refused');
 		const bytes = new Uint8Array(await r.arrayBuffer());
 		if (bytes.byteLength !== end - begin) throw new Error('short range');
 		return bytes;
 	}
-	async stream() {
-		try {
-			const r = await fetch(this.#src, { credentials: 'same-origin', signal: this.#signal });
-			if (r.status !== 200 || !r.body) throw new Error('stream refused');
-			for (const reader = r.body.getReader(); ;) {
-				const { value, done } = await reader.read();
-				if (done) break;
-				this.onDataProgressiveRead(value);
-			}
-			this.onDataProgressiveDone();
-		} catch (error) { this.#fail(error); }
-	}
 	requestDataRange(begin, end) {
-		const { start, bytes } = this.#tail;
-		(begin >= start ? bytes.then((b) => b.slice(begin - start, end - start)) : this.#get(begin, end)).then((b) => this.onDataRange(begin, b), this.#fail);
+		const held = this.#held.find((h) => h.begin <= begin && end <= h.end);
+		(held ? held.bytes.then((b) => b.slice(begin - held.begin, end - held.begin)) : this.#get(begin, end)).then((b) => this.onDataRange(begin, b), this.#fail);
 	}
+}
+
+/** The first HEAD bytes of an original whose size the page did not give, and its size, from the answer's Content-Range. */
+async function readHead(src, signal) {
+	const r = await fetch(src, { headers: { range: `bytes=0-${HEAD - 1}` }, credentials: 'same-origin', signal });
+	const range = r.status === 206 && /^bytes 0-(\d+)\/(\d+)$/.exec(r.headers.get('content-range') ?? '');
+	if (!range) throw new Error('range refused');
+	const bytes = new Uint8Array(await r.arrayBuffer()), size = Number(range[2]);
+	if (!Number.isSafeInteger(size) || bytes.byteLength !== Math.min(HEAD, size) || Number(range[1]) !== bytes.byteLength - 1) throw new Error('short range');
+	return { bytes, size };
 }
 
 /** Whether the drawn page skipped an image pdf.js could not decode. pdf.js only warns and draws the page without it, so a
@@ -70,18 +79,19 @@ window.clearcasePdfReader = {
 		let failed;
 		const failure = new Promise((_, reject) => { failed = reject; });
 		failure.catch(() => {});
-		const fail = (error) => { if (destroyed) return; failed(error); reads.abort(); void task.destroy().catch(() => {}); };
-		const ranges = Number.isSafeInteger(size) && size > 2 * CHUNK ? new Ranges({ src, size, signal: reads.signal, fail }) : null;
-		const task = pdfjs.getDocument({
-			...(ranges ? { range: ranges } : { url: src, withCredentials: false }), rangeChunkSize: CHUNK,
+		let task = null, destroyed = false;
+		const fail = (error) => { if (destroyed) return; failed(error); reads.abort(); void task?.destroy().catch(() => {}); };
+		const load = (source) => pdfjs.getDocument({
+			...source, rangeChunkSize: CHUNK, disableStream: true, disableAutoFetch: true,
 			isEvalSupported: false, enableXfa: false, enableScripting: false, useWasm: false,
 			standardFontDataUrl: `${base}standard_fonts/`, cMapUrl: `${base}cmaps/`, cMapPacked: true, iccUrl: `${base}iccs/`,
 			// pdf.js decodes CCITT fax and JBIG2 (most scans) and JPX through its JBIG2 and OpenJPEG modules; without wasm it
 			// imports their JS builds from here (scripts/hosted-pdf-assets.ts, DECODERS). Unset, every such image fails.
 			wasmUrl: `${base}wasm/`,
 		});
-		void ranges?.stream();
-		let ticket = 0, destroyed = false, rendering = null;
+		// With the size known, pdf.js starts at once; without it, the head is read first and its answer gives the size.
+		if (Number.isSafeInteger(size)) task = load(size <= HEAD ? { url: src, withCredentials: false } : { range: new Ranges({ src, size, signal: reads.signal, fail }) });
+		let ticket = 0, rendering = null;
 		let tail = Promise.resolve();
 		const destroy = () => {
 			if (destroyed) return;
@@ -90,12 +100,17 @@ window.clearcasePdfReader = {
 			signal?.removeEventListener('abort', destroy);
 			rendering?.cancel();
 			reads.abort();
-			void task.destroy().catch(() => {});
+			void task?.destroy().catch(() => {});
 		};
 		signal?.addEventListener('abort', destroy, { once: true });
 		if (signal?.aborted) destroy();
 		let doc;
 		try {
+			if (!task) {
+				const head = await readHead(src, reads.signal);
+				if (destroyed) throw new Error('reader cancelled');
+				task = load(head.size <= HEAD ? { data: head.bytes } : { range: new Ranges({ src, size: head.size, head: head.bytes, signal: reads.signal, fail }) });
+			}
 			doc = await Promise.race([task.promise, failure]);
 			if (destroyed) throw new Error('reader cancelled');
 		} catch (error) { destroy(); throw error; }
@@ -125,9 +140,12 @@ window.clearcasePdfReader = {
 					const natural = page.getViewport({ scale: 1 });
 					const fit = Number.isFinite(fitWidth) && fitWidth > 0 ? Math.min(1, fitWidth / (natural.width * 1.2)) : 1;
 					const viewport = page.getViewport({ scale: scale * fit });
-					canvas.width = Math.floor(viewport.width);
-					canvas.height = Math.floor(viewport.height);
-					const render = rendering = page.render({ canvas, viewport });
+					const ratio = Math.max(1, Math.min(window.devicePixelRatio || 1, Math.sqrt(MAX_CANVAS_PIXELS / (viewport.width * viewport.height))));
+					canvas.width = Math.floor(viewport.width * ratio);
+					canvas.height = Math.floor(viewport.height * ratio);
+					canvas.style.width = `${Math.floor(viewport.width)}px`;
+					canvas.style.height = `${Math.floor(viewport.height)}px`;
+					const render = rendering = page.render({ canvas, viewport, transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0] });
 					try { await Promise.race([render.promise, failure]); }
 					finally { if (rendering === render) rendering = null; }
 					if (destroyed || mine !== ticket) return;

@@ -1,7 +1,7 @@
 // GRS-251 first page: the reviewed reader and the real pinned pdf.js open a synthetic original through a fetch double that
 // logs every request. Each request to the original route costs a round trip before its first byte, so the reader must not
 // chain them: a file up to 512 KiB is one plain GET, and a larger one starts its tail (where a file that is not linearized
-// keeps its cross-reference table) together with the stream, not after the stream's headers.
+// keeps its cross-reference table) together with its head, not after it.
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { join } from 'node:path';
 import { DOMMatrix, ImageData, Path2D, createCanvas } from '@napi-rs/canvas';
@@ -76,7 +76,7 @@ beforeAll(async () => {
 afterAll(() => assets?.dispose());
 beforeEach(() => { log = []; inFlightAtFirstAnswer = null; refuseRanges = false; slowMiddle = null; pace = 10; t0 = performance.now(); });
 const open = (size: number, onPages?: (pages: number) => void) => (globalThis as unknown as { window: { clearcasePdfReader: { open(a: object): Promise<{ pages: number; draw(n: number, s: number): Promise<void>; destroy(): void }> } } })
-  .window.clearcasePdfReader.open({ src: SRC, size, canvas: createCanvas(100, 100), signal: new AbortController().signal, onPages });
+  .window.clearcasePdfReader.open({ src: SRC, size, canvas: Object.assign(createCanvas(100, 100), { style: {} }), signal: new AbortController().signal, onPages });
 
 it('opens a 300 KiB original with one plain GET and no range request', async () => {
   bytes = pdf(300 * 1024);
@@ -87,7 +87,7 @@ it('opens a 300 KiB original with one plain GET and no range request', async () 
   expect(log.map((l) => l.range)).toEqual([null]);
 });
 
-it('starts the tail of a 3 MiB original with the stream, so its xref costs no round trip after the first', async () => {
+it('starts the tail of a 3 MiB original with its head, so its xref costs no round trip after the first', async () => {
   bytes = pdf(3 * 1024 * 1024);
   const size = bytes.byteLength, started = performance.now();
   const reader = await open(size);
@@ -96,10 +96,10 @@ it('starts the tail of a 3 MiB original with the stream, so its xref costs no ro
   reader.destroy();
   expect(reader.pages).toBe(3);
   // Every request was already in flight before the first answer arrived, the tail among them: none is chained behind
-  // the stream's headers or behind another range, so the first page costs about one round trip, not one per chunk.
+  // the head or behind another range, so the first page costs about one round trip, not one per chunk.
   expect(log).toEqual(inFlightAtFirstAnswer);
   expect(log.map((l) => l.range)).toContain(`bytes=${Math.floor((size - 2 ** 20) / 2 ** 18) * 2 ** 18}-${size - 1}`);
-  expect(log.map((l) => l.range)).toContain(null);
+  expect(log.map((l) => l.range)).toContain(`bytes=0-${2 ** 19 - 1}`);
   // The structural check above is the proof that nothing is chained. This bound only catches a regression to sequential
   // chunk fetches (3 MiB in 64 KiB chunks is dozens of round trips); 3 round trips flaked on loaded CI runners (129 ms).
   expect(ms).toBeLessThan(ROUND_TRIP * 10);

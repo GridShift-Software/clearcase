@@ -5,11 +5,20 @@ import type { AssetRef } from '../../server/runtime/contracts';
 import { servePolicy } from '../../case-package/media';
 import { presignOriginal } from './presign';
 import { INLINE_CSP } from './delivery';
+// A download over 100 MB is signed with the R2 account (a var) and an R2 S3 key pair (two secrets), all on the Worker.
+const PRESIGN = ['R2_S3_ACCOUNT_ID','R2_S3_ACCESS_KEY_ID','R2_S3_SECRET_ACCESS_KEY'] as const;
 export async function serveFastOriginal(a: {fast:FastOriginals;asset:AssetRef;method:'GET'|'HEAD';url:URL;headers:Headers;ticket?:AssetTicket}): Promise<Response> {
  const row = a.ticket ?? await a.fast.locate(a.asset);
  if (a.url.searchParams.get('download') === '1' && row.size > 100_000_000 && a.method === 'GET') {
   const cfg = JSON.parse(String(env.CLEARCASE_NATIVE_CONFIG));
-  const href = await presignOriginal({accountId:String(env.R2_S3_ACCOUNT_ID ?? ''),bucket:cfg.deployment.r2Bucket,sha256:row.sha256,accessKeyId:String(env.R2_S3_ACCESS_KEY_ID ?? ''),secretAccessKey:String(env.R2_S3_SECRET_ACCESS_KEY ?? '')});
+  let href: string;
+  try { href = await presignOriginal({accountId:String(env.R2_S3_ACCOUNT_ID ?? ''),bucket:cfg.deployment.r2Bucket,sha256:row.sha256,accessKeyId:String(env.R2_S3_ACCESS_KEY_ID ?? ''),secretAccessKey:String(env.R2_S3_SECRET_ACCESS_KEY ?? '')}); }
+  catch {
+   // Names only: no binding's value reaches the log.
+   console.error('download-unavailable',{unset:PRESIGN.filter(name=>!env[name])});
+   a.fast.record(a.asset,'failed');
+   return new Response(null,{status:503,headers:{'cache-control':'private, no-store'}});
+  }
   a.fast.record(a.asset,'succeeded');
   return new Response(null,{status:302,headers:{location:href,'cache-control':'private, no-store','referrer-policy':'no-referrer'}});
  }

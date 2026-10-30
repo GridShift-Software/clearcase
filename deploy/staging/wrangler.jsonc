@@ -2,7 +2,9 @@
 // Deploy with scripts/deploy-staging.sh and previews with scripts/preview.sh, never by hand. Paths are relative to this
 // file. Resources: EU D1 clearcase-staging-db, EU R2 clearcase-staging-files, KV clearcase-staging-sessions. Secrets
 // (CLERK_CLIENT_SECRET_KEY, CLERK_CLIENT_JWT_KEY, CLERK_STAFF_SECRET_KEY, CLERK_STAFF_JWT_KEY) are set out of band with
-// `wrangler secret put` and `wrangler preview base-config secret put`; no value lives in this file.
+// `wrangler secret put` and `wrangler preview base-config secret put`; no value lives in this file. A download over 100 MB
+// is a presigned R2 URL, signed with the var R2_S3_ACCOUNT_ID (this account, not a secret) and the secrets
+// R2_S3_ACCESS_KEY_ID and R2_S3_SECRET_ACCESS_KEY (GRS-281).
 //
 // The shape follows sandbox B (cc-sbx-b-20261023 at d8d4b4bf): same Clerk apps, compatibility, London placement and
 // CLEARCASE_NATIVE_CONFIG budgets, with staging's own resources. Unlike B, Wrangler bundles the build output itself
@@ -35,6 +37,7 @@
   "vars": {
     "CLEARCASE_INSTANCE_ROLE": "client",
     "CLEARCASE_CLIENT_ID": "staging",
+    "R2_S3_ACCOUNT_ID": "fb4c31b91c5d89b7a54afbdc34823170",
     "CLEARCASE_APP_ORIGIN": "https://clearcase-staging.gridshift.co.za",
     "CLERK_CLIENT_PUBLISHABLE_KEY": "pk_test_b3V0Z29pbmctd2FscnVzLTEwMjAuY2xlcmsuYWNjb3VudHMuZGV2JA",
     "CLERK_STAFF_PUBLISHABLE_KEY": "pk_test_cmVuZXdlZC1tb3RoLTEyOTQuY2xlcmsuYWNjb3VudHMuZGV2JA",
@@ -52,6 +55,7 @@
     "vars": {
       "CLEARCASE_INSTANCE_ROLE": "client",
       "CLEARCASE_CLIENT_ID": "staging",
+      "R2_S3_ACCOUNT_ID": "fb4c31b91c5d89b7a54afbdc34823170",
       "CLERK_CLIENT_PUBLISHABLE_KEY": "pk_test_b3V0Z29pbmctd2FscnVzLTEwMjAuY2xlcmsuYWNjb3VudHMuZGV2JA",
       "CLERK_STAFF_PUBLISHABLE_KEY": "pk_test_cmVuZXdlZC1tb3RoLTEyOTQuY2xlcmsuYWNjb3VudHMuZGV2JA",
       "AUTH_MFA_REQUIRED": "false",

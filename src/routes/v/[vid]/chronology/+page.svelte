@@ -21,12 +21,15 @@
 	const initial = new URLSearchParams(page.state.chronology ?? page.url.search);
 	let query = $state<ChronologyQuery>(queryFromParams(initial));
 	let selected = $state<string | null>(initial.get('doc') || null);
-	// The first list page renders at once; every row follows in the background, for the filters and the CSV export.
+	// Every row follows the first list page in the background. Page 1 is the list's first rows as stored, not as sorted:
+	// rows on later pages (the undated ones, under the default date sort) sort ahead of it. So the list shows its rows only
+	// once every row is in and their order is final; page 1 alone shows only when the rest failed to load, under a warning.
 	let all = $state<ChronologyListRow[] | null>(null);
 	let loadFailed = $state(false);
 	const total = $derived(data.first.total);
 	const loaded = $derived(all ?? data.first.rows);
 	const complete = $derived(all !== null || data.first.pages <= 1);
+	const settled = $derived(complete || loadFailed);
 	const rows = $derived(queryRows(loaded, query));
 	const filtered = $derived(isFiltered(query));
 	const bundles = $derived(data.facets.bundles.map(([v]) => v));
@@ -51,20 +54,36 @@
 	const set = (k: 'q' | 'bundle' | 'type' | 'year' | 'status', v: string) => { query = { ...query, [k]: v }; sync(); };
 	const sortBy = (k: string) => { query = query.sort === k ? { ...query, dir: query.dir === 1 ? -1 : 1 } : { ...query, sort: k as SortKey, dir: 1 }; sync(); };
 	const clear = () => { query = clearFilters(query); sync(); };
+	let main = $state<HTMLElement>();
 	let split = $state<HTMLElement>();
 	let pane = $state<HTMLElement>();
-	// Below the split breakpoint the pane sits under the list: opening a document moves to it, and Back returns to the row.
+	// Below the split breakpoint an open pane sits under the list: opening a document moves to it. Side by side, the list
+	// narrows when a document opens, so the row is kept in view. Closing returns to the row's Preview button.
 	const stacked = () => !!split && getComputedStyle(split).gridTemplateColumns.split(' ').length < 2;
+	const rowOf = (ref: string) => split?.querySelector<HTMLElement>(`.grid-row[data-ref="${CSS.escape(ref)}"]`);
 	const select = async (r: ChronologyListRow) => {
 		selected = r.ref;
 		sync();
-		if (stacked()) { await tick(); pane?.scrollIntoView({ block: 'start' }); pane?.focus({ preventScroll: true }); }
+		await tick();
+		if (stacked()) { pane?.scrollIntoView({ block: 'start' }); pane?.focus({ preventScroll: true }); }
+		else rowOf(r.ref)?.scrollIntoView({ block: 'nearest' });
 	};
-	const back = () => {
-		const button = selected ? split?.querySelector<HTMLButtonElement>(`.grid-row[data-ref="${CSS.escape(selected)}"] button.preview`) : null;
-		const list = split?.querySelector<HTMLElement>('[data-testid="chronology-list"]');
-		(button ?? list)?.scrollIntoView({ block: 'center' });
-		button?.focus({ preventScroll: true });
+	const close = async () => {
+		const ref = selected;
+		if (!ref) return;
+		const below = stacked();
+		selected = null;
+		sync();
+		await tick();
+		const button = rowOf(ref)?.querySelector<HTMLButtonElement>('button.preview');
+		button?.scrollIntoView({ block: below ? 'center' : 'nearest' });
+		(button ?? main)?.focus({ preventScroll: true });
+	};
+	// Escape closes the document, as it closes the drawer and an inline confirmation, unless a text field has the key.
+	const keys = (e: KeyboardEvent) => {
+		const t = e.target as Element;
+		if (e.key !== 'Escape' || !selected || e.defaultPrevented || (t !== document.body && !split?.contains(t)) || t.closest('input, select, textarea')) return;
+		void close();
 	};
 	const showBasis = $derived(loaded.some((r) => r.dateType || r.dateSource));
 	const basisLabel = (r: ChronologyListRow) => r.dateType ?? (r.dateSource ? `from ${r.dateSource}` : r.date ? 'unknown' : 'undated');
@@ -89,16 +108,18 @@
 	};
 	// Until every row is in, a filtered count would undercount, so the count says it is still loading.
 	const count = $derived(complete ? rows.length : filtered ? null : total);
-	let ready = $state(false);
+	let mounted = $state(false);
 	onMount(() => {
-		ready = true;
+		mounted = true;
 		void loadAll().catch(() => {});
 	});
 </script>
 
 {#snippet localOriginal(ref: string)}<LocalOriginal {ref} />{/snippet}
 
-<main id="main" tabindex="-1" data-ready={ready ? 'chronology' : null}>
+<svelte:window onkeydown={keys} />
+
+<main id="main" tabindex="-1" data-ready={mounted && settled ? 'chronology' : null} bind:this={main}>
 	<PageHeader heading="Chronology" section="Chronology" caseName={data.version.titleName} subtitle="{total.toLocaleString('en')} items · sorted by date">
 		{#snippet actions()}<button type="button" onclick={exportCsv} id="export-csv">Export CSV ({count === null ? '…' : count.toLocaleString('en')} rows)</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}{/snippet}
 	</PageHeader>
@@ -113,9 +134,11 @@
 	</form>
 	{#if loadFailed}<p class="load-failed" role="alert">Only the first {loaded.length.toLocaleString('en')} documents are loaded. <button type="button" onclick={() => void loadAll().catch(() => {})}>Load the rest</button></p>{/if}
 	<div class="chrono-split-box">
-		<div class="chrono-split" bind:this={split}>
-			<div class="chrono chrono-list" data-testid="chronology-list">
-				{#if complete && rows.length === 0}
+		<div class="chrono-split" class:open={!!selected} bind:this={split}>
+			<div class="chrono chrono-list" data-testid="chronology-list" aria-busy={settled ? undefined : 'true'}>
+				{#if !settled}
+					<p class="list-loading card" role="status">Loading the chronology…</p>
+				{:else if complete && rows.length === 0}
 					<div class="no-match card" role="status"><p>No documents match these filters.</p><button type="button" onclick={clear}>Clear filters</button></div>
 				{:else}
 					<DataGrid {columns} {rows} rowKey={(r: ChronologyListRow) => r.ref} label="Chronology" gridClass={showBasis ? 'chrono-grid chrono-sel' : 'chrono-grid chrono-sel no-basis'} sort={{ key: query.sort, dir: query.dir }} onsort={sortBy} rowAttrs={(r: ChronologyListRow) => ({ 'data-ref': r.ref })}
@@ -135,39 +158,47 @@
 				{/if}
 			</div>
 			<div class="chrono-divider" aria-hidden="true"></div>
-			<ChronologyPane row={selectedRow} {selected} notFound={complete && !!selected && !selectedRow} docHref={selected ? docPath(vid, selected, null, data.base) : null} original={original ?? localOriginal} onback={back} bind:pane />
+			<ChronologyPane row={selectedRow} {selected} notFound={complete && !!selected && !selectedRow} docHref={selected ? docPath(vid, selected, null, data.base) : null} original={original ?? localOriginal} onclose={close} bind:pane />
 		</div>
 	</div>
 </main>
 
 <style>
-	:global(.chrono-grid.chrono-sel .grid-row) { column-gap: 6px; grid-template-columns: 5em 5.4em 5.4em 5.8em minmax(7em, 1fr) 5em 5.6em 5.4em 4.8em 4em; }
-	:global(.chrono-grid.chrono-sel.no-basis .grid-row) { grid-template-columns: 5em 5.4em 5.8em minmax(7em, 1fr) 5em 5.6em 5.4em 4.8em 4em; }
+	/* Tracks in px: the headings are set smaller than the cells, so em tracks would start each heading left of its column.
+	   The table is at least as wide as its tracks, so a narrow list scrolls sideways to its last column. */
+	:global(.chrono-grid.chrono-sel) { min-width: min-content; }
+	:global(.chrono-grid.chrono-sel .grid-row) { column-gap: 6px; grid-template-columns: 65px 70px 70px 75px minmax(91px, 1fr) 65px 73px 70px 62px 64px; }
+	:global(.chrono-grid.chrono-sel.no-basis .grid-row) { grid-template-columns: 65px 70px 75px minmax(91px, 1fr) 65px 73px 70px 62px 64px; }
+	/* With the title column at its minimum, a heading wraps rather than running into the next one. */
+	:global(.chrono-grid .grid-head > [role='columnheader']) { white-space: normal; min-width: 0; }
 	:global(.chrono-grid .preview-cell button) { white-space: nowrap; min-height: 0; height: auto; padding: 2px 6px; font-size: 12px; }
 	:global(.chrono-grid .grid-row.selected .cite) { font-weight: 600; }
 	.excerpt, .also-in { display: block; }
 	.chrono-split-box { container-type: inline-size; }
-	/* Side by side when there is room for both columns' minimums; otherwise the pane sits below the list, full width. */
+	/* The list takes the full width until a document opens. Then the two sit side by side when there is room for both
+	   columns' minimums; otherwise the pane sits below the list, full width. */
 	.chrono-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 	.chrono-list { min-width: 0; }
 	.chrono-list :global(.table-scroll) { max-height: 70vh; overflow: auto; }
-	.chrono-divider { display: none; }
+	.chrono-divider, .chrono-split :global(.chrono-pane:not([data-ref])) { display: none; }
+	.list-loading { margin: 0; padding: 20px; }
 	@container (min-width: 960px) {
-		.chrono-split { grid-template-columns: minmax(600px, 1fr) 8px minmax(340px, 38%); gap: 0; height: calc(100vh - 206px); min-height: 520px; }
+		.chrono-split { height: calc(100vh - 206px); min-height: 520px; }
+		.chrono-split.open { grid-template-columns: minmax(600px, 1fr) 8px minmax(340px, 38%); gap: 0; }
 		.chrono-list { display: flex; flex-direction: column; min-height: 0; }
 		.chrono-list :global(.table-scroll) { max-height: none; flex: 1 1 auto; min-height: 0; }
-		.chrono-divider { display: block; background: var(--border); width: 1px; justify-self: center; }
+		.chrono-split.open .chrono-divider { display: block; background: var(--border); width: 1px; justify-self: center; }
 		.chrono-split :global(.chrono-pane) { min-height: 0; }
 	}
 	@container (max-width: 959.98px) {
-		/* Narrow, the title column sits at its minimum: a heading wraps rather than running into the next one. */
-		.chrono-split :global(.chrono-grid .grid-head > [role='columnheader']) { white-space: normal; min-width: 0; }
+		/* Below the list, the pane's close control reads Back to list. */
+		.chrono-split :global(.chrono-pane .pane-back) { justify-content: flex-start; }
+		.chrono-split :global(.chrono-pane .pane-close-wide) { display: none; }
+		.chrono-split :global(.chrono-pane .pane-close-narrow) { display: inline; }
 		/* Touch targets (GRS-272): Preview, a citation and a sort button are 44 px each way, like Back to list. */
 		.chrono-split :global(.chrono-grid .preview-cell button), .chrono-split :global(.chrono-grid .grid-head button), .chrono-split :global(.chrono-pane .pane-back button) { min-height: 44px; min-width: 44px; }
 		.chrono-split :global(.chrono-grid .grid-head button) { display: inline-flex; align-items: center; }
 		.chrono-split :global(.chrono-grid [role='cell'] a.cite) { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; }
-		.chrono-split :global(.chrono-pane .pane-back) { display: block; }
-		.chrono-split :global(.chrono-pane:not([data-ref])) { display: none; }
 	}
 	.no-match { padding: 20px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 	.no-match p { margin: 0; }

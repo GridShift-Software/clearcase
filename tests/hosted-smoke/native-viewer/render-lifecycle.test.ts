@@ -88,3 +88,30 @@ it('abort destroys the loading task even before open settles', async () => {
   const destroy = vi.spyOn(controls.loads[0], 'destroy'); controller.abort();
   await Promise.allSettled([opening]); expect(destroy).toHaveBeenCalledOnce();
 });
+
+it('draws a newer page while an obsolete page lookup is still pending, then drops the late lookup', async () => {
+  const canvas = createCanvas(100, 100); reader = await open(canvas);
+  let release!: () => void, entered = false;
+  const held = new Promise<void>((r) => { release = r; });
+  controls.holdPage = async (n: number) => { if (n === 2) { entered = true; await held; } };
+  const distant = reader.draw(2, 1); distant.catch(() => {});
+  await vi.waitFor(() => expect(entered).toBe(true));
+  const near = reader.draw(1, 2);
+  const outcome = await Promise.race([near.then(() => 'drawn'), new Promise((r) => setTimeout(() => r('blocked'), 2_000))]);
+  expect(outcome).toBe('drawn');
+  expect(canvas.width).toBe(200); expect(controls.tasks).toHaveLength(1);
+  release(); await expect(distant).resolves.toBeUndefined();
+  expect(canvas.width).toBe(200); expect(controls.tasks).toHaveLength(1);
+});
+
+it('clears the drawn pixels as soon as a same-page zoom redraw starts, before that redraw paints', async () => {
+  const canvas = createCanvas(100, 100); reader = await open(canvas);
+  // The page is one black square; pdf.js paints the white page background before its first pause.
+  const painted = () => { const d = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data; for (let i = 0; i < d.length; i += 4) if (d[i + 3] === 255 && d[i]! < 128) return true; return false; };
+  await reader.draw(1, 1); expect(painted()).toBe(true);
+  controls.pauseNext = true;
+  const zoom = reader.draw(1, 2); zoom.catch(() => {});
+  await vi.waitFor(() => expect(controls.paused).toBeTypeOf('function'));
+  expect(painted()).toBe(false);
+  controls.paused(); await zoom; expect(painted()).toBe(true);
+});

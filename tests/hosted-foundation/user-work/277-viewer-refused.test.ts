@@ -304,7 +304,7 @@ describe('277 a viewer is refused the user-work JSON endpoints', () => {
     const w = world();
     try {
       const added = await (await pageNotes.POST(json(w.editor, 'POST', { page: 2, body: 'Synthetic page note to delete', operationId: 'op-277-page-seed' }))).json();
-      await refusesViewerThenEditorWrites(w, (locals) => pageNotes.DELETE(json(locals, 'DELETE', { rowId: added.note.rowId, version: added.note.version, operationId: 'op-277-page-delete' })));
+      await refusesViewerThenEditorWrites(w, (locals) => pageNotes.DELETE(json(locals, 'DELETE', { rowId: added.note.rowId, version: added.note.version, operationId: 'op-277-page-delete', confirm: added.note.rowId })));
     } finally { w.db.close(); }
   });
   it('court_bundle_tab/assembled: POST (store an assembled bundle PDF) is refused for a viewer before its body is read', async () => {

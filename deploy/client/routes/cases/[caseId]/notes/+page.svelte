@@ -20,14 +20,31 @@
 	const operationId = $derived(refused?.operationId ?? data.operationId);
 	// A refused annotation keeps its original version even after withdrawal or replacement, never silently a case note.
 	const draftVersion = $derived(refused ? (refused.resultsVersion ?? data.resultsVersion) : data.resultsVersion);
-	// Save is a page load that sends the draft, not one that leaves it
 	let saving = $state(false);
-	const unsaved = $derived(!saving && (body.trim() !== '' || ref.trim() !== ''));
+	let saveError = $state<string | null>(null);
+	const unsaved = $derived(body.trim() !== '' || ref.trim() !== '');
 	function discard() {
 		refused = null;
 		body = '';
 		ref = '';
 	}
+	const saveNote: SubmitFunction = () => {
+		saving = true;
+		saveError = null;
+		return async ({ result, update }) => {
+			try {
+				if (result.type === 'error') {
+					saveError = 'The note may not have been saved. Your text is kept; try again.';
+					return;
+				}
+				if (result.type === 'success' || result.type === 'redirect') discard();
+				await update({ reset: false });
+				if (result.type === 'failure' && form?.op === 'add') refused = form;
+			} finally {
+				saving = false;
+			}
+		};
+	};
 	// the note whose Delete awaits Confirm; without JavaScript the server's answer names it
 	let confirming = $state<string | null>(untrack(() => (form?.op === 'delete' ? (form.confirm ?? null) : null)));
 	let deleting = $state<string | null>(null);
@@ -62,22 +79,23 @@
 	<p>Your notes are your own work on this case. They are saved on the server, not in this browser, and never depend on published results.</p>
 	{#if data.saved && !form}<p role="status" data-note-saved>Note saved.</p>{/if}
 	{#if data.deleted && !form}<p role="status" data-note-deleted>Note deleted.</p>{/if}
+	{#if saveError}<p class="error" role="alert" id="note-save-error">{saveError}</p>{/if}
 	{#if deleteError}<p class="error" role="alert" id="note-error" data-op="delete">{deleteError}</p>
 	{:else if form?.message}<p class="error" role="alert" id="note-error" data-op={form.op}>{form.message}</p>{/if}
 	{#if form?.op === 'delete' && form.current}<div data-server-version={form.current.version}><p>The note as it is now on the server:</p><NoteText note={form.current} /></div>{/if}
 
 	{#if data.canWrite}
-	<form method="POST" action="?/add" id="note-form" onsubmit={() => (saving = true)}>
+	<form method="POST" action="?/add" id="note-form" use:enhance={saveNote}>
 		<input type="hidden" name="operationId" value={operationId} />
 		<label for="note-body">New note</label><br />
-		<textarea id="note-body" name="body" rows="5" cols="60" maxlength="20000" required bind:value={body}></textarea><br />
+		<textarea id="note-body" name="body" rows="5" cols="60" maxlength="20000" required readonly={saving} bind:value={body}></textarea><br />
 		{#if draftVersion || refused?.ref}
 			<input type="hidden" name="resultsVersion" value={draftVersion ?? ''} />
 			<label for="note-ref">Document ref (optional, to annotate a document of these results)</label><br />
-			<input id="note-ref" name="ref" bind:value={ref} /><br />
+			<input id="note-ref" name="ref" readonly={saving} bind:value={ref} /><br />
 			{#if ref && draftVersion !== data.resultsVersion}<p data-note-target-moved>This draft still refers to {ref} in the results version you wrote it against. It cannot be saved while that version is not current; copy the text into a new note to choose another target.</p>{/if}
 		{/if}
-		<button type="submit" id="note-save">Save note</button>
+		<button type="submit" id="note-save" disabled={saving}>Save note</button>
 	</form>
 	<LeaveGuard {unsaved} what="Your note is not saved." {discard} />
 	{/if}

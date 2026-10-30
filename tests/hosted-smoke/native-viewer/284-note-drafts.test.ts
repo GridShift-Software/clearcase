@@ -210,8 +210,29 @@ it('the case notes page: leaving a typed draft asks first; Stay keeps it, Leave 
 
   type('#note-body', 'Synthetic note to save');
   await click(el('#note-save'));
-  expect(native).toEqual([{ action: '?/add', fields: expect.objectContaining({ body: 'Synthetic note to save', operationId: 'op-1', resultsVersion: RV }) }]);
+  expect(native).toEqual([]);
+  expect(sent.at(-1)).toEqual({ action: '?/add', fields: expect.objectContaining({ body: 'Synthetic note to save', operationId: 'op-1', resultsVersion: RV }) });
+  expect(asking()).toBeNull();
+  reloaded = notesData({ saved: true, operationId: 'op-2' });
+  await respond({ type: 'redirect', status: 303, location: '/cases/c1/notes?saved=1' });
+  expect(value('#note-body')).toBe('');
   expect(navigate('leave', null)).toBe(false);
+});
+
+it('a lost case-note save keeps the draft and its leave warning until a confirmed save', async () => {
+  open(NotesPage, '/cases/c1/notes', notesData());
+  type('#note-body', 'Synthetic interrupted save');
+  await click(el('#note-save'));
+  expect(native).toEqual([]);
+  expect(sent.at(-1)?.action).toBe('?/add');
+  expect(navigate('leave', null)).toBe(true);
+  await respond({ type: 'error', error: { message: 'Synthetic request interrupted' } });
+  expect(errorPages).toEqual([]);
+  expect(value('#note-body')).toBe('Synthetic interrupted save');
+  expect(navigate('link', '/cases/c1')).toBe(true);
+  expect(asking()).toBe('Your note is not saved. Leave this page and lose it?');
+  await click(el('#lit-ask-stay'));
+  expect(draft()).toMatchObject({ body: 'Synthetic interrupted save', operationId: 'op-1' });
 });
 
 it('the shared document page: leaving a typed note asks first and a refused save keeps asking; a saved note leaves nothing to ask about; Back goes on as the same traversal', async () => {

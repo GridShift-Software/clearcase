@@ -48,8 +48,8 @@ export async function openPage(b, opts = {}) {
 	};
 	p.active = () => p.evaluate(`(() => { const e = document.activeElement; return e ? { tag: e.tagName, id: e.id || null, cls: e.className || null, heading: e.hasAttribute('data-page-heading'), text: (e.textContent || '').trim().slice(0, 80), href: e.getAttribute('href') } : null; })()`);
 	/** Navigate (full load) and wait until the page hydrated and `ready` holds. */
-	p.goto = async (url, ready = 'true', timeout = 20000) => {
-		const r = await p.navigate(url);
+	p.goto = async (url, ready = 'true', timeout = 20000, options) => {
+		const r = await p.navigate(url, options);
 		if (r.errorText) throw new Error(`navigate ${url}: ${r.errorText}`);
 		await p.waitFor(`(window.__ccMounted >= 1) && !!document.querySelector('main#main') && (${ready})`, timeout);
 	};

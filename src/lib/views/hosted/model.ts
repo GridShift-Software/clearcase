@@ -24,9 +24,12 @@ export interface ChronologyData {
 }
 
 export interface NoteItem { id: string; version: string; body: string; createdAt: string; target: { kind: 'case' } | { kind: 'document'; ref: string; resultsVersion: string } | { kind: 'analysis'; section: string } }
-/** What a refused save hands back to the form: the user's own text, and the server's state where it moved on. */
+/**
+ * What a refused save hands back to the form: the user's own text, and the server's state where it moved on. A Delete
+ * not confirmed for its note carries no message, only `confirm`: the note the page asks about, or null after Cancel.
+ */
 export interface NoteRefusal {
-  op: 'add' | 'delete'; message: string; body?: string; ref?: string; resultsVersion?: string; current?: NoteItem | null; notes?: NoteItem[];
+  op: 'add' | 'delete'; message?: string; confirm?: string | null; body?: string; ref?: string; resultsVersion?: string; current?: NoteItem | null; notes?: NoteItem[];
   /** A valid submitted retry identity is retained; an unknown write outcome must never become a second write. */
   operationId?: string;
 }

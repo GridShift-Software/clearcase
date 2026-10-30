@@ -1,8 +1,9 @@
 // The user's own notes on a case, through AsyncUserWork only: a note on the case itself, or an annotation on a document
 // of the case's current published version. Each write carries the operation id the form was rendered with, so a
 // resubmitted form is one write, and a delete carries the version the user saw. A stale or vanished target answers 409
-// with the user's text kept and the server's current version, so nothing typed is lost and nothing is overwritten. No
-// state is kept in the browser or in memory here: a note exists once AsyncUserWork answers `written`.
+// with the user's text kept and the server's current version, so nothing typed is lost and nothing is overwritten. A
+// delete runs only once confirmed for that note (GRS-280). No state is kept in the browser or in memory here: a note
+// exists once AsyncUserWork answers `written`.
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import type { CaseId, CaseInfo, HostedNote, NoteTarget, RequestServices, ResultsVersion, Versioned } from './types.ts';
 import { refuse } from '../../server/runtime/hosted/http.ts';
@@ -10,6 +11,7 @@ import { codeOf, isDenial } from '../../server/runtime/errors.ts';
 import { id } from '../../server/runtime/ids.ts';
 import { canWriteWork, currentVersion, part, readCase } from './case.server.ts';
 import { caseHref, chronologyHref, notesHref } from './paths.ts';
+import { deleteStep } from '../../components/confirm-delete.ts';
 import type { NoteItem, NoteRefusal } from './model.ts';
 
 export type { NoteItem, NoteRefusal };
@@ -85,6 +87,8 @@ export async function deleteNote({ locals, params, request }: RequestEvent) {
   const f = await request.formData();
   const noteId = text(f, 'id'), version = text(f, 'version'), operationId = text(f, 'operationId');
   if (!TOKEN.test(noteId) || !TOKEN.test(version) || !OPERATION.test(operationId)) return fail(400, { op: 'delete', message: 'This form is out of date. Reload the page and try again.' } satisfies NoteRefusal);
+  const step = deleteStep(f, noteId);
+  if (step !== 'confirm') return fail(400, { op: 'delete', confirm: step === 'ask' ? noteId : null } satisfies NoteRefusal);
   try {
     const written = await locals.userWork.deleteNote({ caseId, id: noteId, expected: { kind: 'match', version: id('row-version', version) }, operationId });
     if (written.kind !== 'written') {

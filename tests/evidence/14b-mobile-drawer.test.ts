@@ -48,7 +48,7 @@ beforeAll(async () => {
   await writeFile(path.join(scratch, 'main.js'), "import { mount } from 'svelte'; import App from './Harness.svelte'; mount(App, {target: document.body});");
   await writeFile(path.join(scratch, 'kit.js'), "export const page = {url: new URL('http://127.0.0.1/')}; export const beforeNavigate = () => {}; export const afterNavigate = () => {}; export const goto = async () => {}; export const invalidateAll = async () => {}; export const applyAction = async () => {}; export const enhance = () => ({destroy(){}});");
   const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><script type="module" src="/@fs/${scratch}/main.js"></script></body></html>`;
-  server = await createServer({ configFile: false, root, logLevel: 'error',
+  server = await createServer({ configFile: false, root, cacheDir: path.join(scratch, 'vite-cache'), logLevel: 'error',
     plugins: [svelte({ configFile: false }), { name: '14b-mobile-entry', configureServer(s) {
       s.middlewares.use('/14b-mobile', (_req, res) => { res.setHeader('content-type', 'text/html'); res.end(html); });
     } }],

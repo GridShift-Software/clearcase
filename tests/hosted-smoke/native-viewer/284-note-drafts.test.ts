@@ -233,6 +233,11 @@ it('a lost case-note save keeps the draft and its leave warning until a confirme
   expect(asking()).toBe('Your note is not saved. Leave this page and lose it?');
   await click(el('#lit-ask-stay'));
   expect(draft()).toMatchObject({ body: 'Synthetic interrupted save', operationId: 'op-1' });
+  reloaded = notesData({ operationId: 'op-2', deleted: true, notes: { state: 'available', items: [caseNote('n-2')] } });
+  await click(button('n-1', 'Delete'));
+  await click(button('n-1', 'Confirm delete'));
+  await respond({ type: 'redirect', status: 303, location: '/cases/c1/notes?deleted=1' });
+  expect(draft()).toMatchObject({ body: 'Synthetic interrupted save', operationId: 'op-1', resultsVersion: RV });
 });
 
 it('the shared document page: leaving a typed note asks first and a refused save keeps asking; a saved note leaves nothing to ask about; Back goes on as the same traversal', async () => {

@@ -29,6 +29,7 @@
 		ref = '';
 	}
 	const saveNote: SubmitFunction = () => {
+		refused = { op: 'add', body, ref, resultsVersion: draftVersion ?? undefined, operationId };
 		saving = true;
 		saveError = null;
 		return async ({ result, update }) => {

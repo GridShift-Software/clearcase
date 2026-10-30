@@ -56,13 +56,14 @@ beforeAll(async () => {
   await import(/* @vite-ignore */ join(assets.dir, 'pdf-reader.mjs'));
 });
 afterAll(() => assets?.dispose());
+const canvasElement = () => Object.assign(createCanvas(1, 1), { style: {} });
 type Reader = { pages: number; draw(n: number, s: number, fitWidth?: number): Promise<void>; destroy(): void };
 const open = (canvas: Canvas) => (globalThis as unknown as { window: { clearcasePdfReader: { open(a: object): Promise<Reader> } } })
   .window.clearcasePdfReader.open({ src: SRC, size: bytes.byteLength, canvas, signal: new AbortController().signal });
 
 it('draws a CCITT fax scan at phone width, not a blank canvas', async () => {
   bytes = ccitt;
-  const canvas = createCanvas(1, 1), reader = await open(canvas);
+  const canvas = canvasElement(), reader = await open(canvas);
   try {
     // The chronology pane on a 390 px phone gives the page 324 px.
     await reader.draw(1, 1.2, 324);
@@ -74,7 +75,7 @@ it('draws a CCITT fax scan at phone width, not a blank canvas', async () => {
 
 it('rejects the draw of a page whose image cannot be decoded, so the viewer never shows it as rendered', async () => {
   bytes = broken;
-  const reader = await open(createCanvas(1, 1));
+  const reader = await open(canvasElement());
   try { await expect(reader.draw(1, 1.2, 324)).rejects.toThrow(/image not decoded/); }
   finally { reader.destroy(); }
 });

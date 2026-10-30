@@ -31,7 +31,7 @@ beforeAll(async () => {
 });
 beforeEach(() => { Object.assign(controls, { bytes: pdf(), pauseNext: false, paused: null, tasks: [], loads: [], holdPage: null }); });
 afterEach(async () => { reader?.destroy(); reader = null; await Promise.allSettled(controls.loads.map((t: any) => t.destroy())); });
-const open = (canvas = createCanvas(100, 100), signal?: AbortSignal) => (window as any).clearcasePdfReader.open({ src: '/synthetic.pdf', canvas, signal });
+const open = (canvas = createCanvas(100, 100), signal?: AbortSignal) => (window as any).clearcasePdfReader.open({ src: '/synthetic.pdf', size: controls.bytes.byteLength, canvas: Object.assign(canvas, { style: {} }), signal });
 
 it('fits the page to a narrow container by default and preserves zoom', async () => {
   const canvas = createCanvas(100, 100); reader = await open(canvas);

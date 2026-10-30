@@ -12,9 +12,9 @@ type Navigation = { type: string; from: { url: URL }; to: { url: URL } | null; w
 const guards: ((nav: Navigation) => void)[] = [];
 const afters: (() => void)[] = [];
 const destinations: string[] = [];
-function navigate(type: string, destination: string | null, delta?: number) {
+function navigate(type: string, destination: string | null, delta?: number, hasPageRoute = true) {
   let cancelled = false;
-  const nav = { type, from: { url: new URL(window.location.href) }, to: destination === null ? null : { url: new URL(destination, window.location.href) }, willUnload: type === 'leave', delta, cancel: () => { cancelled = true; } };
+  const nav = { type, from: { url: new URL(window.location.href) }, to: destination === null ? null : { url: new URL(destination, window.location.href) }, willUnload: type === 'leave' || (type === 'link' && !hasPageRoute), delta, cancel: () => { cancelled = true; } };
   for (const guard of [...guards]) guard(nav);
   flushSync();
   if (!cancelled) for (const after of [...afters]) after();
@@ -63,6 +63,9 @@ beforeEach(() => {
     vi.stubGlobal(key, dom.window[key]);
   vi.stubGlobal('addEventListener', dom.window.addEventListener.bind(dom.window));
   vi.stubGlobal('removeEventListener', dom.window.removeEventListener.bind(dom.window));
+  vi.stubGlobal('location', dom.window.location);
+  // jsdom has no SVG anchor class. These tests click HTML anchors, never SVG elements.
+  vi.stubGlobal('SVGAElement', dom.window.SVGElement);
 });
 afterEach(async () => { if (component) await unmount(component); component = null; dom.window.close(); vi.unstubAllGlobals(); });
 
@@ -186,6 +189,28 @@ it('guards a same-path requested-page load because the original route remounts t
   expect(navigate('link', '/cases/case-a/originals/A/view?page=2')).toBe(true);
   press('Stay on this page');
   expect(draft().value).toBe('Synthetic draft before query navigation');
+});
+
+it.each(['ready', 'error'])('Download in the %s viewer hands off to the browser without navigation or draft loss', async (state) => {
+  const r = reader();
+  if (state === 'error') r.draw.mockRejectedValueOnce(new Error('Synthetic rendering failure'));
+  start(vi.fn(async () => r)); await settle(); type('Synthetic draft kept during download');
+  const link = document.querySelector<HTMLAnchorElement>('[data-action="download-original"]')!;
+  // Use the installed router's link classifier. Only its native-download transport and route lookup are supplied.
+  // @ts-expect-error Kit's internal JavaScript utility has no declaration file.
+  const { get_link_info } = await import('../../../node_modules/@sveltejs/kit/src/runtime/client/utils.js');
+  const downloads: string[] = [];
+  document.addEventListener('click', (event) => {
+    event.preventDefault();
+    const { url, download } = get_link_info(link, '', false);
+    if (download) downloads.push(url.href);
+    else if (!navigate('link', url.href, undefined, false)) downloads.push(url.href);
+  }, { once: true });
+  link.click(); await settle();
+  expect(downloads).toEqual([new URL(data().view.downloadHref, window.location.href).href]);
+  expect(document.querySelector('[role=alertdialog]')).toBeNull();
+  expect(destinations).toEqual([]);
+  expect(draft().value).toBe('Synthetic draft kept during download');
 });
 
 it('guards reload and closing the tab through SvelteKit leave cancellation', async () => {

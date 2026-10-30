@@ -6,7 +6,7 @@ State on 17 October 2026: the user approved the plan at 14:20 SAST (GRS-69 comme
 
 ## 1. The pyramid, mapped to ClearCase
 
-An agent's "done" is a claim. Work counts as verified when checks the agent did not write and cannot alter confirm the acceptance criteria, and the results are saved for inspection. Deterministic layers run first and guide the model layers, never the reverse.
+An agent's "done" is a claim. Work counts as verified when independently reviewed checks at the declared revision and service boundary confirm the acceptance criteria, and the results are saved for inspection. Deterministic layers run first and guide the model layers, never the reverse.
 
 | Layer | Local app today | Hosted work after [GRS-138](https://linear.app/vaper/issue/GRS-138/build-the-hosted-gate-and-the-verify-clearcase-hosted-skill-before) | Human involvement |
 | --- | --- | --- | --- |
@@ -25,6 +25,19 @@ An agent's "done" is a claim. Work counts as verified when checks the agent did 
 
 ## 2. Where the plan was weak and what changed
 
+### Evidence selection and control changes (22 October audit)
+
+These instructions address source-confirmed gaps at `225b7e00578319d16383678a8d1ae6efb362a0ba`; they do not claim the runners or CI have been repaired. The [independent controls review](../reviews/retrospective-2026-10-22/gpt-verification-controls.md) records the findings and incoming-branch checks.
+
+- Select checks by the changed contract. Use targeted behavior checks during a fix, then the required gate at the committed candidate revision. Rerun affected checks when code, dependencies, configuration or the base changes; do not repeatedly run an unchanged full gate just to produce more receipts. Required final gates and independent review still apply.
+- For changes to guard, receipt, approval or dispatch controls, require the relevant Python/shell behavior suites through a receipt on supported Linux. The TypeScript collection inventory and normal CI verdict do not cover `tests/agent-tools/run.sh` or the real-guard replay in `tests/ci-guard/run.sh`. Record selected suites and unmet prerequisites. CI wiring for those suites remains open; a syntax check or workflow stub test cannot replace them.
+- Set and verify the `fix-round` enforcement label before the CI event whose result will be accepted. Adding it after a green run does not trigger this workflow. Rejudge the current requirement through the trusted-base guard and retain its receipt; rerunning an old event is not proof that its label input refreshed. Automatic invalidation on label changes remains open.
+- Review test-framework pins, dependency overrides and relevant lockfile resolution changes alongside protected tests. A guard PASS preserves its documented source contract; it does not prove that changed dependencies execute those tests identically. Keep the existing GRS-150 reviewer-owned boundary explicit.
+- Report coverage per action and service boundary. A 42-view navigation sweep is not save/delete/export coverage; a local hosted fixture is not live-provider evidence. Keep the tested CI merge commit and PR head as separate identities. Report unsupported or missing acceptance prerequisites as UNRUN, HOLD or SKIPPED, never PASS.
+- A provider or infrastructure failure without a completed report supplies no review verdict. Retain the task identity/error and replace only that failed scope within the existing retry policy and budgets. Give its replacement the original brief and any actual findings; keep unaffected reviewers running. A completed review still does not replace a runtime gate.
+
+The original comparison below describes the 17 October planning state.
+
 The local app has layers 1 to 6. Hosted work had layers 1 to 3 and 6. It said "or its independently reviewed hosted replacement" for layers 4 and 5 and gave that replacement no owner. [GRS-138](https://linear.app/vaper/issue/GRS-138/build-the-hosted-gate-and-the-verify-clearcase-hosted-skill-before) now owns it and runs before the foundation fan-out, so every hosted ticket from [GRS-113](https://linear.app/vaper/issue/GRS-113/implement-clerk-invitations-sessions-and-hosted-access-checks) onward verifies against a real gate. [GRS-141](https://linear.app/vaper/issue/GRS-141/dev-gate-fail-at-c89d405-overview-and-documents-subtitles-differ-from) repairs the local dev gate first, because it blocks [GRS-22](https://linear.app/vaper/issue/GRS-22/verify-newer-2131-document-and-json-export-compatibility) and [GRS-104](https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery). The graph restructure is recorded on [GRS-69](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha).
 
 ## 3. Human steps: before and after the restructure
@@ -32,12 +45,12 @@ The local app has layers 1 to 6. Hosted work had layers 1 to 3 and 6. It said "o
 | Step | Before 17 October | Now |
 | --- | --- | --- |
 | User approval | [GRS-69](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha) once, then nothing until [GRS-32](https://linear.app/vaper/issue/GRS-32/verify-hosted-isolation-recovery-and-release-readiness) | Five `checkpoint` tickets: [GRS-27](https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation) (design), [GRS-36](https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work) (foundation), [GRS-137](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view) (first hosted case), [GRS-66](https://linear.app/vaper/issue/GRS-66/accept-hosted-production-integrations-and-page-coverage) (integrations) and [GRS-32](https://linear.app/vaper/issue/GRS-32/verify-hosted-isolation-recovery-and-release-readiness) (release candidate). One sitting each: read the aggregate report, drive the verification skill once, approve or send one written finding list. |
-| External reviewer (`dianbrown`) | Every PR into `dev` (until 20 October 2026): 39 PRs, changes requested 23 times, median 7.6 h from open to merge | One review per wave, by Greptile since 20 October 2026; `dianbrown` now approves only a release PR into `main`. Each wave's tickets land on a wave branch (the membership is in the map below). Inside the wave the agent loop merges each layer into the wave branch: gate, fresh Opus review, one Sonnet fix, fresh recheck, leak scan. One PR from the wave branch into `dev` is what he reviews, in his hours, in one sitting. His findings become one fix round per owner on the wave branch, then one re-request. `main` stays the user's. |
+| External reviewer (`dianbrown`) | Every PR into `dev` (until 20 October 2026): 39 PRs, changes requested 23 times, median 7.6 h from open to merge | One review per wave, by Greptile since 20 October 2026; `dianbrown` approves only release PRs into `main`. Each ticket lands on its wave branch through the internal gate, fresh review, bounded fix/recheck and leak scan. One wave PR targets `dev`; it merges only when Greptile and CI pass at its exact head and no review finding is unresolved. The user still owns checkpoint approval and merges into `main`. |
 | Night-time pings | Any PR can wait on a human at any hour | Nothing pings a human. A scheduled task at 08:30 SAST on weekdays posts one project status update: wave PRs awaiting the external reviewer, checkpoints awaiting the user, blocked units and spend to date. Agents keep working on every unit that is not checkpoint-blocked. When only checkpoint-blocked work remains, the orchestrator writes status and stops. |
 | Escalation | A rare Fable or Astra round after a linked issue | Unchanged. It batches into the morning update unless a stop line is raised. |
 | Manual processing ([GRS-137](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view), [GRS-29](https://linear.app/vaper/issue/GRS-29/notify-operators-and-download-a-complete-submission)) | Not decided | Human gate. The worker stops at `AWAITING MANUAL RESULTS` after the operator download. The user runs the processing recipe in their own chat and supplies the package path. A fresh session resumes from import. The same stop applies to the release gate [GRS-32](https://linear.app/vaper/issue/GRS-32/verify-hosted-isolation-recovery-and-release-readiness): its acceptance needs human-produced results, being the verifier grants no processing exception, and the worker stops with `AWAITING MANUAL RESULTS`, the manifest and the download path. Expect this to be the long pole of the [GRS-137](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view) checkpoint. |
 
-**Cost of the change.** A wave review can cascade into several owners if a low layer is wrong. Waves are capped at seven tickets, and the review checklist already encodes the reviewer's nine earlier P1 and P2 classes as probes, so the agent loop catches his known classes before he sees the wave. Nothing merges into `dev` without his approval. The rule is relaxed only for wave branches.
+**Cost of the change.** A wave review can cascade into several owners if a low layer is wrong. Waves are capped at seven tickets, and the review checklist encodes earlier finding classes as probes. The 17 October human-review rule for `dev` was superseded on 20 October: wave integration requires Greptile, CI and no unresolved findings at the exact head; `dianbrown` approves release PRs into `main`, which only the user merges. See the repository `AGENTS.md` and section 4b.
 
 ## 4. Applied on 17 October
 
@@ -54,16 +67,17 @@ The pstack model sheet is written at `~/.config/t3-pstack/models.md`: budget lar
 
 ## 4a. Cloudflare pin and proof dispositions
 
-Cloudflare account, domain and provider work is pinned until the user unpins it (GRS-26 decision `d6367d1a`, recorded 17 October 2026). Real-provider acceptance stays mandatory; the pin only decides what may run now. A local result never certifies a provider boundary.
+Cloudflare account and domain work remains pinned. The [GRS-26](https://linear.app/vaper/issue/GRS-26/prove-the-hosted-architecture-and-cloudflare-deployment) decisions of 20 October supersede the broader 17 October restriction: comment `b351a2ac-e1e3-452c-a9bf-970336ca76f1` permits local and Clerk-development proof legs ahead of GRS-27, while cloud provisioning still waits; handoff `83bd39b4-69c4-4f45-a0b0-691fd70ae9ab` assigns HectoLogic the unpin/provisioning decisions. Read subsequent live decisions before acting. Real-provider acceptance stays mandatory, and a local result never certifies it.
 
 | Proof leg | While pinned | Disposition |
 | --- | --- | --- |
 | Local build, workerd with local D1 and R2 bindings, synthetic data | May run | PASS or FAIL at an exact SHA, labelled local |
 | Test-mode identity, email sink | May run | Labelled test double; no Clerk or email provider evidence |
-| Anything that needs a real Cloudflare account, a Paid plan, a real Clerk instance, a real mail provider or any credential | Does not run | HOLD, never a mock PASS |
+| Explicitly authorized Clerk-development proof legs | May run under GRS-26's current decision and secret path | Real Clerk-development evidence only; not production sessions or Cloudflare deployment |
+| Cloudflare account/provisioning, Paid-plan, production Clerk/domain or real mail-provider legs | Wait for the current GRS-26 owner decision and required provisioning | HOLD while pinned, never a mock PASS |
 | Release gate real-provider legs | Does not run | HOLD until unpinned |
 
-Once unpinned, the ceiling is USD 25 a month with an alert at USD 10. The unpin is the user's decision alone, and a credential reaches a run only through the secret path (step 8 below). GRS-105 (PC2) is no-go.
+Once unpinned, the ceiling is USD 25 a month with an alert at USD 10. The 20 October user handoff names the provisioning decision owner; it is not permission for an arbitrary agent to unpin. Credentials reach a run only through the approved secret path. GRS-105 (PC2) is no-go.
 
 ## 4b. Waves and checkpoints
 
@@ -108,7 +122,7 @@ The rows record the state on 17 October 2026 and stay as recorded. Reconciled on
 
 ## 6. Things the plan may still be missing
 
-- **Observability and alerting** in Workers has no owner: error logs, a health endpoint per client, and an alert route to the operator. Add a small ticket after [GRS-137](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view), or fold it into [GRS-116](https://linear.app/vaper/issue/GRS-116/implement-permission-scoped-audit-events-and-audit-views) and [GRS-118](https://linear.app/vaper/issue/GRS-118/implement-complete-case-export-backup-recovery-and-approved-deletion).
+- **Observability and alerting** is owned by [GRS-147](https://linear.app/vaper/issue/GRS-147/implement-alpha-operational-signals-per-client-health-and-operator), which blocks GRS-32 and depends on GRS-116/138 (live readback, 22 October). Use that owner for operational signals, per-client health and incident alerts; do not create another missing-owner ticket.
 - **A synthetic corpus at POC scale.** [GRS-109](https://linear.app/vaper/issue/GRS-109/prove-d1-and-r2-integrity-layout-and-poc-workload-performance) and the release gate need a case the size of the 1,689-document v5 sample. [GRS-137](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view) does not: it proves one small synthetic PDF case. The full-scale synthetic corpus belongs to GRS-144, GRS-109 and [GRS-138](https://linear.app/vaper/issue/GRS-138/build-the-hosted-gate-and-the-verify-clearcase-hosted-skill-before), with a leak-scan needle that refuses the real sample's hashes outside the local gate. Without a generator, an agent will be tempted to push the real v5 sample to Cloudflare.
 - **Cloud janitor.** Parallel workers create disposable D1 and R2 resources. They need a cleanup after every job and a nightly sweep. Put it in [GRS-107](https://linear.app/vaper/issue/GRS-107/prove-cf-and-void-deployment-migration-and-credential-boundaries).
 - **Effort and spend.** Tickets at xhigh cost more than the M2 run at high (484 USD across 197 T3 units since 12 October, about 2,100 USD before that). Plan on 2,000 to 3,000 USD for the hosted wave and watch the spend line in the morning update.

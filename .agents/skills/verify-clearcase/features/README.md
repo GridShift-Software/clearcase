@@ -1,6 +1,6 @@
 # ClearCase pilot verification map
 
-This directory is the maintained source for verifying the user-facing behavior of the ClearCase local pilot. Read this file and the index (`bin/verify-clearcase features`) before driving the app, then follow the matching feature file. The runner `bin/verify-clearcase run` drives every bullet marked with a step ID. Bullets marked *not yet driven* name the user path and the proof that a new step must use; add the step (in `features/<feature>.steps.mjs`, or `lib/drive.mjs` for the pilot's own features) before claiming the bullet as verified.
+This directory is the maintained source for verifying the user-facing behavior of the ClearCase local pilot. Read this file and the index (`bin/verify-clearcase features`) before driving the app, then follow the matching feature file. The runner `bin/verify-clearcase run` executes the discovered drive steps. A bullet's step ID is a coverage claim: check that the step exists and asserts that action's result, because the index does not currently validate prose references. Bullets marked *not yet driven* name the user path and the proof that a new step must use; add the step (in `features/<feature>.steps.mjs`, or `lib/drive.mjs` for the pilot's own features) before claiming the bullet as verified.
 
 ## Baseline preconditions
 
@@ -22,9 +22,9 @@ This directory is the maintained source for verifying the user-facing behavior o
 ## Proof and skip reporting
 
 - Capture the action and the resulting state. Each step writes `screens/NN-<step>.png` and returns the values it read.
-- A mutation (activation) is proven by a second view: the `/` redirect before and after.
+- A mutation (activation) is proven by a second view: the case card's `Open` link changes from the validation report to the active version. `/` redirects to `/cases` in both states.
 - The originals viewer is proven inside its sandboxed frame (`window.__viewer.rendered`, text layer), not just by the wrapper.
-- Any egress attempt (canary hit, request to another origin) fails the run.
+- Any non-background canary hit or disallowed browser request fails the run. Chrome background-service hits are recorded under `backgroundHits` using the rule described in the skill. The offline namespace must still prove that outbound networking is unavailable.
 - A step that cannot run is NOT RUN and fails the run. Do not report a bullet as verified through a different path.
 
 ## Feature entry contract

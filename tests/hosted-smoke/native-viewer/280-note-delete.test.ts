@@ -47,7 +47,7 @@ const button = (id: string, label: string) => [...row(id).querySelectorAll('butt
 const click = async (b: HTMLButtonElement | null) => { expect(b).not.toBeNull(); b!.click(); await tick(); };
 beforeEach(() => {
   dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://client-a.clearcase.test' });
-  for (const key of ['window', 'document', 'Node', 'Element', 'HTMLElement', 'HTMLButtonElement', 'Text', 'Comment', 'Event', 'SubmitEvent', 'FormData', 'MutationObserver'])
+  for (const key of ['window', 'document', 'Node', 'Element', 'HTMLElement', 'HTMLButtonElement', 'HTMLMediaElement', 'Text', 'Comment', 'Event', 'SubmitEvent', 'FormData', 'MutationObserver'])
     vi.stubGlobal(key, dom.window[key]);
   sent.length = 0; settle = null;
 });

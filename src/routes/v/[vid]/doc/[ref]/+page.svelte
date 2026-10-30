@@ -7,6 +7,7 @@
 	import ConfirmDelete from '$lib/components/ConfirmDelete.svelte';
 	import { deleteStep } from '$lib/components/confirm-delete';
 	import DateValue from '$lib/components/DateValue.svelte';
+	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
 	import OriginalOpen from '$lib/components/OriginalOpen.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { writeAccess } from '$lib/components/write-access';
@@ -38,6 +39,8 @@
 	});
 	let noteBusy = $state(false);
 	const noteRefused = $derived(!!form && 'body' in form);
+	// The composer's text is the page's own (GRS-284): a refused save's answer seeds it, and a saved note or Leave clears it.
+	let body = $state(untrack(() => (form && 'body' in form ? String(form.body) : '')));
 	let noteError = $state<string | null>(null);
 	const submitNote: SubmitFunction = () => {
 		noteBusy = true;
@@ -45,14 +48,16 @@
 		return async ({ result, update }) => {
 			noteBusy = false;
 			if (result.type === 'error') { noteError = result.status && (result.error as { message?: string } | undefined)?.message || `The note was not saved: ${result.status ? `the app answered ${result.status}.` : 'the app did not answer.'} Your text is kept; try again.`; return; }
+			// A saved note clears the text here, not by a form reset, which would bring back a refused draft the server rendered.
+			if (result.type === 'success') body = '';
 			// A save that answers with its note (hosted) shows it at once and reloads the page's data behind it.
 			if (result.type === 'success' && result.data && 'note' in result.data) {
-				await update({ reset: true, invalidateAll: false });
+				await update({ reset: false, invalidateAll: false });
 				saved = { note: result.data.note as Note, data };
 				void invalidateAll();
 				return;
 			}
-			await update({ reset: result.type === 'success' });
+			await update({ reset: false });
 		};
 	};
 	type Note = (typeof data.notes)[number];
@@ -134,11 +139,12 @@
 		{:else if data.source === 'results'}
 			<form method="POST" action="?/note" use:enhance={submitNote} id="note-form">
 				<input type="hidden" name="operationId" value={form && 'operationId' in form ? String(form.operationId) : data.operationId} />
-				<label for="note-body">Add a note</label><br /><textarea name="body" rows="3" cols="80" id="note-body" data-testid="note-body" maxlength="20000" required readonly={noteBusy} value={form && 'body' in form ? String(form.body) : ''}></textarea><br /><button id="note-add" data-testid="note-add" class="primary" disabled={noteBusy}>Add note</button>
+				<label for="note-body">Add a note</label><br /><textarea name="body" rows="3" cols="80" id="note-body" data-testid="note-body" maxlength="20000" required readonly={noteBusy} bind:value={body}></textarea><br /><button id="note-add" data-testid="note-add" class="primary" disabled={noteBusy}>Add note</button>
 				{#if noteBusy}<span role="status">Saving note…</span>{:else if form && 'saved' in form && form.saved}<span role="status">Note saved.</span>{/if}
 				{#if noteError ?? form?.message}<span class="error" role="alert">{noteError ?? form?.message}</span>{/if}
 				{#if noteRefused}<p class="note" id="note-delete-off">Delete is off until this note is saved: add it again, or reload the page to discard it.</p>{/if}
 			</form>
+			<LeaveGuard unsaved={body.trim() !== ''} what="Your note is not saved." discard={() => (body = '')} />
 		{:else}
 			<p id="note-unavailable">Notes are not available on this document: it has no imported original to anchor a note to, so a note would be lost when a new results version is imported.</p>
 		{/if}

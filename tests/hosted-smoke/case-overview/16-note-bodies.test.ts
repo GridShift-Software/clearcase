@@ -1,9 +1,11 @@
 import { render } from 'svelte/server';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import NotesPage from '../../../deploy/client/routes/cases/[caseId]/notes/+page.svelte';
 import { load } from '../../../deploy/client/routes/cases/[caseId]/notes/+page.server.ts';
 import { CASE, RV, event, fake } from './doubles.ts';
 import { id } from '../../../src/lib/server/runtime/ids.ts';
+vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
+vi.mock('$app/navigation', () => ({ goto: () => Promise.resolve(), invalidateAll: () => Promise.resolve(), beforeNavigate: () => {}, afterNavigate: () => {} }));
 
 it('16 case notes list exposes each document note body, ref and date as plain text', async () => {
   const f = fake({ publication: { kind: 'published', resultsVersion: RV } });

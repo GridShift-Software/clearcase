@@ -1,19 +1,55 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { enhance } from '$app/forms';
+	import type { SubmitFunction } from '$app/forms';
 	import ConfirmDelete from '$lib/components/ConfirmDelete.svelte';
+	import { deleteStep } from '$lib/components/confirm-delete';
 	import { displayFilename } from '$lib/views/hosted/display';
 	import NoteText from '$lib/views/hosted/NoteText.svelte';
+	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
 	import type { NoteItem, NoteRefusal } from '$lib/views/hosted/model';
 	type Data = { caseId: string; label: string; caseHref: string; chronologyHref: string | null; resultsVersion: string | null; notes: { state: 'available' | 'unavailable'; items: NoteItem[] }; operationId: string; saved: boolean; deleted: boolean; canWrite: boolean };
 	let { data, form }: { data: Data; form: NoteRefusal | null } = $props();
 	// After a refused save the server's current notes replace the loaded list, and the user's text stays in the form.
 	const items = $derived(form?.notes ?? data.notes.items);
-	const operationId = $derived(form?.op === 'add' ? (form.operationId ?? data.operationId) : data.operationId);
+	// The draft is the page's own (GRS-284): a delete answers `form` and reloads `data` behind it, and neither may change
+	// what is being written. A refused save's answer seeds it, and its retry identity and version stay with the text.
+	let refused = $state.raw(untrack(() => (form?.op === 'add' ? form : null)));
+	let body = $state(untrack(() => refused?.body ?? ''));
+	let ref = $state(untrack(() => refused?.ref ?? ''));
+	const operationId = $derived(refused?.operationId ?? data.operationId);
 	// A refused annotation keeps its original version even after withdrawal or replacement, never silently a case note.
-	const draftVersion = $derived(form?.op === 'add' ? (form.resultsVersion ?? data.resultsVersion) : data.resultsVersion);
-	const draftRef = $derived(form?.op === 'add' ? (form.ref ?? '') : '');
+	const draftVersion = $derived(refused ? (refused.resultsVersion ?? data.resultsVersion) : data.resultsVersion);
+	// Save is a page load that sends the draft, not one that leaves it
+	let saving = $state(false);
+	const unsaved = $derived(!saving && (body.trim() !== '' || ref.trim() !== ''));
+	function discard() {
+		refused = null;
+		body = '';
+		ref = '';
+	}
 	// the note whose Delete awaits Confirm; without JavaScript the server's answer names it
 	let confirming = $state<string | null>(untrack(() => (form?.op === 'delete' ? (form.confirm ?? null) : null)));
+	let deleting = $state<string | null>(null);
+	let deleteError = $state<string | null>(null);
+	// With JavaScript a confirmed delete is sent without a page load, so the draft stays as typed. An error answer would
+	// replace the page, and the draft with it, so it is said here instead.
+	const removeNote: SubmitFunction = ({ formData, cancel }) => {
+		const id = String(formData.get('id'));
+		const step = deleteStep(formData, id);
+		if (step !== 'confirm') { cancel(); confirming = step === 'ask' ? id : null; return; }
+		confirming = null;
+		deleting = id;
+		deleteError = null;
+		return async ({ result, update }) => {
+			try {
+				if (result.type === 'error') deleteError = result.status && (result.error as { message?: string } | undefined)?.message || `The note was not deleted: ${result.status ? `the app answered ${result.status}.` : 'the app did not answer.'} Try again.`;
+				else await update();
+			} finally {
+				deleting = null;
+			}
+		};
+	};
 </script>
 
 <style>
@@ -26,22 +62,24 @@
 	<p>Your notes are your own work on this case. They are saved on the server, not in this browser, and never depend on published results.</p>
 	{#if data.saved && !form}<p role="status" data-note-saved>Note saved.</p>{/if}
 	{#if data.deleted && !form}<p role="status" data-note-deleted>Note deleted.</p>{/if}
-	{#if form?.message}<p class="error" role="alert" id="note-error" data-op={form.op}>{form.message}</p>{/if}
+	{#if deleteError}<p class="error" role="alert" id="note-error" data-op="delete">{deleteError}</p>
+	{:else if form?.message}<p class="error" role="alert" id="note-error" data-op={form.op}>{form.message}</p>{/if}
 	{#if form?.op === 'delete' && form.current}<div data-server-version={form.current.version}><p>The note as it is now on the server:</p><NoteText note={form.current} /></div>{/if}
 
 	{#if data.canWrite}
-	<form method="POST" action="?/add" id="note-form">
+	<form method="POST" action="?/add" id="note-form" onsubmit={() => (saving = true)}>
 		<input type="hidden" name="operationId" value={operationId} />
 		<label for="note-body">New note</label><br />
-		<textarea id="note-body" name="body" rows="5" cols="60" maxlength="20000" required>{form?.op === 'add' ? (form.body ?? '') : ''}</textarea><br />
-		{#if draftVersion || draftRef}
+		<textarea id="note-body" name="body" rows="5" cols="60" maxlength="20000" required bind:value={body}></textarea><br />
+		{#if draftVersion || refused?.ref}
 			<input type="hidden" name="resultsVersion" value={draftVersion ?? ''} />
 			<label for="note-ref">Document ref (optional, to annotate a document of these results)</label><br />
-			<input id="note-ref" name="ref" value={draftRef} /><br />
-			{#if draftRef && draftVersion !== data.resultsVersion}<p data-note-target-moved>This draft still refers to {draftRef} in the results version you wrote it against. It cannot be saved while that version is not current; copy the text into a new note to choose another target.</p>{/if}
+			<input id="note-ref" name="ref" bind:value={ref} /><br />
+			{#if ref && draftVersion !== data.resultsVersion}<p data-note-target-moved>This draft still refers to {ref} in the results version you wrote it against. It cannot be saved while that version is not current; copy the text into a new note to choose another target.</p>{/if}
 		{/if}
 		<button type="submit" id="note-save">Save note</button>
 	</form>
+	<LeaveGuard {unsaved} what="Your note is not saved." {discard} />
 	{/if}
 
 	{#if data.notes.state === 'unavailable' && !form?.notes}
@@ -50,15 +88,15 @@
 		<h2>{items.length} notes</h2>
 		{#if items.length}
 			<ul class="notes" data-testid="case-notes-list">
-				{#each items as n, i (n.id)}
+				{#each items as n (n.id)}
 					<li data-note-id={n.id} data-note-version={n.version}>
 						<NoteText note={n} />
 						{#if data.canWrite}
-							<form method="POST" action="?/delete">
+							<form method="POST" action="?/delete" use:enhance={removeNote}>
 								<input type="hidden" name="id" value={n.id} />
 								<input type="hidden" name="version" value={n.version} />
-								<input type="hidden" name="operationId" value={`${data.operationId}.d${i}`} />
-								<ConfirmDelete bind:pending={confirming} target={n.id} question="Delete this note?" data-action="delete-note" />
+								<input type="hidden" name="operationId" value={`${data.operationId}.d.${n.id}`} />
+								<ConfirmDelete bind:pending={confirming} target={n.id} question="Delete this note?" data-action="delete-note" disabled={deleting === n.id} />
 							</form>
 						{/if}
 					</li>

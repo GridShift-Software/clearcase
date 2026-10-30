@@ -1,12 +1,14 @@
 // Written-review probes promoted to regressions. Scripted ports and SSR only, not live hosted evidence.
 import { render } from 'svelte/server';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { contractError } from '../../../src/lib/server/runtime/errors.ts';
 import NotesPage from '../../../deploy/client/routes/cases/[caseId]/notes/+page.svelte';
 import { load as caseLoad } from '../../../deploy/client/routes/cases/[caseId]/+page.server.ts';
 import { load as chronoLoad } from '../../../deploy/client/routes/cases/[caseId]/views/[resultsVersion]/chronology/+page.server.ts';
 import { actions, load as notesLoad } from '../../../deploy/client/routes/cases/[caseId]/notes/+page.server.ts';
 import { CASE, OLD_RV, RV, event, fake, form, outcome } from './doubles.ts';
+vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
+vi.mock('$app/navigation', () => ({ goto: () => Promise.resolve(), invalidateAll: () => Promise.resolve(), beforeNavigate: () => {}, afterNavigate: () => {} }));
 
 const published = { kind: 'published' as const, resultsVersion: RV };
 const OP = 'retry-document-note';

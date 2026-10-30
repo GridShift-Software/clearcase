@@ -99,11 +99,11 @@ const DOC_PATH = `/cases/c1/v/${encodeURIComponent(RV)}/doc/D-001`;
 
 function open(Page: unknown, path: string, data: unknown, form: unknown = null) {
   dom = new JSDOM('<!doctype html><html><body></body></html>', { url: `${ORIGIN}${path}` });
-  for (const key of ['window', 'document', 'location', 'history', 'Node', 'Element', 'HTMLElement', 'HTMLButtonElement', 'Text', 'Comment', 'Event', 'SubmitEvent', 'FormData', 'MutationObserver'])
+  for (const key of ['window', 'document', 'location', 'history', 'Node', 'Element', 'HTMLElement', 'HTMLButtonElement', 'HTMLMediaElement', 'Text', 'Comment', 'Event', 'SubmitEvent', 'FormData', 'MutationObserver'])
     vi.stubGlobal(key, dom.window[key]);
   vi.stubGlobal('addEventListener', dom.window.addEventListener.bind(dom.window));
   vi.stubGlobal('removeEventListener', dom.window.removeEventListener.bind(dom.window));
-  vi.spyOn(dom.window.history, 'go').mockImplementation((delta: number) => { traversals.push({ delta, cancelled: navigate('popstate', popped, delta) }); });
+  vi.spyOn(dom.window.history as History, 'go').mockImplementation((delta = 0) => { traversals.push({ delta, cancelled: navigate('popstate', popped, delta) }); });
   // a native submit is a page load; it is held and recorded here instead of navigating the test window
   document.addEventListener('submit', (e) => {
     if (e.defaultPrevented) return;

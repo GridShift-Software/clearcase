@@ -108,6 +108,7 @@ case "$1 $2" in
 'versions view') cat "$FAKE/version.json" ;;
 *) echo "unexpected wrangler $*" >&2; exit 9 ;;
 esac
+if (( n == \${FAKE_FAIL_AFTER_OUTPUT_AT:-0} )); then echo 'synthetic Authentication error after response [code: 10000]' >&2; exit 1; fi
 `;
 const CURL_STUB = `#!/usr/bin/env bash
 out='' hdr='' url=''
@@ -120,7 +121,7 @@ printf %s "$code"
 let dirs: string[] = [];
 afterEach(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); dirs = []; });
 
-function verify(opts: { header?: string; version?: unknown; deployments?: unknown; failFrom?: number }) {
+function verify(opts: { header?: string; version?: unknown; deployments?: unknown; failFrom?: number; failAfterOutputAt?: number }) {
 	const fake = mkdtempSync(path.join(tmpdir(), 'staging-placement-')), bin = path.join(fake, 'bin');
 	dirs.push(fake);
 	mkdirSync(bin);
@@ -133,6 +134,7 @@ function verify(opts: { header?: string; version?: unknown; deployments?: unknow
 	writeFileSync(path.join(fake, 'health.headers'), `HTTP/2 200\r\ncontent-type: application/json\r\n${opts.header ?? ''}cf-ray: 0123456789abcdef-JNB\r\n\r\n`);
 	const env: Record<string, string> = { PATH: `${bin}:${process.env.PATH}`, HOME: process.env.HOME ?? fake, FAKE: fake, TMPDIR: path.join(fake, 'tmp') };
 	if (opts.failFrom) env.FAKE_FAIL_FROM = String(opts.failFrom);
+	if (opts.failAfterOutputAt) env.FAKE_FAIL_AFTER_OUTPUT_AT = String(opts.failAfterOutputAt);
 	const r = spawnSync('bash', [path.join(repo, 'scripts/deploy-staging.sh'), '--verify', SHA], { cwd: repo, env, encoding: 'utf8', timeout: 60_000 });
 	return { status: r.status, stdout: r.stdout, stderr: r.stderr, calls: readFileSync(path.join(fake, 'calls'), 'utf8').trim().split('\n').map((c) => c.split(' ').slice(0, 2).join(' ')),
 		// placement_proof's directory holds the Wrangler responses (bindings included); it must be gone, pass or fail.
@@ -154,6 +156,15 @@ describe('scripts/deploy-staging.sh --verify (stub Wrangler and curl)', () => {
 		expect(r.stderr).toContain('; placement: response execution observed (cf-placement remote-LHR)');
 		expect(r.status).toBe(0);
 		expect(r.calls).toEqual(['deployments list', 'versions view']);
+	});
+	it.each([1, 2])('fails when Wrangler read %i emits valid JSON but exits unsuccessfully', (call) => {
+		const r = verify({ header: 'cf-placement: remote-LHR\r\n', failAfterOutputAt: call });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain('synthetic Authentication error after response');
+		expect(r.stdout + r.stderr).not.toContain('smoke: PASS');
+		expect(r.stdout + r.stderr).not.toContain(BINDING_VALUE);
+		expect(r.calls).toEqual(['deployments list', 'versions view'].slice(0, call));
+		expect(r.tmpDirs).toEqual([]);
 	});
 	it('fails on a contradictory header even though the provider record is right', () => {
 		const r = verify({ header: 'cf-placement: local-JNB\r\n' });

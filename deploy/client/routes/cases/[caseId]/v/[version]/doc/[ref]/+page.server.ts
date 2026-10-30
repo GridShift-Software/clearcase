@@ -55,7 +55,7 @@ export async function load({ locals, params, url }: RequestEvent) {
 		links,
 		onDisk,
 		page: Number.isInteger(pageNo) && pageNo > 0 && pageNo < 1e6 ? pageNo : null,
-		attachments: attachments.map((x) => ({ ...x, links: x.route === 'direct' && doc.assetIds.attachments.includes(x.key)
+		attachments: attachments.map((x) => ({ ...x, links: x.route === 'direct' && !x.hasDocument && doc.assetIds.attachments.includes(x.key)
 			? { ...NONE, presentation: 'download' as const, download: `${originalHref(v.caseId, x.key)}?download=1` } : null })),
 		base: v.base,
 		notes: work.notes.map(noteView),

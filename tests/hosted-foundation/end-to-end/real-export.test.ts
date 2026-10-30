@@ -1,5 +1,5 @@
 // U14 local end to end. SYNTHETIC ONLY: a generated corpus (126 documents, one uncited original withheld, META counting one document
-// too many), the assembled native schema with increments 0005 to 0008 on node:sqlite, an in-memory R2, and the real `hostedServices`
+// too many), the assembled native schema through the staging original-metadata migration on node:sqlite, an in-memory R2, and the real `hostedServices`
 // composition behind the real routes. Clerk, the compiled PDF pins and the Browser Rendering SDK are doubles: the browser double
 // fabricates canvas proofs, so this proves the server's wiring, sealing, readiness, sign-off and publish, NOT that anything rendered.
 // It is not Cloudflare evidence: D1, R2, Workers limits and latency are not exercised.
@@ -72,13 +72,14 @@ vi.mock('../../../src/lib/publication/hosted/asset-policy.ts', async (original) 
 const ORIGIN = 'https://app.example', STAFF = 'https://staff-issuer.test', CLIENT_ISSUER = 'https://client-issuer.test';
 const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 const sources = (pins: readonly { path: string }[]) => pins.map((p) => ({ path: p.path, bytes: readFileSync(p.path) }));
-/** The schema B runs now plus every increment this branch registers, in order, each in its own transaction as the runbook applies them. */
+/** The assembled native schema plus the staging increments the current runtime requires, each in its own transaction. */
 function nativeSchema(db: DatabaseSync) {
   db.exec(assembleNativeSchema(sources(NATIVE_SCHEMA_INPUTS)).sql);
   db.exec(assembleNativeRuntimeMigration(sources(NATIVE_RUNTIME_MIGRATION_INPUTS)).sql);
   for (const sql of [assembleNativeRenderCaseLimitMigration(sources(NATIVE_RENDER_CASE_LIMIT_MIGRATION_INPUTS)).sql, assembleNativeEvidenceMigration(sources(NATIVE_EVIDENCE_MIGRATION_INPUTS)).sql,
     assembleNativeImportStagingMigration(sources(NATIVE_IMPORT_STAGING_MIGRATION_INPUTS)).sql, assembleNativeIntakeFileSetsMigration(sources(NATIVE_INTAKE_FILE_SETS_MIGRATION_INPUTS)).sql,
-    assembleNativePdfSessionsMigration(sources(NATIVE_PDF_SESSIONS_MIGRATION_INPUTS)).sql]) {
+    assembleNativePdfSessionsMigration(sources(NATIVE_PDF_SESSIONS_MIGRATION_INPUTS)).sql,
+    readFileSync('deploy/staging/migrations/0009_rs_original_etag.sql', 'utf8')]) {
     db.exec('BEGIN'); try { db.exec(sql); db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
 }

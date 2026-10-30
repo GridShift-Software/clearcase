@@ -46,6 +46,7 @@ export async function load({ locals, params, url }: RequestEvent) {
 	const work = await (fingerprint
 		? locals.userWork.readNoteWork({ caseId: v.caseId, target, store: PAGE_NOTE_STORE, rowsWhere: { field: 'sha256', equals: fingerprint } })
 		: locals.userWork.notesFor({ caseId: v.caseId, target }).then((notes) => ({ notes, rows: [] }))).catch((e) => refuse(e));
+	const projected = pageNotes(v.caseId, work.rows);
 	const pageNo = Number(url.searchParams.get('page'));
 	const { assetIds: _ids, mediaType: _media, originalState: _state, attachments, ...rest } = doc;
 	return {
@@ -57,7 +58,8 @@ export async function load({ locals, params, url }: RequestEvent) {
 		base: v.base,
 		notes: work.notes.map(noteView),
 		/** read only here: each links to its original's viewer, where it is changed or deleted */
-		pageNotes: documentPageNotes(pageNotes(v.caseId, work.rows), { sha256: fingerprint, assetId: doc.assetIds.own }),
+		pageNotes: documentPageNotes(projected, { sha256: fingerprint, assetId: doc.assetIds.own }),
+		pageNotesUnreadable: projected.unreadable,
 		operationId: crypto.randomUUID(),
 	};
 }

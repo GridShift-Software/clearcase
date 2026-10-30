@@ -80,6 +80,7 @@
 	type Note = (typeof data.notes)[number];
 	// Hosted only: the page notes written on this document's original in its viewer, shown read only.
 	const pageNotes = $derived((data as { pageNotes?: DocumentPageNote[] }).pageNotes ?? []);
+	const pageNotesUnreadable = $derived((data as { pageNotesUnreadable?: number }).pageNotesUnreadable ?? 0);
 	// The saved note shows only over the data it was saved on: any completed reload replaces `data` and retires it, so a
 	// note another tab deleted meanwhile is not shown again. Raw, so `data` keeps its identity for the comparison.
 	let saved = $state.raw<{ note: Note; data: typeof data } | null>(null);
@@ -155,7 +156,8 @@
 			{#each pageNotes as p (p.rowId)}
 				<li data-page-note={p.rowId}><PageNoteText note={p} elsewhere={!p.here} /></li>
 			{/each}
-			{#if !notes.length && !pageNotes.length}<li>No notes.</li>{/if}
+			{#if pageNotesUnreadable}<li data-page-notes-unreadable>{pageNotesUnreadable} stored {pageNotesUnreadable === 1 ? 'page note could' : 'page notes could'} not be read, so {pageNotesUnreadable === 1 ? 'it is' : 'they are'} not shown.</li>{/if}
+			{#if !notes.length && !pageNotes.length && !pageNotesUnreadable}<li>No notes.</li>{/if}
 		</ul>
 		{#if !access.canWrite}
 			<!-- a viewer reads the notes; adding and deleting them is an editor's -->

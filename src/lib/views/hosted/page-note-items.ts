@@ -34,6 +34,8 @@ export interface PageNotes { items: PageNoteItem[]; unreadable: number }
 const SHA256 = /^[0-9a-f]{64}$/;
 
 function itemOf(caseId: CaseId, r: Versioned<WorkRegisterRow>): PageNoteItem | null {
+  // Stored JSON can be valid without being a fields object; preserve the row in the unreadable count.
+  if (r.fields === null || typeof r.fields !== 'object' || Array.isArray(r.fields)) return null;
   const { assetId, page, body, sha256 } = r.fields;
   if (r.store !== PAGE_NOTE_STORE || typeof assetId !== 'string' || !assetId || typeof sha256 !== 'string' || !SHA256.test(sha256)) return null;
   if (typeof page !== 'number' || !Number.isSafeInteger(page) || page < 1 || page > MAX_PAGE) return null;

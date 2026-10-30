@@ -176,6 +176,13 @@ export function createMemoryWork(ctx: MemoryContext, store: C.CaseReader): C.Asy
       return change(a, ['overlay', a], (next, version) => { const k = key(a.overlay.datasetKey, a.overlay.seedId), conflict = compare(a.expected, next.overlays.get(k)); if (conflict) return { kind: conflict }; next.overlays.set(k, { ...copy(a.overlay), fields: fields(a.overlay.fields), version }); return { kind: 'written', value: undefined }; });
     },
     async listRows(a) { await authorize(a); storeName(a.store); return copy([...ctx.work(a.caseId).rows.values()].filter((r) => r.store === a.store)); },
+    async readNoteWork(a) {
+      storeName(a.store);
+      await authorize(a);
+      const current = ctx.work(a.caseId), where = a.rowsWhere;
+      return copy({ notes: [...current.notes.values()].filter((n) => a.target === null || JSON.stringify(n.target) === JSON.stringify(a.target)),
+        rows: [...current.rows.values()].filter((r) => r.store === a.store && (!where || r.fields[where.field] === where.equals)) });
+    },
     async readViewWork(a) {
       storeName(a.store);
       if (a.datasetKey !== undefined) storeName(a.datasetKey);

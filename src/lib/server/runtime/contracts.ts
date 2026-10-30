@@ -102,6 +102,12 @@ export interface AsyncUserWork {
   listRows(a: Scope & { store: string }): Promise<readonly Versioned<WorkRegisterRow>[]>;
   /** One authorized snapshot of a register and optional seed overlays. Imported seeds come from the admitted view shard. */
   readViewWork(a: Scope & { store: string; datasetKey?: string }): Promise<{ rows: readonly Versioned<WorkRegisterRow>[]; overlays: readonly Versioned<SeedOverlay>[] }>;
+  /**
+   * One authorized snapshot of the case's notes (as notesFor) and of one register's rows, binding included: a page that
+   * lists both costs one read. `rowsWhere` keeps only rows whose field holds that string (a document's page notes by its
+   * original's SHA-256), so a document page never reads the rest of the register.
+   */
+  readNoteWork(a: Scope & { target: NoteTarget | null; store: string; rowsWhere?: { field: string; equals: string } }): Promise<{ notes: readonly Versioned<HostedNote>[]; rows: readonly Versioned<WorkRegisterRow>[] }>;
   putRow(a: WriteScope & { store: string; rowId: string | null; fields: Fields; anchor: Anchor | null }): Promise<Written<AddResult>>;
   deleteRow(a: UpdateScope & { store: string; rowId: string }): Promise<Written<boolean>>;
   tables(): Promise<readonly UserWorkTable[]>; defineTable(a: { definition: TableDefinition }): Promise<void>; registerStores(a: Scope): Promise<readonly string[]>;

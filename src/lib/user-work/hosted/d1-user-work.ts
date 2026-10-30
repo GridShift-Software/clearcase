@@ -86,6 +86,8 @@ function compare(expected: C.Expected, current: { version: string } | null | und
   return !current ? 'gone' : current.version !== expected.version ? 'stale' : null;
 }
 const sameJson = (a: unknown, b: unknown) => canonical(a) === canonical(b);
+/** A top-level register field a read may select rows by; never a JSON path of the caller's own. */
+const FIELD = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 
 type Ledger = { request_sha256: string; result_json: string; event_json: string; audited_at: string | null };
 type Plan<T> = { kind: 'stale' | 'gone' } | { kind: 'written'; value: T; statements: D1Statement[]; collision?: () => Promise<Error | null>; beforeCommit?: () => Promise<void> };
@@ -477,6 +479,36 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
         };
       });
     },
+    async readNoteWork(a) {
+      storeName(a.store);
+      if (a.rowsWhere !== undefined && (!FIELD.test(a.rowsWhere?.field ?? '') || typeof a.rowsWhere.equals !== 'string')) invalid();
+      const { db, caseId } = await authorize(a, 'read', true);
+      if (a.target !== null && !TargetCheck.Check(a.target)) invalid();
+      if (a.target?.kind === 'document' && a.target.anchor.caseId !== caseId) throw contractError('forbidden');
+      const document = a.target?.kind === 'document' ? a.target.anchor : null, where = a.rowsWhere;
+      // Binding, notes and rows are one read, as readViewWork: an absent or foreign binding yields no row, never empty lists.
+      return read(async () => {
+        const snapshot = await db.prepare(`SELECT
+          (SELECT json_group_array(json(item)) FROM (
+            SELECT json_object('note_id',note_id,'target_json',target_json,'body',body,'body_sha256',body_sha256,'created_at',created_at,'version',version) AS item
+            FROM uw_note WHERE case_id = ?${document ? " AND target_kind = 'document' AND anchor_results_version = ? AND anchor_ref = ?" : ''} ORDER BY rowid
+          )) AS notes_json,
+          (SELECT json_group_array(json(item)) FROM (
+            SELECT json_object('row_id',row_id,'store',store,'anchor_json',anchor_json,'fields_json',fields_json,
+              'fields_sha256',fields_sha256,'created_at',created_at,'updated_at',updated_at,'version',version) AS item
+            FROM uw_register_row WHERE case_id = ? AND store = ?${where ? ' AND CASE WHEN json_valid(fields_json) THEN json_extract(fields_json, ?) END = ?' : ''} ORDER BY rowid
+          )) AS rows_json
+          FROM uw_binding WHERE singleton = 1 AND client_id = ? AND schema_version = ?`)
+          .bind(caseId, ...(document ? [document.resultsVersion, document.refAtCreation] : []), caseId, a.store, ...(where ? [`$.${where.field}`, where.equals] : []), config.clientId, USER_WORK_SCHEMA_VERSION)
+          .first<{ notes_json: string; rows_json: string }>();
+        if (!snapshot) throw contractError('storage-unavailable');
+        const notes = await Promise.all((JSON.parse(snapshot.notes_json) as NoteDb[]).map(noteOf));
+        return {
+          notes: a.target === null ? notes : notes.filter((n) => sameJson(n.target, a.target)),
+          rows: await Promise.all((JSON.parse(snapshot.rows_json) as RegisterDb[]).map(registerOf)),
+        };
+      });
+    },
     async putRow(a) {
       const caseId = caseOf(a);
       storeName(a.store);
@@ -775,6 +807,7 @@ export function createD1UserWork(options: D1UserWorkOptions): D1UserWork {
     putSeedOverlay: wrap(work.putSeedOverlay, caseScope, 'write'),
     listRows: wrap(work.listRows, caseScope, 'read'),
     readViewWork: wrap(work.readViewWork, caseScope, 'read'),
+    readNoteWork: wrap(work.readNoteWork, caseScope, 'read'),
     putRow: wrap(work.putRow, caseScope, 'write'),
     deleteRow: wrap(work.deleteRow, caseScope, 'write'),
     tables: wrap(work.tables, () => null, 'read'),

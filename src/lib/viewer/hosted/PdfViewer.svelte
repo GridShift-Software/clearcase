@@ -15,6 +15,9 @@
 	let status = $state<'loading' | 'ready' | 'error'>('loading');
 	let pages = $state(0);
  let renderedPage = $state<number | null>(null);
+	// The page the canvas holds. A draw of another page clears it at once (the reader may already be painting that page),
+	// and only the latest draw's success sets it, so a note can be saved only to the page on screen.
+	let shown = $state<number | null>(null);
 	let current = $state(1);
 	let pageError = $state('');
 	let scale = $state(1.2);
@@ -61,9 +64,10 @@
 	const draw = () => {
 		renderedPage = null;
 		const page = current;
+		if (page !== shown) shown = null;
 		const r = reader, generation = ++drawGeneration;
 		const width = viewport?.clientWidth;
-		return active && r && canvas ? (width ? r.draw(current, scale, width) : r.draw(current, scale)).then(() => { if (active && generation === drawGeneration) renderedPage = page; }).catch(() => {
+		return active && r && canvas ? (width ? r.draw(current, scale, width) : r.draw(current, scale)).then(() => { if (active && generation === drawGeneration) renderedPage = shown = page; }).catch(() => {
 			if (active && r === reader && generation === drawGeneration) status = 'error';
 		}) : Promise.resolve();
 	};
@@ -130,7 +134,7 @@
 		}
 	}
 	async function add() {
-		if (!active || pending || status !== 'ready' || !canUseNotes) return;
+		if (!active || pending || status !== 'ready' || !canUseNotes || shown !== current) return;
 		const revision = draftRevision, page = current, body = draft;
 		if (!retry || retry.revision !== revision || retry.page !== page || retry.body !== body) retry = { revision, page, body, operationId: operation() };
 		pending = true;
@@ -165,13 +169,14 @@
 		<p>
 			<button type="button" onclick={() => go(current - 1)} disabled={status !== 'ready' || current <= 1}>Previous</button>
 			<label>Page <input type="number" min="1" max={pages || 1} value={current} onchange={(e) => enterPage(e.currentTarget)} disabled={status !== 'ready'} /></label> of {pages || '…'}
+			<span role="status">{#if status === 'ready' && shown !== current}Loading page {current}…{/if}</span>
 			<button type="button" onclick={() => go(current + 1)} disabled={status !== 'ready' || current >= pages}>Next</button>
 			<button type="button" onclick={() => zoom(0.8)} disabled={status !== 'ready'}>Zoom out</button>
 			<button type="button" onclick={() => zoom(1.25)} disabled={status !== 'ready'}>Zoom in</button>
 			<a data-action="download-original" href={downloadHref}>Download</a>
 		</p>
 		{#if pageError}<p role="alert">{pageError}</p>{/if}
-		<div class="pdf-viewport" bind:this={viewport}><canvas data-testid="pdf-page" data-page-number={renderedPage ?? undefined} data-rendered={renderedPage !== null ? "true" : undefined} bind:this={canvas} aria-label={`Page ${current}`}></canvas></div>
+		<div class="pdf-viewport" bind:this={viewport}><canvas data-testid="pdf-page" data-page-number={renderedPage ?? undefined} data-rendered={renderedPage !== null ? "true" : undefined} bind:this={canvas} aria-label={`Page ${current}`} style:visibility={shown === current ? null : 'hidden'}></canvas></div>
 	{/if}
 </div>
 
@@ -190,7 +195,7 @@
 		{#if writable}
 			<form onsubmit={(e) => { e.preventDefault(); void add(); }}>
 				<label>Note on page {current} <textarea bind:value={draft} oninput={() => { draftRevision++; }} maxlength="2000" required></textarea></label>
-				<button type="submit" disabled={pending || status !== 'ready'}>Save note</button>
+				<button type="submit" disabled={pending || status !== 'ready' || shown !== current}>Save note</button>
 			</form>
 		{/if}
 		{#if noteError}<p role="alert">{noteError}</p>{/if}

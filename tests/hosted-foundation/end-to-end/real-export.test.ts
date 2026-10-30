@@ -14,12 +14,7 @@ import { prepareHostedPdfAssets } from '../../../scripts/hosted-pdf-assets.ts';
 import { installWorkerdRedirectContract } from '../workerd-redirect-contract.ts';
 import { pdfBrowser } from '../native-render-check/pdf-evidence-world.ts';
 import { assembleNativeSchema, NATIVE_SCHEMA_INPUTS } from '../../../deploy/native-alpha/schema.ts';
-import {
-  assembleNativeRuntimeMigration, NATIVE_RUNTIME_MIGRATION_INPUTS, assembleNativeRenderCaseLimitMigration, NATIVE_RENDER_CASE_LIMIT_MIGRATION_INPUTS,
-  assembleNativeEvidenceMigration, NATIVE_EVIDENCE_MIGRATION_INPUTS, assembleNativeImportStagingMigration, NATIVE_IMPORT_STAGING_MIGRATION_INPUTS,
-  assembleNativeIntakeFileSetsMigration, NATIVE_INTAKE_FILE_SETS_MIGRATION_INPUTS, assembleNativePdfSessionsMigration, NATIVE_PDF_SESSIONS_MIGRATION_INPUTS,
-  assembleNativeOriginalMetadataMigration, NATIVE_ORIGINAL_METADATA_MIGRATION_INPUTS,
-} from '../../../deploy/native-alpha/runtime-migration.ts';
+import { NATIVE_MIGRATION_SEQUENCE } from '../../../deploy/native-alpha/runtime-migration.ts';
 import type { Identity, Principal, SessionId } from '../../../src/lib/server/runtime/contracts.ts';
 import type { AuthorizeCase } from '../../../src/lib/tenancy/authorizer.ts';
 import { installNativeCompositions } from '../../../src/lib/server/runtime/hosted/compositions.ts';
@@ -47,6 +42,9 @@ import { POST as publishRoute } from '../../../deploy/client/routes/operator/pub
 import { load as recordsLoad } from '../../../deploy/client/routes/cases/[caseId]/views/[resultsVersion]/records/[key]/+page.server.ts';
 import { load as viewLoad } from '../../../deploy/client/routes/cases/[caseId]/originals/[assetId]/view/+page.server.ts';
 import { GET as originalRoute } from '../../../deploy/client/routes/cases/[caseId]/originals/[assetId]/+server.ts';
+import { load as caseLoad } from '../../../deploy/client/routes/cases/[caseId]/+page.server.ts';
+import { USER_WORK_SCHEMA_VERSION } from '../../../src/lib/user-work/hosted/d1-user-work.ts';
+import type { RequestServices } from '../../../src/lib/server/runtime/contracts.ts';
 
 // Clerk is replaced by a provider that answers per exact Request; each identity's case decisions go to the REAL grant authorizer
 // hostedServices hands the provider, so every read below is decided by the grant rows this test inserts.
@@ -76,11 +74,9 @@ const sources = (pins: readonly { path: string }[]) => pins.map((p) => ({ path: 
 /** The assembled native schema plus the staging increments the current runtime requires, each in its own transaction. */
 function nativeSchema(db: DatabaseSync) {
   db.exec(assembleNativeSchema(sources(NATIVE_SCHEMA_INPUTS)).sql);
-  db.exec(assembleNativeRuntimeMigration(sources(NATIVE_RUNTIME_MIGRATION_INPUTS)).sql);
-  for (const sql of [assembleNativeRenderCaseLimitMigration(sources(NATIVE_RENDER_CASE_LIMIT_MIGRATION_INPUTS)).sql, assembleNativeEvidenceMigration(sources(NATIVE_EVIDENCE_MIGRATION_INPUTS)).sql,
-    assembleNativeImportStagingMigration(sources(NATIVE_IMPORT_STAGING_MIGRATION_INPUTS)).sql, assembleNativeIntakeFileSetsMigration(sources(NATIVE_INTAKE_FILE_SETS_MIGRATION_INPUTS)).sql,
-    assembleNativePdfSessionsMigration(sources(NATIVE_PDF_SESSIONS_MIGRATION_INPUTS)).sql,
-    assembleNativeOriginalMetadataMigration(sources(NATIVE_ORIGINAL_METADATA_MIGRATION_INPUTS)).sql]) {
+  for (const packet of NATIVE_MIGRATION_SEQUENCE) {
+    const sql = packet.assemble(sources(packet.inputs)).sql;
+    if (packet.mode === null) { db.exec(sql); continue; }
     db.exec('BEGIN'); try { db.exec(sql); db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
 }
@@ -246,6 +242,20 @@ const STORAGE = { ...BUDGETS, maxRowsPerBatch: 100, maxPackageFileBytes: 16 << 2
   maxVerifyObjectsPerCaseWindow: 1 << 20, maxVerifyBytesPerCaseWindow: 16 * 2 ** 30 };
 
 describe('U14 real-export end to end (synthetic, local): intake, import, evidence, readiness, sign-off, publish, client read', () => {
+  it('a fresh declared native install serves the case page and the overview lookup through hostedServices', async () => {
+    const w = await world(), scope = { caseId: w.caseId };
+    w.raw.exec('INSERT INTO uw_binding (singleton,client_id,schema_version,bound_at) VALUES (1,?,?,?)', ids.clientA, USER_WORK_SCHEMA_VERSION, new Date().toISOString());
+    const page = await w.call(reader, async event => Response.json(await caseLoad(event)), 'GET', `/cases/${w.caseId}`, scope);
+    expect(page.status).toBe(200);
+    expect(await page.json()).toMatchObject({ caseId: w.caseId, notes: { state: 'available', count: 0 }, originals: { state: 'available', items: [] } });
+    const overview = await w.call(reader, async ({ locals }: { locals: RequestServices }) => {
+      expect(locals.overviewNoteSummary).toBeTypeOf('function');
+      return Response.json(await locals.caseRead!(scope));
+    }, 'GET', `/cases/${w.caseId}/v/sha256:${'a'.repeat(64)}/overview`, scope);
+    expect(overview.status).toBe(200);
+    expect(await overview.json()).toMatchObject({ caseId: w.caseId, info: { caseId: w.caseId, publication: { kind: 'none' } }, published: null });
+  });
+
   it(`takes a ${DOCUMENTS}-document package with a missing uncited original and a META disagreement to a published records view and a cited page`, async () => {
     const w = await world();
     const { caseId } = w, scope = { caseId };

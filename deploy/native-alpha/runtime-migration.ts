@@ -64,6 +64,15 @@ export const NATIVE_ORIGINAL_METADATA_MIGRATION_INPUTS = freeze([
 ]);
 export const NATIVE_ORIGINAL_METADATA_APPLIED_PDF_SESSIONS = freeze({ path: 'migrations/0008_native_pdf_sessions.sql', bytes: 5263,
 	sha256: 'sha256:de0b32f6349fc6b47a8854e368bbb8ea513c791961a5f1e2fa8401c4b4ec0b5a' });
+export const NATIVE_WORKSPACE_MIGRATION_MODE = 'workspace-0010';
+export const NATIVE_WORKSPACE_MIGRATION_INPUTS = freeze([
+	{ path: 'src/lib/publication/hosted/migrations/0006_shard_publication.sql', bytes: 2393, sha256: 'sha256:388180c00cd65ff6c3118d04b875768b664f830664de2296ee01b3fa3b2f8054' },
+	{ path: 'src/lib/publication/hosted/migrations/0007_shard_admission.sql', bytes: 6666, sha256: 'sha256:4c0f4e473dd3d1afbafb2b19364b773903bdf7ab020912d8fc01d7e90e5d9656' },
+	{ path: 'src/lib/submissions/migrations/0003_intake_notification.sql', bytes: 1561, sha256: 'sha256:819952aa9cb0788fc80a3eb3bda0cfff16e5f7dff14dcfffdee6e9bd0ca008f8' },
+	{ path: 'src/lib/user-work/hosted/migrations/0002_bundle_tables.sql', bytes: 2267, sha256: 'sha256:e7b61d30ff2a91a80680dc14d3086b23d5a3ee0606851b664cff536c7d4586f5' },
+]);
+export const NATIVE_WORKSPACE_APPLIED_ORIGINAL_METADATA = freeze({ path: 'migrations/0009_rs_original_etag.sql', bytes: 842,
+	sha256: 'sha256:75743d21631741053cd188cdcecedec3b07ad16c59a2d3420cf988f6ab3efdaa' });
 const CLIENTS = freeze([
 	{ slot: 'client-a', name: 'cc-sbx-a-20261023-db', id: 'cd257736-7bf3-49f6-8544-ac58c2207802' },
 	{ slot: 'client-b', name: 'cc-sbx-b-20261025-r1-db', id: '7c340891-9fcc-4398-8128-68abe726f130' },
@@ -193,6 +202,14 @@ const ORIGINAL_METADATA_PACKET = {
 		inputs: NATIVE_ORIGINAL_METADATA_MIGRATION_INPUTS, output, targets, providerProof: false, provisioned: false }),
 };
 
+const WORKSPACE_PACKET = {
+	tag: NATIVE_WORKSPACE_MIGRATION_MODE, inputs: NATIVE_WORKSPACE_MIGRATION_INPUTS, sqlFile: 'migrations/0010_native_workspace.sql', manifestFile: 'workspace-migration.json', privateStage: true,
+	header: '-- ClearCase native hosted workspace increment 0010. Requires the applied native increments through 0009.\n',
+	manifest: (output: Output, targets: Target[]) => ({ schema: 'clearcase.native-workspace-migration/1', mode: NATIVE_WORKSPACE_MIGRATION_MODE,
+		initialSchemaDependency: NATIVE_RUNTIME_INITIAL_SCHEMA, appliedOriginalMetadataDependency: NATIVE_WORKSPACE_APPLIED_ORIGINAL_METADATA,
+		inputs: NATIVE_WORKSPACE_MIGRATION_INPUTS, output, targets, providerProof: false, provisioned: false }),
+};
+
 function assemble<M extends { readonly targets: readonly Target[] }>(packet: Packet<M>, inputs: readonly { path: string; bytes: Uint8Array }[]) {
 	const items = dense(inputs, packet.inputs.length, 'inputs');
 	const chunks: string[] = [];
@@ -240,6 +257,10 @@ export function assembleNativePdfSessionsMigration(inputs: readonly { path: stri
 /** Adds nullable original metadata after the historical packets; their emitted bytes remain unchanged. */
 export function assembleNativeOriginalMetadataMigration(inputs: readonly { path: string; bytes: Uint8Array }[]) {
 	return assemble(ORIGINAL_METADATA_PACKET, inputs);
+}
+
+export function assembleNativeWorkspaceMigration(inputs: readonly { path: string; bytes: Uint8Array }[]) {
+	return assemble(WORKSPACE_PACKET, inputs);
 }
 
 function realPath(file: string, directory: boolean) {
@@ -374,3 +395,18 @@ export const checkNativePdfSessionsMigrationInvocation = (value: { root: string;
 export const prepareNativeOriginalMetadataMigration = (value: { root: string; out: string }) => prepare(ORIGINAL_METADATA_PACKET, value);
 export const readNativeOriginalMetadataMigration = (value: { root: string; stage: string }) => read(ORIGINAL_METADATA_PACKET, value);
 export const checkNativeOriginalMetadataMigrationInvocation = (value: { root: string; stage: string; cwd: string; slot: NativeRuntimeMigrationSlot; argv: readonly string[] }) => checkInvocation(ORIGINAL_METADATA_PACKET, value);
+export const prepareNativeWorkspaceMigration = (value: { root: string; out: string }) => prepare(WORKSPACE_PACKET, value);
+export const readNativeWorkspaceMigration = (value: { root: string; stage: string }) => read(WORKSPACE_PACKET, value);
+export const checkNativeWorkspaceMigrationInvocation = (value: { root: string; stage: string; cwd: string; slot: NativeRuntimeMigrationSlot; argv: readonly string[] }) => checkInvocation(WORKSPACE_PACKET, value);
+
+/** The ordered upgrades after the frozen 0001 baseline, shared by the CLI and fresh-install consumers. */
+export const NATIVE_MIGRATION_SEQUENCE = freeze([
+	{ mode: null, inputs: NATIVE_RUNTIME_MIGRATION_INPUTS, assemble: assembleNativeRuntimeMigration, prepare: prepareNativeRuntimeMigration, read: readNativeRuntimeMigration },
+	{ mode: NATIVE_RENDER_CASE_LIMIT_MIGRATION_MODE, inputs: NATIVE_RENDER_CASE_LIMIT_MIGRATION_INPUTS, assemble: assembleNativeRenderCaseLimitMigration, prepare: prepareNativeRenderCaseLimitMigration, read: readNativeRenderCaseLimitMigration },
+	{ mode: NATIVE_EVIDENCE_MIGRATION_MODE, inputs: NATIVE_EVIDENCE_MIGRATION_INPUTS, assemble: assembleNativeEvidenceMigration, prepare: prepareNativeEvidenceMigration, read: readNativeEvidenceMigration },
+	{ mode: NATIVE_IMPORT_STAGING_MIGRATION_MODE, inputs: NATIVE_IMPORT_STAGING_MIGRATION_INPUTS, assemble: assembleNativeImportStagingMigration, prepare: prepareNativeImportStagingMigration, read: readNativeImportStagingMigration },
+	{ mode: NATIVE_INTAKE_FILE_SETS_MIGRATION_MODE, inputs: NATIVE_INTAKE_FILE_SETS_MIGRATION_INPUTS, assemble: assembleNativeIntakeFileSetsMigration, prepare: prepareNativeIntakeFileSetsMigration, read: readNativeIntakeFileSetsMigration },
+	{ mode: NATIVE_PDF_SESSIONS_MIGRATION_MODE, inputs: NATIVE_PDF_SESSIONS_MIGRATION_INPUTS, assemble: assembleNativePdfSessionsMigration, prepare: prepareNativePdfSessionsMigration, read: readNativePdfSessionsMigration },
+	{ mode: NATIVE_ORIGINAL_METADATA_MIGRATION_MODE, inputs: NATIVE_ORIGINAL_METADATA_MIGRATION_INPUTS, assemble: assembleNativeOriginalMetadataMigration, prepare: prepareNativeOriginalMetadataMigration, read: readNativeOriginalMetadataMigration },
+	{ mode: NATIVE_WORKSPACE_MIGRATION_MODE, inputs: NATIVE_WORKSPACE_MIGRATION_INPUTS, assemble: assembleNativeWorkspaceMigration, prepare: prepareNativeWorkspaceMigration, read: readNativeWorkspaceMigration },
+] as const);

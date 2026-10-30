@@ -5,26 +5,20 @@ import { fileURLToPath } from 'node:url';
 import * as packets from '../deploy/native-alpha/runtime-migration.ts';
 
 // The runtime packet takes no mode; each later increment is named by its own mode and nothing else.
-const INCREMENTS = {
-	[packets.NATIVE_RENDER_CASE_LIMIT_MIGRATION_MODE]: [packets.prepareNativeRenderCaseLimitMigration, packets.readNativeRenderCaseLimitMigration],
-	[packets.NATIVE_EVIDENCE_MIGRATION_MODE]: [packets.prepareNativeEvidenceMigration, packets.readNativeEvidenceMigration],
-	[packets.NATIVE_IMPORT_STAGING_MIGRATION_MODE]: [packets.prepareNativeImportStagingMigration, packets.readNativeImportStagingMigration],
-	[packets.NATIVE_INTAKE_FILE_SETS_MIGRATION_MODE]: [packets.prepareNativeIntakeFileSetsMigration, packets.readNativeIntakeFileSetsMigration],
-	[packets.NATIVE_PDF_SESSIONS_MIGRATION_MODE]: [packets.prepareNativePdfSessionsMigration, packets.readNativePdfSessionsMigration],
-	[packets.NATIVE_ORIGINAL_METADATA_MIGRATION_MODE]: [packets.prepareNativeOriginalMetadataMigration, packets.readNativeOriginalMetadataMigration],
-} as const;
-type Mode = keyof typeof INCREMENTS;
+const INCREMENTS = new Map<string, (typeof packets.NATIVE_MIGRATION_SEQUENCE)[number]>(
+	packets.NATIVE_MIGRATION_SEQUENCE.flatMap(packet => packet.mode === null ? [] : [[packet.mode, packet] as const]));
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2);
 const [command, stage, mode] = args;
+const selected = mode === undefined ? packets.NATIVE_MIGRATION_SEQUENCE[0] : INCREMENTS.get(mode);
 if ((args.length !== 2 && args.length !== 3) || !stage || stage.startsWith('-') || !['prepare', 'verify'].includes(command ?? '')
-	|| (mode !== undefined && !Object.hasOwn(INCREMENTS, mode))) {
-	console.error(`Usage: bun scripts/hosted-native-runtime-migration.ts <prepare|verify> <stage-directory> [${Object.keys(INCREMENTS).join('|')}] (offline only)`);
+	|| !selected) {
+	console.error(`Usage: bun scripts/hosted-native-runtime-migration.ts <prepare|verify> <stage-directory> [${[...INCREMENTS.keys()].join('|')}] (offline only)`);
 	process.exitCode = 2;
 } else {
 	try {
-		const [prepare, read] = mode === undefined ? [packets.prepareNativeRuntimeMigration, packets.readNativeRuntimeMigration] : INCREMENTS[mode as Mode];
+		const { prepare, read } = selected;
 		const result = command === 'prepare' ? prepare({ root, out: path.resolve(stage) }) : read({ root, stage: path.resolve(stage) });
 		console.log(result.manifestText.trimEnd());
 	} catch (error) {

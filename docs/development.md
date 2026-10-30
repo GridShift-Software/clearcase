@@ -90,9 +90,9 @@ A Node or Bun server pass is not hosted evidence; only these workerd runs are. N
 
 ### Native original metadata migration
 
-The current native runtime needs the additive increments through `0009_rs_original_etag.sql`, including on a fresh database. `assembleNativeSchema` emits the historical `0001` baseline; its bytes stay pinned. The `original-metadata-0009` packet in [runtime-migration.ts](../deploy/native-alpha/runtime-migration.ts) follows the existing `0008` PDF-session packet and adds nullable ETag and delivery-family columns without changing earlier rows or migrations.
+The current native runtime needs the complete `NATIVE_MIGRATION_SEQUENCE` in [runtime-migration.ts](../deploy/native-alpha/runtime-migration.ts), including on a fresh database. `assembleNativeSchema` emits the historical `0001` baseline; its bytes stay pinned. Apply that baseline, then the sequence in order. The CLI and fresh-install fixture consume the same sequence. Its source-migration completeness check fails if any migration under `src/lib` is absent or duplicated.
 
-Prepare and verify that packet offline with `bun scripts/hosted-native-runtime-migration.ts prepare .local/native-original-metadata original-metadata-0009` and the same command with `verify` instead of `prepare`. This stages SQL and the checked invocation; it does not contact a provider or apply a migration. Apply required increments before running the current artifact. Staging's deployment script already applies its matching `0009`; an existing database must not replay that DDL.
+After the existing `0008` PDF-session packet, `original-metadata-0009` adds nullable ETag and delivery-family columns. `workspace-0010` adds shard publication/admission, intake notification and bundle definitions. Prepare a packet offline with `bun scripts/hosted-native-runtime-migration.ts prepare .local/native-workspace workspace-0010` and verify it with the same command using `verify` instead of `prepare`. This stages SQL and its checked invocation; it does not contact a provider or apply a migration. Apply the required increments before running the current artifact. Staging applies its own migration sequence; do not replay native packets on that database.
 
 ### Test doubles and the GRS-138 feature map
 

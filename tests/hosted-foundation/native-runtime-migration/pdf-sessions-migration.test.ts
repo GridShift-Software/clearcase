@@ -3,10 +3,11 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { assembleNativeSchema, NATIVE_SCHEMA_INPUTS } from '../../../deploy/native-alpha/schema.ts';
+import * as nativePackets from '../../../deploy/native-alpha/runtime-migration.ts';
 import {
   assembleNativeRuntimeMigration, NATIVE_RUNTIME_MIGRATION_INPUTS, assembleNativeRenderCaseLimitMigration, NATIVE_RENDER_CASE_LIMIT_MIGRATION_INPUTS,
   assembleNativeEvidenceMigration, NATIVE_EVIDENCE_MIGRATION_INPUTS, assembleNativeImportStagingMigration, NATIVE_IMPORT_STAGING_MIGRATION_INPUTS,
@@ -15,6 +16,43 @@ import {
 } from '../../../deploy/native-alpha/runtime-migration.ts';
 
 const sources = (pins: readonly { path: string }[]) => pins.map((p) => ({ path: p.path, bytes: readFileSync(p.path) }));
+
+it('the declared native install carries every source migration exactly once', () => {
+  const declared = Object.entries(nativePackets).filter(([name]) => name.endsWith('_MIGRATION_INPUTS'))
+    .flatMap(([, pins]) => (pins as readonly { path: string }[]).map(p => p.path));
+  const carried = [...NATIVE_SCHEMA_INPUTS.map(p => p.path), ...declared];
+  const disk = readdirSync('src/lib', { recursive: true, encoding: 'utf8' }).filter(p => /(?:^|\/)migrations\/[^/]+\.sql$/.test(p)).map(p => `src/lib/${p}`);
+  expect([...carried].sort()).toEqual(disk.sort());
+  expect(new Set(carried).size).toBe(carried.length);
+  expect(nativePackets.NATIVE_MIGRATION_SEQUENCE.flatMap(packet => packet.inputs.map(p => p.path)).sort()).toEqual(declared.sort());
+});
+
+it('the workspace CLI packet upgrades the native prefix with shards, notifications and owned bundle definitions', () => {
+  const db = new DatabaseSync(':memory:'), root = process.cwd(), dir = mkdtempSync(path.join(tmpdir(), 'cc-native-workspace-'));
+  try {
+    db.exec('PRAGMA foreign_keys=ON');
+    db.exec(assembleNativeSchema(sources(NATIVE_SCHEMA_INPUTS)).sql);
+    for (const packet of nativePackets.NATIVE_MIGRATION_SEQUENCE) {
+      if (packet.mode !== nativePackets.NATIVE_WORKSPACE_MIGRATION_MODE) migrate(db, packet.assemble(sources(packet.inputs)).sql);
+    }
+    db.exec("INSERT INTO rs_case (case_id,case_label) VALUES ('case-existing','Synthetic existing case')");
+    const stage = path.join(dir, 'stage');
+    const cli = (...args: string[]) => spawnSync(process.execPath, ['scripts/hosted-native-runtime-migration.ts', ...args], { cwd: root, encoding: 'utf8' });
+    const prepared = cli('prepare', stage, nativePackets.NATIVE_WORKSPACE_MIGRATION_MODE);
+    expect(prepared.status, prepared.stderr).toBe(0);
+    expect(cli('verify', stage, nativePackets.NATIVE_WORKSPACE_MIGRATION_MODE).status).toBe(0);
+    const packet = nativePackets.readNativeWorkspaceMigration({ root, stage });
+    expect(packet.manifest.appliedOriginalMetadataDependency).toEqual(nativePackets.assembleNativeOriginalMetadataMigration(sources(nativePackets.NATIVE_ORIGINAL_METADATA_MIGRATION_INPUTS)).manifest.output);
+    migrate(db, packet.sql);
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE name IN ('rs_shard_manifest','rs_shard_entry','rs_shard_admission','sub_notification') ORDER BY name").all()).toHaveLength(4);
+    expect(db.prepare("SELECT name FROM uw_table_definition WHERE name IN ('bundles_custom','bundles_schedule_mark') ORDER BY name").all()).toHaveLength(2);
+    expect(db.prepare("SELECT case_label FROM rs_case WHERE case_id='case-existing'").get()).toEqual({ case_label: 'Synthetic existing case' });
+    expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    for (const target of packet.manifest.targets) expect(nativePackets.checkNativeWorkspaceMigrationInvocation({ root, stage, cwd: stage, slot: target.slot, argv: target.argv }).target).toEqual(target);
+    writeFileSync(path.join(stage, packet.manifest.output.path), 'tampered');
+    expect(cli('verify', stage, nativePackets.NATIVE_WORKSPACE_MIGRATION_MODE).status).toBe(1);
+  } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
+});
 function migrate(db: DatabaseSync, sql: string) {
   db.exec('BEGIN');
   try { db.exec(sql); db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }

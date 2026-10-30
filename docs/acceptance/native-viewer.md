@@ -22,7 +22,9 @@ Ranges, `If-Range` (exact current strong ETag keeps the range; anything else get
 
 ## Page notes
 
-A note is a person's remark on one page of one original, kept in user work (`AsyncUserWork` register store `original-page-notes`), never in the browser. Each stores the original's SHA-256 at the time; a note whose original has since changed is listed as not current. Writes need a same-origin JSON body of at most 8 KiB, a page 1..100000 and 1..2000 well-formed characters, an `operationId` (a retry repeats), and an expected version to delete. The original must be readable by the caller first (404 otherwise, nothing written). User work not connected answers 503, never an empty list.
+A note is a person's remark on one page of one original, kept in user work (`AsyncUserWork` register store `original-page-notes`), never in the browser. Each stores the original's SHA-256 at the time. A note whose original has since changed is listed as not current. Writes need a same-origin JSON body of at most 8 KiB, a page 1..100000 and 1..2000 well-formed characters, and an `operationId` so a retry repeats the write.
+
+Deletion requires `rowId`, its expected `version`, an `operationId`, and `confirm` equal to that `rowId`. The viewer asks **Delete this note?** with **Confirm delete** and **Cancel**. Cancel sends no request and keeps the draft. A missing or wrong confirmation answers 400 without a write. The original must be readable first, otherwise the endpoint answers 404. User work not connected answers 503, never an empty list.
 
 ## Parent handoffs (nothing below is done here)
 
@@ -39,6 +41,8 @@ A note is a person's remark on one page of one original, kept in user work (`Asy
 Every fresh authorized viewer page load replaces the PDF component, including same-case/same-asset reloads after content changes. The key is the load object, not a content hash or storage id; no new server field is required. This deliberately resets page, zoom, notes, draft and retry identity on every load. The parent must continue passing a fresh load object, not mutate the old object in place.
 
 The component aborts pending reader loads and note requests on destruction. Late reader/load/render/save/delete completions cannot update a replacement viewer. An aborted request may already have committed on the server; it stays addressed to the old original, and its result is ignored, never redirected. Adapter `open({ src, canvas, signal? })` accepts an optional AbortSignal; existing callers without a signal remain supported. Its `draw()` cancels the active PDF.js RenderTask and waits for it before resizing/reusing the canvas. Superseded work is ignored; a current PDF failure still rejects.
+
+Page lookups run outside the canvas queue, so a newer prepared page can draw while an obsolete lookup is still pending. The obsolete lookup may continue reading ranges. Every redraw, including zoom and a changed viewport width, hides the canvas and disables **Save note** until the latest draw succeeds. A resize that keeps the viewport width does not redraw.
 
 Only one note mutation can be in flight per mounted viewer. The textarea remains editable. A save clears only the submitted draft revision; newer typing, even text changed away and back, survives. A failed unchanged draft/page retries the same operation id; changing either starts a new operation. Deletes retain their own operation id for retries. Transport failures show the not-saved message, not an unhandled rejection.
 

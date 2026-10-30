@@ -22,13 +22,16 @@ let dom: any, component: any, held: Map<number, ReturnType<typeof deferred>[]>, 
 const settle = async () => { for (let i = 0; i < 3; i++) { await new Promise((r) => setTimeout(r, 0)); flushSync(); } };
 /** A reader of `pages` pages whose draws of the pages in `hold` wait until the test settles them. */
 function reader(pages: number, hold: number[] = []) {
+  let target: HTMLCanvasElement | undefined;
   const r = { pages, destroy: vi.fn(), draw: vi.fn((n: number) => {
+    // As the real reader does at the start of every draw, a same-page zoom included (render-lifecycle.test.ts): resizing the canvas blanks it.
+    if (target) target.width = target.width;
     if (!hold.includes(n)) return Promise.resolve();
     const d = deferred();
     held.set(n, [...(held.get(n) ?? []), d]);
     return d.promise;
   }) };
-  (window as any).clearcasePdfReader = { open: vi.fn(async (a: { onPages?: (n: number) => void }) => { onPages = a.onPages; return r; }) };
+  (window as any).clearcasePdfReader = { open: vi.fn(async (a: { canvas: HTMLCanvasElement; onPages?: (n: number) => void }) => { target = a.canvas; onPages = a.onPages; return r; }) };
   return r;
 }
 const release = async (page: number, outcome: 'resolve' | 'reject' = 'resolve') => {
@@ -54,12 +57,14 @@ const saved = () => new Response(JSON.stringify({ note: { rowId: 'note-1', asset
 function showing(page: number) {
   expect(canvas().style.visibility).not.toBe('hidden');
   expect(canvas().getAttribute('aria-label')).toBe(`Page ${page}`);
+  expect(canvas().getAttribute('data-page-number')).toBe(String(page));
   expect(status()).not.toContain('Loading');
 }
 /** A page asked for but not drawn: the old drawing is hidden, the wait is said, and no note can be saved to it. */
 function pending(page: number) {
   expect(canvas().style.visibility).toBe('hidden');
   expect(status()).toContain(`Loading page ${page}`);
+  expect(canvas().hasAttribute('data-page-number')).toBe(false);
   expect(save().disabled).toBe(true);
 }
 beforeEach(() => {
@@ -110,14 +115,51 @@ it('lets neither a superseded draw nor a later page turn authorize a save', asyn
   expect(JSON.parse((fetcher.mock.calls as any)[0][1].body).page).toBe(3);
 });
 
-it('keeps the drawn page on screen and saveable while it is redrawn at another zoom, but not while another page is pending', async () => {
-  const r = reader(1200, [1000]); await start();
-  r.draw.mockImplementationOnce(() => new Promise<void>(() => {}));
+// GRS-291 replaces GRS-288's same-page expectation: its double never cleared the canvas, but the real reader blanks it as
+// soon as any redraw starts, so a zoom or resize redraw of the page on screen left a blank, saveable canvas on staging.
+it('treats a same-page zoom or resize redraw as pending and unsaveable until that redraw is drawn', async () => {
+  let observed: (() => void) | undefined;
+  vi.stubGlobal('ResizeObserver', class { constructor(run: () => void) { observed = run; } observe() {} disconnect() {} });
+  reader(1200, [1]); await start();
+  let width = 600;
+  Object.defineProperty(document.querySelector('.pdf-viewport')!, 'clientWidth', { configurable: true, get: () => width });
+  await release(1); showing(1);
+  const fetcher = vi.fn(async () => saved()); vi.stubGlobal('fetch', fetcher);
+  type('a note for the zoomed page');
   button('Zoom in').click(); flushSync(); await settle();
+  pending(1);
+  submit(); await settle(); expect(fetcher).not.toHaveBeenCalled();
+  // A second zoom supersedes the first: the first one's late success shows nothing.
+  button('Zoom out').click(); flushSync(); await settle();
+  const [first, second] = held.get(1)!;
+  first!.resolve(); await settle(); pending(1);
+  second!.resolve(); held.delete(1); await settle(); showing(1);
+  width = 320; observed!(); flushSync(); await settle();
+  pending(1);
+  submit(); await settle(); expect(fetcher).not.toHaveBeenCalled();
+  await release(1); showing(1);
+  submit(); await settle();
+  expect(fetcher).toHaveBeenCalledOnce();
+  expect(JSON.parse((fetcher.mock.calls as any)[0][1].body).page).toBe(1);
+});
+
+it('does not redraw, or hide the page, when only the viewport height changes', async () => {
+  let observed: (() => void) | undefined;
+  vi.stubGlobal('ResizeObserver', class { constructor(run: () => void) { observed = run; } observe() {} disconnect() {} });
+  const r = reader(1200); await start();
+  showing(1);
+  const draws = r.draw.mock.calls.length;
+  observed!(); flushSync(); await settle();
+  expect(r.draw.mock.calls.length).toBe(draws);
   showing(1); expect(save().disabled).toBe(false);
+});
+
+it('keeps a different page pending through a zoom while it is drawn', async () => {
+  reader(1200, [1000]); await start();
   enter(1000); await settle(); pending(1000);
   button('Zoom out').click(); flushSync(); await settle();
   pending(1000);
+  await release(1000); showing(1000);
 });
 
 it('refuses a note when the page draw fails, and when the viewer goes away mid-draw', async () => {

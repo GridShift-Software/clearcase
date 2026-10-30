@@ -5,8 +5,10 @@
 import { spawn } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { readdirSync, readFileSync, readlinkSync, rmSync } from 'node:fs';
+import { Server as HttpServer } from 'node:http';
+import { Server } from 'node:net';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { craftedWorld, type World } from './crafted.ts';
 import { realNode } from './harness.ts';
 
@@ -339,6 +341,42 @@ describe('process lifecycle: serve.mjs and its workerd stop with the runner that
 		}, 240_000);
 	}
 });
+
+test('a status listener reclaiming a released port cannot occupy a Worker endpoint', async () => {
+	const originalListen = Server.prototype.listen;
+	const originalHttpListen = HttpServer.prototype.listen;
+	const servers = new Set<Server>(), released: number[] = [];
+	let statusListeners = 0;
+	// Picking a recently released port is a valid port=0 allocation. Make that choice certain in this process;
+	// Wrangler and workerd still start in their real child processes, without this interceptor.
+	const intercept = (original: typeof originalListen) => function (this: Server, ...args: unknown[]) {
+		if (args[0] === 0 && args[1] === '127.0.0.1') {
+			if (this instanceof HttpServer) statusListeners++;
+			if (released.length) args[0] = released[released.length - 1];
+			servers.add(this);
+			this.once('listening', () => {
+				const address = this.address();
+				if (address && typeof address === 'object') this.once('close', () => released.push(address.port));
+			});
+		}
+		return Reflect.apply(original, this, args);
+	};
+	const listeners = [vi.spyOn(Server.prototype, 'listen').mockImplementation(intercept(originalListen)),
+		vi.spyOn(HttpServer.prototype, 'listen').mockImplementation(intercept(originalHttpListen))];
+	let other: World | undefined;
+	try {
+		other = await craftedWorld({ reuseBuild: true });
+		expect(statusListeners).toBe(1);
+		expect(new URL(other.status.url).port).not.toBe(new URL(other.origin.client).port);
+		expect(new URL(other.status.url).port).not.toBe(new URL(other.origin.staff).port);
+		expect((await other.get(other.origin.client, '/cases/case-1', { token: other.token(other.client, 'user_crafted_viewer1'), headers: json })).status).toBe(200);
+		expect((await other.get(other.origin.staff, '/manage/audit', { token: other.token(other.staff, 'user_crafted_ga'), headers: json })).status).toBe(200);
+	} finally {
+		for (const listener of listeners.reverse()) listener.mockRestore();
+		await other?.stop();
+		await Promise.all([...servers].filter((s) => s.listening).map((s) => new Promise<void>((resolve) => s.close(() => resolve()))));
+	}
+}, 180_000);
 
 // DIAG-108: CI timed the world out under load (the warm fetch's 120 s, or serve.mjs's 90 s). The two Workers ran in two
 // workerd processes on one persist root, so both held the same SQLite files open (each namespace's metadata.sqlite, the

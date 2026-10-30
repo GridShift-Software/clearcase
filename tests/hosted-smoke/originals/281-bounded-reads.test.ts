@@ -10,7 +10,7 @@ import { generatePdfAssets } from '../native-viewer/pdf-assets.ts';
 const SESSION = 'https://app.test/cases/case-a/originals/asset-1', SRC = `${SESSION}?t=synthetic`;
 const CHUNK = 2 ** 18, HEAD = 2 * CHUNK, TAIL = 2 ** 20, ROUND_TRIP = 40;
 
-type Built = { bytes: Uint8Array; offsets: number[] };
+type Built = { bytes: Uint8Array<ArrayBuffer>; offsets: number[] };
 function build(objects: string[]): Built {
   let text = '%PDF-1.4\n'; const offsets: number[] = [];
   objects.forEach((obj, i) => { offsets.push(text.length); text += `${i + 1} 0 obj\n${obj}\nendobj\n`; });

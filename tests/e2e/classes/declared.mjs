@@ -59,7 +59,6 @@ export const NO_TYPED_FIELD = {
  * Checked: the page's source (and the .svelte components it imports) must hold no LeaveGuard or beforeNavigate.
  */
 export const NO_GUARD = {
-	'/v/[vid]/doc/[ref]': 'the note form has no leave question (no LeaveGuard or beforeNavigate on the page); a note typed and left is dropped without asking',
 	'/v/[vid]/system/backup_tab': 'the restore form (a file, a path, a confirm box) has no leave question; nothing is saved until Restore is pressed and it asks nothing else',
 };
 

@@ -174,9 +174,11 @@ describe('vitest includes', () => {
 		expect(viewer).toContain(join(viewerDir, 'pdf-assets.test.ts'));
 		expect(viewer).toContain(join(viewerDir, 'intake-set-page.test.ts'));
 		expect(viewer).toContain(join(viewerDir, '08-page-count.test.ts'));
-		expect(viewer).toHaveLength(10);
-		expect(listed).toHaveLength(19);
-		expect(prefixed('root').length + viewer.length).toBe(19);
+		expect(viewer).toContain(join(viewerDir, '280-note-delete.test.ts'));
+		expect(viewer).toContain(join(viewerDir, '284-note-drafts.test.ts'));
+		expect(viewer).toHaveLength(12);
+		expect(listed).toHaveLength(21);
+		expect(prefixed('root').length + viewer.length).toBe(21);
 	});
 	test('the existing includes are kept', async () => {
 		const { default: config } = await import('../../vitest.config');

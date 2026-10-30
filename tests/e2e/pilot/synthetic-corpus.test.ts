@@ -68,7 +68,7 @@ it('imports and activates the default synthetic corpus over HTTP and returns exa
     CLEARCASE_DATA_DIR: path.join(root, 'data'), PORT: String(port), ORIGINALS_PORT: String(originalsPort),
     CLEARCASE_USERWORK_BACKUP_DELAY_MS: '60000',
   });
-  vite = await createServer({ root: ROOT, configFile: path.join(ROOT, 'vite.config.ts'), logLevel: 'silent', appType: 'custom',
+  vite = await createServer({ root: ROOT, cacheDir: path.join(root, 'vite-cache'), configFile: path.join(ROOT, 'vite.config.ts'), logLevel: 'silent', appType: 'custom',
     server: { middlewareMode: true, hmr: false, ws: false, watch: null } });
   http = httpServer(vite.middlewares);
   await new Promise<void>((resolve, reject) => {

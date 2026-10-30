@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { GET as views } from '../../../deploy/client/routes/cases/[caseId]/views/+server';
 import { GET as originals } from '../../../deploy/client/routes/cases/[caseId]/originals/+server';
 import { CASE, event, fake } from './doubles';
+vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
+vi.mock('$app/navigation', () => ({ goto: () => Promise.resolve(), invalidateAll: () => Promise.resolve(), beforeNavigate: () => {}, afterNavigate: () => {} }));
 
 it.each([views, originals])('returns a navigable 404 for an unpublished case, and refuses unknown cases', async (get) => {
   const f = fake({ publication: { kind: 'none' } });

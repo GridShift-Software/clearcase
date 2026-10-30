@@ -10,7 +10,7 @@ import type { LocalCase } from '../../src/lib/local-case/service.server';
 import { ackFor, cleanup, tempRoot } from '../../src/lib/local-case/test-support';
 
 vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
-vi.mock('$app/navigation', () => ({ invalidateAll: () => Promise.resolve() }));
+vi.mock('$app/navigation', () => ({ goto: () => Promise.resolve(), invalidateAll: () => Promise.resolve(), beforeNavigate: () => {}, afterNavigate: () => {} }));
 const { default: DocPage } = await import('../../src/routes/v/[vid]/doc/[ref]/+page.svelte');
 const { default: NotesPage } = await import('../../deploy/client/routes/cases/[caseId]/notes/+page.svelte');
 

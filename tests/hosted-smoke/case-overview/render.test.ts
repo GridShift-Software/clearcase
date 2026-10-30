@@ -1,7 +1,7 @@
 // Server renders of the hosted case pages with hostile synthetic case text: every filename, subject, label, tally key
 // and note body reaches the HTML as escaped text, never as markup. Unit doubles only; no browser.
 import { render } from 'svelte/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import CasePage from '../../../deploy/client/routes/cases/[caseId]/+page.svelte';
 import ChronologyPage from '../../../deploy/client/routes/cases/[caseId]/views/[resultsVersion]/chronology/+page.svelte';
 import NotesPage from '../../../deploy/client/routes/cases/[caseId]/notes/+page.svelte';
@@ -9,6 +9,8 @@ import { load as caseLoad } from '../../../deploy/client/routes/cases/[caseId]/+
 import { load as chronoLoad } from '../../../deploy/client/routes/cases/[caseId]/views/[resultsVersion]/chronology/+page.server.ts';
 import { load as notesLoad } from '../../../deploy/client/routes/cases/[caseId]/notes/+page.server.ts';
 import { CASE, RV, event, fake, seedNote } from './doubles.ts';
+vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
+vi.mock('$app/navigation', () => ({ goto: () => Promise.resolve(), invalidateAll: () => Promise.resolve(), beforeNavigate: () => {}, afterNavigate: () => {} }));
 
 const published = { kind: 'published' as const, resultsVersion: RV };
 const html = (C: unknown, props: Record<string, unknown>) => render(C as never, { props } as never).body;
@@ -23,7 +25,7 @@ describe('hosted case pages escape case text', () => {
     const body = html(CasePage, { data });
     safe(body);
     expect(body).toContain('data-overview-state="published"');
-    expect(body).toContain(`href="/cases/${CASE}/views/${encodeURIComponent(RV)}/chronology"`);
+    expect(body).toContain(`href="/cases/${CASE}/v/${encodeURIComponent(RV)}/chronology"`);
     expect(body).toContain('id="count-documents" data-count="3"');
   });
 

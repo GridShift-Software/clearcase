@@ -10,7 +10,7 @@ import { JSDOM } from 'jsdom';
 type Sent = { action: string; fields: Record<string, string> };
 const sent: Sent[] = [];
 let settle: ((ok: boolean) => void) | null = null;
-vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(async () => {}) }));
+vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(async () => {}), beforeNavigate: () => {}, afterNavigate: () => {}, goto: vi.fn(async () => {}) }));
 vi.mock('$app/forms', () => ({
   enhance: (form: HTMLFormElement, submit?: (input: unknown) => unknown) => {
     const onsubmit = async (e: SubmitEvent) => {
@@ -47,7 +47,7 @@ const button = (id: string, label: string) => [...row(id).querySelectorAll('butt
 const click = async (b: HTMLButtonElement | null) => { expect(b).not.toBeNull(); b!.click(); await tick(); };
 beforeEach(() => {
   dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://client-a.clearcase.test' });
-  for (const key of ['window', 'document', 'Node', 'Element', 'HTMLElement', 'HTMLButtonElement', 'Text', 'Comment', 'Event', 'SubmitEvent', 'FormData', 'MutationObserver'])
+  for (const key of ['window', 'document', 'Node', 'Element', 'HTMLElement', 'HTMLButtonElement', 'HTMLMediaElement', 'Text', 'Comment', 'Event', 'SubmitEvent', 'FormData', 'MutationObserver'])
     vi.stubGlobal(key, dom.window[key]);
   sent.length = 0; settle = null;
 });
@@ -55,7 +55,7 @@ afterEach(async () => { if (component) await unmount(component); component = nul
 
 for (const [page, Page, data, action] of [['the shared document page', DocPage, doc, '?/delnote'], ['the hosted case notes page', NotesPage, caseNotes, '?/delete']] as const) {
   it(`${page}: Delete asks, Cancel sends nothing and returns focus, Confirm sends the delete confirmed for that note`, async () => {
-    // the hosted case notes page has no enhance: its native submit is held here instead of navigating the test window
+    // a native submit is held here instead of navigating the test window
     document.addEventListener('submit', (e) => { if (!e.defaultPrevented) { e.preventDefault(); const f = e.target as HTMLFormElement, by = (e as SubmitEvent).submitter as HTMLButtonElement | null; const fd = new FormData(f); if (by?.name) fd.set(by.name, by.value); sent.push({ action: f.getAttribute('action')!, fields: Object.fromEntries([...fd].map(([k, v]) => [k, String(v)])) }); } });
     component = mount(Page as never, { target: document.body, props: { data, form: null } as never });
     flushSync();

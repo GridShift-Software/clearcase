@@ -19,7 +19,7 @@ describe('hosted case page: published overview', () => {
     expect(d.overview!.resultsVersion).toBe(RV);
     expect(d.overview!.documents.total).toBe(3);
     expect(d.overview!.subtitle).toBe('3 documents in a synthetic matter');
-    expect(d.overview!.chronologyHref).toBe(`/cases/${CASE}/views/${encodeURIComponent(RV)}/chronology`);
+    expect(d.overview!.chronologyHref).toBe(`/cases/${CASE}/v/${encodeURIComponent(RV)}/chronology`);
     // dataset names never become object keys in page data
     expect(d.overview!.tallies.byBundle).toContainEqual(['__proto__', 1]);
     expect(f.calls[0]).toBe('getCase');

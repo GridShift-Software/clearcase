@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
-	import { enhance } from '$app/forms';
+	import { applyAction, enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import type { SubmitFunction } from '$app/forms';
+	import { postNote } from '$lib/components/post-note';
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import ConfirmDelete from '$lib/components/ConfirmDelete.svelte';
 	import { deleteStep } from '$lib/components/confirm-delete';
 	import DateValue from '$lib/components/DateValue.svelte';
+	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
 	import OriginalOpen from '$lib/components/OriginalOpen.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { writeAccess } from '$lib/components/write-access';
@@ -38,22 +40,40 @@
 	});
 	let noteBusy = $state(false);
 	const noteRefused = $derived(!!form && 'body' in form);
+	// The composer's text is the page's own (GRS-284): a refused save's answer seeds it, and a saved note or Leave clears it.
+	let body = $state(untrack(() => (form && 'body' in form ? String(form.body) : '')));
+	let draftOperationId = $state<string | null>(untrack(() => form && 'body' in form && 'operationId' in form ? String(form.operationId) : null));
+	const operationId = $derived(draftOperationId ?? (form && 'operationId' in form ? String(form.operationId) : data.operationId));
+	function captureDraft() { draftOperationId ??= operationId; }
+	function discardDraft() { body = ''; draftOperationId = null; }
 	let noteError = $state<string | null>(null);
-	const submitNote: SubmitFunction = () => {
+	const submitNote: SubmitFunction = async (submission) => {
+		submission.cancel();
+		if (noteBusy) return;
+		captureDraft();
+		const submitted = draftOperationId;
 		noteBusy = true;
 		noteError = null;
-		return async ({ result, update }) => {
-			noteBusy = false;
+		try {
+			const result = await postNote(submission);
+			if (draftOperationId !== submitted) return;
 			if (result.type === 'error') { noteError = result.status && (result.error as { message?: string } | undefined)?.message || `The note was not saved: ${result.status ? `the app answered ${result.status}.` : 'the app did not answer.'} Your text is kept; try again.`; return; }
+			// A saved note clears the text here, not by a form reset, which would bring back a refused draft the server rendered.
+			if (result.type === 'success') discardDraft();
 			// A save that answers with its note (hosted) shows it at once and reloads the page's data behind it.
 			if (result.type === 'success' && result.data && 'note' in result.data) {
-				await update({ reset: true, invalidateAll: false });
+				await applyAction(result);
 				saved = { note: result.data.note as Note, data };
 				void invalidateAll();
 				return;
 			}
-			await update({ reset: result.type === 'success' });
-		};
+			if (result.type === 'success') await invalidateAll();
+			await applyAction(result);
+		} catch {
+			noteError = 'The note may not have been saved. Your text is kept; try again.';
+		} finally {
+			noteBusy = false;
+		}
 	};
 	type Note = (typeof data.notes)[number];
 	// The saved note shows only over the data it was saved on: any completed reload replaces `data` and retires it, so a
@@ -133,12 +153,13 @@
 			<!-- a viewer reads the notes; adding and deleting them is an editor's -->
 		{:else if data.source === 'results'}
 			<form method="POST" action="?/note" use:enhance={submitNote} id="note-form">
-				<input type="hidden" name="operationId" value={form && 'operationId' in form ? String(form.operationId) : data.operationId} />
-				<label for="note-body">Add a note</label><br /><textarea name="body" rows="3" cols="80" id="note-body" data-testid="note-body" maxlength="20000" required readonly={noteBusy} value={form && 'body' in form ? String(form.body) : ''}></textarea><br /><button id="note-add" data-testid="note-add" class="primary" disabled={noteBusy}>Add note</button>
+				<input type="hidden" name="operationId" value={operationId} />
+				<label for="note-body">Add a note</label><br /><textarea name="body" rows="3" cols="80" id="note-body" data-testid="note-body" maxlength="20000" required readonly={noteBusy} oninput={captureDraft} bind:value={body}></textarea><br /><button id="note-add" data-testid="note-add" class="primary" disabled={noteBusy}>Add note</button>
 				{#if noteBusy}<span role="status">Saving note…</span>{:else if form && 'saved' in form && form.saved}<span role="status">Note saved.</span>{/if}
 				{#if noteError ?? form?.message}<span class="error" role="alert">{noteError ?? form?.message}</span>{/if}
 				{#if noteRefused}<p class="note" id="note-delete-off">Delete is off until this note is saved: add it again, or reload the page to discard it.</p>{/if}
 			</form>
+			<LeaveGuard unsaved={body.trim() !== ''} what="Your note is not saved." discard={discardDraft} />
 		{:else}
 			<p id="note-unavailable">Notes are not available on this document: it has no imported original to anchor a note to, so a note would be lost when a new results version is imported.</p>
 		{/if}

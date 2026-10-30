@@ -28,7 +28,7 @@
 {:else}
 	<p class="pane-original"><span class="clip" title={state.view.filename}>{state.view.filename}</span> <a href={state.viewHref} data-action="open-viewer">Open full viewer</a></p>
 	{#if state.view.mode === 'pdf'}
-		{#key href}<PdfViewer src={state.view.srcHref} downloadHref={state.view.downloadHref} notesHref={state.notesHref} notes={[]} notesAvailable={false} />{/key}
+		{#key href}<PdfViewer src={state.view.srcHref} size={state.view.size} downloadHref={state.view.downloadHref} notesHref={state.notesHref} notes={[]} notesAvailable={false} />{/key}
 	{:else if state.view.mode === 'image'}
 		<img class="pane-image" src={state.view.srcHref} alt={state.view.filename} referrerpolicy="no-referrer" />
 	{:else if state.view.mode === 'email'}

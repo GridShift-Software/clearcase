@@ -6,13 +6,14 @@
 	// in the same page instance). Back or Forward goes on as the same traversal, so the entries beyond it stay (GRS-284).
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import { askFocus } from '$lib/components/ask-focus.svelte';
-	let { unsaved, what, discard }: { unsaved: boolean; what: string; discard?: () => void } = $props();
+	// Most composers survive their own action/route refresh. A viewer keyed by route data does not, so it opts out.
+	let { unsaved, what, discard, reloadKeepsDraft = true }: { unsaved: boolean; what: string; discard?: () => void; reloadKeepsDraft?: boolean } = $props();
 	let ask = $state<{ url: URL; delta: number | null } | null>(null);
 	let leaving = false;
 	let opener: Element | null = null;
 	beforeNavigate((nav) => {
-		if (leaving || nav.type === 'form' || !unsaved) return;
-		if (!nav.willUnload && nav.to?.url.pathname === nav.from?.url.pathname) return;
+		if (leaving || !unsaved) return;
+		if (reloadKeepsDraft && (nav.type === 'form' || (!nav.willUnload && nav.to?.url.pathname === nav.from?.url.pathname))) return;
 		nav.cancel();
 		if (nav.type === 'leave' || !nav.to) return;
 		if (!ask) opener = document.activeElement;

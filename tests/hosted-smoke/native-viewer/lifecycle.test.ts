@@ -59,7 +59,7 @@ function start(open = vi.fn(async () => reader())) {
 beforeEach(() => {
   guards.length = 0; afters.length = 0; destinations.length = 0;
   dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://case.test/cases/case-a/originals/A/view' });
-  for (const key of ['window', 'document', 'Node', 'Element', 'HTMLElement', 'HTMLCanvasElement', 'HTMLMediaElement', 'Text', 'Comment', 'Event', 'CustomEvent', 'MutationObserver'])
+  for (const key of ['window', 'document', 'history', 'Node', 'Element', 'HTMLElement', 'HTMLCanvasElement', 'HTMLMediaElement', 'Text', 'Comment', 'Event', 'CustomEvent', 'MutationObserver'])
     vi.stubGlobal(key, dom.window[key]);
   vi.stubGlobal('addEventListener', dom.window.addEventListener.bind(dom.window));
   vi.stubGlobal('removeEventListener', dom.window.removeEventListener.bind(dom.window));

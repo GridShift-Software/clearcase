@@ -8,6 +8,8 @@ import { mount, unmount, flushSync } from 'svelte';
 import { JSDOM } from 'jsdom';
 import Harness from './ViewerHarness.svelte';
 
+vi.mock('$app/navigation', () => ({ beforeNavigate: () => {}, afterNavigate: () => {}, goto: vi.fn(async () => {}) }));
+
 function deferred() {
   let resolve!: () => void, reject!: (reason: unknown) => void;
   const promise = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
@@ -71,6 +73,8 @@ beforeEach(() => {
   dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://case.test' });
   for (const key of ['window', 'document', 'Node', 'Element', 'HTMLElement', 'HTMLCanvasElement', 'HTMLMediaElement', 'Text', 'Comment', 'Event', 'CustomEvent', 'MutationObserver'])
     vi.stubGlobal(key, dom.window[key]);
+  vi.stubGlobal('addEventListener', dom.window.addEventListener.bind(dom.window));
+  vi.stubGlobal('removeEventListener', dom.window.removeEventListener.bind(dom.window));
   held = new Map(); onPages = undefined;
 });
 afterEach(async () => { if (component) await unmount(component); component = null; dom.window.close(); vi.unstubAllGlobals(); });

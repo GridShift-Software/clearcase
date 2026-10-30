@@ -68,7 +68,7 @@ export function patchPdfWorker(upstream: Buffer): Buffer {
  */
 const DECODERS = ['jbig2_nowasm_fallback.js', 'openjpeg_nowasm_fallback.js', 'LICENSE_JBIG2', 'LICENSE_OPENJPEG', 'LICENSE_PDFJS_JBIG2', 'LICENSE_PDFJS_OPENJPEG'].map((name) => `wasm/${name}`);
 export const HOSTED_PDF_DECODERS_DIGEST = 'sha256:64e5725ef447ad6f8d4b22db596eab1cb45682fbf1f8c631a926c4b7bc7eef41';
-export const HOSTED_PDF_READER_DIGEST = 'sha256:1c577c4a67a9d6927700ac642c591e8fff078a5dce6077ea5a78f90275113df5';
+export const HOSTED_PDF_READER_DIGEST = 'sha256:c487f874fc72264bdc72e3898c8b76c8fc83267ffef4587de84386400c65ac29';
 const READER = 'src/lib/viewer/hosted/static/pdf-reader.mjs';
 const hash = (bytes: Buffer | string) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 export type PdfAsset = { path: string; bytes: number; sha256: string };

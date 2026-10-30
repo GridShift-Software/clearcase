@@ -7,6 +7,8 @@
 	import { onMount, untrack } from 'svelte';
 	import type { PageNote } from './page-notes';
 	import { writeAccess } from '../../components/write-access';
+	import ConfirmDelete from '../../components/ConfirmDelete.svelte';
+	import { CONFIRM } from '../../components/confirm-delete';
 	let { src, size, downloadHref, notesHref, notes: initial, notesAvailable, requestedPage = null, canWrite }: { src: string; size?: number; downloadHref: string; notesHref: string; notes: readonly PageNote[]; notesAvailable: boolean; requestedPage?: string | null; canWrite?: boolean } = $props();
 	// a viewer reads the page notes; adding and deleting them is an editor's (the full viewer page passes its grant, the pane inherits the case layout's)
 	const access = writeAccess();
@@ -14,10 +16,11 @@
 	const READER = '/pdfjs/pdf-reader.mjs';
 	let status = $state<'loading' | 'ready' | 'error'>('loading');
 	let pages = $state(0);
- let renderedPage = $state<number | null>(null);
-	// The page the canvas holds. A draw of another page clears it at once (the reader may already be painting that page),
-	// and only the latest draw's success sets it, so a note can be saved only to the page on screen.
+	// The page the canvas holds. Every draw clears it at once, a zoom or resize of the same page included (the reader blanks
+	// the canvas when a draw starts), and only the latest draw's success sets it, so a note can be saved only to the page on screen.
 	let shown = $state<number | null>(null);
+	// The viewport width the latest draw fitted to: a resize that leaves it unchanged needs no redraw.
+	let fitted: number | undefined;
 	let current = $state(1);
 	let pageError = $state('');
 	let scale = $state(1.2);
@@ -27,6 +30,8 @@
 	let draft = $state('');
 	let noteError = $state('');
 	let pending = $state(false);
+	// The page note whose Delete awaits Confirm delete or Cancel.
+	let confirming = $state<string | null>(null);
  let canUseNotes = $state(untrack(() => notesAvailable));
 	let draftRevision = 0;
 	type Reader = { readonly pages: number; draw(page: number, scale: number, fitWidth?: number): Promise<void>; destroy(): void };
@@ -62,19 +67,18 @@
 		});
 	}
 	const draw = () => {
-		renderedPage = null;
+		shown = null;
 		const page = current;
-		if (page !== shown) shown = null;
 		const r = reader, generation = ++drawGeneration;
-		const width = viewport?.clientWidth;
-		return active && r && canvas ? (width ? r.draw(current, scale, width) : r.draw(current, scale)).then(() => { if (active && generation === drawGeneration) renderedPage = shown = page; }).catch(() => {
+		const width = fitted = viewport?.clientWidth;
+		return active && r && canvas ? (width ? r.draw(current, scale, width) : r.draw(current, scale)).then(() => { if (active && generation === drawGeneration) shown = page; }).catch(() => {
 			if (active && r === reader && generation === drawGeneration) status = 'error';
 		}) : Promise.resolve();
 	};
 	onMount(() => {
 		active = true;
     if (!notesAvailable) void fetch(notesHref,{credentials:'same-origin',signal:lifetime.signal}).then(r=>r.ok ? r.json() : null).then(out=>{if (active && out && Array.isArray(out.notes)) {notes=out.notes; canUseNotes=true;}}).catch(()=>{});
-		const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { if (reader) void draw(); });
+		const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { if (reader && viewport?.clientWidth !== fitted) void draw(); });
 		if (viewport) observer?.observe(viewport);
 		// The route keys this component by its authorized load. Capture the source before any await.
 		const source = src, bytes = size, target = canvas!;
@@ -154,7 +158,8 @@
 		deleteRetries.set(key, operationId);
 		pending = true;
 		try {
-			if (await send('DELETE', { rowId: n.rowId, version: n.version, operationId })) {
+			// The row-bound confirmation is the person's intent for this note, not authority: the endpoint checks that separately.
+			if (await send('DELETE', { rowId: n.rowId, version: n.version, operationId, [CONFIRM]: n.rowId })) {
 				if (active) notes = notes.filter((x) => x.rowId !== n.rowId);
 				deleteRetries.delete(key);
 			}
@@ -176,7 +181,7 @@
 			<a data-action="download-original" href={downloadHref}>Download</a>
 		</p>
 		{#if pageError}<p role="alert">{pageError}</p>{/if}
-		<div class="pdf-viewport" bind:this={viewport}><canvas data-testid="pdf-page" data-page-number={renderedPage ?? undefined} data-rendered={renderedPage !== null ? "true" : undefined} bind:this={canvas} aria-label={`Page ${current}`} style:visibility={shown === current ? null : 'hidden'}></canvas></div>
+		<div class="pdf-viewport" bind:this={viewport}><canvas data-testid="pdf-page" data-page-number={shown ?? undefined} data-rendered={shown !== null ? 'true' : undefined} bind:this={canvas} aria-label={`Page ${current}`} style:visibility={shown === current ? null : 'hidden'}></canvas></div>
 	{/if}
 </div>
 
@@ -187,7 +192,7 @@
 	{:else}
 		<ul>
 			{#each notes as n (n.rowId)}
-				<li data-page={n.page}>Page {n.page}: {n.body}{n.current ? '' : ' (the original has changed since this note)'}{#if writable} <button type="button" onclick={() => remove(n)} disabled={pending}>Delete</button>{/if}</li>
+				<li data-page={n.page}>Page {n.page}: {n.body}{n.current ? '' : ' (the original has changed since this note)'}{#if writable} <ConfirmDelete bind:pending={confirming} target={n.rowId} question="Delete this note?" onconfirm={() => void remove(n)} disabled={pending} />{/if}</li>
 			{:else}
 				<li>No notes yet.</li>
 			{/each}

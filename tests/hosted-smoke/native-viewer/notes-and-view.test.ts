@@ -126,11 +126,32 @@ describe('page notes persist through user work and stay on their own original', 
   it('answers a stale delete 409 and a delete of another original’s note 404, keeping both rows', async () => {
     const { w, work, rows } = await fixture();
     const made = (await (await send(w, work, 'POST', { operationId: op(), page: 1, body: 'keep' })).json()) as { note: { rowId: string; version: string } };
-    expect((await send(w, work, 'DELETE', { operationId: op(), rowId: made.note.rowId, version: 'v-old' })).status).toBe(409);
-    expect((await send(w, work, 'DELETE', { operationId: op(), rowId: made.note.rowId, version: made.note.version }, { assetId: 'a2' })).status).toBe(404);
+    expect((await send(w, work, 'DELETE', { operationId: op(), rowId: made.note.rowId, version: 'v-old', confirm: made.note.rowId })).status).toBe(409);
+    expect((await send(w, work, 'DELETE', { operationId: op(), rowId: made.note.rowId, version: made.note.version, confirm: made.note.rowId }, { assetId: 'a2' })).status).toBe(404);
     expect(rows.size).toBe(1);
-    expect((await send(w, work, 'DELETE', { operationId: op(), rowId: made.note.rowId, version: made.note.version })).status).toBe(200);
+    expect((await send(w, work, 'DELETE', { operationId: op(), rowId: made.note.rowId, version: made.note.version, confirm: made.note.rowId })).status).toBe(200);
     expect(rows.size).toBe(0);
+  });
+
+  it.each([['without a confirmation', {}], ['confirmed for another note', { confirm: 'row-other' }], ['with a non-text confirmation', { confirm: true }]])('refuses a delete %s with 400 and keeps the row', async (_label, confirmation) => {
+    const { w, work, rows } = await fixture();
+    const made = (await (await send(w, work, 'POST', { operationId: op(), page: 1, body: 'keep' })).json()) as { note: { rowId: string; version: string } };
+    const operationId = op();
+    const refused = await send(w, work, 'DELETE', { operationId, rowId: made.note.rowId, version: made.note.version, ...confirmation });
+    expect(refused.status).toBe(400);
+    expect(rows.size).toBe(1);
+    // The refusal used nothing up: the same operation, now confirmed, deletes the row.
+    expect((await send(w, work, 'DELETE', { operationId, rowId: made.note.rowId, version: made.note.version, confirm: made.note.rowId })).status).toBe(200);
+    expect(rows.size).toBe(0);
+  });
+
+  it('answers a confirmed delete for an original the caller cannot read 404, as for any absent original', async () => {
+    const { w, work, rows } = await fixture();
+    const made = (await (await send(w, work, 'POST', { operationId: op(), page: 1, body: 'keep' })).json()) as { note: { rowId: string; version: string } };
+    w.who.grants.delete('case-a');
+    expect((await send(w, work, 'DELETE', { operationId: op(), rowId: made.note.rowId, version: made.note.version, confirm: made.note.rowId })).status).toBe(404);
+    expect((await send(w, work, 'DELETE', { operationId: op(), rowId: made.note.rowId, version: made.note.version })).status).toBe(404);
+    expect(rows.size).toBe(1);
   });
 
   it('answers 503, not an empty list, when user work is not connected, and never keeps the note anywhere else', async () => {

@@ -131,33 +131,39 @@ window.clearcasePdfReader = {
 			draw(number, scale, fitWidth) {
 				const mine = ++ticket;
 				rendering?.cancel();
-				// Cancel promptly, but do not resize or reuse the canvas until the prior RenderTask settles.
-				const drawing = tail.then(async () => {
-					if (destroyed || mine !== ticket) return;
+				// The page lookup runs outside the canvas queue: a newer draw never waits for a superseded page's lookup,
+				// which on a large original can take many range reads. Only canvas use is serialized: a draw does not resize
+				// or reuse the canvas until the prior RenderTask, cancelled promptly above, settles.
+				return (async () => {
+					if (destroyed) return;
 					if (number > pages) throw new Error('no such page');
 					const page = await Promise.race([doc.getPage(number), failure]);
 					if (destroyed || mine !== ticket) return;
-					const natural = page.getViewport({ scale: 1 });
-					const fit = Number.isFinite(fitWidth) && fitWidth > 0 ? Math.min(1, fitWidth / (natural.width * 1.2)) : 1;
-					const viewport = page.getViewport({ scale: scale * fit });
-					const ratio = Math.max(1, Math.min(window.devicePixelRatio || 1, Math.sqrt(MAX_CANVAS_PIXELS / (viewport.width * viewport.height))));
-					canvas.width = Math.floor(viewport.width * ratio);
-					canvas.height = Math.floor(viewport.height * ratio);
-					canvas.style.width = `${Math.floor(viewport.width)}px`;
-					canvas.style.height = `${Math.floor(viewport.height)}px`;
-					const render = rendering = page.render({ canvas, viewport, transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0] });
-					try { await Promise.race([render.promise, failure]); }
-					finally { if (rendering === render) rendering = null; }
+					const prior = tail;
+					let done;
+					tail = new Promise((resolve) => { done = resolve; });
+					try {
+						await prior;
+						if (destroyed || mine !== ticket) return;
+						const natural = page.getViewport({ scale: 1 });
+						const fit = Number.isFinite(fitWidth) && fitWidth > 0 ? Math.min(1, fitWidth / (natural.width * 1.2)) : 1;
+						const viewport = page.getViewport({ scale: scale * fit });
+						const ratio = Math.max(1, Math.min(window.devicePixelRatio || 1, Math.sqrt(MAX_CANVAS_PIXELS / (viewport.width * viewport.height))));
+						canvas.width = Math.floor(viewport.width * ratio);
+						canvas.height = Math.floor(viewport.height * ratio);
+						canvas.style.width = `${Math.floor(viewport.width)}px`;
+						canvas.style.height = `${Math.floor(viewport.height)}px`;
+						const render = rendering = page.render({ canvas, viewport, transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0] });
+						try { await Promise.race([render.promise, failure]); }
+						finally { if (rendering === render) rendering = null; }
+					} finally { done(); }
 					if (destroyed || mine !== ticket) return;
 					if (await undecoded(page)) throw new Error('image not decoded');
 					recount();
-				}).catch((error) => {
+				})().catch((error) => {
 					// A superseded/destroyed draw has no UI to report to. Current PDF failures still reject.
 					if (!destroyed && mine === ticket) throw error;
 				});
-				// A current failure must not poison the queue for a later attempt.
-				tail = drawing.catch(() => {});
-				return drawing;
 			},
 			destroy,
 		};

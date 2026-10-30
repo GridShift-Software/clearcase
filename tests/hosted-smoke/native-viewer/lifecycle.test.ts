@@ -201,7 +201,8 @@ it('retries a failed delete with the same operation and keeps the note until suc
 it('does not reuse a failed operation after changing its page or body', async () => {
   start(); await settle(); const fetcher = vi.fn(async (_url: RequestInfo | URL, _init: RequestInit & { body: string }) => new Response('{}', { status: 503 })); vi.stubGlobal('fetch', fetcher);
   type('first'); submit(); await settle(); type('second'); submit(); await settle();
-  [...document.querySelectorAll('button')].find((b) => b.textContent === 'Next')!.click(); submit(); await settle();
+  // GRS-288: a note goes only to a drawn page, so page 2 draws before the third save.
+  [...document.querySelectorAll('button')].find((b) => b.textContent === 'Next')!.click(); await settle(); submit(); await settle();
   const bodies = fetcher.mock.calls.map(([, init]) => JSON.parse(init.body));
   expect(new Set(bodies.map((b) => b.operationId)).size).toBe(3); expect(bodies[2].page).toBe(2);
 });

@@ -366,8 +366,7 @@ span.error, small.error { display: inline-block; padding: 4px 10px; }
 	.top-bar { padding: 8px 16px; }
 	.nav-toggle { display: inline-flex; order: 0; }
 	.top-bar .top-search { flex-basis: 100%; }
-	/* room for the case name: the case switcher stays, the rest of the actions are on the Cases page */
-	.top-bar .top-actions a:not(:first-child) { display: none; }
+	.top-bar .top-actions { flex-wrap: wrap; }
 	.case-shell > .shell-notice { padding: 12px 16px 0; }
 	.shell-notice .note { flex-basis: 100%; }
 	main { padding: 16px 16px 40px; }

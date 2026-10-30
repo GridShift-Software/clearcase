@@ -119,8 +119,8 @@ it('keeps an understated /Count of 40 over 64 pages, as upstream pdf.js does', a
   } finally { reader.destroy(); }
 });
 
-/** Four valid pages in one nested subtree, followed by a sibling whose array never ends. */
-function malformedSibling(required = false): Uint8Array {
+/** Valid pages in one nested subtree, followed by a sibling whose array never ends. */
+function malformedSibling(required = false): Uint8Array<ArrayBuffer> {
   const objects: Record<number, string> = {
     1: '<< /Type /Catalog /Pages 2 0 R >>',
     2: '<< /Type /Pages /Kids [11 0 R] /Count 4 >>',

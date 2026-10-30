@@ -10,7 +10,7 @@ The hosted demo's staging Worker and its per-branch Previews. No secret value ap
 | Previews | `https://<name>-clearcase-staging.shiny-sunset-211d.workers.dev`, `<name>` from `scripts/preview.sh` |
 | workers.dev | `https://clearcase-staging.shiny-sunset-211d.workers.dev` answers 403 while staging serves the custom domain: the way back is below |
 | Account | `fb4c31b91c5d89b7a54afbdc34823170` (workers.dev subdomain `shiny-sunset-211d`) |
-| Worker | `clearcase-staging`, London placement (`aws:eu-west-2`, answers `cf-placement: remote-LHR`) |
+| Worker | `clearcase-staging`, London placement (`aws:eu-west-2`; answers `cf-placement: remote-LHR` when Cloudflare sends the header) |
 | D1 (EU) | `clearcase-staging-db`, `126f680e-4c4b-4b48-98bf-5a5e82c7b1ba`, bound as `DB` |
 | R2 (EU) | `clearcase-staging-files`, bound as `BUCKET` |
 | KV | `clearcase-staging-sessions`, `46d612ce2eb844edacd735cfeb257344`, bound as `SESSIONS` (unused until 09a) |
@@ -41,11 +41,28 @@ A custom domain needs its zone active on this account and no DNS record at that 
 scripts/deploy-staging.sh
 ```
 
-From a clean worktree at the commit to ship. It builds once (`build:hosted`), records a D1 Time Travel bookmark, applies migrations, uploads a version tagged with the full SHA, deploys it at 100%, applies the workers.dev settings, then smokes the origin from the config: `/health` (200 at that SHA), `/sign-in` (200), `/cases` (401) and `cf-placement: remote-LHR`. Its last line is `sha url version`. Each run appends `{at, sha, version, bookmark}` to `.local/staging/deploys.jsonl` (ignored). About 40 s.
+From a clean worktree at the commit to ship. It builds once (`build:hosted`), records a D1 Time Travel bookmark, applies migrations, uploads a version tagged with the full SHA, deploys it at 100%, applies the workers.dev settings, then smokes the origin from the config: `/health` (200 at that SHA), `/sign-in` (200), `/cases` (401) and London placement (below). Its last line is `sha url version`. Each run appends `{at, sha, version, bookmark}` to `.local/staging/deploys.jsonl` (ignored). About 40 s.
 
 The first run on an empty account also creates the Worker and provisions the two runtime records: the `/health` sentinel (a `runtime_sentinel` row naming the SHA-256 of `runtime/sentinel` in R2) and the storage identity (`rs_storage_identity` plus `identity/client.json`, both naming `staging`). Every case route answers 503 `storage-unavailable` without the storage identity.
 
 Behind Access the smoke stops at the Access redirect and says so, unless a service token is exported as `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`.
+
+**London placement (GRS-289).** The smoke reads `cf-placement` on the `/health` response (`scripts/staging-placement.ts`):
+
+- `remote-LHR`, once: the PASS line says `response execution observed`.
+- Any other value, an empty one or a second header: FAIL, whatever Cloudflare's configuration says.
+- No header: Cloudflare may leave it out, and may change it while Placement is in beta ([docs](https://developers.cloudflare.com/workers/configuration/placement/)). On 30 October requests entering at JNB arrived without it. The smoke then asks Wrangler for the deployments and the version. It passes only if the newest deployment serves exactly that version at 100%, the version is tagged with the expected SHA, and its placement is `targeted` with one target, region `aws:eu-west-2`. The PASS line then says `provider configuration verified` and `response execution not observed`, and names the colo that took the request. That is Cloudflare's record of what it runs, not proof of where a response ran. A split or older deployment, another tag, region, mode or target, an unexpected placement field, or a Wrangler read that fails (no login or token) is a FAIL with the reason.
+
+The two Wrangler reads use the same login or `CLOUDFLARE_API_TOKEN` as the deploy (read access to Workers Scripts is enough). The responses carry the version's bindings, so they go to a private temporary directory that is removed, and only the checked fields are printed.
+
+To check the version already live without deploying, for example after a smoke failed:
+
+```sh
+scripts/deploy-staging.sh --verify          # expects the live version tagged with HEAD
+scripts/deploy-staging.sh --verify <sha>    # or with <sha>
+```
+
+It builds, migrates and uploads nothing. It smokes the version serving 100% on that version's own `CLEARCASE_APP_ORIGIN`, as a rollback does, and prints `sha url version`.
 
 ## Migrations
 
@@ -69,7 +86,7 @@ scripts/deploy-staging.sh --rollback              # to the newest earlier versio
 scripts/deploy-staging.sh --rollback <version-id> # to that version
 ```
 
-`wrangler rollback` keeps bindings and secrets and takes seconds; the script then smokes `/health` at the restored SHA, on the restored version's own `CLEARCASE_APP_ORIGIN` (vars belong to a version).
+`wrangler rollback` keeps bindings and secrets and takes seconds; the script then runs the same smoke at the restored SHA and version, on the restored version's own `CLEARCASE_APP_ORIGIN` (vars belong to a version).
 
 **Back to workers.dev.** Rolling back to a version deployed before the move to the custom domain serves workers.dev again at once, and the custom domain answers 403 until the next deploy. To stay there, commit `bun deploy/staging/origin.ts set https://clearcase-staging.shiny-sunset-211d.workers.dev` (it empties `routes`) and deploy. The workers.dev origin stays on both Clerk allow-lists for this; remove it with `bun deploy/staging/clerk.ts remove <origin>` only when the owner retires workers.dev. A rollback does not undo a migration. If a migration broke data, restore D1 to the bookmark that deploy recorded before migrating (30-day window):
 

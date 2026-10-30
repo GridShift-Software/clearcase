@@ -124,11 +124,12 @@ it('292 the overview notes summary counts the case\'s stored page notes inside i
     // another register's rows and another case's page notes do not count
     insert.run(CASE_ID, 'deadlines', 'deadline-a', JSON.stringify({ title: 'Synthetic deadline' }), 'x', '2200-01-01T00:00:00Z', '2200-01-01T00:00:00Z', 'v-d');
     insert.run('synthetic-other-case', STORE, 'page-other', JSON.stringify({ assetId: PARENT, page: 1, body: 'Other case', sha256: 'e'.repeat(64) }), 'x', '2200-01-01T00:00:00Z', '2200-01-01T00:00:00Z', 'v-o');
-    const expected = await legacy.userWork.summary({ caseId, resultsVersion: rv });
+    const full = await legacy.userWork.summary({ caseId, resultsVersion: rv });
+    const { detached: _text, ...expected } = full;
     expect(expected).toMatchObject({ total: 1, here: 1, pageNotes: 2 });
     const c = counters();
-    const { l } = await oneLookupLocals(dep, c, memoryShardCache(), pending);
-    const result = await measure(c, () => l.userWork.summary({ caseId, resultsVersion: rv }));
+    const { l } = await oneLookupLocals(dep, c, memoryShardCache(), pending, 'overview');
+    const result = await measure(c, () => l.overviewNoteSummary!({ caseId, resultsVersion: rv }));
     expect(result.thrown).toBeUndefined(); expect(result.value).toEqual(expected);
     // 09b's one-read summary: the count rides in the grant/case/publication/notes lookup, no row is decoded
     expect(result.counts).toMatchObject({ d1: 1, clerk: 0, r2: 0 });

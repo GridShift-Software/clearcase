@@ -42,11 +42,11 @@ const now = () => new Date('2001-01-01T00:00:00Z');
 export interface BuiltCase { root: string; out: string; synth: SynthCase; built: Built; files: Map<string, Uint8Array>; cleanup(): Promise<void> }
 
 /** The synthetic package (its own rows plus EXTRA_ROWS invented PDFs), built into `<root>/out`. */
-export async function builtCase(): Promise<BuiltCase> {
+export async function builtCase({ duplicateBulkOriginals = false }: { duplicateBulkOriginals?: boolean } = {}): Promise<BuiltCase> {
   const root = await mkdtemp(path.join(process.env.CLEARCASE_TEST_TMP ?? os.tmpdir(), 'cc-shards-'));
   const originals: Record<string, Uint8Array> = {}, rows = [];
   for (let i = 0; i < EXTRA_ROWS; i++) {
-    const file = `BULK/BK-${String(i).padStart(4, '0')} Synthetic.pdf`, bytes = enc(`%PDF-1.4\n% synthetic bulk ${i}\n%%EOF\n`);
+    const file = `BULK/BK-${String(i).padStart(4, '0')} Synthetic.pdf`, bytes = enc(`%PDF-1.4\n% synthetic bulk ${duplicateBulkOriginals && i === 1 ? 0 : i}\n%%EOF\n`);
     originals[file] = bytes;
     rows.push(row(`BK-${String(i).padStart(4, '0')}`, 1000 + i, file, bytes.byteLength, { date: `${2000 + (i % 5)}-01-0${1 + (i % 9)}`, bundle: i % 2 ? 'Bulk A' : 'Bulk B' }));
   }

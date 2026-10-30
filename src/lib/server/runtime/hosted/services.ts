@@ -91,7 +91,8 @@ export interface RequestScheduler { waitUntil(work: Promise<void>): void }
 // same page view, so it is classified (and reads through the one lookup) exactly as the page itself.
 const DATA = '(?:/__data\\.json)?';
 const BYTE_ROUTE = /^\/cases\/[^/]+\/v\/[^/]+\/assets\/[^/]+\/?$/;
-const PAGE = new RegExp(`^/cases/[^/]+(?:/v/|/originals/[^/]+/view${DATA}$|/notes${DATA}$|$)`);
+const PAGE = new RegExp(`^/cases/[^/]+(?:/v/|/originals/[^/]+/view${DATA}$|/notes${DATA}$|${DATA}$)`);
+const OVERVIEW = new RegExp(`^/cases/[^/]+/v/[^/]+/overview${DATA}$`);
 const ORIGINAL = new RegExp(`^/cases/[^/]+/(?:originals/([^/]+)/view${DATA}|v/[^/]+/chronology/original/([^/]+))$`);
 
 /**
@@ -101,12 +102,13 @@ const ORIGINAL = new RegExp(`^/cases/[^/]+/(?:originals/([^/]+)/view${DATA}|v/[^
  * write, fail closed. `originalSegment` is the (still encoded) original the lookup carries: the viewer page's, or the
  * chronology pane's.
  */
-export function requestPage(method: string, path: string): { pageRequest: boolean; versionPost: boolean; originalSegment: string | null } {
+export function requestPage(method: string, path: string): { pageRequest: boolean; versionPost: boolean; originalSegment: string | null; profile: 'case' | 'overview' } {
 	const byteRoute = BYTE_ROUTE.test(path);
 	const pageRequest = method === 'GET' && !byteRoute && PAGE.test(path);
 	const versionPost = method === 'POST' && !byteRoute && /^\/cases\/[^/]+\/v\//.test(path);
 	const original = pageRequest || versionPost ? ORIGINAL.exec(path) : null;
-	return { pageRequest, versionPost, originalSegment: original?.[1] ?? original?.[2] ?? null };
+	return { pageRequest, versionPost, originalSegment: original?.[1] ?? original?.[2] ?? null,
+		profile: pageRequest && OVERVIEW.test(path) ? 'overview' : 'case' };
 }
 
 /**
@@ -122,7 +124,7 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 	let native: NativeContext | null = null;
 	let pageLookup: ReturnType<typeof requestCaseLookup> | undefined;
 	let scheduleRead: ReturnType<typeof requestReadAudit> | undefined;
-	const { pageRequest, versionPost, originalSegment } = requestPage(request.method, new URL(request.url).pathname);
+	const { pageRequest, versionPost, originalSegment, profile } = requestPage(request.method, new URL(request.url).pathname);
 	const readAudit = (event: import('../contracts.ts').AuditEvent) => scheduleRead?.(event);
 	const clerk = clerkIdentityProviderFromEnv(env, {
 		authorizeCase: async (a) => {
@@ -170,7 +172,7 @@ export async function hostedServices(request: Request, env: Readonly<Record<stri
 		if (pageRequest || versionPost) {
 			// The one lookup carries the original a request shows: the viewer page's, or the chronology pane's (a version
 			// POST). Without it the snapshot answers that original as not found, and the pane says it is no longer available.
-			pageLookup = requestCaseLookup(native.db, native.deployment, originalSegment ? decodeURIComponent(originalSegment) : null);
+			pageLookup = requestCaseLookup(native.db, native.deployment, originalSegment ? decodeURIComponent(originalSegment) : null, profile);
 		}
 		services.audit = requestAuditSink({ db: native.db, config: native.audit, requester: stateOf(services.identity), now });
 		const cloud = cloudBindings(env), budgets = storageBudgets(native.settings.storageBudgets);

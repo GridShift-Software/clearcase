@@ -89,16 +89,28 @@ async function world() {
       throw e;
     }
   };
+  const servicesForPage = async (path: string) => {
+    const request = new Request(new URL(path, ORIGIN), { headers: { cookie: await cookieOf('v293') } });
+    const ready = await hostedServices(request, env, { waitUntil: p => pending.push(p) });
+    expect(ready.ready).toBe(true);
+    return ready.services;
+  };
   const events = (action: string, outcome: string) => w.db.rows<{ actor_key: string }>('SELECT actor_key FROM native_audit_events WHERE action = ? AND outcome = ?', action, outcome);
-  return { ...w, assetId: assetId!, pagePath, open, write, events, settle: () => Promise.all(pending), async cleanup() { await Promise.all(pending); w.db.sqlite.close(); } };
+  return { ...w, servicesForPage, assetId: assetId!, pagePath, open, write, events, settle: () => Promise.all(pending), async cleanup() { await Promise.all(pending); w.db.sqlite.close(); } };
 }
 
 describe('293 the request classification', () => {
   it("an original viewer's data request is the same page view as its hard load, and carries the same original", () => {
     for (const path of ['/cases/c/originals/a%2Fb/view', '/cases/c/originals/a%2Fb/view/__data.json'])
-      expect(requestPage('GET', path)).toEqual({ pageRequest: true, versionPost: false, originalSegment: 'a%2Fb' });
+      expect(requestPage('GET', path)).toEqual({ pageRequest: true, versionPost: false, originalSegment: 'a%2Fb', profile: 'case' });
     expect(requestPage('GET', '/cases/c/notes/__data.json')).toMatchObject({ pageRequest: true, originalSegment: null });
-    expect(requestPage('POST', '/cases/c/v/rv/chronology/original/r1')).toEqual({ pageRequest: false, versionPost: true, originalSegment: 'r1' });
+    expect(requestPage('POST', '/cases/c/v/rv/chronology/original/r1')).toEqual({ pageRequest: false, versionPost: true, originalSegment: 'r1', profile: 'case' });
+  });
+  it('case root and overview select the same explicit profile for hard and data loads', () => {
+    for (const [path, profile] of [['/cases/c', 'case'], ['/cases/c/v/rv/overview', 'overview'], ['/cases/c/v/rv/evidence/search', 'case'], ['/cases/c/v/rv/doc/r', 'case'], ['/cases/c/v/rv/chronology', 'case']] as const)
+      for (const suffix of ['', '/__data.json']) expect(requestPage('GET', path + suffix)).toMatchObject({ pageRequest: true, profile });
+    for (const [method, path] of [['POST', '/cases/c/v/rv/overview'], ['GET', '/cases/c/v/rv/overview/nope'], ['GET', '/cases/c/v/rv/overview/__data.jsonx']])
+      expect(requestPage(method!, path!)).toMatchObject({ profile: 'case' });
   });
   it('byte routes, note endpoints, writes and look-alike paths are not page views', () => {
     for (const [method, path] of [['GET', '/cases/c/originals/a'], ['GET', '/cases/c/originals/a/notes'], ['POST', '/cases/c/originals/a/notes'],
@@ -108,6 +120,19 @@ describe('293 the request classification', () => {
 });
 
 describe('293 the original viewer through hostedServices', () => {
+  it('hostedServices installs the counts seam only for overview hard and data requests', async () => {
+    const w = await world();
+    try {
+      for (const suffix of ['', '/__data.json']) {
+        const overview = await w.servicesForPage(`/cases/case-a/v/rv/overview${suffix}`);
+        expect(overview.overviewNoteSummary).toBeTypeOf('function');
+        const ordinary = await w.servicesForPage(`/cases/case-a${suffix}`);
+        expect(ordinary.overviewNoteSummary).toBeUndefined();
+        expect(ordinary.caseRead).toBeTypeOf('function');
+      }
+    } finally { await w.cleanup(); }
+  });
+
   it('a legacy intake original without delivery metadata remains readable on both page-load paths', async () => {
     const w = await world();
     try {

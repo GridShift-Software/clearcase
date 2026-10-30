@@ -510,24 +510,6 @@
       "approvedOn": null
     },
     {
-      "id": "IDR-095",
-      "view": "chronology",
-      "field": "text.document.*",
-      "when": {
-        "v5": "<absent>",
-        "app": {
-          "re": "^Select a document in the list, or use its Preview button"
-        }
-      },
-      "type": "improvement",
-      "source": "GRS-255",
-      "reason": "The split viewer's pane shows a prompt to select a document, or use its Preview button, while none is selected (GRS-255); v5 has no pane.",
-      "productVisible": true,
-      "author": "GRS-275 round 2 worker",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-096",
       "view": "overview",
       "field": [

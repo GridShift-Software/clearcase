@@ -11,8 +11,8 @@ const base = new URL('./', import.meta.url).href;
 // Every request to the original route costs a round trip of about 300 ms before its first byte, so the reader keeps the
 // sequential ones few: 256 KiB chunks, a file up to 512 KiB is one plain GET, and a larger one reads its first 512 KiB
 // and its last MiB (where a file that is not linearized keeps its cross-reference table) at once. After that pdf.js reads
-// only the ranges a page or its page-count check needs: no stream and no auto-fetch, so an original left open on page 1
-// never reads the whole file (GRS-281).
+// only the ranges a page or its page-count check needs, with no unconditional stream or auto-fetch. The deferred count
+// check can still touch many chunks of a large original while page 1 is open (GRS-281, GRS-288).
 export const CHUNK = 1 << 18, HEAD = 2 * CHUNK, TAIL = 1 << 20;
 // The backing store follows devicePixelRatio, as src/lib/local-case/viewer/viewer.mjs does, up to the canvas area pdf.js's
 // own viewer allows on a phone, and never below one pixel per CSS pixel.

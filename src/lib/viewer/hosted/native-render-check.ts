@@ -14,7 +14,7 @@ import { checkedPageSet, decide, lookupReceiptRows, MAX_CHECKED_PAGES, MAX_DOCUM
 const PDF_VERSION = '6.4.299';
 const PACKAGE_DIGEST = 'sha256:ae9a1328f4de3e2cf14b24d711e34299963dc64c10eab7b1afe849b79846e577';
 const VIEWER_WORKER_DIGEST = 'sha256:bf3b48c6184d676fb0212df8f65822ecc43f50b998b68527373281297d9ed0b3';
-const READER_DIGEST = 'sha256:e707971d1aea34da5afeb7333eb6b0471447c12c9101167ea9d7f3d5d0e9dbb1';
+const READER_DIGEST = 'sha256:1c577c4a67a9d6927700ac642c591e8fff078a5dce6077ea5a78f90275113df5';
 // The viewer's image decoders under pdfjs/wasm/ (scripts/hosted-pdf-assets.ts, DECODERS). This check never loads them.
 const DECODERS_DIGEST = 'sha256:64e5725ef447ad6f8d4b22db596eab1cb45682fbf1f8c631a926c4b7bc7eef41';
 export const NATIVE_PDF_RENDERER_ALGORITHM = 'clearcase.native-pdf/2';

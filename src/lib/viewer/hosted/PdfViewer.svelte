@@ -7,6 +7,8 @@
 	import { onMount, untrack } from 'svelte';
 	import type { PageNote } from './page-notes';
 	import { writeAccess } from '../../components/write-access';
+	import ConfirmDelete from '../../components/ConfirmDelete.svelte';
+	import { CONFIRM } from '../../components/confirm-delete';
 	let { src, size, downloadHref, notesHref, notes: initial, notesAvailable, requestedPage = null, canWrite }: { src: string; size?: number; downloadHref: string; notesHref: string; notes: readonly PageNote[]; notesAvailable: boolean; requestedPage?: string | null; canWrite?: boolean } = $props();
 	// a viewer reads the page notes; adding and deleting them is an editor's (the full viewer page passes its grant, the pane inherits the case layout's)
 	const access = writeAccess();
@@ -28,6 +30,8 @@
 	let draft = $state('');
 	let noteError = $state('');
 	let pending = $state(false);
+	// The page note whose Delete awaits Confirm delete or Cancel.
+	let confirming = $state<string | null>(null);
  let canUseNotes = $state(untrack(() => notesAvailable));
 	let draftRevision = 0;
 	type Reader = { readonly pages: number; draw(page: number, scale: number, fitWidth?: number): Promise<void>; destroy(): void };
@@ -154,7 +158,8 @@
 		deleteRetries.set(key, operationId);
 		pending = true;
 		try {
-			if (await send('DELETE', { rowId: n.rowId, version: n.version, operationId })) {
+			// The row-bound confirmation is the person's intent for this note, not authority: the endpoint checks that separately.
+			if (await send('DELETE', { rowId: n.rowId, version: n.version, operationId, [CONFIRM]: n.rowId })) {
 				if (active) notes = notes.filter((x) => x.rowId !== n.rowId);
 				deleteRetries.delete(key);
 			}
@@ -187,7 +192,7 @@
 	{:else}
 		<ul>
 			{#each notes as n (n.rowId)}
-				<li data-page={n.page}>Page {n.page}: {n.body}{n.current ? '' : ' (the original has changed since this note)'}{#if writable} <button type="button" onclick={() => remove(n)} disabled={pending}>Delete</button>{/if}</li>
+				<li data-page={n.page}>Page {n.page}: {n.body}{n.current ? '' : ' (the original has changed since this note)'}{#if writable} <ConfirmDelete bind:pending={confirming} target={n.rowId} question="Delete this note?" onconfirm={() => void remove(n)} disabled={pending} />{/if}</li>
 			{:else}
 				<li>No notes yet.</li>
 			{/each}

@@ -5,6 +5,7 @@ import { error, json, type RequestEvent } from '@sveltejs/kit';
 import { refuse } from '../../server/runtime/hosted/http.ts';
 import { codeOf } from '../../server/runtime/errors.ts';
 import { id, type WorkVersion } from '../../server/runtime/ids.ts';
+import { CONFIRM } from '../../components/confirm-delete.ts';
 import { assetRefOf } from './route.ts';
 import { addPageNote, listPageNotes, removePageNote } from './page-notes.ts';
 
@@ -48,6 +49,8 @@ export async function createNote(e: RequestEvent): Promise<Response> {
 export async function deleteNote(e: RequestEvent): Promise<Response> {
   const b = await body(e), s = await scope(e);
   if (typeof b.rowId !== 'string' || !OP.test(b.rowId) || typeof b.version !== 'string' || !OP.test(b.version)) error(400, { message: 'A note and its version are required.', code: 'invalid' });
+  // The person confirmed deleting this very note (ConfirmDelete in the viewer). An intent check only: authority is scope's and the user-work port's.
+  if (b[CONFIRM] !== b.rowId) error(400, { message: 'Confirm the delete of this note.', code: 'invalid' });
   const r = await removePageNote({ ...s, rowId: b.rowId as string, expected: id('row-version', b.version as string) as WorkVersion, operationId: operation(b) }).catch((x) => rejected(x, 'write'));
   return r === 'removed' ? json({ removed: true }, { headers: NO_STORE }) : r === 'gone' ? error(404, { message: 'Not found.', code: 'not-found' }) : stale();
 }
